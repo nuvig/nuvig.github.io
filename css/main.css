@@ -1,5 +1,6 @@
 h1 {
   margin-top: 32px;
+  margin-left: 32px;
 }
 
 #site-author {
@@ -16,7 +17,7 @@ h1 {
   letter-spacing: 1px;
 }
 body {
-  margin: 0;
+  margin-left: 32px;
   background: #111;
   color: white;
   min-height: 100vh;
