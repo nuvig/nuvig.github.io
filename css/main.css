@@ -3,6 +3,7 @@ body {
   background: #111;
   color: white;
   min-height: 100vh;
+  font-family: 'Segoe UI', Arial, sans-serif;
 }
 h1 {
   margin-top: 32px;
