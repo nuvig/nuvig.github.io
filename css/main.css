@@ -1,3 +1,21 @@
+h1 {
+  margin-top: 32px;
+  text-align: center;
+}
+
+#site-author {
+  position: fixed;
+  top: 16px;
+  left: 24px;
+  font-size: 18px;
+  color: #fff;
+  background: rgba(34,34,34,0.85);
+  padding: 6px 16px;
+  border-radius: 8px;
+  z-index: 2000;
+  font-family: inherit;
+  letter-spacing: 1px;
+}
 body {
   margin: 0;
   background: #111;
