@@ -8,9 +8,8 @@ const toggleBtn = document.getElementById("sim-toggle-btn");
 const controls = document.getElementById("sim-controls");
 const colorInput = document.getElementById("ball-color");
 const addBallBtn = document.getElementById("add-ball");
-const gravityXSlider = document.getElementById("gravity-x");
+
 const gravityYSlider = document.getElementById("gravity-y");
-const gravityXValue = document.getElementById("gravity-x-value");
 const gravityYValue = document.getElementById("gravity-y-value");
 
 // Simulation state
@@ -19,8 +18,8 @@ let draggingBallIdx = null;
 let lastMouse = { x: 0, y: 0 };
 let animId;
 
-// Gravity vector (updated by sliders)
-let gravity = { x: 0, y: 0.3 };
+// Gravity value (Y direction only, up/down)
+let gravityY = 0.3;
 
 // Ball factory function
 function createBall(x, y, color) {
@@ -49,7 +48,6 @@ function addSimListeners() {
   canvas.addEventListener("mouseup", onMouseUp);
   addBallBtn.addEventListener("click", onAddBall);
   colorInput.addEventListener("input", onColorChange);
-  gravityXSlider.addEventListener("input", onGravityChange);
   gravityYSlider.addEventListener("input", onGravityChange);
 }
 // Remove all event listeners
@@ -59,7 +57,6 @@ function removeSimListeners() {
   canvas.removeEventListener("mouseup", onMouseUp);
   addBallBtn.removeEventListener("click", onAddBall);
   colorInput.removeEventListener("input", onColorChange);
-  gravityXSlider.removeEventListener("input", onGravityChange);
   gravityYSlider.removeEventListener("input", onGravityChange);
 }
 
@@ -109,12 +106,10 @@ function onColorChange() {
   // balls.forEach(ball => ball.color = colorInput.value);
 }
 
-// Gravity slider change: update gravity vector and display values
+// Gravity slider change: update gravity Y value and display
 function onGravityChange() {
-  gravity.x = parseFloat(gravityXSlider.value);
-  gravity.y = parseFloat(gravityYSlider.value);
-  gravityXValue.textContent = gravity.x;
-  gravityYValue.textContent = gravity.y;
+  gravityY = parseFloat(gravityYSlider.value);
+  gravityYValue.textContent = gravityY;
 }
 
 // Main simulation loop
@@ -124,9 +119,8 @@ function update() {
   // Ball physics and wall collisions
   balls.forEach((ball, idx) => {
     if (draggingBallIdx !== idx) {
-      // Apply gravity from sliders
-      ball.dx += gravity.x;
-      ball.dy += gravity.y;
+      // Apply gravity (Y only)
+      ball.dy += gravityY;
       // Move ball
       ball.x += ball.dx;
       ball.y += ball.dy;
@@ -209,7 +203,7 @@ function showSim() {
   toggleBtn.title = "Close Sim";
   resetSimVars();
   addSimListeners();
-  onGravityChange(); // Initialize gravity values
+  onGravityChange(); // Initialize gravity value
   update();
 }
 
