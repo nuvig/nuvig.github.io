@@ -13,6 +13,12 @@
 
 
 <!-- game simulation -->
+  <div id="sim-controls" style="display:none; position:fixed; right:30px; bottom:140px; z-index:1003; background:#222; padding:12px 16px; border-radius:12px; box-shadow:0 2px 8px #000a;">
+    <label style="color:#fff; font-size:14px;">Ball Color:
+      <input type="color" id="ball-color" value="#39ff14" style="vertical-align:middle; margin-left:8px;">
+    </label>
+    <button id="add-ball" style="margin-left:12px; background:#444; color:#fff; border:none; border-radius:6px; padding:4px 10px; cursor:pointer;">Add Ball</button>
+  </div>
   <canvas id="sim" width="600" height="400"></canvas>
   <button id="sim-toggle-btn" title="Open Sim">▶</button>
 
@@ -20,3 +26,4 @@
 
 </body>
 </html>
+
