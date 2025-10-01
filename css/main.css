@@ -2,26 +2,13 @@ h1 {
   margin-top: 32px;
 }
 
-#site-author {
-  position: fixed;
-  top: 16px;
-  left: 24px;
-  font-size: 18px;
-  color: #fff;
-  background: rgba(34,34,34,0.85);
-  padding: 6px 16px;
-  border-radius: 8px;
-  z-index: 2000;
-  font-family: inherit;
-  letter-spacing: 1px;
-}
 body {
-  margin-left: 32px;
+  margin-left: 64px;
   background: #111;
   color: white;
   min-height: 100vh;
   font-family: 'Segoe UI', Arial, sans-serif;
-} center;
+}
 
 canvas {
   border: 1px solid white;
