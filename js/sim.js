@@ -9,8 +9,11 @@ const controls = document.getElementById("sim-controls");
 const colorInput = document.getElementById("ball-color");
 const addBallBtn = document.getElementById("add-ball");
 
+
 const gravityYSlider = document.getElementById("gravity-y");
 const gravityYValue = document.getElementById("gravity-y-value");
+const bounceSlider = document.getElementById("bounce");
+const bounceValue = document.getElementById("bounce-value");
 
 // Simulation state
 let balls = [];
@@ -20,6 +23,8 @@ let animId;
 
 // Gravity value (Y direction only, up/down)
 let gravityY = 0.3;
+// Bounce value (controls bounciness)
+let bounce = 0.7;
 
 // Ball factory function
 function createBall(x, y, color) {
@@ -29,7 +34,6 @@ function createBall(x, y, color) {
     radius: 20,
     dx: 0,
     dy: 0,
-    bounce: 0.7,
     color: color || colorInput.value
   };
 }
@@ -49,6 +53,7 @@ function addSimListeners() {
   addBallBtn.addEventListener("click", onAddBall);
   colorInput.addEventListener("input", onColorChange);
   gravityYSlider.addEventListener("input", onGravityChange);
+  bounceSlider.addEventListener("input", onBounceChange);
 }
 // Remove all event listeners
 function removeSimListeners() {
@@ -58,6 +63,7 @@ function removeSimListeners() {
   addBallBtn.removeEventListener("click", onAddBall);
   colorInput.removeEventListener("input", onColorChange);
   gravityYSlider.removeEventListener("input", onGravityChange);
+  bounceSlider.removeEventListener("input", onBounceChange);
 }
 
 // Mouse down: start dragging a ball if clicked
@@ -112,6 +118,12 @@ function onGravityChange() {
   gravityYValue.textContent = gravityY;
 }
 
+// Bounce slider change: update bounce value and display
+function onBounceChange() {
+  bounce = parseFloat(bounceSlider.value);
+  bounceValue.textContent = bounce;
+}
+
 // Main simulation loop
 function update() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -130,22 +142,22 @@ function update() {
       // Bounce off floor
       if (ball.y + ball.radius > canvas.height) {
         ball.y = canvas.height - ball.radius;
-        ball.dy *= -ball.bounce;
+        ball.dy *= -bounce;
       }
       // Bounce off ceiling
       if (ball.y - ball.radius < 0) {
         ball.y = ball.radius;
-        ball.dy *= -ball.bounce;
+        ball.dy *= -bounce;
       }
       // Bounce off right wall
       if (ball.x + ball.radius > canvas.width) {
         ball.x = canvas.width - ball.radius;
-        ball.dx *= -ball.bounce;
+        ball.dx *= -bounce;
       }
       // Bounce off left wall
       if (ball.x - ball.radius < 0) {
         ball.x = ball.radius;
-        ball.dx *= -ball.bounce;
+        ball.dx *= -bounce;
       }
     }
   });
@@ -173,7 +185,6 @@ function update() {
         let dvy = b.dy - a.dy;
         let impact = dvx * nx + dvy * ny;
         if (impact < 0) {
-          let bounce = 0.7;
           let impulse = (2 * impact) / 2;
           a.dx += impulse * nx * bounce;
           a.dy += impulse * ny * bounce;
@@ -204,6 +215,7 @@ function showSim() {
   resetSimVars();
   addSimListeners();
   onGravityChange(); // Initialize gravity value
+  onBounceChange(); // Initialize bounce value
   update();
 }
 
