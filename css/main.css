@@ -48,7 +48,11 @@ canvas:active {
 }
 
 .expertise-box {
-  max-width: 720px;
+  /* make the box shrink-to-fit its content while still respecting padding/border */
+  display: inline-block;
+  box-sizing: border-box; /* include padding/border in sizing */
+  width: auto;
+  max-width: 720px; /* optional cap to prevent extremely wide boxes */
   /* slightly transparent background so it's less bright */
   background: rgba(247, 247, 248, 0.85);
   /* softer, semi-transparent border */
@@ -58,6 +62,7 @@ canvas:active {
   margin: 12px 24px; /* space from left and above content */
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   color: #111;
+  vertical-align: top; /* keeps layout neat if other inline items appear */
 }
 .expertise-box h3 {
   margin: 0 0 8px 0;
