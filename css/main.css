@@ -46,3 +46,26 @@ canvas:active {
 #sim-toggle-btn:hover {
   background: #444;
 }
+
+.expertise-box {
+  max-width: 720px;
+  background: #f7f7f8;
+  border: 1px solid #e0e0e0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  margin: 12px 24px; /* space from left and above content */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  color: #111;
+}
+.expertise-box h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.05rem;
+}
+.expertise-box ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.expertise-box a {
+  color: #007acc;
+  text-decoration: none;
+}
