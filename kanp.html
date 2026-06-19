@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KANP Flight Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body {
+      max-width: 900px;
+      padding-bottom: 40px;
+    }
+
+    a { color: #aaa; }
+    #back-link {
+      display: inline-block;
+      margin-top: 16px;
+      font-size: 14px;
+      text-decoration: none;
+      color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+
+    .subtitle {
+      color: #666;
+      margin: 4px 0 16px;
+      font-size: 14px;
+    }
+
+    /* Override the global canvas rule from main.css */
+    #temporal-canvas {
+      display: block !important;
+      position: static !important;
+      right: auto !important;
+      bottom: auto !important;
+      z-index: 1 !important;
+      cursor: default !important;
+      border: 1px solid #333 !important;
+      background: #1a1a1a !important;
+      box-shadow: none !important;
+      border-radius: 6px;
+      width: 100%;
+      height: 168px;
+    }
+
+    #map {
+      height: 460px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      margin: 12px 0;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 12px;
+    }
+
+    .indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #444;
+      flex-shrink: 0;
+    }
+    .dot.green  { background: #22c55e; animation: pulse 2s infinite; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.red    { background: #ef4444; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ccc;
+      margin: 20px 0 8px;
+      letter-spacing: 0.02em;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 11px;
+      color: #555;
+    }
+
+    .legend-gradient {
+      flex: 1;
+      max-width: 140px;
+      height: 10px;
+      border-radius: 3px;
+      background: linear-gradient(to right, #1a1a2e, #0077b6, #00b4d8, #90e0ef, #f0c040, #ef4444);
+    }
+
+    .settings-panel {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-top: 16px;
+    }
+
+    .settings-panel h3 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      color: #aaa;
+      font-weight: 500;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .settings-panel input[type="password"],
+    .settings-panel input[type="text"] {
+      background: #111;
+      border: 1px solid #444;
+      color: #ddd;
+      font-size: 13px;
+      padding: 6px 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      width: 290px;
+    }
+    .settings-panel input:focus {
+      outline: none;
+      border-color: #666;
+    }
+
+    .settings-panel button {
+      background: #333;
+      color: #ddd;
+      border: 1px solid #444;
+      font-size: 13px;
+      padding: 6px 14px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .settings-panel button:hover { background: #444; }
+    .settings-panel button.danger { background: #3d1010; border-color: #6b2020; color: #f87171; }
+    .settings-panel button.danger:hover { background: #5a1a1a; }
+
+    .settings-hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #555;
+      line-height: 1.5;
+    }
+    .settings-hint a { color: #4a9eff; }
+
+    .no-key-banner {
+      background: #1a150a;
+      border: 1px solid #4a3800;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #c9a84c;
+    }
+    .no-key-banner a { color: #4a9eff; }
+
+    .empty-history {
+      text-align: center;
+      padding: 20px 0 10px;
+      font-size: 13px;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <a href="/" id="back-link">← Jesse Levine</a>
+
+  <h1>KANP Flight Tracker</h1>
+  <p class="subtitle">Live traffic &amp; historical patterns · Lee Airport, Annapolis MD</p>
+
+  <div id="no-key-banner" class="no-key-banner" style="display:none">
+    <strong>API key required.</strong>
+    Get a free key (100 req/day) from the
+    <a href="https://rapidapi.com/adsbx/api/adsbexchange" target="_blank" rel="noopener">ADS-B Exchange API on RapidAPI</a>,
+    then enter it in Settings below.
+  </div>
+
+  <div class="status-bar">
+    <div class="indicator">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Waiting for API key</span>
+    </div>
+    <span id="ac-count-wrap" style="display:none">
+      <strong id="ac-num">0</strong> aircraft in range
+    </span>
+    <span id="update-wrap" style="display:none">
+      Updated <span id="update-time">—</span>
+    </span>
+    <span id="history-wrap" style="display:none">
+      <span id="history-span">0 days</span> of history
+    </span>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="section-title">Traffic Patterns — hour of day × day of week</div>
+  <div class="card">
+    <div id="no-history" class="empty-history">
+      No historical data yet. Data accumulates automatically while this page is open.
+    </div>
+    <canvas id="temporal-canvas"></canvas>
+    <div class="heatmap-legend">
+      <span>Less</span>
+      <div class="legend-gradient"></div>
+      <span>More</span>
+      <span style="margin-left:auto" id="obs-label"></span>
+    </div>
+  </div>
+
+  <div class="settings-panel">
+    <h3>Settings</h3>
+    <div class="settings-row">
+      <input type="password" id="api-key-input" placeholder="RapidAPI key" autocomplete="off">
+      <button id="save-key-btn">Save Key</button>
+      <button id="clear-data-btn" class="danger">Clear History</button>
+    </div>
+    <div class="settings-hint">
+      Key is stored only in your browser. Tracker polls every 60 s while the page is open.<br>
+      Get a free key (100 req/day) at
+      <a href="https://rapidapi.com/adsbx/api/adsbexchange" target="_blank" rel="noopener">rapidapi.com → ADS-B Exchange</a>.
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+  <script src="js/kanp.js"></script>
+</body>
+</html>
