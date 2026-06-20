@@ -1,15 +1,13 @@
 // KANP Flight Tracker
-// Live flight data via ADS-B Exchange (RapidAPI free tier)
+// Live flight data via airplanes.live (free, no key required)
 
-const KANP_LAT    = 38.9422;
-const KANP_LON    = -76.5684;
-const SEARCH_NM   = 20;             // nautical miles radius
-const POLL_MS     = 60_000;         // poll interval
-const MAX_AGE_MS  = 7 * 86_400_000; // keep 7 days of history
-const OBS_KEY     = 'kanp_obs';
-const KEY_STORAGE = 'kanp_rapidapi_key';
+const KANP_LAT   = 38.9422;
+const KANP_LON   = -76.5684;
+const SEARCH_NM  = 20;             // nautical miles radius
+const POLL_MS    = 60_000;         // poll interval
+const MAX_AGE_MS = 7 * 86_400_000; // keep 7 days of history
+const OBS_KEY    = 'kanp_obs';
 
-let apiKey = localStorage.getItem(KEY_STORAGE) || '';
 let pollTimer = null;
 let map, heatLayer, aircraftLayer;
 
@@ -20,12 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMap();
   initUI();
   renderFromStorage();
-
-  if (apiKey) {
-    startPolling();
-  } else {
-    showNoKeyBanner();
-  }
+  startPolling();
 });
 
 // ---------------------------------------------------------------------------
@@ -66,42 +59,11 @@ function initMap() {
 // UI bindings
 // ---------------------------------------------------------------------------
 function initUI() {
-  document.getElementById('api-key-input').value = apiKey ? '•'.repeat(Math.min(apiKey.length, 20)) : '';
-
-  document.getElementById('api-key-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') saveKey();
-  });
-  document.getElementById('api-key-input').addEventListener('focus', e => {
-    e.target.value = '';
-    e.target.type = 'text';
-  });
-  document.getElementById('api-key-input').addEventListener('blur', e => {
-    e.target.type = 'password';
-    if (!e.target.value) e.target.value = apiKey ? '•'.repeat(Math.min(apiKey.length, 20)) : '';
-  });
-
-  document.getElementById('save-key-btn').addEventListener('click', saveKey);
   document.getElementById('clear-data-btn').addEventListener('click', clearHistory);
 
   // Re-render temporal canvas on resize
   const ro = new ResizeObserver(() => renderTemporalHeatmap(getObs()));
   ro.observe(document.getElementById('temporal-canvas').parentElement);
-}
-
-function saveKey() {
-  const raw = document.getElementById('api-key-input').value.trim();
-  if (!raw || raw.startsWith('•')) return;
-  apiKey = raw;
-  localStorage.setItem(KEY_STORAGE, apiKey);
-  document.getElementById('no-key-banner').style.display = 'none';
-  document.getElementById('api-key-input').value = '•'.repeat(Math.min(apiKey.length, 20));
-  if (!pollTimer) startPolling();
-  else fetchNow();
-}
-
-function showNoKeyBanner() {
-  document.getElementById('no-key-banner').style.display = 'block';
-  setStatus('', 'No API key — enter key in Settings');
 }
 
 // ---------------------------------------------------------------------------
@@ -114,19 +76,12 @@ function startPolling() {
 }
 
 async function fetchNow() {
-  if (!apiKey) { showNoKeyBanner(); return; }
   setStatus('yellow', 'Fetching…');
 
   try {
-    const url = `https://adsbexchange-com1.p.rapidapi.com/v2/lat/${KANP_LAT}/lon/${KANP_LON}/dist/${SEARCH_NM}/`;
-    const res  = await fetch(url, {
-      headers: {
-        'X-RapidAPI-Key':  apiKey,
-        'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com',
-      },
-    });
+    const url = `https://api.airplanes.live/v2/point/${KANP_LAT}/${KANP_LON}/${SEARCH_NM}`;
+    const res  = await fetch(url);
 
-    if (res.status === 401 || res.status === 403) { setStatus('red', 'Invalid API key'); return; }
     if (res.status === 429) { setStatus('yellow', 'Rate limit — will retry'); return; }
     if (!res.ok) { setStatus('red', `API error ${res.status}`); return; }
 
