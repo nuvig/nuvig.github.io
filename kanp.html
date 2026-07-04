@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KANP Flight Tracker</title>
+  <title>KANP Flight Tracker — Lee Airport, Annapolis MD</title>
+  <meta name="description" content="Live ADS-B air traffic and historical traffic-pattern heatmaps around Lee Airport (KANP), Annapolis, Maryland.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="canonical" href="https://jesselevine.net/kanp.html">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="css/main.css">
   <style>
@@ -12,7 +15,6 @@
       padding-bottom: 40px;
     }
 
-    a { color: #aaa; }
     #back-link {
       display: inline-block;
       margin-top: 16px;
@@ -28,17 +30,10 @@
       font-size: 14px;
     }
 
-    /* Override the global canvas rule from main.css */
     #temporal-canvas {
-      display: block !important;
-      position: static !important;
-      right: auto !important;
-      bottom: auto !important;
-      z-index: 1 !important;
-      cursor: default !important;
-      border: 1px solid #333 !important;
-      background: #1a1a1a !important;
-      box-shadow: none !important;
+      display: block;
+      border: 1px solid #333;
+      background: #1a1a1a;
       border-radius: 6px;
       width: 100%;
       height: 168px;
@@ -49,6 +44,7 @@
       border-radius: 8px;
       border: 1px solid #333;
       margin: 12px 0;
+      background: #1a1a1a;
     }
 
     .status-bar {
@@ -93,13 +89,6 @@
       color: #ccc;
       margin: 20px 0 8px;
       letter-spacing: 0.02em;
-    }
-
-    .card {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 16px;
     }
 
     .heatmap-legend {
@@ -160,7 +149,6 @@
       color: #555;
       line-height: 1.5;
     }
-    .settings-hint a { color: #4a9eff; }
 
     .empty-history {
       text-align: center;
@@ -211,16 +199,17 @@
   <div class="settings-panel">
     <h3>Settings</h3>
     <div class="settings-row">
-      <button id="clear-data-btn" class="danger">Clear History</button>
+      <button id="clear-data-btn" class="danger">Clear Local History</button>
     </div>
     <div class="settings-hint">
       Data via <a href="https://airplanes.live" target="_blank" rel="noopener">airplanes.live</a>.
-      Polls every 60 s while the page is open. History stored locally in your browser.
+      Polls every 60 s while the page is open. Shared history is collected automatically
+      every 30 minutes and combined with observations from your own browser.
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
   <script src="js/kanp.js"></script>
 </body>
 </html>
