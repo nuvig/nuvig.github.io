@@ -1,23 +1,33 @@
 // KANP Flight Tracker
-// Live flight data via airplanes.live (free, no key required)
+// Live flight data via airplanes.live (free, no key required).
+// History comes from two sources, merged at render time:
+//   1. A shared snapshot file collected every 30 min by a GitHub Action
+//      (pushed to the `traffic-data` branch of this repo).
+//   2. Observations from this browser while the page is open (localStorage).
 
 const KANP_LAT   = 38.9422;
 const KANP_LON   = -76.5684;
 const SEARCH_NM  = 20;             // nautical miles radius
 const POLL_MS    = 60_000;         // poll interval
-const MAX_AGE_MS = 7 * 86_400_000; // keep 7 days of history
+const MAX_AGE_MS = 30 * 86_400_000; // keep 30 days of history
 const OBS_KEY    = 'kanp_obs';
+const SHARED_URL = 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/traffic.json';
 
 let pollTimer = null;
 let map, heatLayer, aircraftLayer;
+let sharedObs = []; // snapshots collected server-side, fetched once per load
 
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
-  initMap();
+  // If Leaflet failed to load (CDN down, offline), keep the rest of the
+  // page — status bar and temporal heatmap — working without the map.
+  try { initMap(); }
+  catch (err) { console.error('[KANP tracker] map init failed', err); }
   initUI();
   renderFromStorage();
+  fetchSharedHistory();
   startPolling();
 });
 
@@ -62,8 +72,14 @@ function initUI() {
   document.getElementById('clear-data-btn').addEventListener('click', clearHistory);
 
   // Re-render temporal canvas on resize
-  const ro = new ResizeObserver(() => renderTemporalHeatmap(getObs()));
+  const ro = new ResizeObserver(() => renderTemporalHeatmap(allObs()));
   ro.observe(document.getElementById('temporal-canvas').parentElement);
+
+  // Refresh immediately when the tab becomes visible again — background tabs
+  // get their timers throttled, so the display may be stale.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) fetchNow();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +105,7 @@ async function fetchNow() {
     const ac   = (data.ac || []).filter(a => a.lat && a.lon);
 
     storeObs(ac);
-    renderLiveAircraft(ac);
+    if (aircraftLayer) renderLiveAircraft(ac);
     renderFromStorage();
 
     setStatus('green', 'Live');
@@ -104,11 +120,42 @@ async function fetchNow() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared history (collected by GitHub Action, see .github/workflows/)
+// ---------------------------------------------------------------------------
+async function fetchSharedHistory() {
+  try {
+    const res = await fetch(SHARED_URL, { cache: 'no-cache' });
+    if (!res.ok) return; // branch may not exist yet — local data still works
+
+    const raw = await res.json();
+    const cutoff = Date.now() - MAX_AGE_MS;
+
+    // Shared snapshots store aircraft as compact [lat, lon] pairs.
+    sharedObs = raw
+      .filter(o => o.ts > cutoff)
+      .map(o => ({
+        ts: o.ts,
+        ac: o.ac.map(([lat, lon]) => ({ lat, lon })),
+      }));
+
+    renderFromStorage();
+  } catch (err) {
+    console.warn('[KANP tracker] shared history unavailable', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
 function getObs() {
   try { return JSON.parse(localStorage.getItem(OBS_KEY) || '[]'); }
   catch { return []; }
+}
+
+// Everything we know: shared snapshots + this browser's observations,
+// in timestamp order.
+function allObs() {
+  return [...sharedObs, ...getObs()].sort((a, b) => a.ts - b.ts);
 }
 
 function storeObs(ac) {
@@ -146,7 +193,7 @@ function renderLiveAircraft(ac) {
   aircraftLayer.clearLayers();
   ac.forEach(a => {
     const heading = a.track ?? 0;
-    const label   = (a.flight || '').trim() || a.hex || '?';
+    const label   = esc((a.flight || '').trim() || a.hex || '?');
     const alt     = a.alt_baro != null ? `${Number(a.alt_baro).toLocaleString()} ft` : '— ft';
     const gs      = a.gs != null ? ` · ${Math.round(a.gs)} kts` : '';
 
@@ -167,13 +214,14 @@ function renderLiveAircraft(ac) {
 // Rendering from stored data
 // ---------------------------------------------------------------------------
 function renderFromStorage() {
-  const obs = getObs();
+  const obs = allObs();
   renderGeoHeatmap(obs);
   renderTemporalHeatmap(obs);
   updateMeta(obs);
 }
 
 function renderGeoHeatmap(obs) {
+  if (!heatLayer) return; // map unavailable
   const pts = [];
   obs.forEach(o => o.ac.forEach(a => {
     if (a.lat && a.lon) pts.push([a.lat, a.lon, 0.6]);
@@ -281,20 +329,27 @@ function updateMeta(obs) {
     show('history-wrap');
     const days = ((Date.now() - obs[0].ts) / 86_400_000).toFixed(1);
     document.getElementById('history-span').textContent = `${days} days`;
+  } else {
+    document.getElementById('history-wrap').style.display = 'none';
   }
 }
 
 function clearHistory() {
-  if (!confirm('Delete all stored flight history?')) return;
+  if (!confirm('Delete flight history stored in this browser? (Shared history is unaffected.)')) return;
   localStorage.removeItem(OBS_KEY);
-  aircraftLayer.clearLayers();
+  if (aircraftLayer) aircraftLayer.clearLayers();
   renderFromStorage();
-  document.getElementById('history-wrap').style.display = 'none';
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 function setStatus(color, text) {
   const dot = document.getElementById('status-dot');
   dot.className = `dot${color ? ' ' + color : ''}`;

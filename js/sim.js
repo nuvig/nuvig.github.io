@@ -1,14 +1,12 @@
+// Ball-physics sim (homepage easter egg).
+// Uses Pointer Events so it works with both mouse and touch.
 
-
-
-// Get DOM elements for canvas, controls, color picker, add ball button, and gravity sliders
 const canvas = document.getElementById("sim");
 const ctx = canvas.getContext("2d");
 const toggleBtn = document.getElementById("sim-toggle-btn");
 const controls = document.getElementById("sim-controls");
 const colorInput = document.getElementById("ball-color");
 const addBallBtn = document.getElementById("add-ball");
-
 
 const gravityYSlider = document.getElementById("gravity-y");
 const gravityYValue = document.getElementById("gravity-y-value");
@@ -21,12 +19,9 @@ let draggingBallIdx = null;
 let lastMouse = { x: 0, y: 0 };
 let animId;
 
-// Gravity value (Y direction only, up/down)
 let gravityY = 0.3;
-// Bounce value (controls bounciness)
 let bounce = 0.7;
 
-// Ball factory function
 function createBall(x, y, color) {
   return {
     x,
@@ -34,91 +29,89 @@ function createBall(x, y, color) {
     radius: 20,
     dx: 0,
     dy: 0,
-    color: color || colorInput.value
+    color: color || colorInput.value,
   };
 }
 
-// Reset simulation to one ball and default state
 function resetSimVars() {
-  balls = [createBall(300, 200, colorInput.value)];
+  balls = [createBall(canvas.width / 2, canvas.height / 2, colorInput.value)];
   draggingBallIdx = null;
   lastMouse = { x: 0, y: 0 };
 }
 
-// Add all event listeners for sim controls and canvas
+// Size the canvas to fit small screens (600px max, internal resolution matches)
+function sizeCanvas() {
+  const w = Math.min(600, window.innerWidth - 40);
+  canvas.width = w;
+  canvas.height = Math.round(w * 2 / 3);
+}
+
 function addSimListeners() {
-  canvas.addEventListener("mousedown", onMouseDown);
-  canvas.addEventListener("mousemove", onMouseMove);
-  canvas.addEventListener("mouseup", onMouseUp);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  // Move/up on window so a drag released outside the canvas still ends
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
   addBallBtn.addEventListener("click", onAddBall);
-  colorInput.addEventListener("input", onColorChange);
   gravityYSlider.addEventListener("input", onGravityChange);
   bounceSlider.addEventListener("input", onBounceChange);
 }
-// Remove all event listeners
+
 function removeSimListeners() {
-  canvas.removeEventListener("mousedown", onMouseDown);
-  canvas.removeEventListener("mousemove", onMouseMove);
-  canvas.removeEventListener("mouseup", onMouseUp);
+  canvas.removeEventListener("pointerdown", onPointerDown);
+  window.removeEventListener("pointermove", onPointerMove);
+  window.removeEventListener("pointerup", onPointerUp);
   addBallBtn.removeEventListener("click", onAddBall);
-  colorInput.removeEventListener("input", onColorChange);
   gravityYSlider.removeEventListener("input", onGravityChange);
   bounceSlider.removeEventListener("input", onBounceChange);
 }
 
-// Mouse down: start dragging a ball if clicked
-function onMouseDown(e) {
+function pointerPos(e) {
   const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onPointerDown(e) {
+  e.preventDefault();
+  const { x, y } = pointerPos(e);
   for (let i = balls.length - 1; i >= 0; i--) {
     const ball = balls[i];
-    const dist = Math.sqrt((mouseX - ball.x) ** 2 + (mouseY - ball.y) ** 2);
+    const dist = Math.hypot(x - ball.x, y - ball.y);
     if (dist <= ball.radius) {
       draggingBallIdx = i;
-      lastMouse = { x: mouseX, y: mouseY };
+      lastMouse = { x, y };
       ball.dx = 0;
       ball.dy = 0;
       break;
     }
   }
 }
-// Mouse move: drag the selected ball
-function onMouseMove(e) {
-  if (draggingBallIdx !== null) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const ball = balls[draggingBallIdx];
-    ball.x = mouseX;
-    ball.y = mouseY;
-    ball.dx = mouseX - lastMouse.x;
-    ball.dy = mouseY - lastMouse.y;
-    lastMouse = { x: mouseX, y: mouseY };
-  }
+
+function onPointerMove(e) {
+  if (draggingBallIdx === null) return;
+  const { x, y } = pointerPos(e);
+  const ball = balls[draggingBallIdx];
+  ball.x = x;
+  ball.y = y;
+  ball.dx = x - lastMouse.x;
+  ball.dy = y - lastMouse.y;
+  lastMouse = { x, y };
 }
-// Mouse up: stop dragging
-function onMouseUp() {
+
+function onPointerUp() {
   draggingBallIdx = null;
 }
 
-// Add a new ball at a random position with the selected color
 function onAddBall() {
-  balls.push(createBall(100 + Math.random() * 400, 100 + Math.random() * 200, colorInput.value));
+  const x = canvas.width * (0.15 + Math.random() * 0.7);
+  const y = canvas.height * (0.15 + Math.random() * 0.5);
+  balls.push(createBall(x, y, colorInput.value));
 }
 
-// Color picker change (optional: could update all balls)
-function onColorChange() {
-  // balls.forEach(ball => ball.color = colorInput.value);
-}
-
-// Gravity slider change: update gravity Y value and display
 function onGravityChange() {
   gravityY = parseFloat(gravityYSlider.value);
   gravityYValue.textContent = gravityY;
 }
 
-// Bounce slider change: update bounce value and display
 function onBounceChange() {
   bounce = parseFloat(bounceSlider.value);
   bounceValue.textContent = bounce;
@@ -131,30 +124,25 @@ function update() {
   // Ball physics and wall collisions
   balls.forEach((ball, idx) => {
     if (draggingBallIdx !== idx) {
-      // Apply gravity (Y only)
       ball.dy += gravityY;
-      // Move ball
       ball.x += ball.dx;
       ball.y += ball.dy;
       // Friction
       ball.dx *= 0.99;
       ball.dy *= 0.99;
-      // Bounce off floor
+      // Walls
       if (ball.y + ball.radius > canvas.height) {
         ball.y = canvas.height - ball.radius;
         ball.dy *= -bounce;
       }
-      // Bounce off ceiling
       if (ball.y - ball.radius < 0) {
         ball.y = ball.radius;
         ball.dy *= -bounce;
       }
-      // Bounce off right wall
       if (ball.x + ball.radius > canvas.width) {
         ball.x = canvas.width - ball.radius;
         ball.dx *= -bounce;
       }
-      // Bounce off left wall
       if (ball.x - ball.radius < 0) {
         ball.x = ball.radius;
         ball.dx *= -bounce;
@@ -162,34 +150,32 @@ function update() {
     }
   });
 
-  // Ball-ball collisions (elastic)
+  // Ball-ball collisions (elastic, equal masses)
   for (let i = 0; i < balls.length; i++) {
     for (let j = i + 1; j < balls.length; j++) {
-      let a = balls[i], b = balls[j];
-      let dx = b.x - a.x;
-      let dy = b.y - a.y;
-      let dist = Math.sqrt(dx * dx + dy * dy);
-      let minDist = a.radius + b.radius;
+      const a = balls[i], b = balls[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 0.01;
+      const minDist = a.radius + b.radius;
       if (dist < minDist) {
-        // Calculate overlap and normal vector
-        let overlap = minDist - dist;
-        let nx = dx / dist;
-        let ny = dy / dist;
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const ny = dy / dist;
         // Separate balls so they don't overlap
         a.x -= nx * overlap / 2;
         a.y -= ny * overlap / 2;
         b.x += nx * overlap / 2;
         b.y += ny * overlap / 2;
         // Exchange velocities along the collision normal
-        let dvx = b.dx - a.dx;
-        let dvy = b.dy - a.dy;
-        let impact = dvx * nx + dvy * ny;
+        const dvx = b.dx - a.dx;
+        const dvy = b.dy - a.dy;
+        const impact = dvx * nx + dvy * ny;
         if (impact < 0) {
-          let impulse = (2 * impact) / 2;
-          a.dx += impulse * nx * bounce;
-          a.dy += impulse * ny * bounce;
-          b.dx -= impulse * nx * bounce;
-          b.dy -= impulse * ny * bounce;
+          a.dx += impact * nx * bounce;
+          a.dy += impact * ny * bounce;
+          b.dx -= impact * nx * bounce;
+          b.dy -= impact * ny * bounce;
         }
       }
     }
@@ -206,20 +192,19 @@ function update() {
   animId = requestAnimationFrame(update);
 }
 
-// Show sim and controls, reset state, and start animation
 function showSim() {
+  sizeCanvas();
   canvas.style.display = "block";
   controls.style.display = "block";
   toggleBtn.innerText = "✕";
   toggleBtn.title = "Close Sim";
   resetSimVars();
   addSimListeners();
-  onGravityChange(); // Initialize gravity value
-  onBounceChange(); // Initialize bounce value
+  onGravityChange();
+  onBounceChange();
   update();
 }
 
-// Hide sim and controls, stop animation
 function hideSim() {
   canvas.style.display = "none";
   controls.style.display = "none";
@@ -229,7 +214,6 @@ function hideSim() {
   if (animId) cancelAnimationFrame(animId);
 }
 
-// Toggle sim visibility on button click
 let simVisible = false;
 toggleBtn.addEventListener("click", () => {
   simVisible = !simVisible;
@@ -240,5 +224,4 @@ toggleBtn.addEventListener("click", () => {
   }
 });
 
-// Hide sim on load
 hideSim();

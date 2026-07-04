@@ -1,47 +1,80 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>JesseLevine.net</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jesse Levine — Flight Instructor (CFI · CFII · MEI) | Annapolis, MD</title>
+  <meta name="description" content="Flight instruction in Annapolis, Maryland: instrument (IFR) training, multi-engine transition, checkride preparation, and scenario-based safety training with a CFI/CFII/MEI.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="canonical" href="https://jesselevine.net/">
   <link rel="stylesheet" href="css/main.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "Jesse Levine",
+    "jobTitle": "Certified Flight Instructor (CFI, CFII, MEI)",
+    "email": "mailto:atjessel@gmail.com",
+    "url": "https://jesselevine.net/",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Annapolis",
+      "addressRegion": "MD",
+      "addressCountry": "US"
+    }
+  }
+  </script>
 </head>
 <body>
-  <h1>Jesse Levine</h1>
+  <header>
+    <h1>Jesse Levine</h1>
+    <p class="tagline">Certified Flight Instructor — CFI · CFII · MEI</p>
+    <p class="location">Annapolis, Maryland</p>
+  </header>
 
-  <h2>Pilot</h2>
+  <main>
+    <div class="card">
+      <h2>Flight Training</h2>
+      <p>Specialized flight instruction and professional services:</p>
+      <ul>
+        <li>Instrument (IFR) training</li>
+        <li>Multi-engine transition &amp; training</li>
+        <li>Checkride preparation &amp; flight check coaching</li>
+        <li>Safety, ADM &amp; scenario-based training</li>
+      </ul>
+    </div>
 
-  <p>CFI/CFII/MEI in Annapolis, MD</p>
+    <a class="card tracker-link" href="/kanp.html">
+      <h2>✈ KANP Flight Tracker</h2>
+      <p>Live ADS-B traffic and historical traffic patterns around Lee Airport, Annapolis.</p>
+      <span class="go">Open the tracker →</span>
+    </a>
 
-  <p><a href="/kanp.html" style="color:#4a9eff; font-size:14px">✈ KANP Flight Tracker →</a></p>
+    <div class="card">
+      <h2>Contact</h2>
+      <p>Interested in lessons? Get in touch for availability and rates.</p>
+      <a class="cta" href="mailto:atjessel@gmail.com">Email me</a>
+    </div>
+  </main>
 
-  <!-- Expertise advertising box -->
-  <div class="expertise-box">
-    <h3>Expertise</h3>
-    <p>Specialized flight instruction and professional services:<p>
-    <ul>
-      <li>Instrument (IFR) training</li>
-      <li>Multi-engine transition & training</li>
-      <li>Checkride preparation & flight check coaching</li>
-      <li>Safety, ADM & scenario-based training</li>
-    </ul>
-    <p><a href="mailto:atjessel@gmail.com">Contact for lessons & rates</a></p>
-  </div>
+  <footer>
+    <p>© Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+  </footer>
 
-
-<!-- game simulation -->
-  <div id="sim-controls" style="display:none; position:fixed; right:30px; bottom:140px; z-index:1003; background:#222; padding:12px 16px; border-radius:12px; box-shadow:0 2px 8px #000a;">
-    <label style="color:#fff; font-size:14px;">Ball Color:
-      <input type="color" id="ball-color" value="#39ff14" style="vertical-align:middle; margin-left:8px;">
+  <!-- Ball-physics sim (easter egg) -->
+  <div id="sim-controls">
+    <label>Ball Color:
+      <input type="color" id="ball-color" value="#39ff14">
     </label>
-    <button id="add-ball" style="margin-left:12px; background:#444; color:#fff; border:none; border-radius:6px; padding:4px 10px; cursor:pointer;">Add Ball</button>
-    <div style="margin-top:10px; color:#fff; font-size:14px;">
-      <!-- Gravity X slider removed -->
+    <button id="add-ball">Add Ball</button>
+    <div class="row">
       <label>Gravity Y:
-        <input type="range" id="gravity-y" min="-1" max="1" step="0.01" value="0.3" style="width:80px; vertical-align:middle;">
+        <input type="range" id="gravity-y" min="-1" max="1" step="0.01" value="0.3">
       </label>
       <span id="gravity-y-value">0.3</span>
       <br>
       <label>Bounce:
-        <input type="range" id="bounce" min="0" max="1" step="0.01" value="0.7" style="width:80px; vertical-align:middle;">
+        <input type="range" id="bounce" min="0" max="1" step="0.01" value="0.7">
       </label>
       <span id="bounce-value">0.7</span>
     </div>
@@ -50,7 +83,5 @@
   <button id="sim-toggle-btn" title="Open Sim">▶</button>
 
   <script src="js/sim.js"></script>
-
 </body>
 </html>
-
