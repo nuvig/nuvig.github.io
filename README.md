@@ -13,17 +13,24 @@ Annapolis, MD. Hosted on GitHub Pages.
 
 ## KANP tracker architecture
 
-Data comes from the free [airplanes.live](https://airplanes.live) API.
-
-- **Live view** (`js/kanp.js`): the page polls the API every 60 s while open
-  and also stores those observations in `localStorage`.
+- **Live view** (`js/kanp.js`): polls a data source every 5–60 s (depending
+  on source) while the page is open, draws aircraft and altitude-colored
+  trails, and stores observations in `localStorage`. The altitude band
+  filter applies to trails, live aircraft, and the geographic heatmap.
+- **Data sources** (selectable in Settings, persisted in the browser):
+  [airplanes.live](https://airplanes.live) (default, no key), a local
+  readsb/tar1090 receiver or any custom `aircraft.json` URL, or ADS-B
+  Exchange via RapidAPI (key stored only in the browser — never commit API
+  keys to this public repo). See `docs/receiver-setup.md` for wiring up an
+  RTL-SDR receiver.
 - **Shared history**: a scheduled GitHub Action
   (`.github/workflows/collect-traffic.yml`) runs `scripts/collect-traffic.js`
-  every 30 minutes, appends a compact snapshot to a rolling 30-day
-  `traffic.json`, and force-pushes it as a single commit to the
-  `traffic-data` branch. The page fetches that file from
-  `raw.githubusercontent.com` and merges it with local observations, so
-  visitors see real traffic patterns without needing to keep the page open.
+  to append compact `[lat, lon, alt]` snapshots to a rolling 30-day
+  `traffic.json`, force-pushed as a single commit to the `traffic-data`
+  branch. The page fetches that file from `raw.githubusercontent.com` and
+  merges it with local observations, so visitors see traffic patterns
+  without keeping the page open. Note: GitHub schedules are best-effort —
+  in practice runs land every ~2–3 h, not the requested 30 min.
 
 ## Development
 

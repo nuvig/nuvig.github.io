@@ -5,7 +5,9 @@
 // Usage: node scripts/collect-traffic.js <existing.json> <out.json>
 //
 // Snapshot format (kept small — this file is fetched by the tracker page):
-//   [{ "ts": 1720000000000, "ac": [[38.9422, -76.5684], ...] }, ...]
+//   [{ "ts": 1720000000000, "ac": [[38.9422, -76.5684, 1200], ...] }, ...]
+// Each aircraft is [lat, lon, alt_ft] (alt null when unknown, 0 on ground).
+// Older snapshots may have [lat, lon] pairs; the page handles both.
 
 const fs = require('fs');
 
@@ -36,7 +38,12 @@ async function main() {
   const data = await res.json();
   const ac = (data.ac || [])
     .filter(a => a.lat && a.lon)
-    .map(a => [Number(a.lat.toFixed(4)), Number(a.lon.toFixed(4))]);
+    .map(a => {
+      const alt = a.alt_baro === 'ground' ? 0
+        : typeof a.alt_baro === 'number' ? Math.round(a.alt_baro)
+        : null;
+      return [Number(a.lat.toFixed(4)), Number(a.lon.toFixed(4)), alt];
+    });
 
   const now = Date.now();
   existing.push({ ts: now, ac });

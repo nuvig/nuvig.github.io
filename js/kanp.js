@@ -1,21 +1,59 @@
 // KANP Flight Tracker
-// Live flight data via airplanes.live (free, no key required).
+//
+// Live data sources (selectable in Settings, persisted in localStorage):
+//   - airplanes.live point API (default, free, no key)
+//   - Local receiver / custom URL — e.g. a readsb/tar1090 aircraft.json from
+//     an RTL-SDR box on your LAN, or an ADS-B Exchange feeder re-api URL
+//   - ADS-B Exchange via RapidAPI (key stored ONLY in this browser)
+//
 // History comes from two sources, merged at render time:
-//   1. A shared snapshot file collected every 30 min by a GitHub Action
+//   1. A shared snapshot file collected by a scheduled GitHub Action
 //      (pushed to the `traffic-data` branch of this repo).
 //   2. Observations from this browser while the page is open (localStorage).
+//
+// Trails: positions are accumulated per aircraft while the page is open and
+// drawn as polylines colored by altitude band. The altitude filter applies
+// to trails, live aircraft, and the geographic heatmap — the building block
+// for exploring approach paths.
 
 const KANP_LAT   = 38.9422;
 const KANP_LON   = -76.5684;
-const SEARCH_NM  = 20;             // nautical miles radius
-const POLL_MS    = 60_000;         // poll interval
+const SEARCH_NM  = 20;              // nautical miles radius
 const MAX_AGE_MS = 30 * 86_400_000; // keep 30 days of history
-const OBS_KEY    = 'kanp_obs';
-const SHARED_URL = 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/traffic.json';
+const TRAIL_MAX_AGE_MS = 45 * 60_000; // keep 45 min of trail per aircraft
+const OBS_KEY      = 'kanp_obs';
+const SETTINGS_KEY = 'kanp_settings';
+const SHARED_URL   = 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/traffic.json';
 
+// Poll intervals per source. Local receivers update every second and can
+// take fast polling; RapidAPI plans have monthly quotas, so go slow there.
+const POLL_INTERVALS = { airplanes: 15_000, custom: 5_000, adsbx: 60_000 };
+
+// Altitude bands (ft) and their trail colors, low → high
+const ALT_BANDS = [
+  { max: 500,      color: '#9ca3af', label: '<500'    },
+  { max: 1500,     color: '#ef4444', label: '500–1.5k' },
+  { max: 3000,     color: '#f59e0b', label: '1.5–3k'  },
+  { max: 6000,     color: '#22c55e', label: '3–6k'    },
+  { max: 10000,    color: '#00b4d8', label: '6–10k'   },
+  { max: Infinity, color: '#a78bfa', label: '10k+'    },
+];
+
+const DEFAULT_SETTINGS = {
+  source: 'airplanes',  // 'airplanes' | 'custom' | 'adsbx'
+  customUrl: '',
+  adsbxKey: '',
+  altMin: 0,
+  altMax: 45000,
+  trails: true,
+};
+
+let settings = loadSettings();
 let pollTimer = null;
-let map, heatLayer, aircraftLayer;
-let sharedObs = []; // snapshots collected server-side, fetched once per load
+let map, heatLayer, aircraftLayer, trailLayer;
+let sharedObs = [];     // snapshots collected server-side, fetched once per load
+let lastAc = [];        // most recent live aircraft list, for filter re-renders
+const trails = new Map(); // hex -> { lastTs, points: [{lat, lon, alt, ts}] }
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -61,8 +99,24 @@ function initMap() {
     fill: false,
   }).addTo(map);
 
-  heatLayer    = L.heatLayer([], { radius: 22, blur: 28, maxZoom: 13, gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' } }).addTo(map);
+  heatLayer = L.heatLayer([], { radius: 22, blur: 28, maxZoom: 13, gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' } }).addTo(map);
+  trailLayer    = L.layerGroup().addTo(map);
   aircraftLayer = L.layerGroup().addTo(map);
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+function loadSettings() {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +134,115 @@ function initUI() {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) fetchNow();
   });
+
+  // --- Display controls ---
+  const trailsToggle = document.getElementById('trails-toggle');
+  const altMinInput  = document.getElementById('alt-min');
+  const altMaxInput  = document.getElementById('alt-max');
+
+  trailsToggle.checked = settings.trails;
+  altMinInput.value = settings.altMin;
+  altMaxInput.value = settings.altMax;
+
+  trailsToggle.addEventListener('change', () => {
+    settings.trails = trailsToggle.checked;
+    saveSettings();
+    renderTrails();
+  });
+
+  const onAltChange = () => {
+    settings.altMin = clampAlt(parseInt(altMinInput.value, 10), 0);
+    settings.altMax = clampAlt(parseInt(altMaxInput.value, 10), 45000);
+    saveSettings();
+    applyFilters();
+  };
+  altMinInput.addEventListener('change', onAltChange);
+  altMaxInput.addEventListener('change', onAltChange);
+
+  document.getElementById('alt-reset').addEventListener('click', () => {
+    settings.altMin = 0;
+    settings.altMax = 45000;
+    altMinInput.value = 0;
+    altMaxInput.value = 45000;
+    saveSettings();
+    applyFilters();
+  });
+
+  // Altitude legend
+  const legend = document.getElementById('alt-legend');
+  legend.innerHTML = ALT_BANDS.map(b =>
+    `<span class="alt-band"><span class="swatch" style="background:${b.color}"></span>${b.label}</span>`
+  ).join('');
+
+  // --- Data source controls ---
+  const sourceSel  = document.getElementById('source-select');
+  const customUrl  = document.getElementById('custom-url');
+  const adsbxKey   = document.getElementById('adsbx-key');
+
+  sourceSel.value = settings.source;
+  customUrl.value = settings.customUrl;
+  adsbxKey.value  = settings.adsbxKey;
+  updateSourceFieldVisibility();
+
+  sourceSel.addEventListener('change', () => {
+    settings.source = sourceSel.value;
+    saveSettings();
+    updateSourceFieldVisibility();
+    startPolling();
+  });
+  customUrl.addEventListener('change', () => {
+    settings.customUrl = customUrl.value.trim();
+    saveSettings();
+    if (settings.source === 'custom') startPolling();
+  });
+  adsbxKey.addEventListener('change', () => {
+    settings.adsbxKey = adsbxKey.value.trim();
+    saveSettings();
+    if (settings.source === 'adsbx') startPolling();
+  });
+}
+
+function updateSourceFieldVisibility() {
+  document.getElementById('custom-url-row').style.display  = settings.source === 'custom' ? '' : 'none';
+  document.getElementById('adsbx-key-row').style.display   = settings.source === 'adsbx'  ? '' : 'none';
+}
+
+function clampAlt(v, fallback) {
+  return Number.isFinite(v) ? Math.max(0, Math.min(60000, v)) : fallback;
+}
+
+// Re-render everything affected by the altitude filter
+function applyFilters() {
+  renderLiveAircraft(lastAc);
+  renderTrails();
+  renderGeoHeatmap(allObs());
+}
+
+// ---------------------------------------------------------------------------
+// Altitude helpers
+// ---------------------------------------------------------------------------
+function normAlt(v) {
+  if (v === 'ground') return 0;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function filterIsDefault() {
+  return settings.altMin <= 0 && settings.altMax >= 45000;
+}
+
+// Unknown altitudes are shown only when the filter is wide open, so
+// filtering never silently includes aircraft we can't classify.
+function altInRange(alt) {
+  if (alt == null) return filterIsDefault();
+  return alt >= settings.altMin && alt <= settings.altMax;
+}
+
+function altBand(alt) {
+  const a = alt ?? 0;
+  for (const band of ALT_BANDS) {
+    if (a < band.max) return band;
+  }
+  return ALT_BANDS[ALT_BANDS.length - 1];
 }
 
 // ---------------------------------------------------------------------------
@@ -87,35 +250,156 @@ function initUI() {
 // ---------------------------------------------------------------------------
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(fetchNow, POLL_MS);
+  const interval = POLL_INTERVALS[settings.source] || 60_000;
+  pollTimer = setInterval(fetchNow, interval);
   fetchNow();
+}
+
+// Fetch the current aircraft list from whichever source is configured and
+// normalize to: { lat, lon, alt, hex, flight, gs, track }
+async function fetchAircraft() {
+  let res, raw;
+
+  if (settings.source === 'custom') {
+    if (!settings.customUrl) throw new Error('No custom URL configured');
+    res = await fetch(settings.customUrl);
+  } else if (settings.source === 'adsbx') {
+    if (!settings.adsbxKey) throw new Error('No ADS-B Exchange API key configured');
+    res = await fetch(
+      `https://adsbexchange-com1.p.rapidapi.com/v2/lat/${KANP_LAT}/lon/${KANP_LON}/dist/${SEARCH_NM}/`,
+      { headers: {
+          'X-RapidAPI-Key': settings.adsbxKey,
+          'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com',
+      } },
+    );
+  } else {
+    res = await fetch(`https://api.airplanes.live/v2/point/${KANP_LAT}/${KANP_LON}/${SEARCH_NM}`);
+  }
+
+  if (res.status === 429) { const e = new Error('rate limited'); e.rateLimited = true; throw e; }
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  raw = await res.json();
+
+  // airplanes.live & ADSBx return {ac:[]}; readsb/tar1090 returns {aircraft:[]}
+  const list = raw.ac || raw.aircraft || [];
+
+  return list
+    .filter(a => typeof a.lat === 'number' && typeof a.lon === 'number')
+    .map(a => ({
+      lat: a.lat,
+      lon: a.lon,
+      alt: normAlt(a.alt_baro ?? a.alt_geom),
+      hex: a.hex,
+      flight: (a.flight || '').trim(),
+      gs: a.gs,
+      track: a.track,
+    }))
+    // Local receivers see far beyond 20 nm — keep the view consistent
+    .filter(a => distNm(KANP_LAT, KANP_LON, a.lat, a.lon) <= SEARCH_NM);
 }
 
 async function fetchNow() {
   setStatus('yellow', 'Fetching…');
 
   try {
-    const url = `https://api.airplanes.live/v2/point/${KANP_LAT}/${KANP_LON}/${SEARCH_NM}`;
-    const res  = await fetch(url);
+    const ac = await fetchAircraft();
 
-    if (res.status === 429) { setStatus('yellow', 'Rate limit — will retry'); return; }
-    if (!res.ok) { setStatus('red', `API error ${res.status}`); return; }
-
-    const data = await res.json();
-    const ac   = (data.ac || []).filter(a => a.lat && a.lon);
-
+    lastAc = ac;
     storeObs(ac);
+    updateTrails(ac);
     if (aircraftLayer) renderLiveAircraft(ac);
+    renderTrails();
     renderFromStorage();
 
-    setStatus('green', 'Live');
+    setStatus('green', `Live · ${sourceLabel()}`);
     show('ac-count-wrap');
     document.getElementById('ac-num').textContent = ac.length;
     show('update-wrap');
     document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
   } catch (err) {
-    setStatus('red', 'Network error');
+    if (err.rateLimited) setStatus('yellow', 'Rate limit — will retry');
+    else setStatus('red', err.message || 'Network error');
     console.error('[KANP tracker]', err);
+  }
+}
+
+function sourceLabel() {
+  return { airplanes: 'airplanes.live', custom: 'local/custom', adsbx: 'ADS-B Exchange' }[settings.source] || settings.source;
+}
+
+// ---------------------------------------------------------------------------
+// Trails
+// ---------------------------------------------------------------------------
+function updateTrails(ac) {
+  const now = Date.now();
+
+  ac.forEach(a => {
+    if (!a.hex) return;
+    let t = trails.get(a.hex);
+    if (!t) {
+      t = { lastTs: now, points: [] };
+      trails.set(a.hex, t);
+    }
+    t.lastTs = now;
+
+    const last = t.points[t.points.length - 1];
+    // Skip stationary aircraft (parked with ADS-B on) to avoid point buildup
+    if (last && distNm(last.lat, last.lon, a.lat, a.lon) < 0.02 && last.alt === a.alt) return;
+    t.points.push({ lat: a.lat, lon: a.lon, alt: a.alt, ts: now });
+  });
+
+  // Prune old points and stale aircraft
+  for (const [hex, t] of trails) {
+    t.points = t.points.filter(p => now - p.ts < TRAIL_MAX_AGE_MS);
+    if (!t.points.length && now - t.lastTs > TRAIL_MAX_AGE_MS) trails.delete(hex);
+  }
+}
+
+// Draw each trail as polyline segments grouped by altitude band, so a
+// descent renders as a color gradient from cruise color down to red.
+function renderTrails() {
+  if (!trailLayer) return;
+  trailLayer.clearLayers();
+  if (!settings.trails) return;
+
+  for (const t of trails.values()) {
+    if (t.points.length < 2) continue;
+
+    let seg = [];
+    let segBand = null;
+
+    const flush = () => {
+      if (seg.length > 1 && segBand) {
+        L.polyline(seg.map(p => [p.lat, p.lon]), {
+          color: segBand.color,
+          weight: 2,
+          opacity: 0.8,
+          interactive: false,
+        }).addTo(trailLayer);
+      }
+    };
+
+    for (const p of t.points) {
+      if (!altInRange(p.alt)) {
+        flush();
+        seg = [];
+        segBand = null;
+        continue;
+      }
+      const b = altBand(p.alt);
+      if (!segBand) {
+        segBand = b;
+        seg = [p];
+      } else if (b === segBand) {
+        seg.push(p);
+      } else {
+        seg.push(p); // include the transition point in both segments
+        flush();
+        seg = [p];
+        segBand = b;
+      }
+    }
+    flush();
   }
 }
 
@@ -130,12 +414,12 @@ async function fetchSharedHistory() {
     const raw = await res.json();
     const cutoff = Date.now() - MAX_AGE_MS;
 
-    // Shared snapshots store aircraft as compact [lat, lon] pairs.
+    // Shared snapshots store aircraft as compact [lat, lon] or [lat, lon, alt]
     sharedObs = raw
       .filter(o => o.ts > cutoff)
       .map(o => ({
         ts: o.ts,
-        ac: o.ac.map(([lat, lon]) => ({ lat, lon })),
+        ac: o.ac.map(p => ({ lat: p[0], lon: p[1], alt: p.length > 2 ? normAlt(p[2]) : null })),
       }));
 
     renderFromStorage();
@@ -168,8 +452,8 @@ function storeObs(ac) {
       lat: a.lat,
       lon: a.lon,
       hex: a.hex,
-      cs:  (a.flight || '').trim(),
-      alt: a.alt_baro,
+      cs:  a.flight,
+      alt: a.alt,
       gs:  a.gs,
       trk: a.track,
     })),
@@ -190,16 +474,21 @@ function storeObs(ac) {
 // Live aircraft layer
 // ---------------------------------------------------------------------------
 function renderLiveAircraft(ac) {
+  if (!aircraftLayer) return;
   aircraftLayer.clearLayers();
+
   ac.forEach(a => {
+    if (!altInRange(a.alt)) return;
+
     const heading = a.track ?? 0;
-    const label   = esc((a.flight || '').trim() || a.hex || '?');
-    const alt     = a.alt_baro != null ? `${Number(a.alt_baro).toLocaleString()} ft` : '— ft';
+    const label   = esc(a.flight || a.hex || '?');
+    const alt     = a.alt != null ? `${Number(a.alt).toLocaleString()} ft` : '— ft';
     const gs      = a.gs != null ? ` · ${Math.round(a.gs)} kts` : '';
+    const color   = altBand(a.alt).color;
 
     const icon = L.divIcon({
       html: `<div style="font-size:15px;transform:rotate(${heading}deg);transform-origin:center;
-                         filter:drop-shadow(0 0 3px #39ff14);color:#39ff14;line-height:1">✈</div>`,
+                         filter:drop-shadow(0 0 3px ${color});color:${color};line-height:1">✈</div>`,
       className: '',
       iconAnchor: [7, 7],
     });
@@ -224,7 +513,7 @@ function renderGeoHeatmap(obs) {
   if (!heatLayer) return; // map unavailable
   const pts = [];
   obs.forEach(o => o.ac.forEach(a => {
-    if (a.lat && a.lon) pts.push([a.lat, a.lon, 0.6]);
+    if (a.lat && a.lon && altInRange(normAlt(a.alt))) pts.push([a.lat, a.lon, 0.6]);
   }));
   heatLayer.setLatLngs(pts);
 }
@@ -344,6 +633,16 @@ function clearHistory() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function distNm(lat1, lon1, lat2, lon2) {
+  const R = 3440.065; // Earth radius in nm
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
