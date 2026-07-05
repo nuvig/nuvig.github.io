@@ -36,13 +36,15 @@ Annapolis, MD. Hosted on GitHub Pages.
   day's tracks on the map with hour-of-day and altitude filtering — the
   airspace-study tool. Trails split at sampling gaps so burst data doesn't
   draw false straight lines.
-- **24/7 collection**: two options, both writing the same track format —
-  `scripts/api-collector.js` runs on any always-on machine and polls
-  airplanes.live continuously (20 s resolution, pushes hourly; disable the
-  Action while it runs since both publish the same branch), and
-  `scripts/receiver-export.js` converts a readsb globe-history day from an
-  RTL-SDR receiver at full fidelity (downsampled to 15 s) via nightly
-  cron. See `docs/receiver-setup.md` for both.
+- **24/7 collection**: `scripts/api-collector.js` runs on any always-on
+  machine and writes the track format continuously — from the
+  airplanes.live API (default, 20 s polls) or from a local
+  dump1090-fa/readsb receiver via `--url` (5 s polls, no external API).
+  It pushes the data branch hourly; disable the Action while it runs
+  since both publish the same branch. For readsb-based receivers,
+  `scripts/receiver-export.js` can alternatively export full-fidelity
+  days from the globe-history archive via nightly cron. See
+  `docs/receiver-setup.md`.
 
 ## Development
 

@@ -1,23 +1,29 @@
-// Continuous 24/7 airspace collector using the airplanes.live API.
+// Continuous 24/7 airspace collector.
 //
-// Runs on any always-on machine (old laptop, desktop, Raspberry Pi) — no
-// RTL-SDR hardware required. Polls the free airplanes.live point API and
-// writes the same per-day track files the History Explorer reads, so it's a
-// drop-in upgrade over the GitHub Action's sampling bursts. When an RTL-SDR
-// receiver is available, scripts/receiver-export.js replaces this with
-// full-fidelity local data — same format, same page.
+// Two modes, same output — the per-day track files the History Explorer
+// reads, plus temporal-heatmap snapshots:
+//
+//   API mode (default): polls the free airplanes.live point API every 20 s.
+//     Runs on any always-on machine; no receiver hardware required.
+//
+//   Local receiver mode (--url): polls a dump1090-fa / readsb / tar1090
+//     aircraft.json on your own network every 5 s. No rate limits, higher
+//     resolution, your own antenna. e.g.
+//       --url http://localhost/skyaware/data/aircraft.json   (dump1090-fa)
+//       --url http://localhost/tar1090/data/aircraft.json    (tar1090)
 //
 // Usage:
-//   node api-collector.js <data-dir> [--push]
+//   node api-collector.js <data-dir> [--push] [--url <aircraft.json url>]
 //
 //   <data-dir>  where traffic.json and tracks/ live. To publish, make it a
 //               clone of the repo's traffic-data branch and pass --push:
 //               git clone --branch traffic-data \
 //                 https://<PAT>@github.com/nuvig/nuvig.github.io.git traffic-data
 //   --push      git commit + push <data-dir> after each hourly flush
+//   --url       poll this aircraft.json instead of airplanes.live
 //
 // Intervals (env-overridable, seconds):
-//   KANP_POLL_S=20    API poll (airplanes.live asks ≤1 req/s; 20 s is polite)
+//   KANP_POLL_S       poll interval (default 20 for API, 5 for --url)
 //   KANP_FLUSH_S=300  write track files to disk
 //   KANP_SNAP_S=1800  append a snapshot to traffic.json (temporal heatmap)
 //   KANP_PUSH_S=3600  git push cadence when --push is set
@@ -35,19 +41,25 @@ const SEARCH_NM  = 20;
 const SNAP_MAX_AGE_MS = 30 * 86_400_000;
 const TRACK_KEEP_DAYS = 30;
 const MIN_MOVE_NM = 0.02;
+const MAX_SEEN_POS_S = 15; // skip local-receiver positions staler than this
 
-const POLL_S  = envNum('KANP_POLL_S', 20);
+// --- Arguments ---
+const args = process.argv.slice(2);
+let dataDir = null, sourceUrl = null, doPush = false;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--push') doPush = true;
+  else if (args[i] === '--url') sourceUrl = args[++i];
+  else if (!args[i].startsWith('--') && !dataDir) dataDir = args[i];
+}
+if (!dataDir || (args.includes('--url') && !sourceUrl)) {
+  console.error('usage: node api-collector.js <data-dir> [--push] [--url <aircraft.json url>]');
+  process.exit(1);
+}
+
+const POLL_S  = envNum('KANP_POLL_S', sourceUrl ? 5 : 20);
 const FLUSH_S = envNum('KANP_FLUSH_S', 300);
 const SNAP_S  = envNum('KANP_SNAP_S', 1800);
 const PUSH_S  = envNum('KANP_PUSH_S', 3600);
-
-const args = process.argv.slice(2);
-const doPush = args.includes('--push');
-const dataDir = args.find(a => !a.startsWith('--'));
-if (!dataDir) {
-  console.error('usage: node api-collector.js <data-dir> [--push]');
-  process.exit(1);
-}
 const tracksDir = path.join(dataDir, 'tracks');
 fs.mkdirSync(tracksDir, { recursive: true });
 
@@ -97,18 +109,26 @@ let lastPollAc = null;
 let pollCount = 0, pollFailures = 0;
 
 async function pollOnce() {
-  const url = `https://api.airplanes.live/v2/point/${KANP_LAT}/${KANP_LON}/${SEARCH_NM}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'kanp-tracker (jesselevine.net)' } });
+  const url = sourceUrl ||
+    `https://api.airplanes.live/v2/point/${KANP_LAT}/${KANP_LON}/${SEARCH_NM}`;
+  const res = await fetch(url, sourceUrl ? undefined
+    : { headers: { 'User-Agent': 'kanp-tracker (jesselevine.net)' } });
   if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
-  return (data.ac || [])
+
+  // airplanes.live returns {ac:[]}; dump1090-fa/readsb/tar1090 return {aircraft:[]}
+  return (data.ac || data.aircraft || [])
     .filter(a => typeof a.lat === 'number' && typeof a.lon === 'number')
+    // Local receivers keep aircraft listed after signal loss — skip stale fixes
+    .filter(a => a.seen_pos == null || a.seen_pos <= MAX_SEEN_POS_S)
+    // Local receivers also see far beyond the study area
+    .filter(a => distNm(KANP_LAT, KANP_LON, a.lat, a.lon) <= SEARCH_NM)
     .map(a => ({
       hex: a.hex || '',
       cs:  (a.flight || '').trim(),
       lat: Number(a.lat.toFixed(4)),
       lon: Number(a.lon.toFixed(4)),
-      alt: normAlt(a.alt_baro),
+      alt: normAlt(a.alt_baro ?? a.alt_geom),
     }));
 }
 
@@ -217,7 +237,8 @@ function gitPush() {
 // Main loop
 // ---------------------------------------------------------------------------
 async function main() {
-  console.log(`Collecting airplanes.live traffic within ${SEARCH_NM} nm of KANP into ${dataDir}`);
+  console.log(`Collecting traffic within ${SEARCH_NM} nm of KANP into ${dataDir}`);
+  console.log(`source: ${sourceUrl || 'airplanes.live API'}`);
   console.log(`poll ${POLL_S}s · flush ${FLUSH_S}s · snapshot ${SNAP_S}s · push ${doPush ? PUSH_S + 's' : 'off'}`);
 
   let lastFlush = Date.now(), lastSnap = 0, lastPush = Date.now();

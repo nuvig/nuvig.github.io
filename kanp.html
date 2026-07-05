@@ -335,7 +335,7 @@
 
     <div class="settings-field" id="custom-url-row" style="display:none">
       <label for="custom-url">URL</label>
-      <input type="text" id="custom-url" placeholder="http://receiver.local/tar1090/data/aircraft.json" spellcheck="false">
+      <input type="text" id="custom-url" placeholder="http://receiver.local/skyaware/data/aircraft.json" spellcheck="false">
     </div>
 
     <div class="settings-field" id="adsbx-key-row" style="display:none">
@@ -353,7 +353,9 @@
       by altitude band. Shared history is collected periodically by a scheduled GitHub Action (best-effort
       timing) and merged with observations from your own browser.
       <br><br>
-      <strong>Local receiver note:</strong> data source settings are stored only in your browser.
+      <strong>Local receiver note:</strong> works with dump1090-fa
+      (<code>/skyaware/data/aircraft.json</code>), readsb, and tar1090
+      (<code>/tar1090/data/aircraft.json</code>). Data source settings are stored only in your browser.
       A plain-http receiver URL will be blocked by the browser when this page is loaded over https
       (mixed content) — open the page over http on your LAN, or serve the receiver over https
       (e.g. a Cloudflare Tunnel). See

@@ -56,9 +56,36 @@ bulky (the collector pushes ~24 commits/day), it's disposable — delete and
 recreate the branch from the collector's current files.
 
 Trade-off vs your own receiver: the API's coverage of the KANP area is
-excellent but ultimately someone else's network, sampled at 20 s. The
-RTL-SDR gives 1-second resolution, independence, and feeder perks — when it
-arrives, sections 1–4 below replace this.
+excellent but ultimately someone else's network, sampled at 20 s. Your own
+receiver gives higher resolution, independence, and feeder perks.
+
+## 0.5 Already running dump1090-fa? Collect from your own antenna
+
+If the Pi is already up with dump1090-fa (e.g. a PiAware/SkyAware setup),
+the same collector reads it directly — pass `--url` with the local
+`aircraft.json` and it polls every 5 s instead of 20 s, with no external
+API in the loop:
+
+```sh
+node api-collector.js ~/traffic-data --push \
+  --url http://localhost/skyaware/data/aircraft.json
+```
+
+Notes:
+- **Data URL**: modern dump1090-fa serves `/skyaware/data/aircraft.json`;
+  older installs use `/dump1090-fa/data/aircraft.json`. Verify with
+  `curl -s http://localhost/skyaware/data/aircraft.json | head`.
+- Positions with `seen_pos` older than 15 s are skipped, and everything
+  beyond 20 nm of KANP is filtered out (your antenna sees much farther).
+- This coexists happily with piaware/FlightAware feeding — it's just
+  another reader of dump1090-fa's JSON output.
+- Use the same systemd unit as above with the `--url` argument added to
+  `ExecStart`, and remember the one-publisher rule: disable the GitHub
+  Action's workflow while this runs.
+- Section 4's nightly `receiver-export.js` path is **readsb-only**
+  (dump1090-fa doesn't write a globe-history archive) — with dump1090-fa,
+  this continuous collector *is* the 24/7 history pipeline, and 5 s
+  sampling is plenty for approach-path study.
 
 ## 1. Set up the receiver
 
@@ -131,7 +158,11 @@ Note the page polls ADSBx at 60 s intervals because RapidAPI plans have
 monthly request quotas. If your feeder perk gives you a direct re-api URL
 instead, use "Local receiver / custom URL" mode with that full URL.
 
-## 4. 24/7 history: feed the History Explorer from the receiver
+## 4. 24/7 history from readsb's globe-history archive (readsb only)
+
+> **dump1090-fa users:** skip this section — dump1090-fa doesn't write the
+> globe-history archive this relies on. Use the continuous collector with
+> `--url` (section 0.5) instead.
 
 This is the payoff. The tracker page has a **History Explorer** that replays
 per-day track files (`tracks/YYYY-MM-DD.json` on the `traffic-data` branch)
