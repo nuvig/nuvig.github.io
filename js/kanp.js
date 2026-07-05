@@ -23,7 +23,9 @@ const MAX_AGE_MS = 30 * 86_400_000; // keep 30 days of history
 const TRAIL_MAX_AGE_MS = 45 * 60_000; // keep 45 min of trail per aircraft
 const OBS_KEY      = 'kanp_obs';
 const SETTINGS_KEY = 'kanp_settings';
-const SHARED_URL   = 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/traffic.json';
+const DATA_BASE    = 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/';
+const SHARED_URL   = DATA_BASE + 'traffic.json';
+const HISTORY_GAP_S = 180; // split history trails at sampling gaps > 3 min
 
 // Poll intervals per source. Local receivers update every second and can
 // take fast polling; RapidAPI plans have monthly quotas, so go slow there.
@@ -50,10 +52,11 @@ const DEFAULT_SETTINGS = {
 
 let settings = loadSettings();
 let pollTimer = null;
-let map, heatLayer, aircraftLayer, trailLayer;
+let map, heatLayer, aircraftLayer, trailLayer, historyLayer;
 let sharedObs = [];     // snapshots collected server-side, fetched once per load
 let lastAc = [];        // most recent live aircraft list, for filter re-renders
 const trails = new Map(); // hex -> { lastTs, points: [{lat, lon, alt, ts}] }
+let historyDay = null;  // loaded History Explorer day: { date, tracks }
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -66,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initUI();
   renderFromStorage();
   fetchSharedHistory();
+  loadHistoryIndex();
   startPolling();
 });
 
@@ -100,6 +104,7 @@ function initMap() {
   }).addTo(map);
 
   heatLayer = L.heatLayer([], { radius: 22, blur: 28, maxZoom: 13, gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' } }).addTo(map);
+  historyLayer  = L.layerGroup().addTo(map);
   trailLayer    = L.layerGroup().addTo(map);
   aircraftLayer = L.layerGroup().addTo(map);
 }
@@ -216,6 +221,7 @@ function applyFilters() {
   renderLiveAircraft(lastAc);
   renderTrails();
   renderGeoHeatmap(allObs());
+  renderHistory();
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +407,136 @@ function renderTrails() {
     }
     flush();
   }
+}
+
+// ---------------------------------------------------------------------------
+// History Explorer — replay per-day track files from the traffic-data branch
+// (written by the GitHub Action's sampling bursts and, at much higher
+// fidelity, by an RTL-SDR receiver via scripts/receiver-export.js)
+// ---------------------------------------------------------------------------
+async function loadHistoryIndex() {
+  try {
+    const res = await fetch(DATA_BASE + 'tracks/index.json', { cache: 'no-cache' });
+    if (!res.ok) return; // no track data yet — leave the section hidden
+
+    const index = await res.json();
+    if (!Array.isArray(index) || !index.length) return;
+
+    const sel = document.getElementById('history-day');
+    sel.innerHTML = index
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map(d => `<option value="${esc(d.date)}">${esc(d.date)} · ${d.tracks} aircraft</option>`)
+      .join('');
+
+    document.getElementById('history-card').style.display = '';
+    document.getElementById('history-load').addEventListener('click', loadHistoryDay);
+    document.getElementById('history-clear').addEventListener('click', () => {
+      historyDay = null;
+      renderHistory();
+      document.getElementById('history-status').textContent = '';
+    });
+    document.getElementById('hour-min').addEventListener('change', renderHistory);
+    document.getElementById('hour-max').addEventListener('change', renderHistory);
+  } catch (err) {
+    console.warn('[KANP tracker] track index unavailable', err);
+  }
+}
+
+async function loadHistoryDay() {
+  const date = document.getElementById('history-day').value;
+  const status = document.getElementById('history-status');
+  if (!date) return;
+  status.textContent = 'Loading…';
+  try {
+    const res = await fetch(`${DATA_BASE}tracks/${date}.json`, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    historyDay = await res.json();
+    renderHistory();
+  } catch (err) {
+    status.textContent = 'Failed to load day';
+    console.error('[KANP tracker] history day load failed', err);
+  }
+}
+
+// Convert a UTC second-of-day to a local hour for the hour-range filter.
+// The UTC offset is taken at the day's midpoint — constant across the day
+// except on DST transition days, which is close enough for filtering.
+function localHourAt(dayMidnightMs, sec) {
+  return new Date(dayMidnightMs + sec * 1000).getHours() +
+         new Date(dayMidnightMs + sec * 1000).getMinutes() / 60;
+}
+
+function renderHistory() {
+  if (!historyLayer) return;
+  historyLayer.clearLayers();
+  if (!historyDay) return;
+
+  const [y, m, d] = historyDay.date.split('-').map(Number);
+  const dayMidnightMs = Date.UTC(y, m - 1, d);
+
+  const hourMin = clampHour(document.getElementById('hour-min').value, 0);
+  const hourMax = clampHour(document.getElementById('hour-max').value, 24);
+
+  let shownTracks = 0, shownPts = 0;
+
+  for (const track of historyDay.tracks) {
+    let seg = [];
+    let segBand = null;
+    let lastSec = null;
+    let drewAny = false;
+
+    const flush = () => {
+      if (seg.length > 1 && segBand) {
+        L.polyline(seg.map(p => [p[1], p[2]]), {
+          color: segBand.color,
+          weight: 1.5,
+          opacity: 0.6,
+          interactive: false,
+        }).addTo(historyLayer);
+        drewAny = true;
+      }
+    };
+
+    for (const p of track.pts) {
+      const [sec, , , alt] = p;
+      const hr = localHourAt(dayMidnightMs, sec);
+      const keep = hr >= hourMin && hr <= hourMax && altInRange(alt);
+      const gap = lastSec != null && sec - lastSec > HISTORY_GAP_S;
+
+      if (!keep || gap) {
+        flush();
+        seg = [];
+        segBand = null;
+        if (!keep) { lastSec = sec; continue; }
+      }
+
+      const b = altBand(alt);
+      if (!segBand) {
+        segBand = b;
+        seg = [p];
+      } else if (b === segBand) {
+        seg.push(p);
+      } else {
+        seg.push(p);
+        flush();
+        seg = [p];
+        segBand = b;
+      }
+      shownPts++;
+      lastSec = sec;
+    }
+    flush();
+    if (drewAny) shownTracks++;
+  }
+
+  document.getElementById('history-status').textContent =
+    `${historyDay.date}: ${shownTracks} aircraft · ${shownPts.toLocaleString()} points shown`;
+}
+
+function clampHour(v, fallback) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(24, n)) : fallback;
 }
 
 // ---------------------------------------------------------------------------

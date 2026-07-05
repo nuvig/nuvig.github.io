@@ -75,23 +75,54 @@ Note the page polls ADSBx at 60 s intervals because RapidAPI plans have
 monthly request quotas. If your feeder perk gives you a direct re-api URL
 instead, use "Local receiver / custom URL" mode with that full URL.
 
-## 4. Ideas once the receiver is running 24/7
+## 4. 24/7 history: feed the History Explorer from the receiver
 
-The receiver is the natural place for heavy data collection — it sees every
-position at 1-second resolution, far beyond what any polling API or GitHub
-Action can capture:
+This is the payoff. The tracker page has a **History Explorer** that replays
+per-day track files (`tracks/YYYY-MM-DD.json` on the `traffic-data` branch)
+with hour-of-day and altitude filtering. Until the receiver exists, those
+files are filled by GitHub Action sampling bursts — a few 5-minute windows
+per hour at best. The receiver replaces that with true 24/7 coverage at
+1-second resolution.
 
-- **readsb history**: enable `--write-globe-history` and readsb archives
-  complete daily tracks on disk automatically. tar1090's `?pTracks` view
-  can replay everything it heard in the last 24 h.
-- **Nightly aggregate upload**: a cron job on the receiver can downsample
-  the day's tracks (e.g. one point per 10 s, rounded coords) and push a
-  `tracks.json` to this repo's `traffic-data` branch — the same pattern the
-  GitHub Action uses for snapshots today, but with real track fidelity.
-  That would let the public page render historical approach paths, filtered
-  by the existing altitude controls.
+`scripts/receiver-export.js` (no npm dependencies) converts a day of
+readsb's globe history into the shared track format: filters to within
+20 nm of KANP, downsamples to one point per 15 s, and rebuilds the index.
+
+**One-time setup on the receiver:**
+
+1. Make sure readsb runs with `--write-globe-history=/var/globe_history`
+   (wiedehopf installs enable this for tar1090's replay feature).
+2. Create a [fine-grained GitHub PAT](https://github.com/settings/personal-access-tokens)
+   scoped to this repo with *Contents: read and write*.
+3. Clone the data branch and this repo's scripts once:
+
+   ```sh
+   git clone --branch traffic-data https://<PAT>@github.com/nuvig/nuvig.github.io.git ~/traffic-data
+   curl -sO https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/scripts/receiver-export.js
+   ```
+
+4. Nightly cron (runs at 00:25 UTC, exports yesterday, pushes):
+
+   ```cron
+   25 0 * * * cd ~ && node receiver-export.js /var/globe_history ~/traffic-data \
+     && cd ~/traffic-data && git add -A && git commit -m "Receiver export" && git push
+   ```
+
+The page needs no changes — receiver-exported days simply appear in the
+History Explorer's day list with far more tracks and points. (Note the
+GitHub Action keeps running harmlessly alongside; it merges into different
+runs of the same files. Once the receiver is proven, you can disable the
+Action's burst sampling or keep it as a backfill for receiver downtime.)
+
+## 5. Later ideas
+
 - **Destination/route tagging**: ADS-B broadcasts don't include the
   destination airport. To filter "traffic landing at KANP" vs overflights,
   either classify behaviorally (descending below ~1,500 ft within ~3 nm of
   the field) or look up routes by callsign via the free
   [adsbdb](https://www.adsbdb.com/) API and cache results.
+- **Multi-day aggregation**: composite heatmaps of approach corridors from
+  weeks of receiver data, split weekday/weekend or by wind direction.
+- If data volume ever outgrows a git branch (~30 days × ~1 MB/day is fine),
+  the natural next step is Cloudflare R2/Pages for the data files — the
+  page's fetch URLs are the only thing that would change.

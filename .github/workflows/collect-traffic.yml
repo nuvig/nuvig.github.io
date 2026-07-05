@@ -1,9 +1,17 @@
 
-# Collects a snapshot of air traffic near KANP every 30 minutes and stores
-# the rolling 30-day history as traffic.json on the `traffic-data` branch.
+# Samples air traffic near KANP in a ~5-minute burst each run and stores the
+# results on the `traffic-data` branch:
+#   traffic.json          rolling 30-day snapshots (temporal heatmap)
+#   tracks/YYYY-MM-DD.json  per-day track segments (History Explorer)
+#   tracks/index.json     list of available days
 # The branch always holds exactly one commit (force-pushed each run) so the
-# main history stays clean. The tracker page fetches the file from
-# raw.githubusercontent.com, which serves it with CORS enabled.
+# main history stays clean. The tracker page fetches the files from
+# raw.githubusercontent.com, which serves them with CORS enabled.
+#
+# Note: GitHub schedules are best-effort — in practice runs land every
+# ~2–3 h rather than every 30 min. Full 24/7 coverage comes from a local
+# RTL-SDR receiver via scripts/receiver-export.js, which writes the same
+# track format at much higher fidelity.
 
 name: Collect KANP traffic
 
@@ -22,30 +30,33 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get existing history
+      - name: Restore existing data
         run: |
-          if git fetch origin traffic-data 2>/dev/null; then
-            git show FETCH_HEAD:traffic.json > existing.json || echo '[]' > existing.json
-          else
-            echo '[]' > existing.json
+          mkdir /tmp/traffic-data
+          cd /tmp/traffic-data
+          git init -b traffic-data
+          if git fetch "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" traffic-data; then
+            git checkout FETCH_HEAD -- . || true
           fi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Fetch snapshot and merge
-        run: node scripts/collect-traffic.js existing.json traffic.json
+      - name: Sample airspace (5-minute burst)
+        run: node scripts/collect-airspace.js /tmp/traffic-data 300 20
 
       - name: Push to traffic-data branch
         run: |
-          mkdir /tmp/traffic-data
-          cp traffic.json /tmp/traffic-data/
           cd /tmp/traffic-data
+          rm -rf .git
           git init -b traffic-data
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add traffic.json
-          git commit -m "Update KANP traffic data"
+          git add -A
+          git commit -m "Update KANP airspace data"
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" traffic-data
         env:
           GITHUB_TOKEN: ${{ github.token }}
