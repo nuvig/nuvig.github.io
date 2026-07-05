@@ -4,6 +4,62 @@ How to plug your own ADS-B receiver into the KANP tracker when the hardware
 arrives. The tracker page already has everything needed — you just point it
 at your receiver in **Settings → Data source**.
 
+## 0. No receiver yet? 24/7 collection via the airplanes.live API
+
+You don't have to wait for hardware to get continuous history. The
+airplanes.live API is a sufficient data source — the only thing GitHub's
+throttled Actions can't provide is an always-on machine. Any computer that
+stays on (old laptop, desktop, the Pi itself before the antenna is up) can
+run the continuous collector:
+
+```sh
+# one-time: clone the data branch with a fine-grained PAT
+#   (github.com/settings/personal-access-tokens → this repo → Contents: read/write)
+git clone --branch traffic-data \
+  "https://<PAT>@github.com/nuvig/nuvig.github.io.git" ~/traffic-data
+cd ~/traffic-data && git config user.name kanp-collector && git config user.email kanp@localhost
+
+# fetch the collector and run it
+curl -sO https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/scripts/api-collector.js
+node api-collector.js ~/traffic-data --push
+```
+
+It polls every 20 s (well within airplanes.live's ≤1 req/s ask), merges
+tracks into the same per-day files the History Explorer reads, snapshots
+for the temporal heatmap every 30 min, and pushes hourly. To survive
+reboots, run it under systemd — `/etc/systemd/system/kanp-collector.service`:
+
+```ini
+[Unit]
+Description=KANP airspace collector (airplanes.live)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_USER
+ExecStart=/usr/bin/node /home/YOUR_USER/api-collector.js /home/YOUR_USER/traffic-data --push
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then `sudo systemctl enable --now kanp-collector`.
+
+**Important — one publisher at a time:** the GitHub Action force-pushes the
+`traffic-data` branch, which will clobber and conflict with the collector's
+pushes. When the collector is running, disable the Action (repo → Actions →
+"Collect KANP traffic" → ⋯ → Disable workflow); re-enable it as a fallback
+if the collector goes offline. If the branch's commit history ever gets
+bulky (the collector pushes ~24 commits/day), it's disposable — delete and
+recreate the branch from the collector's current files.
+
+Trade-off vs your own receiver: the API's coverage of the KANP area is
+excellent but ultimately someone else's network, sampled at 20 s. The
+RTL-SDR gives 1-second resolution, independence, and feeder perks — when it
+arrives, sections 1–4 below replace this.
+
 ## 1. Set up the receiver
 
 The standard stack (works on a Raspberry Pi or any small Linux box):
