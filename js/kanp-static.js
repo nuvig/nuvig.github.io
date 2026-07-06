@@ -103,6 +103,7 @@ const KANPStatic = (() => {
     for (const day of days) {
       for (const t of day.tracks) {
         if (p.military == 1 && !t.military) continue;
+        if (p.ga == 1 && !KANP.isGA(t)) continue;
         if (csPat) {
           const f = (t.flight || '').toUpperCase();
           const r = (t.reg || '').toUpperCase();
