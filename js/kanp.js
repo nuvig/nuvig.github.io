@@ -1,5 +1,6 @@
 // KANP Flight Tracker — shared utilities + Live tab
-// Live data via public ADS-B feeds; history/study via the Pi collector API (pi/).
+// All tabs read the Pi collector (pi/): its API on the home network, else the
+// hourly GitHub snapshots. Live = the most recently collected fix.
 
 const KANP = {
   LAT: 38.9422,
@@ -449,18 +450,15 @@ KANP.addAirport = function (map) {
 };
 
 // ===========================================================================
-// LIVE TAB (browser ADS-B feed, session history in localStorage)
+// LIVE TAB — latest positions from the Pi collector
 // ===========================================================================
-// Public readsb "re-api" feeds — all return the same {ac:[…]} schema. Tried in
-// order until one responds; a feed that blocks browsers (no CORS header) or is
-// down is skipped. airplanes.live is kept last: as of 2026 its /v2/point
-// endpoint 404s and sends no Access-Control-Allow-Origin, but it's harmless as
-// a fallback if it comes back.
-KANP.LIVE_SOURCES = [
-  { name: 'adsb.lol', url: (lat, lon, nm) => `https://api.adsb.lol/v2/point/${lat}/${lon}/${nm}` },
-  { name: 'adsb.fi', url: (lat, lon, nm) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${nm}` },
-  { name: 'airplanes.live', url: (lat, lon, nm) => `https://api.airplanes.live/v2/point/${lat}/${lon}/${nm}` },
-];
+// Reads the same source as History (the Pi API on the home network, else the
+// hourly GitHub snapshot). The browser no longer calls a third-party ADS-B API
+// directly — those dropped CORS — so "live" is the most recently collected fix,
+// shown with a freshness label. Session heat/temporal history stays in
+// localStorage as before.
+const LIVE_WINDOW_S = 3600;   // pull the last hour of tracks
+const RECENT_S = 300;         // "current" = last fix within 5 min of the newest fix
 
 let liveMap, heatLayer, aircraftLayer, pollTimer;
 
@@ -490,35 +488,65 @@ function initLive() {
 }
 
 async function fetchNow() {
-  setStatus('yellow', 'Fetching…');
-  let rateLimited = false;
+  setStatus('yellow', 'Loading…');
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const data = await KANP.getTracks({ start: now - LIVE_WINDOW_S, end: now, ground: 'include' });
 
-  for (const src of KANP.LIVE_SOURCES) {
-    try {
-      const res = await fetch(src.url(KANP.LAT, KANP.LON, KANP.SEARCH_NM));
-      if (res.status === 429) { rateLimited = true; continue; }  // try the next feed
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      const ac = (data.ac || []).filter(a => a.lat && a.lon);
-
-      storeObs(ac);
-      renderLiveAircraft(ac);
-      renderFromStorage();
-
-      setStatus('green', `Live · ${src.name}`);
-      show('ac-count-wrap');
-      document.getElementById('ac-num').textContent = ac.length;
-      show('update-wrap');
-      document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
-      return;
-    } catch (err) {
-      // CORS block or network failure for this feed — fall through to the next
-      console.warn(`[KANP] live feed ${src.name} unavailable:`, err.message);
+    // the newest fix across all tracks anchors what counts as "current"
+    let newest = 0;
+    for (const t of data.tracks) {
+      const last = t.points[t.points.length - 1];
+      if (last && last[0] > newest) newest = last[0];
     }
-  }
 
-  setStatus('red', rateLimited ? 'Rate limited — will retry' : 'No live feed reachable');
+    // one marker per aircraft: its last fix, if close to the newest fix.
+    // points carry no heading, so derive it from the previous fix.
+    const ac = [];
+    for (const t of data.tracks) {
+      const p = t.points[t.points.length - 1];
+      if (!p || p[0] < newest - RECENT_S) continue;
+      const prev = t.points[t.points.length - 2];
+      ac.push({
+        lat: p[1], lon: p[2], hex: t.hex, flight: t.flight, reg: t.reg, type: t.type,
+        alt_baro: p[5] ? 'ground' : p[3], gs: p[4], military: t.military,
+        track: prev ? bearing(prev[1], prev[2], p[1], p[2]) : 0,
+      });
+    }
+
+    // only fold a genuinely new snapshot into the session history — the public
+    // snapshot updates hourly, so polling each minute would otherwise dupe it
+    if (newest && newest !== KANP._liveNewest) {
+      KANP._liveNewest = newest;
+      storeObs(ac);
+    }
+    renderLiveAircraft(ac);
+    renderFromStorage();
+
+    const ageMin = newest ? Math.max(0, Math.round((Date.now() / 1000 - newest) / 60)) : null;
+    const viaPi = data._source === 'pi';
+    const fresh = ageMin != null && ageMin <= 2;
+    setStatus(fresh ? 'green' : 'yellow',
+      ageMin == null ? 'No recent data'
+        : fresh && viaPi ? 'Live · via Pi'
+          : `${viaPi ? 'via Pi' : 'Snapshot'} · collected ${ageMin} min ago`);
+    show('ac-count-wrap');
+    document.getElementById('ac-num').textContent = ac.length;
+    show('update-wrap');
+    document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+  } catch (err) {
+    setStatus('red', 'No data — try History / Traffic Study');
+    console.warn('[KANP] live latest-positions failed:', err.message);
+  }
+}
+
+// initial-bearing (great-circle) from point 1 to point 2, degrees
+function bearing(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) -
+    Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
 }
 
 function getObs() {
