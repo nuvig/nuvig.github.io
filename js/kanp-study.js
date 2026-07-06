@@ -1,4 +1,4 @@
-﻿// KANP Flight Tracker â€” Traffic Study tab
+// KANP Flight Tracker — Traffic Study tab
 // Aggregate statistics from the Pi collector database.
 
 const KANPStudy = (() => {
@@ -38,7 +38,7 @@ const KANPStudy = (() => {
     const btn = document.getElementById('study-load');
     const out = document.getElementById('study-result');
     btn.disabled = true;
-    out.textContent = 'Crunchingâ€¦';
+    out.textContent = 'Crunching…';
     try {
       lastParams = KANP.readFilters('study-filters');
       const stats = await KANP.getStats(lastParams);
@@ -48,7 +48,7 @@ const KANPStudy = (() => {
       out.textContent =
         `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft, ` +
         `${Number(stats.totals.samples).toLocaleString()} position reports over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days Â· ${KANP.sourceLabel(stats)}`;
+        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(stats)}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
@@ -68,7 +68,7 @@ const KANPStudy = (() => {
       return;
     }
     // remote: build a CSV in the browser from the GitHub snapshots
-    out.textContent = 'Building CSV from snapshotsâ€¦';
+    out.textContent = 'Building CSV from snapshots…';
     try {
       await KANPStatic.exportCsv(params);
       out.textContent = 'CSV downloaded (snapshot resolution)';
@@ -91,13 +91,13 @@ const KANPStudy = (() => {
     const perDay = s.daily.reduce((n, d) => n + d.ac, 0) / activeDays;
     document.getElementById('sc-perday').textContent = perDay.toFixed(1);
 
-    let busiest = { d: 'â€”', ac: 0 };
+    let busiest = { d: '—', ac: 0 };
     s.daily.forEach(d => { if (d.ac > busiest.ac) busiest = d; });
-    document.getElementById('sc-busiest').textContent = busiest.ac || 'â€“';
+    document.getElementById('sc-busiest').textContent = busiest.ac || '–';
     document.getElementById('sc-busiest-lbl').textContent =
       busiest.ac ? `busiest day (${busiest.d})` : 'busiest day';
 
-    // peak hour + weekend share, both from the hour Ã— dow grid
+    // peak hour + weekend share, both from the hour × dow grid
     const grid = s.grid_unique_aircraft;
     let peak = { d: 0, h: 0, v: 0 }, weekend = 0, total = 0;
     for (let d = 0; d < 7; d++) {
@@ -108,13 +108,13 @@ const KANPStudy = (() => {
         if (v > peak.v) peak = { d, h, v };
       }
     }
-    document.getElementById('sc-peakhour').textContent = peak.v || 'â€“';
+    document.getElementById('sc-peakhour').textContent = peak.v || '–';
     document.getElementById('sc-peakhour-lbl').textContent =
       peak.v ? `peak hour (${DAYS[peak.d]} ${hourLabel(peak.h)})` : 'peak hour';
     document.getElementById('sc-weekend').textContent =
-      total ? `${Math.round(100 * weekend / total)}%` : 'â€“';
+      total ? `${Math.round(100 * weekend / total)}%` : '–';
 
-    // ---- hour Ã— dow grid (with metric toggle when samples grid exists) ----
+    // ---- hour × dow grid (with metric toggle when samples grid exists) ----
     document.getElementById('grid-toggle').style.display =
       s.grid_samples ? '' : 'none';
     if (!s.grid_samples) gridMetric = 'ac';
@@ -165,7 +165,7 @@ const KANPStudy = (() => {
       ? s.grid_samples : s.grid_unique_aircraft;
     document.getElementById('study-grid-title').textContent =
       (gridMetric === 'samples' ? 'Position reports' : 'Unique aircraft') +
-      ' â€” hour of day Ã— day of week';
+      ' — hour of day × day of week';
     KANP.renderGrid(document.getElementById('study-grid'), grid);
   }
 
@@ -181,9 +181,9 @@ const KANPStudy = (() => {
       });
       types = [...m.entries()].map(([type, ac]) => ({ type, ac }))
         .sort((a, b) => b.ac - a.ac);
-      note.textContent = 'Â· unique aircraft per type (top 25 aircraft only â€” update the Pi server for full data)';
+      note.textContent = '· unique aircraft per type (top 25 aircraft only — update the Pi server for full data)';
     } else {
-      note.textContent = 'Â· unique aircraft per type';
+      note.textContent = '· unique aircraft per type';
     }
     types = types.slice(0, 20);
     KANP.drawBars(
@@ -208,8 +208,8 @@ const KANPStudy = (() => {
 
     // sort indicator
     document.querySelectorAll('#study-top th').forEach(th => {
-      const base = th.textContent.replace(/ [â–¾â–´]$/, '');
-      th.textContent = th.dataset.k === sortKey ? `${base} ${sortDesc ? 'â–¾' : 'â–´'}` : base;
+      const base = th.textContent.replace(/ [▾▴]$/, '');
+      th.textContent = th.dataset.k === sortKey ? `${base} ${sortDesc ? '▾' : '▴'}` : base;
     });
 
     const tbody = document.querySelector('#study-top tbody');
@@ -217,18 +217,18 @@ const KANPStudy = (() => {
     rows.forEach(a => {
       const tr = document.createElement('tr');
       const alt = a.min_alt != null && a.max_alt != null
-        ? `${fmtAlt(a.min_alt)}â€“${fmtAlt(a.max_alt)}` : 'â€”';
+        ? `${fmtAlt(a.min_alt)}–${fmtAlt(a.max_alt)}` : '—';
       const regLink =
         `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(a.hex)}" ` +
         `target="_blank" rel="noopener">${a.reg || a.hex}</a>`;
       const cells = [
         regLink + (a.military ? '<span class="mil-tag">MIL</span>' : ''),
-        a.type || 'â€”',
-        (a.callsigns || 'â€”').split(',').slice(0, 3).join(', '),
+        a.type || '—',
+        (a.callsigns || '—').split(',').slice(0, 3).join(', '),
         a.hex,
         Number(a.samples).toLocaleString(),
         alt,
-        a.min_dist != null ? `${a.min_dist.toFixed(1)} nm` : 'â€”',
+        a.min_dist != null ? `${a.min_dist.toFixed(1)} nm` : '—',
         new Date(a.last_ts * 1000).toLocaleString(),
       ];
       tr.innerHTML = cells.map(c => `<td>${c}</td>`).join('');

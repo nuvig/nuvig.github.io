@@ -21,12 +21,10 @@
 // a left-hand pattern.
 
 const KANPOps = (() => {
-  // Gates chosen so pattern legs stay "airborne": KANP TPA is ~1,000 ft MSL
-  // and the downwind is flown ~0.8-1.5 nm out, so "at the field" must be
-  // tighter than that — only short final / the runway / initial upwind hit
-  // both gates (field elevation is 34 ft).
-  const NEAR_NM = 0.8;      // "at the field" horizontal gate
-  const LOW_FT = 600;       // "at the field" altitude gate, ft MSL
+  // "At the field" gates are shared with the Lee-traffic filter — see
+  // KANP.OPS_GATES in kanp.js for why they sit below pattern altitude.
+  const NEAR_NM = KANP.OPS_GATES.NEAR_NM;
+  const LOW_FT = KANP.OPS_GATES.LOW_FT;
   const GAP_S = 300;        // max time gap inside one field-contact segment
   const CONTEXT_S = 900;    // how far before/after to look for airborne context
   const R_EARTH_NM = 3440.065;
@@ -304,5 +302,6 @@ const KANPOps = (() => {
     document.getElementById(id).textContent = v;
   }
 
-  return {};
+  // analyze() is reused by the History Map tab's per-aircraft activity list
+  return { analyze };
 })();

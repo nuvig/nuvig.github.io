@@ -57,6 +57,7 @@ const KANPHistory = (() => {
       const data = await KANP.getTracks(params);
       const shown = applyArrDep(data);
       draw(shown);
+      renderLeeList(shown);
 
       const opsLabel = { arr: ' · arrivals', dep: ' · departures',
                          both: ' · arrivals + departures' }[arrDepMode()] || '';
@@ -74,6 +75,59 @@ const KANPHistory = (() => {
     }
   }
 
+  // Collapsed per-aircraft summary of Lee Airport activity for whatever is
+  // currently drawn on the map, using the operations detector from kanp-ops.js.
+  function renderLeeList(shown) {
+    const details = document.getElementById('lee-list');
+    const { ops } = KANPOps.analyze(shown);
+
+    const byAc = new Map();
+    shown.tracks.forEach(t => {
+      byAc.set(t.hex, {
+        hex: t.hex, reg: t.reg, type: t.type, military: t.military,
+        callsigns: t.flight || '', arr: 0, dep: 0, tng: 0, unk: 0, opsN: 0,
+        last: t.points.length ? t.points[t.points.length - 1][0] : 0,
+      });
+    });
+    ops.forEach(o => {
+      const e = byAc.get(o.hex);
+      if (!e) return;
+      e[o.kind === 'unk' ? 'unk' : o.kind]++;
+      e.opsN += o.kind === 'tng' ? 2 : 1;
+    });
+
+    const leeAc = [...byAc.values()].filter(e => e.opsN > 0)
+      .sort((a, b) => b.opsN - a.opsN || b.last - a.last);
+    const overflights = byAc.size - leeAc.length;
+    const totalOps = leeAc.reduce((n, e) => n + e.opsN, 0);
+
+    details.style.display = '';
+    document.getElementById('lee-list-summary').innerHTML =
+      `Lee Airport activity — <span class="cnt">${leeAc.length}</span> aircraft, ` +
+      `<span class="cnt">${totalOps}</span> ops` +
+      `<span class="sub">${overflights} others in view never touched the field · click to expand</span>`;
+
+    const tbody = document.querySelector('#lee-table tbody');
+    tbody.innerHTML = '';
+    leeAc.slice(0, 300).forEach(e => {
+      const tr = document.createElement('tr');
+      const reg = `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(e.hex)}"` +
+        ` target="_blank" rel="noopener">${e.reg || e.hex}</a>` +
+        (e.military ? '<span class="mil-tag">MIL</span>' : '');
+      tr.innerHTML = [
+        reg, e.type || '—', e.callsigns || '—',
+        e.arr, e.dep, e.tng, e.opsN,
+        new Date(e.last * 1000).toLocaleString(),
+      ].map(c => `<td>${c}</td>`).join('');
+      tbody.appendChild(tr);
+    });
+    document.getElementById('lee-list-note').textContent =
+      (leeAc.length > 300 ? `showing first 300 of ${leeAc.length} aircraft · ` : '') +
+      (leeAc.reduce((n, e) => n + e.unk, 0)
+        ? 'some field contacts had no airborne context (coverage gaps) and count as 1 op each · ' : '') +
+      'touch-and-go = 2 ops (FAA counting); low passes and stop-and-gos are indistinguishable from touch-and-gos in ADS-B data';
+  }
+
   function arrDepMode() {
     const sel = document.querySelector('#hist-filters [data-f=arrdep]');
     return sel ? sel.value : 'all';
@@ -86,7 +140,11 @@ const KANPHistory = (() => {
   function applyArrDep(data) {
     const mode = arrDepMode();
     if (mode === 'all') return data;
+    // 'lee' keeps anything that touched the field — arrivals, departures AND
+    // local pattern work, which the endpoint-based arr/dep classifier misses
+    // (a touch-and-go session both starts and ends at the field).
     const tracks = data.tracks.filter(t => {
+      if (mode === 'lee') return KANP.fieldContact(t.points);
       const c = KANP.classifyArrDep(t.points);
       return mode === 'arr' ? c.arrival
            : mode === 'dep' ? c.departure

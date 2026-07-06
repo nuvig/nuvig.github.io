@@ -341,6 +341,23 @@ KANP.RWY = {
   names: ['12', '30'],      // names[0] = axisTrue direction, names[1] = reciprocal
 };
 
+// "At the field" gates shared by the operations detector (kanp-ops.js) and
+// the Lee-traffic filter: tighter than the arrival/departure classifier above
+// because KANP pattern altitude (~1,000 ft MSL, ~1 nm out) must NOT count as
+// a field contact — only short final, the runway, and initial upwind do.
+KANP.OPS_GATES = { NEAR_NM: 0.8, LOW_FT: 600 };
+
+// Did this track ever touch the field? True for arrivals, departures and
+// pattern work alike — the test the "Lee traffic" filter uses.
+KANP.fieldContact = function (points) {
+  const g = KANP.OPS_GATES;
+  for (const p of points || []) {
+    if ((p[5] === 1 || (p[3] != null && p[3] <= g.LOW_FT)) &&
+        KANP.distNm(p[1], p[2]) <= g.NEAR_NM) return true;
+  }
+  return false;
+};
+
 // ---------------------------------------------------------------------------
 // Shared: simple canvas bar chart (Traffic Study + Operations sections)
 // ---------------------------------------------------------------------------
