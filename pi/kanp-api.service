@@ -1,0 +1,26 @@
+[Unit]
+Description=KANP traffic API + web server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kanp
+Group=kanp
+ExecStart=/usr/bin/python3 /opt/kanp/pi/server.py
+Restart=always
+RestartSec=10
+
+#Environment=KANP_PORT=8787
+#Environment=KANP_WEB_ROOT=/opt/kanp
+
+# hardening — the API opens the DB read-only, but WAL readers still need
+# filesystem write access for the -shm/-wal sidecar files
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kanp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

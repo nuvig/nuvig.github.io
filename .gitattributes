@@ -1,0 +1,4 @@
+# Pi backend runs on Linux — these MUST stay LF or bash/systemd break on checkout
+pi/*.py            text eol=lf
+pi/*.sh            text eol=lf
+pi/*.service       text eol=lf

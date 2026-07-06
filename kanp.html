@@ -11,10 +11,12 @@
   <link rel="stylesheet" href="css/main.css">
   <style>
     body {
-      max-width: 900px;
+      max-width: 1100px;
       padding-bottom: 40px;
+      margin-right: 32px;
     }
 
+    a { color: #aaa; }
     #back-link {
       display: inline-block;
       margin-top: 16px;
@@ -30,22 +32,55 @@
       font-size: 14px;
     }
 
-    #temporal-canvas {
-      display: block;
-      border: 1px solid #333;
-      background: #1a1a1a;
+    /* Override the global canvas rule from main.css */
+    canvas.chart {
+      display: block !important;
+      position: static !important;
+      right: auto !important;
+      bottom: auto !important;
+      z-index: 1 !important;
+      cursor: default !important;
+      border: 1px solid #333 !important;
+      background: #1a1a1a !important;
+      box-shadow: none !important;
       border-radius: 6px;
       width: 100%;
-      height: 168px;
     }
 
-    #map {
+    /* ---- tabs ---- */
+    .tab-nav {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #333;
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #777;
+      font-size: 14px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active {
+      color: #fff;
+      border-bottom-color: #4a9eff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ---- maps ---- */
+    #map, #hist-map {
       height: 460px;
       border-radius: 8px;
       border: 1px solid #333;
       margin: 12px 0;
-      background: #1a1a1a;
+      background: #0b0b0b;
     }
+    #hist-map { height: 560px; }
 
     .status-bar {
       display: flex;
@@ -60,28 +95,15 @@
       color: #888;
       margin-bottom: 12px;
     }
-
-    .indicator {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
+    .indicator { display: flex; align-items: center; gap: 6px; }
     .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #444;
-      flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #444; flex-shrink: 0;
     }
     .dot.green  { background: #22c55e; animation: pulse 2s infinite; }
     .dot.yellow { background: #f59e0b; }
     .dot.red    { background: #ef4444; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.3; }
-    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
     .section-title {
       font-size: 15px;
@@ -91,172 +113,135 @@
       letter-spacing: 0.02em;
     }
 
-    .heatmap-legend {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 10px;
-      font-size: 11px;
-      color: #555;
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 14px;
     }
 
+    .heatmap-legend {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px; font-size: 11px; color: #555;
+    }
     .legend-gradient {
-      flex: 1;
-      max-width: 140px;
-      height: 10px;
-      border-radius: 3px;
+      flex: 1; max-width: 140px; height: 10px; border-radius: 3px;
       background: linear-gradient(to right, #1a1a2e, #0077b6, #00b4d8, #90e0ef, #f0c040, #ef4444);
     }
 
+    /* ---- filter bar ---- */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      align-items: flex-end;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+    .filter-field { display: flex; flex-direction: column; gap: 3px; }
+    .filter-field label { font-size: 11px; color: #666; }
+    .filter-bar input, .filter-bar select {
+      background: #111;
+      border: 1px solid #3a3a3a;
+      color: #ddd;
+      border-radius: 5px;
+      padding: 5px 7px;
+      font-size: 13px;
+      font-family: inherit;
+      color-scheme: dark;
+    }
+    .filter-bar input[type=number] { width: 72px; }
+    .filter-bar input[type=text]   { width: 90px; }
+    .dow-row { display: flex; gap: 3px; }
+    .dow-btn {
+      width: 26px; height: 26px;
+      background: #111; border: 1px solid #3a3a3a; color: #666;
+      border-radius: 4px; font-size: 11px; cursor: pointer;
+    }
+    .dow-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .btn {
+      background: #1d3a5f;
+      color: #cfe6ff;
+      border: 1px solid #4a9eff;
+      font-size: 13px;
+      padding: 6px 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn:hover { background: #26497a; }
+    .btn.secondary { background: #333; border-color: #444; color: #ddd; }
+    .btn.secondary:hover { background: #444; }
+    .btn.danger { background: #3d1010; border-color: #6b2020; color: #f87171; }
+    .btn.danger:hover { background: #5a1a1a; }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    .result-line { font-size: 13px; color: #888; margin: 8px 2px; min-height: 18px; }
+    .result-line .warn { color: #f59e0b; }
+    .result-line .err  { color: #ef4444; }
+
+    /* ---- altitude legend (tar1090 scale) ---- */
+    .alt-legend {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; color: #666; margin-top: 6px;
+    }
+    #alt-legend-bar { flex: 1; max-width: 340px; height: 10px; border-radius: 3px; }
+
+    /* ---- study tab ---- */
+    .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .stat-card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 12px 18px; min-width: 120px;
+    }
+    .stat-card .num { font-size: 22px; font-weight: 600; color: #fff; }
+    .stat-card .lbl { font-size: 11px; color: #666; margin-top: 2px; }
+
+    table.ac-table {
+      width: 100%; border-collapse: collapse; font-size: 12px; color: #bbb;
+    }
+    .ac-table th, .ac-table td {
+      text-align: left; padding: 5px 8px; border-bottom: 1px solid #2a2a2a;
+    }
+    .ac-table th { color: #666; font-weight: 500; font-size: 11px; }
+    .ac-table tr:hover td { background: #222; }
+    .mil-tag {
+      background: #3d2a10; color: #f0c040; border-radius: 3px;
+      padding: 0 5px; font-size: 10px; margin-left: 4px;
+    }
+
+    /* ---- settings ---- */
     .settings-panel {
       background: #1a1a1a;
       border: 1px solid #333;
       border-radius: 8px;
       padding: 14px 16px;
-      margin-top: 16px;
+      margin-top: 20px;
     }
-
-    .settings-panel h3 {
-      margin: 0 0 12px;
-      font-size: 14px;
-      color: #aaa;
-      font-weight: 500;
+    .settings-panel h3 { margin: 0 0 12px; font-size: 14px; color: #aaa; font-weight: 500; }
+    .settings-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .settings-row input[type=text] {
+      background: #111; border: 1px solid #3a3a3a; color: #ddd;
+      border-radius: 5px; padding: 6px 8px; font-size: 13px; width: 280px;
+      font-family: inherit;
     }
-
-    .settings-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .settings-panel button {
-      background: #333;
-      color: #ddd;
-      border: 1px solid #444;
-      font-size: 13px;
-      padding: 6px 14px;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    .settings-panel button:hover { background: #444; }
-    .settings-panel button.danger { background: #3d1010; border-color: #6b2020; color: #f87171; }
-    .settings-panel button.danger:hover { background: #5a1a1a; }
-
-    .settings-hint {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #555;
-      line-height: 1.5;
-    }
+    .settings-hint { margin-top: 10px; font-size: 12px; color: #555; line-height: 1.5; }
+    .settings-hint a { color: #4a9eff; }
+    .settings-hint code { color: #888; }
 
     .empty-history {
-      text-align: center;
-      padding: 20px 0 10px;
-      font-size: 13px;
-      color: #444;
+      text-align: center; padding: 20px 0 10px;
+      font-size: 13px; color: #444;
     }
 
-    .display-controls {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-      padding: 10px 12px;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      font-size: 13px;
-      color: #aaa;
-      margin-bottom: 12px;
+    .leaflet-container { font-family: inherit; }
+    .leaflet-control-layers {
+      background: #1a1a1af0; color: #ccc; border: 1px solid #444;
     }
-
-    .display-controls label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      white-space: nowrap;
-    }
-
-    .display-controls select {
-      background: #222;
-      color: #ddd;
-      border: 1px solid #444;
-      border-radius: 4px;
-      padding: 3px 6px;
-      font-size: 13px;
-    }
-
-    .display-controls input[type="number"] {
-      width: 72px;
-      background: #222;
-      color: #ddd;
-      border: 1px solid #444;
-      border-radius: 4px;
-      padding: 3px 6px;
-      font-size: 13px;
-    }
-
-    .display-controls button {
-      background: #333;
-      color: #ccc;
-      border: 1px solid #444;
-      font-size: 12px;
-      padding: 3px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .display-controls button:hover { background: #444; }
-
-    #alt-legend {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      font-size: 11px;
-      color: #777;
-      margin-left: auto;
-    }
-
-    .alt-band {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .alt-band .swatch {
-      width: 14px;
-      height: 4px;
-      border-radius: 2px;
-      display: inline-block;
-    }
-
-    .settings-panel select,
-    .settings-panel input[type="text"],
-    .settings-panel input[type="password"] {
-      background: #222;
-      color: #ddd;
-      border: 1px solid #444;
-      border-radius: 5px;
-      padding: 6px 8px;
-      font-size: 13px;
-    }
-
-    .settings-panel input[type="text"],
-    .settings-panel input[type="password"] {
-      flex: 1;
-      min-width: 220px;
-    }
-
-    .settings-field {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-top: 10px;
-      font-size: 13px;
-      color: #999;
-      flex-wrap: wrap;
-    }
+    .leaflet-control-layers label { color: #ccc; }
   </style>
 </head>
 <body>
@@ -265,106 +250,217 @@
   <h1>KANP Flight Tracker</h1>
   <p class="subtitle">Live traffic &amp; historical patterns · Lee Airport, Annapolis MD</p>
 
-  <div class="status-bar">
-    <div class="indicator">
-      <div class="dot" id="status-dot"></div>
-      <span id="status-text">Connecting…</span>
-    </div>
-    <span id="ac-count-wrap" style="display:none">
-      <strong id="ac-num">0</strong> aircraft in range
-    </span>
-    <span id="update-wrap" style="display:none">
-      Updated <span id="update-time">—</span>
-    </span>
-    <span id="history-wrap" style="display:none">
-      <span id="history-span">0 days</span> of history
-    </span>
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-live">Live</button>
+    <button class="tab-btn" data-tab="tab-history">History Map</button>
+    <button class="tab-btn" data-tab="tab-study">Traffic Study</button>
   </div>
 
-  <div class="display-controls">
-    <label><input type="checkbox" id="trails-toggle" checked> Trails</label>
-    <label>Alt <input type="number" id="alt-min" min="0" max="60000" step="500" value="0"> –
-      <input type="number" id="alt-max" min="0" max="60000" step="500" value="45000"> ft</label>
-    <button id="alt-reset">Reset</button>
-    <div id="alt-legend"></div>
-  </div>
-
-  <div id="map"></div>
-
-  <div class="card" id="history-card" style="display:none; margin-bottom:12px; padding:10px 12px">
-    <div class="display-controls" style="border:none; background:none; padding:0; margin:0">
-      <strong style="color:#ccc; font-size:13px">History</strong>
-      <label>Day <select id="history-day"></select></label>
-      <label>Hours <input type="number" id="hour-min" min="0" max="24" step="1" value="0"> –
-        <input type="number" id="hour-max" min="0" max="24" step="1" value="24"></label>
-      <button id="history-load">Load</button>
-      <button id="history-clear">Clear</button>
-      <span id="history-status" style="color:#777; font-size:12px"></span>
+  <!-- ======================= LIVE TAB ======================= -->
+  <div id="tab-live" class="tab-panel active">
+    <div class="status-bar">
+      <div class="indicator">
+        <div class="dot" id="status-dot"></div>
+        <span id="status-text">Connecting…</span>
+      </div>
+      <span id="ac-count-wrap" style="display:none">
+        <strong id="ac-num">0</strong> aircraft in range
+      </span>
+      <span id="update-wrap" style="display:none">
+        Updated <span id="update-time">—</span>
+      </span>
+      <span id="collector-wrap" style="display:none">
+        Collector: <span id="collector-text">—</span>
+      </span>
     </div>
-    <div class="settings-hint" style="margin-top:6px">
-      Replays collected tracks on the map above, colored by altitude — the altitude filter applies too.
-      Hours are your local time.
-    </div>
-  </div>
 
-  <div class="section-title">Traffic Patterns — hour of day × day of week</div>
-  <div class="card">
-    <div id="no-history" class="empty-history">
-      No historical data yet. Data accumulates automatically while this page is open.
-    </div>
-    <canvas id="temporal-canvas"></canvas>
-    <div class="heatmap-legend">
-      <span>Less</span>
-      <div class="legend-gradient"></div>
-      <span>More</span>
-      <span style="margin-left:auto" id="obs-label"></span>
+    <div id="map"></div>
+
+    <div class="section-title">This browser session — hour of day × day of week</div>
+    <div class="card">
+      <div id="no-history" class="empty-history">
+        No data yet this session. For 24/7 data, see the Traffic Study tab (needs the Pi collector).
+      </div>
+      <canvas id="temporal-canvas" class="chart" style="height:168px"></canvas>
+      <div class="heatmap-legend">
+        <span>Less</span>
+        <div class="legend-gradient"></div>
+        <span>More</span>
+        <span style="margin-left:auto" id="obs-label"></span>
+      </div>
     </div>
   </div>
 
+  <!-- ======================= HISTORY MAP TAB ======================= -->
+  <div id="tab-history" class="tab-panel">
+    <div class="filter-bar" id="hist-filters">
+      <div class="filter-field">
+        <label>Quick range</label>
+        <select data-f="quick">
+          <option value="">custom</option>
+          <option value="3600">last hour</option>
+          <option value="21600">last 6 h</option>
+          <option value="86400" selected>last 24 h</option>
+          <option value="today">today</option>
+          <option value="yesterday">yesterday</option>
+          <option value="604800">last 7 days</option>
+          <option value="2592000">last 30 days</option>
+        </select>
+      </div>
+      <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
+      <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
+      <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
+      <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field">
+        <label>Ground traffic</label>
+        <select data-f="ground">
+          <option value="include">include</option>
+          <option value="exclude">exclude</option>
+          <option value="only">only</option>
+        </select>
+      </div>
+      <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign" placeholder="e.g. N123"></div>
+      <div class="filter-field"><label>Hours (local)</label><input type="text" data-f="hours" placeholder="e.g. 7-19" style="width:70px"></div>
+      <div class="filter-field">
+        <label>Days</label>
+        <div class="dow-row" data-f="dow">
+          <button class="dow-btn on">M</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">W</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">F</button><button class="dow-btn on">S</button>
+          <button class="dow-btn on">S</button>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
+          <input type="checkbox" data-f="military"> military only
+        </label>
+      </div>
+      <button class="btn" id="hist-load">Load tracks</button>
+    </div>
+    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Requires the Pi collector — see Data Source below.</div>
+
+    <div id="hist-map"></div>
+
+    <div class="alt-legend">
+      <span>ground</span>
+      <canvas id="alt-legend-bar" width="340" height="10"></canvas>
+      <span>40,000 ft</span>
+      <span style="margin-left:12px">· altitude-colored tracks, tar1090 scale · layers ▛ top-right: VFR sectional, TAC, weather</span>
+    </div>
+  </div>
+
+  <!-- ======================= TRAFFIC STUDY TAB ======================= -->
+  <div id="tab-study" class="tab-panel">
+    <div class="filter-bar" id="study-filters">
+      <div class="filter-field">
+        <label>Quick range</label>
+        <select data-f="quick">
+          <option value="">custom</option>
+          <option value="86400">last 24 h</option>
+          <option value="604800" selected>last 7 days</option>
+          <option value="2592000">last 30 days</option>
+          <option value="7776000">last 90 days</option>
+          <option value="31536000">last year</option>
+        </select>
+      </div>
+      <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
+      <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
+      <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
+      <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field">
+        <label>Ground traffic</label>
+        <select data-f="ground">
+          <option value="include">include</option>
+          <option value="exclude" selected>exclude</option>
+          <option value="only">only</option>
+        </select>
+      </div>
+      <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign"></div>
+      <div class="filter-field"><label>Hours (local)</label><input type="text" data-f="hours" placeholder="e.g. 7-19" style="width:70px"></div>
+      <div class="filter-field">
+        <label>Days</label>
+        <div class="dow-row" data-f="dow">
+          <button class="dow-btn on">M</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">W</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">F</button><button class="dow-btn on">S</button>
+          <button class="dow-btn on">S</button>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
+          <input type="checkbox" data-f="military"> military only
+        </label>
+      </div>
+      <button class="btn" id="study-load">Run study</button>
+      <button class="btn secondary" id="study-export">Export CSV</button>
+    </div>
+    <div class="result-line" id="study-result">Pick a range and hit <em>Run study</em>. Requires the Pi collector — see Data Source below.</div>
+
+    <div class="stat-cards" id="study-cards" style="display:none">
+      <div class="stat-card"><div class="num" id="sc-aircraft">–</div><div class="lbl">unique aircraft</div></div>
+      <div class="stat-card"><div class="num" id="sc-samples">–</div><div class="lbl">position reports</div></div>
+      <div class="stat-card"><div class="num" id="sc-perday">–</div><div class="lbl">aircraft / day (avg)</div></div>
+      <div class="stat-card"><div class="num" id="sc-busiest">–</div><div class="lbl" id="sc-busiest-lbl">busiest day</div></div>
+    </div>
+
+    <div id="study-charts" style="display:none">
+      <div class="section-title">Unique aircraft — hour of day × day of week</div>
+      <div class="card">
+        <canvas id="study-grid" class="chart" style="height:168px"></canvas>
+        <div class="heatmap-legend">
+          <span>Less</span><div class="legend-gradient"></div><span>More</span>
+        </div>
+      </div>
+
+      <div class="section-title">Aircraft per day</div>
+      <div class="card"><canvas id="study-daily" class="chart" style="height:160px"></canvas></div>
+
+      <div class="section-title">Altitude distribution (position reports, airborne)</div>
+      <div class="card"><canvas id="study-alt" class="chart" style="height:160px"></canvas></div>
+
+      <div class="section-title">Most-seen aircraft</div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="study-top">
+          <thead><tr>
+            <th>Reg</th><th>Type</th><th>Callsigns</th><th>Hex</th>
+            <th>Reports</th><th>Alt range</th><th>Closest</th><th>Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= SETTINGS ======================= -->
   <div class="settings-panel">
-    <h3>Settings</h3>
-
-    <div class="settings-field">
-      <label for="source-select">Data source</label>
-      <select id="source-select">
-        <option value="airplanes">airplanes.live (default)</option>
-        <option value="custom">Local receiver / custom URL</option>
-        <option value="adsbx">ADS-B Exchange (RapidAPI)</option>
-      </select>
+    <h3>Data Source</h3>
+    <div class="settings-row">
+      <input type="text" id="api-base" placeholder="Pi API URL, e.g. http://192.168.1.50:8787">
+      <button class="btn secondary" id="api-save">Save &amp; test</button>
+      <span id="api-status" style="font-size:12px;color:#666"></span>
     </div>
-
-    <div class="settings-field" id="custom-url-row" style="display:none">
-      <label for="custom-url">URL</label>
-      <input type="text" id="custom-url" placeholder="http://receiver.local/skyaware/data/aircraft.json" spellcheck="false">
+    <div class="settings-row" style="margin-top:10px">
+      <button id="clear-data-btn" class="btn danger">Clear browser history</button>
     </div>
-
-    <div class="settings-field" id="adsbx-key-row" style="display:none">
-      <label for="adsbx-key">API key</label>
-      <input type="password" id="adsbx-key" placeholder="RapidAPI key (stored only in this browser)" spellcheck="false">
-    </div>
-
-    <div class="settings-row" style="margin-top:12px">
-      <button id="clear-data-btn" class="danger">Clear Local History</button>
-    </div>
-
     <div class="settings-hint">
-      Default data via <a href="https://airplanes.live" target="_blank" rel="noopener">airplanes.live</a>,
-      polled every 15 s while the page is open. Trails accumulate while the page is open and are colored
-      by altitude band. Shared history is collected 24/7 by a dedicated collector within 60 nm of KANP
-      and merged with observations from your own browser.
-      <br><br>
-      <strong>Local receiver note:</strong> works with dump1090-fa
-      (<code>/skyaware/data/aircraft.json</code>), readsb, and tar1090
-      (<code>/tar1090/data/aircraft.json</code>). Data source settings are stored only in your browser.
-      A plain-http receiver URL will be blocked by the browser when this page is loaded over https
-      (mixed content) — open the page over http on your LAN, or serve the receiver over https
-      (e.g. a Cloudflare Tunnel). See
-      <a href="https://github.com/nuvig/nuvig.github.io/blob/main/docs/receiver-setup.md">the receiver setup guide</a>.
+      Live tab: <a href="https://airplanes.live" target="_blank" rel="noopener">airplanes.live</a>, polled every 60 s
+      while the page is open; session history stays in your browser.<br>
+      History Map &amp; Traffic Study: served by the Raspberry Pi collector
+      (<a href="https://github.com/nuvig/nuvig.github.io/tree/main/pi" target="_blank" rel="noopener">pi/README</a>).
+      If this page is loaded from the Pi itself (<code>http://pi:8787/</code>) it auto-connects; from
+      jesselevine.net over HTTPS you'll need an HTTPS tunnel to the Pi (Cloudflare Tunnel / Tailscale)
+      because browsers block HTTPS→HTTP requests.<br>
+      Charts: FAA VFR Sectional &amp; Terminal Area (official FAA tile service) ·
+      Weather: NEXRAD via Iowa Environmental Mesonet.
     </div>
   </div>
 
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp.js"></script>
+  <script src="js/kanp-history.js"></script>
+  <script src="js/kanp-study.js"></script>
 </body>
 </html>
