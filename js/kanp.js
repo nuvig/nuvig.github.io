@@ -298,6 +298,36 @@ KANP.isGA = function (t) {
 };
 
 // ---------------------------------------------------------------------------
+// Shared: arrival / departure classifier for a single track's points.
+// "At the field" = within NEAR_NM horizontally and low (on ground, or at/below
+// LOW_FT MSL). A track that begins at the field and ends away from it is a
+// departure; one that begins away and ends at the field is an arrival. Local
+// pattern work (both ends at the field) and overflights (neither) are neither.
+// Point tuple is [ts, lat, lon, alt, gs, on_ground], as returned by getTracks.
+KANP.FIELD = { NEAR_NM: 2.0, LOW_FT: 1500 };
+
+KANP.distNm = function (lat, lon) {
+  const R = 3440.065, r = Math.PI / 180;
+  const dLat = (lat - KANP.LAT) * r, dLon = (lon - KANP.LON) * r;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(KANP.LAT * r) * Math.cos(lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+KANP.classifyArrDep = function (points) {
+  const n = points ? points.length : 0;
+  if (n < 2) return { arrival: false, departure: false };
+  const atField = p => p[1] != null && p[2] != null &&
+    (p[5] === 1 || (p[3] != null && p[3] <= KANP.FIELD.LOW_FT)) &&
+    KANP.distNm(p[1], p[2]) <= KANP.FIELD.NEAR_NM;
+  const k = Math.max(1, Math.ceil(n * 0.2));   // examine each end of the track
+  let startAt = false, endAt = false;
+  for (let i = 0; i < k; i++) if (atField(points[i])) { startAt = true; break; }
+  for (let i = 0; i < k; i++) if (atField(points[n - 1 - i])) { endAt = true; break; }
+  return { departure: startAt && !endAt, arrival: endAt && !startAt };
+};
+
+// ---------------------------------------------------------------------------
 // Shared: tar1090-style altitude color (dump1090-fa ColorByAlt)
 // ---------------------------------------------------------------------------
 KANP.altColor = function (alt, onGround) {
