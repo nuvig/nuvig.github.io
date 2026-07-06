@@ -5,7 +5,7 @@
 const KANP = {
   LAT: 38.9422,
   LON: -76.5684,
-  SEARCH_NM: 20,
+  SEARCH_NM: 60,          // study/display radius around the field, nm
   POLL_MS: 60_000,
   MAX_AGE_MS: 7 * 86_400_000,
   OBS_KEY: 'kanp_obs',
@@ -531,7 +531,7 @@ KANP.addAirport = function (map) {
     interactive: false,
   }).addTo(map).bindTooltip('KANP — Lee Airport');
 
-  [5, 10, 20].forEach(nm => L.circle([KANP.LAT, KANP.LON], {
+  [15, 30, 60].forEach(nm => L.circle([KANP.LAT, KANP.LON], {
     radius: nm * 1852, color: '#444', weight: 1, fill: false, interactive: false,
   }).addTo(map));
 };
@@ -550,7 +550,7 @@ const RECENT_S = 300;         // "current" = last fix within 5 min of the newest
 let liveMap, heatLayer, aircraftLayer, pollTimer;
 
 function initLive() {
-  liveMap = L.map('map', { layers: [] }).setView([KANP.LAT, KANP.LON], 11);
+  liveMap = L.map('map', { layers: [] }).setView([KANP.LAT, KANP.LON], 8);
   window._liveMap = liveMap;
 
   const bases = KANP.baseLayers();

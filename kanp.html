@@ -13,7 +13,6 @@
     body {
       max-width: 1100px;
       padding-bottom: 40px;
-      margin-right: 32px;
     }
 
     a { color: #aaa; }
@@ -302,13 +301,13 @@
   <p class="subtitle">Live traffic &amp; historical patterns · Lee Airport, Annapolis MD</p>
 
   <div class="tab-nav">
-    <button class="tab-btn active" data-tab="tab-live">Live</button>
-    <button class="tab-btn" data-tab="tab-history">History Map</button>
+    <button class="tab-btn" data-tab="tab-live">Live</button>
+    <button class="tab-btn active" data-tab="tab-history">History Map</button>
     <button class="tab-btn" data-tab="tab-study">Traffic Study</button>
   </div>
 
   <!-- ======================= LIVE TAB ======================= -->
-  <div id="tab-live" class="tab-panel active">
+  <div id="tab-live" class="tab-panel">
     <div class="status-bar">
       <div class="indicator">
         <div class="dot" id="status-dot"></div>
@@ -343,7 +342,7 @@
   </div>
 
   <!-- ======================= HISTORY MAP TAB ======================= -->
-  <div id="tab-history" class="tab-panel">
+  <div id="tab-history" class="tab-panel active">
     <div class="filter-bar" id="hist-filters">
       <div class="filter-field">
         <label>Quick range</label>

@@ -14,6 +14,11 @@ const KANPHistory = (() => {
     KANP.initFilterBar('hist-filters');
     document.getElementById('hist-load').addEventListener('click', load);
     drawAltLegend();
+    // History Map is the default tab: build the map and load tracks right away
+    if (document.getElementById('tab-history').classList.contains('active')) {
+      onShow();
+      load();
+    }
   }
 
   function onShow() {
@@ -22,7 +27,7 @@ const KANPHistory = (() => {
   }
 
   function initMap() {
-    map = L.map('hist-map').setView([KANP.LAT, KANP.LON], 11);
+    map = L.map('hist-map').setView([KANP.LAT, KANP.LON], 8);  // ~60 nm radius in view
     renderer = L.canvas({ padding: 0.4 });
 
     const bases = KANP.baseLayers();
