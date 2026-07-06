@@ -1,0 +1,3 @@
+# Python bytecode cache (e.g. from running pi/server.py)
+__pycache__/
+*.pyc
