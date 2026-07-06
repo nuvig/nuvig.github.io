@@ -1,5 +1,5 @@
 // KANP Flight Tracker — shared utilities + Live tab
-// Live data via airplanes.live; history/study via the Pi collector API (pi/).
+// Live data via public ADS-B feeds; history/study via the Pi collector API (pi/).
 
 const KANP = {
   LAT: 38.9422,
@@ -449,8 +449,19 @@ KANP.addAirport = function (map) {
 };
 
 // ===========================================================================
-// LIVE TAB (airplanes.live from the browser, session history in localStorage)
+// LIVE TAB (browser ADS-B feed, session history in localStorage)
 // ===========================================================================
+// Public readsb "re-api" feeds — all return the same {ac:[…]} schema. Tried in
+// order until one responds; a feed that blocks browsers (no CORS header) or is
+// down is skipped. airplanes.live is kept last: as of 2026 its /v2/point
+// endpoint 404s and sends no Access-Control-Allow-Origin, but it's harmless as
+// a fallback if it comes back.
+KANP.LIVE_SOURCES = [
+  { name: 'adsb.lol', url: (lat, lon, nm) => `https://api.adsb.lol/v2/point/${lat}/${lon}/${nm}` },
+  { name: 'adsb.fi', url: (lat, lon, nm) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${nm}` },
+  { name: 'airplanes.live', url: (lat, lon, nm) => `https://api.airplanes.live/v2/point/${lat}/${lon}/${nm}` },
+];
+
 let liveMap, heatLayer, aircraftLayer, pollTimer;
 
 function initLive() {
@@ -480,28 +491,34 @@ function initLive() {
 
 async function fetchNow() {
   setStatus('yellow', 'Fetching…');
-  try {
-    const url = `https://api.airplanes.live/v2/point/${KANP.LAT}/${KANP.LON}/${KANP.SEARCH_NM}`;
-    const res = await fetch(url);
-    if (res.status === 429) { setStatus('yellow', 'Rate limit — will retry'); return; }
-    if (!res.ok) { setStatus('red', `API error ${res.status}`); return; }
+  let rateLimited = false;
 
-    const data = await res.json();
-    const ac = (data.ac || []).filter(a => a.lat && a.lon);
+  for (const src of KANP.LIVE_SOURCES) {
+    try {
+      const res = await fetch(src.url(KANP.LAT, KANP.LON, KANP.SEARCH_NM));
+      if (res.status === 429) { rateLimited = true; continue; }  // try the next feed
+      if (!res.ok) continue;
 
-    storeObs(ac);
-    renderLiveAircraft(ac);
-    renderFromStorage();
+      const data = await res.json();
+      const ac = (data.ac || []).filter(a => a.lat && a.lon);
 
-    setStatus('green', 'Live');
-    show('ac-count-wrap');
-    document.getElementById('ac-num').textContent = ac.length;
-    show('update-wrap');
-    document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
-  } catch (err) {
-    setStatus('red', 'Network error');
-    console.error('[KANP tracker]', err);
+      storeObs(ac);
+      renderLiveAircraft(ac);
+      renderFromStorage();
+
+      setStatus('green', `Live · ${src.name}`);
+      show('ac-count-wrap');
+      document.getElementById('ac-num').textContent = ac.length;
+      show('update-wrap');
+      document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+      return;
+    } catch (err) {
+      // CORS block or network failure for this feed — fall through to the next
+      console.warn(`[KANP] live feed ${src.name} unavailable:`, err.message);
+    }
   }
+
+  setStatus('red', rateLimited ? 'Rate limited — will retry' : 'No live feed reachable');
 }
 
 function getObs() {
