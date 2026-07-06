@@ -18,7 +18,8 @@
 
 const KANP_LAT   = 38.9422;
 const KANP_LON   = -76.5684;
-const SEARCH_NM  = 20;              // nautical miles radius
+const SEARCH_NM  = 60;              // nautical miles radius (matches collector)
+const MAX_HISTORY_RENDER_PTS = 150_000; // decimate loaded days beyond this
 const MAX_AGE_MS = 30 * 86_400_000; // keep 30 days of history
 const TRAIL_MAX_AGE_MS = 45 * 60_000; // keep 45 min of trail per aircraft
 const OBS_KEY      = 'kanp_obs';
@@ -52,7 +53,7 @@ const DEFAULT_SETTINGS = {
 
 let settings = loadSettings();
 let pollTimer = null;
-let map, heatLayer, aircraftLayer, trailLayer, historyLayer;
+let map, heatLayer, aircraftLayer, trailLayer, historyLayer, lineRenderer;
 let sharedObs = [];     // snapshots collected server-side, fetched once per load
 let lastAc = [];        // most recent live aircraft list, for filter re-renders
 const trails = new Map(); // hex -> { lastTs, points: [{lat, lon, alt, ts}] }
@@ -77,7 +78,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // Map
 // ---------------------------------------------------------------------------
 function initMap() {
-  map = L.map('map').setView([KANP_LAT, KANP_LON], 11);
+  map = L.map('map').setView([KANP_LAT, KANP_LON], 10);
+
+  // Canvas renderer: hundreds of SVG polylines choke the DOM once days
+  // contain 60 nm of BWI/DCA traffic — canvas draws them in one pass.
+  lineRenderer = L.canvas({ padding: 0.4 });
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
@@ -95,13 +100,16 @@ function initMap() {
     interactive: false,
   }).addTo(map).bindTooltip('KANP — Lee Airport');
 
-  // 20 nm range ring (1 nm ≈ 1852 m)
-  L.circle([KANP_LAT, KANP_LON], {
-    radius: SEARCH_NM * 1852,
-    color: '#444',
-    weight: 1,
-    fill: false,
-  }).addTo(map);
+  // Range rings at 20 and 60 nm (1 nm ≈ 1852 m)
+  [[20, '#3a3a3a'], [SEARCH_NM, '#444']].forEach(([nm, color]) => {
+    L.circle([KANP_LAT, KANP_LON], {
+      radius: nm * 1852,
+      color,
+      weight: 1,
+      fill: false,
+      interactive: false,
+    }).addTo(map);
+  });
 
   heatLayer = L.heatLayer([], { radius: 22, blur: 28, maxZoom: 13, gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' } }).addTo(map);
   historyLayer  = L.layerGroup().addTo(map);
@@ -381,6 +389,7 @@ function renderTrails() {
           weight: 2,
           opacity: 0.8,
           interactive: false,
+          renderer: lineRenderer,
         }).addTo(trailLayer);
       }
     };
@@ -478,6 +487,11 @@ function renderHistory() {
   const hourMin = clampHour(document.getElementById('hour-min').value, 0);
   const hourMax = clampHour(document.getElementById('hour-max').value, 24);
 
+  // Decimate very large days so rendering stays smooth: keep every Nth
+  // point per track (endpoints always kept by the segment builder).
+  const totalPts = historyDay.tracks.reduce((n, t) => n + t.pts.length, 0);
+  const stride = Math.max(1, Math.ceil(totalPts / MAX_HISTORY_RENDER_PTS));
+
   let shownTracks = 0, shownPts = 0;
 
   for (const track of historyDay.tracks) {
@@ -488,17 +502,22 @@ function renderHistory() {
 
     const flush = () => {
       if (seg.length > 1 && segBand) {
+        // Low-altitude segments (approaches, pattern) draw slightly
+        // heavier so they pop against high overflights.
+        const low = segBand.max <= 3000;
         L.polyline(seg.map(p => [p[1], p[2]]), {
           color: segBand.color,
-          weight: 1.5,
-          opacity: 0.6,
+          weight: low ? 2 : 1.2,
+          opacity: low ? 0.75 : 0.5,
           interactive: false,
+          renderer: lineRenderer,
         }).addTo(historyLayer);
         drewAny = true;
       }
     };
 
-    for (const p of track.pts) {
+    const pts = stride === 1 ? track.pts : track.pts.filter((_, i) => i % stride === 0);
+    for (const p of pts) {
       const [sec, , , alt] = p;
       const hr = localHourAt(dayMidnightMs, sec);
       const keep = hr >= hourMin && hr <= hourMax && altInRange(alt);

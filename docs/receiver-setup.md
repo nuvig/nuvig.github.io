@@ -4,40 +4,49 @@ How to plug your own ADS-B receiver into the KANP tracker when the hardware
 arrives. The tracker page already has everything needed — you just point it
 at your receiver in **Settings → Data source**.
 
-## 0. No receiver yet? 24/7 collection via the airplanes.live API
+## 0. The collector: 24/7 collection on the Pi (this is the setup in use)
 
-You don't have to wait for hardware to get continuous history. The
-airplanes.live API is a sufficient data source — the only thing GitHub's
-throttled Actions can't provide is an always-on machine. Any computer that
-stays on (old laptop, desktop, the Pi itself before the antenna is up) can
-run the continuous collector:
+The Pi runs `scripts/api-collector.js` around the clock. It polls the
+airplanes.live API for all traffic within **60 nm of KANP**, builds per-day
+track files, and pushes them to this repo's `traffic-data` branch, where
+the tracker page's History Explorer reads them. (The old scheduled GitHub
+Action that sampled in bursts has been removed — the Pi is the sole
+publisher, so there is nothing to conflict with.)
+
+**One-time setup, start to finish:**
 
 ```sh
-# one-time: clone the data branch with a fine-grained PAT
-#   (github.com/settings/personal-access-tokens → this repo → Contents: read/write)
+# 0. Node.js if missing:  sudo apt install -y nodejs
+
+# 1. A key so the Pi may write to GitHub: create a fine-grained PAT at
+#    github.com/settings/personal-access-tokens — repository access:
+#    only nuvig/nuvig.github.io, permission "Contents: read and write".
+
+# 2. Clone the data branch using that key (paste it in place of <PAT>)
 git clone --branch traffic-data \
   "https://<PAT>@github.com/nuvig/nuvig.github.io.git" ~/traffic-data
 cd ~/traffic-data && git config user.name kanp-collector && git config user.email kanp@localhost
 
-# fetch the collector and run it
-curl -sO https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/scripts/api-collector.js
-node api-collector.js ~/traffic-data --push
+# 3. Fetch the collector and test-run it (Ctrl-C to stop)
+cd ~ && curl -sO https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/scripts/api-collector.js
+KANP_POLL_S=1 node api-collector.js ~/traffic-data --push
 ```
 
-It polls every 20 s (well within airplanes.live's ≤1 req/s ask), merges
-tracks into the same per-day files the History Explorer reads, snapshots
-for the temporal heatmap every 30 min, and pushes hourly. To survive
-reboots, run it under systemd — `/etc/systemd/system/kanp-collector.service`:
+You should see a status line every few minutes and a `pushed` line within
+the hour. Then make it permanent with systemd —
+`/etc/systemd/system/kanp-collector.service` (replace `pi` with your
+username if different):
 
 ```ini
 [Unit]
-Description=KANP airspace collector (airplanes.live)
+Description=KANP airspace collector (airplanes.live, 60 nm)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=YOUR_USER
-ExecStart=/usr/bin/node /home/YOUR_USER/api-collector.js /home/YOUR_USER/traffic-data --push
+User=pi
+Environment=KANP_POLL_S=1
+ExecStart=/usr/bin/node /home/pi/api-collector.js /home/pi/traffic-data --push
 Restart=always
 RestartSec=30
 
@@ -45,26 +54,28 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-Then `sudo systemctl enable --now kanp-collector`.
+```sh
+sudo systemctl enable --now kanp-collector
+journalctl -u kanp-collector -f     # watch it work
+```
 
-**Important — one publisher at a time:** the GitHub Action force-pushes the
-`traffic-data` branch, which will clobber and conflict with the collector's
-pushes. When the collector is running, disable the Action (repo → Actions →
-"Collect KANP traffic" → ⋯ → Disable workflow); re-enable it as a fallback
-if the collector goes offline. If the branch's commit history ever gets
-bulky (the collector pushes ~24 commits/day), it's disposable — delete and
-recreate the branch from the collector's current files.
+**How the numbers fit together:** `KANP_POLL_S=1` polls once per second —
+the maximum airplanes.live allows. Storage is bounded separately by
+`KANP_KEEP_S` (default 5): at most one stored fix per aircraft per 5 s.
+That's deliberate — 60 nm around KANP includes BWI/DCA traffic, and
+storing every 1-second fix would make day files too large for the web page
+to load, while 5 s spacing is visually indistinguishable at map scale.
+If you want denser storage anyway, add `Environment=KANP_KEEP_S=1` and
+expect day files in the tens of MB. Radius is `KANP_RADIUS_NM` (default 60).
 
-Trade-off vs your own receiver: the API's coverage of the KANP area is
-excellent but ultimately someone else's network, sampled at 20 s. Your own
-receiver gives higher resolution, independence, and feeder perks.
+Housekeeping: the collector pushes ~24 commits/day to `traffic-data`. That
+branch is disposable — if it ever feels bulky, delete and recreate it from
+the collector's current files.
 
-## 0.5 Already running dump1090-fa? Collect from your own antenna
+## 0.5 Alternative: collect from your own antenna (dump1090-fa)
 
-If the Pi is already up with dump1090-fa (e.g. a PiAware/SkyAware setup),
-the same collector reads it directly — pass `--url` with the local
-`aircraft.json` and it polls every 5 s instead of 20 s, with no external
-API in the loop:
+The same collector can read your receiver directly instead of the API —
+pass `--url` with the local `aircraft.json`:
 
 ```sh
 node api-collector.js ~/traffic-data --push \
@@ -76,16 +87,16 @@ Notes:
   older installs use `/dump1090-fa/data/aircraft.json`. Verify with
   `curl -s http://localhost/skyaware/data/aircraft.json | head`.
 - Positions with `seen_pos` older than 15 s are skipped, and everything
-  beyond 20 nm of KANP is filtered out (your antenna sees much farther).
+  beyond `KANP_RADIUS_NM` is filtered out.
 - This coexists happily with piaware/FlightAware feeding — it's just
   another reader of dump1090-fa's JSON output.
-- Use the same systemd unit as above with the `--url` argument added to
-  `ExecStart`, and remember the one-publisher rule: disable the GitHub
-  Action's workflow while this runs.
+- Trade-off vs the API: your antenna is independent and fast, but a single
+  receiver's low-altitude coverage at 40–60 nm is limited by terrain and
+  the radio horizon — the API (thousands of pooled receivers) sees more of
+  the far-out, low traffic. For a 60 nm study area the API is usually the
+  more complete source; your antenna wins inside its solid coverage.
 - Section 4's nightly `receiver-export.js` path is **readsb-only**
-  (dump1090-fa doesn't write a globe-history archive) — with dump1090-fa,
-  this continuous collector *is* the 24/7 history pipeline, and 5 s
-  sampling is plenty for approach-path study.
+  (dump1090-fa doesn't write a globe-history archive).
 
 ## 1. Set up the receiver
 
@@ -166,10 +177,9 @@ instead, use "Local receiver / custom URL" mode with that full URL.
 
 This is the payoff. The tracker page has a **History Explorer** that replays
 per-day track files (`tracks/YYYY-MM-DD.json` on the `traffic-data` branch)
-with hour-of-day and altitude filtering. Until the receiver exists, those
-files are filled by GitHub Action sampling bursts — a few 5-minute windows
-per hour at best. The receiver replaces that with true 24/7 coverage at
-1-second resolution.
+with hour-of-day and altitude filtering. This path only applies if you run
+readsb instead of dump1090-fa; it exports readsb's on-disk archive at
+1-second source resolution instead of polling.
 
 `scripts/receiver-export.js` (no npm dependencies) converts a day of
 readsb's globe history into the shared track format: filters to within
@@ -196,10 +206,8 @@ readsb's globe history into the shared track format: filters to within
    ```
 
 The page needs no changes — receiver-exported days simply appear in the
-History Explorer's day list with far more tracks and points. (Note the
-GitHub Action keeps running harmlessly alongside; it merges into different
-runs of the same files. Once the receiver is proven, you can disable the
-Action's burst sampling or keep it as a backfill for receiver downtime.)
+History Explorer's day list. Don't run this and the continuous collector's
+push on the same branch clone at the same time; pick one publisher.
 
 ## 5. Later ideas
 

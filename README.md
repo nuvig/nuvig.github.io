@@ -23,28 +23,22 @@ Annapolis, MD. Hosted on GitHub Pages.
   Exchange via RapidAPI (key stored only in the browser — never commit API
   keys to this public repo). See `docs/receiver-setup.md` for wiring up an
   RTL-SDR receiver.
-- **Shared history**: a scheduled GitHub Action
-  (`.github/workflows/collect-traffic.yml`) runs
-  `scripts/collect-airspace.js`, which samples the airspace in a ~5-minute
-  burst (one poll per 20 s) and force-pushes results to the `traffic-data`
-  branch as a single commit: `traffic.json` (rolling 30-day snapshots for
-  the temporal heatmap) and `tracks/YYYY-MM-DD.json` per-day track files
-  (for the History Explorer), plus `tracks/index.json`. Note: GitHub
-  schedules are best-effort — in practice runs land every ~2–3 h, not the
-  requested 30 min.
-- **History Explorer**: the page lists available track days and replays any
-  day's tracks on the map with hour-of-day and altitude filtering — the
-  airspace-study tool. Trails split at sampling gaps so burst data doesn't
-  draw false straight lines.
-- **24/7 collection**: `scripts/api-collector.js` runs on any always-on
-  machine and writes the track format continuously — from the
-  airplanes.live API (default, 20 s polls) or from a local
-  dump1090-fa/readsb receiver via `--url` (5 s polls, no external API).
-  It pushes the data branch hourly; disable the Action while it runs
-  since both publish the same branch. For readsb-based receivers,
-  `scripts/receiver-export.js` can alternatively export full-fidelity
-  days from the globe-history archive via nightly cron. See
-  `docs/receiver-setup.md`.
+- **24/7 collection**: `scripts/api-collector.js` runs continuously on a
+  Raspberry Pi, polling the airplanes.live API once per second for all
+  traffic within 60 nm of KANP (radius/intervals env-tunable). It stores
+  one fix per aircraft per 5 s into per-day track files plus temporal
+  heatmap snapshots, and pushes the `traffic-data` branch hourly. It can
+  alternatively poll a local dump1090-fa/readsb receiver via `--url`.
+  Setup: `docs/receiver-setup.md`. (An earlier scheduled GitHub Action
+  that burst-sampled the same files has been removed — the Pi is the sole
+  publisher.)
+- **History Explorer**: the page lists available track days
+  (`tracks/index.json` on the `traffic-data` branch) and replays any day's
+  tracks on the map with hour-of-day and altitude filtering — the
+  airspace-study tool. Tracks render on a canvas layer with low-altitude
+  segments emphasized; very large days are decimated at render time, and
+  trails split at sampling gaps so intermittent data doesn't draw false
+  straight lines.
 
 ## Development
 

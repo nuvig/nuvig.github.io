@@ -22,8 +22,16 @@
 //   --push      git commit + push <data-dir> after each hourly flush
 //   --url       poll this aircraft.json instead of airplanes.live
 //
-// Intervals (env-overridable, seconds):
-//   KANP_POLL_S       poll interval (default 20 for API, 5 for --url)
+// Tuning (env-overridable):
+//   KANP_POLL_S       poll interval, seconds (default 5 for API — the
+//                     airplanes.live limit is 1 req/s, so 1 is the floor)
+//   KANP_KEEP_S=5     store at most one fix per aircraft per this many
+//                     seconds. Polling faster than this improves fix
+//                     *selection*, but storage stays bounded — at 60 nm
+//                     around KANP (BWI/DCA traffic), storing every 1 s fix
+//                     would make day files too big for the page to load.
+//                     Set to 1 to store everything, if you accept the size.
+//   KANP_RADIUS_NM=60 collection radius around KANP
 //   KANP_FLUSH_S=300  write track files to disk
 //   KANP_SNAP_S=1800  append a snapshot to traffic.json (temporal heatmap)
 //   KANP_PUSH_S=3600  git push cadence when --push is set
@@ -37,7 +45,6 @@ const { execSync } = require('child_process');
 
 const KANP_LAT   = 38.9422;
 const KANP_LON   = -76.5684;
-const SEARCH_NM  = 20;
 const SNAP_MAX_AGE_MS = 30 * 86_400_000;
 const TRACK_KEEP_DAYS = 30;
 const MIN_MOVE_NM = 0.02;
@@ -56,10 +63,12 @@ if (!dataDir || (args.includes('--url') && !sourceUrl)) {
   process.exit(1);
 }
 
-const POLL_S  = envNum('KANP_POLL_S', sourceUrl ? 5 : 20);
-const FLUSH_S = envNum('KANP_FLUSH_S', 300);
-const SNAP_S  = envNum('KANP_SNAP_S', 1800);
-const PUSH_S  = envNum('KANP_PUSH_S', 3600);
+const POLL_S    = envNum('KANP_POLL_S', 5);
+const KEEP_S    = envNum('KANP_KEEP_S', 5);
+const SEARCH_NM = envNum('KANP_RADIUS_NM', 60);
+const FLUSH_S   = envNum('KANP_FLUSH_S', 300);
+const SNAP_S    = envNum('KANP_SNAP_S', 1800);
+const PUSH_S    = envNum('KANP_PUSH_S', 3600);
 const tracksDir = path.join(dataDir, 'tracks');
 fs.mkdirSync(tracksDir, { recursive: true });
 
@@ -138,6 +147,9 @@ function recordPoll(ac) {
   for (const a of ac) {
     if (!a.hex) continue;
     const last = lastPoint.get(a.hex);
+    // Bound storage: one kept fix per aircraft per KEEP_S, and skip
+    // aircraft that haven't moved (parked with ADS-B on)
+    if (last && now - last.ts < KEEP_S * 1000) continue;
     if (last && distNm(last.lat, last.lon, a.lat, a.lon) < MIN_MOVE_NM && last.alt === a.alt) continue;
 
     let t = pending.get(a.hex);
@@ -239,7 +251,7 @@ function gitPush() {
 async function main() {
   console.log(`Collecting traffic within ${SEARCH_NM} nm of KANP into ${dataDir}`);
   console.log(`source: ${sourceUrl || 'airplanes.live API'}`);
-  console.log(`poll ${POLL_S}s · flush ${FLUSH_S}s · snapshot ${SNAP_S}s · push ${doPush ? PUSH_S + 's' : 'off'}`);
+  console.log(`poll ${POLL_S}s · keep 1 fix/${KEEP_S}s per aircraft · flush ${FLUSH_S}s · snapshot ${SNAP_S}s · push ${doPush ? PUSH_S + 's' : 'off'}`);
 
   let lastFlush = Date.now(), lastSnap = 0, lastPush = Date.now();
 
