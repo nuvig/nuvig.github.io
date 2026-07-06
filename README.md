@@ -8,7 +8,7 @@ Annapolis, MD. Hosted on GitHub Pages.
 - **`index.html`** — landing page: flight-training services and contact.
   Includes a small ball-physics toy (`js/sim.js`) behind the ▶ button.
 - **`kanp.html`** — live flight tracker for Lee Airport (KANP): a Leaflet map
-  showing current ADS-B traffic within 20 nm, a geographic heatmap of where
+  showing current ADS-B traffic within 60 nm, a geographic heatmap of where
   traffic accumulates, and an hour-of-day × day-of-week activity heatmap.
 
 ## KANP tracker architecture

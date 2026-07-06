@@ -183,7 +183,7 @@ readsb instead of dump1090-fa; it exports readsb's on-disk archive at
 
 `scripts/receiver-export.js` (no npm dependencies) converts a day of
 readsb's globe history into the shared track format: filters to within
-20 nm of KANP, downsamples to one point per 15 s, and rebuilds the index.
+60 nm of KANP, downsamples to one point per 15 s, and rebuilds the index.
 
 **One-time setup on the receiver:**
 

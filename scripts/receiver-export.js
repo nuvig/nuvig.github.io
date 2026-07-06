@@ -21,7 +21,7 @@ const zlib = require('zlib');
 
 const KANP_LAT   = 38.9422;
 const KANP_LON   = -76.5684;
-const SEARCH_NM  = 20;
+const SEARCH_NM  = 60;
 const DOWNSAMPLE_S = 15;   // keep at most one point per 15 s per aircraft
 const TRACK_KEEP_DAYS = 30;
 

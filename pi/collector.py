@@ -25,7 +25,7 @@ import urllib.request
 DEFAULTS = {
     "KANP_LAT": "38.9422",
     "KANP_LON": "-76.5684",
-    "KANP_RADIUS_NM": "20",
+    "KANP_RADIUS_NM": "60",
     # "airplanes" = public ADS-B API feeds (adsb.lol / adsb.fi / airplanes.live,
     # whichever answers first); anything starting with http = local receiver
     # aircraft.json URL, e.g. http://127.0.0.1/skyaware/data/aircraft.json

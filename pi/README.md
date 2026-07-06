@@ -36,7 +36,7 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 |---|---|---|
 | `KANP_SOURCE` | `airplanes` | or a local receiver URL, e.g. `http://127.0.0.1/skyaware/data/aircraft.json` (dump1090-fa) or `http://127.0.0.1/tar1090/data/aircraft.json` |
 | `KANP_POLL_SECONDS` | `15` | airplanes.live allows 1 req/s; 15 s is polite. Use 5 s if polling your own receiver |
-| `KANP_RADIUS_NM` | `20` | search radius around KANP |
+| `KANP_RADIUS_NM` | `60` | search radius around KANP |
 | `KANP_RETENTION_DAYS` | `365` | positions older than this are pruned hourly |
 | `KANP_MAX_DB_MB` | `8000` | hard cap; oldest 30-day chunks dropped if exceeded |
 | `KANP_PORT` | `8787` | API/web port |
