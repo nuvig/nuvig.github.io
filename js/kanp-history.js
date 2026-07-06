@@ -50,10 +50,13 @@ const KANPHistory = (() => {
     try {
       const params = KANP.readFilters('hist-filters');
       const data = await KANP.getTracks(params);
-      draw(data);
+      const shown = applyArrDep(data);
+      draw(shown);
 
-      let msg = `${data.aircraft_count} aircraft · ` +
-        `${Number(data.returned_points).toLocaleString()} points · ${KANP.sourceLabel(data)}`;
+      const opsLabel = { arr: ' · arrivals', dep: ' · departures',
+                         both: ' · arrivals + departures' }[arrDepMode()] || '';
+      let msg = `${shown.aircraft_count} aircraft · ` +
+        `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(data)}`;
       if (data.stride > 1) {
         msg += ` <span class="warn">(decimated 1:${data.stride} of ` +
           `${Number(data.total_points).toLocaleString()} — narrow the range for full detail)</span>`;
@@ -64,6 +67,32 @@ const KANPHistory = (() => {
     } finally {
       btn.disabled = false;
     }
+  }
+
+  function arrDepMode() {
+    const sel = document.querySelector('#hist-filters [data-f=arrdep]');
+    return sel ? sel.value : 'all';
+  }
+
+  // Restrict the drawn tracks to KANP arrivals / departures (classified from
+  // each track's trajectory). Returns a shallow copy with filtered tracks and
+  // recomputed counts so the count message and heat-map opacity both reflect
+  // what's actually on the map.
+  function applyArrDep(data) {
+    const mode = arrDepMode();
+    if (mode === 'all') return data;
+    const tracks = data.tracks.filter(t => {
+      const c = KANP.classifyArrDep(t.points);
+      return mode === 'arr' ? c.arrival
+           : mode === 'dep' ? c.departure
+           : c.arrival || c.departure;   // 'both'
+    });
+    return {
+      ...data,
+      tracks,
+      aircraft_count: tracks.length,
+      returned_points: tracks.reduce((n, t) => n + t.points.length, 0),
+    };
   }
 
   function draw(data) {
