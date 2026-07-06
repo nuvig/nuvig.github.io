@@ -163,6 +163,31 @@
       border-radius: 4px; font-size: 11px; cursor: pointer;
     }
     .dow-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    /* dual-thumb altitude slider */
+    .alt-range-val { color: #4a9eff; font-variant-numeric: tabular-nums; }
+    .alt-range .dual-range { position: relative; width: 170px; height: 22px; }
+    .dual-range .track {
+      position: absolute; top: 9px; left: 0; right: 0; height: 4px;
+      background: #333; border-radius: 2px;
+    }
+    .dual-range .track .fill {
+      position: absolute; top: 0; height: 100%; background: #4a9eff; border-radius: 2px;
+    }
+    .dual-range input[type=range] {
+      position: absolute; top: 0; left: 0; width: 100%; height: 22px; margin: 0;
+      -webkit-appearance: none; appearance: none; pointer-events: none;
+      background: transparent; border: none; padding: 0;
+    }
+    .dual-range input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; pointer-events: auto;
+      width: 14px; height: 14px; border-radius: 50%; background: #4a9eff;
+      border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    .dual-range input[type=range]::-moz-range-thumb {
+      pointer-events: auto; width: 14px; height: 14px; border-radius: 50%;
+      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    .dual-range input[type=range]::-moz-range-track { background: transparent; }
     .btn {
       background: #1d3a5f;
       color: #cfe6ff;
@@ -311,6 +336,14 @@
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
       <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field alt-range">
+        <label>Altitude <span class="alt-range-val">0 – ∞ ft</span></label>
+        <div class="dual-range">
+          <div class="track"><div class="fill"></div></div>
+          <input type="range" class="alt-min" min="0" max="40000" step="500" value="0" aria-label="Minimum altitude">
+          <input type="range" class="alt-max" min="0" max="40000" step="500" value="40000" aria-label="Maximum altitude">
+        </div>
+      </div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
@@ -371,6 +404,14 @@
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
       <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field alt-range">
+        <label>Altitude <span class="alt-range-val">0 – ∞ ft</span></label>
+        <div class="dual-range">
+          <div class="track"><div class="fill"></div></div>
+          <input type="range" class="alt-min" min="0" max="40000" step="500" value="0" aria-label="Minimum altitude">
+          <input type="range" class="alt-max" min="0" max="40000" step="500" value="40000" aria-label="Maximum altitude">
+        </div>
+      </div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">

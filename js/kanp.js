@@ -177,6 +177,60 @@ KANP.initFilterBar = function (barId) {
   quick.addEventListener('change', applyQuick);
   [start, end].forEach(el => el.addEventListener('input', () => { quick.value = ''; }));
   applyQuick();
+
+  KANP.initAltSlider(bar);
+};
+
+// Dual-thumb altitude slider that stays in sync with the min_alt / max_alt
+// number inputs (readFilters still reads those, so nothing downstream changes).
+// Bottom of range (0) means "no floor"; top (40k) means "no ceiling" — both
+// map to an empty number input so the filter is unbounded on that end.
+KANP.initAltSlider = function (bar) {
+  const wrap = bar.querySelector('.dual-range');
+  if (!wrap) return;
+  const sMin = wrap.querySelector('.alt-min');
+  const sMax = wrap.querySelector('.alt-max');
+  const fill = wrap.querySelector('.fill');
+  const val = bar.querySelector('.alt-range-val');
+  const nMin = bar.querySelector('[data-f=min_alt]');
+  const nMax = bar.querySelector('[data-f=max_alt]');
+  const MAX = +sMax.max;
+  const clamp = v => Math.max(0, Math.min(MAX, v));
+
+  const paint = () => {
+    const lo = +sMin.value, hi = +sMax.value;
+    fill.style.left = `${lo / MAX * 100}%`;
+    fill.style.width = `${(hi - lo) / MAX * 100}%`;
+    val.textContent = `${lo === 0 ? '0' : lo.toLocaleString()} – ` +
+      `${hi >= MAX ? '∞' : hi.toLocaleString()} ft`;
+  };
+
+  // slider drag → number inputs
+  const fromSlider = mover => {
+    let lo = +sMin.value, hi = +sMax.value;
+    if (lo > hi) {                       // don't let thumbs cross
+      if (mover === sMin) sMax.value = hi = lo;
+      else sMin.value = lo = hi;
+    }
+    nMin.value = lo === 0 ? '' : lo;
+    nMax.value = hi >= MAX ? '' : hi;
+    paint();
+  };
+  sMin.addEventListener('input', () => fromSlider(sMin));
+  sMax.addEventListener('input', () => fromSlider(sMax));
+
+  // typed number → slider (leave the typed value alone; just reflect it)
+  const fromNumber = () => {
+    const lo = nMin.value === '' ? 0 : clamp(+nMin.value);
+    const hi = nMax.value === '' ? MAX : clamp(+nMax.value);
+    sMin.value = Math.min(lo, hi);
+    sMax.value = Math.max(lo, hi);
+    paint();
+  };
+  nMin.addEventListener('input', fromNumber);
+  nMax.addEventListener('input', fromNumber);
+
+  fromNumber();   // initialise thumbs + fill from any preset number values
 };
 
 KANP.readFilters = function (barId) {
