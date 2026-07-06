@@ -6,6 +6,7 @@ const KANPHistory = (() => {
   let map = null;
   let trackLayer = null;
   let renderer = null;
+  let trailStyle = { weight: 1.2, opacity: 0.45 };  // recomputed per load, see heatStyle()
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
 
@@ -67,6 +68,7 @@ const KANPHistory = (() => {
 
   function draw(data) {
     trackLayer.clearLayers();
+    trailStyle = heatStyle(data.returned_points || 0);
 
     data.tracks.forEach(t => {
       const label =
@@ -103,7 +105,7 @@ const KANPHistory = (() => {
       const mid = run[Math.floor(run.length / 2)];
       const color = KANP.altColor(mid[3], mid[5]);
       const line = L.polyline(run.map(p => [p[1], p[2]]), {
-        renderer, color, weight: 1.6, opacity: 0.75,
+        renderer, color, weight: trailStyle.weight, opacity: trailStyle.opacity,
       }).addTo(trackLayer);
       line.bindPopup(popupHtml(label, run, t));
     };
@@ -124,6 +126,16 @@ const KANPHistory = (() => {
     if (p[5]) return 'ground';
     if (p[3] == null) return 'unknown';
     return Math.floor(p[3] / ALT_BUCKET_FT);
+  }
+
+  // Thin, translucent trails so overlapping traffic reads as a heat map rather
+  // than a wall of solid lines: a single pass is faint, but a corridor flown
+  // many times accumulates into bright, saturated color. Per-trail opacity
+  // scales down as the day gets busier so density does the work — a quiet day
+  // (or a single replayed flight) still shows bold, legible tracks.
+  function heatStyle(points) {
+    const opacity = Math.max(0.1, Math.min(0.55, 24 / Math.sqrt(Math.max(points, 1))));
+    return { weight: 1.2, opacity };
   }
 
   function popupHtml(label, run, t) {
