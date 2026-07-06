@@ -252,6 +252,14 @@ def q_stats(q):
             params,
         ).fetchall()
 
+        types = db.execute(
+            f"""SELECT COALESCE(a.type,'?') type, COUNT(DISTINCT p.hex) ac
+                FROM positions p LEFT JOIN aircraft a ON a.hex = p.hex
+                WHERE {where} GROUP BY COALESCE(a.type,'?')
+                ORDER BY ac DESC LIMIT 30""",
+            params,
+        ).fetchall()
+
         cats = db.execute(
             f"""SELECT COALESCE(p.category,'?') cat, COUNT(DISTINCT p.hex) ac
                 FROM positions p WHERE {where} GROUP BY cat ORDER BY ac DESC""",
@@ -289,6 +297,7 @@ def q_stats(q):
         "grid_samples": grid_samples,
         "daily": [dict(r) for r in daily],
         "altitude_histogram": [dict(r) for r in alt_hist],
+        "types": [dict(r) for r in types],
         "categories": [dict(r) for r in cats],
         "top_aircraft": [dict(r) for r in top],
     }

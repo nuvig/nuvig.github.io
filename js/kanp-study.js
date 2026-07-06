@@ -3,15 +3,36 @@
 
 const KANPStudy = (() => {
   let lastParams = null;
+  let lastStats = null;
+  let gridMetric = 'ac';                    // 'ac' | 'samples'
+  let sortKey = 'samples', sortDesc = true; // aircraft table sort
+
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const hourLabel = h => h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`;
 
   function init() {
     KANP.initFilterBar('study-filters');
     document.getElementById('study-load').addEventListener('click', run);
     document.getElementById('study-export').addEventListener('click', exportCsv);
     window.addEventListener('resize', () => { if (lastStats) render(lastStats); });
-  }
 
-  let lastStats = null;
+    document.querySelectorAll('#grid-toggle .mini-btn').forEach(btn =>
+      btn.addEventListener('click', () => {
+        gridMetric = btn.dataset.metric;
+        document.querySelectorAll('#grid-toggle .mini-btn').forEach(b =>
+          b.classList.toggle('on', b === btn));
+        if (lastStats) renderGrid(lastStats);
+      }));
+
+    document.querySelectorAll('#study-top th').forEach(th =>
+      th.addEventListener('click', () => {
+        const k = th.dataset.k;
+        if (!k) return;
+        if (sortKey === k) sortDesc = !sortDesc;
+        else { sortKey = k; sortDesc = k !== 'reg' && k !== 'type' && k !== 'hex'; }
+        if (lastStats) renderTable(lastStats);
+      }));
+  }
 
   async function run() {
     const btn = document.getElementById('study-load');
@@ -76,8 +97,42 @@ const KANPStudy = (() => {
     document.getElementById('sc-busiest-lbl').textContent =
       busiest.ac ? `busiest day (${busiest.d})` : 'busiest day';
 
-    // ---- hour × dow grid ----
-    KANP.renderGrid(document.getElementById('study-grid'), s.grid_unique_aircraft);
+    // peak hour + weekend share, both from the hour × dow grid
+    const grid = s.grid_unique_aircraft;
+    let peak = { d: 0, h: 0, v: 0 }, weekend = 0, total = 0;
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        const v = grid[d][h];
+        total += v;
+        if (d >= 5) weekend += v;
+        if (v > peak.v) peak = { d, h, v };
+      }
+    }
+    document.getElementById('sc-peakhour').textContent = peak.v || '–';
+    document.getElementById('sc-peakhour-lbl').textContent =
+      peak.v ? `peak hour (${DAYS[peak.d]} ${hourLabel(peak.h)})` : 'peak hour';
+    document.getElementById('sc-weekend').textContent =
+      total ? `${Math.round(100 * weekend / total)}%` : '–';
+
+    // ---- hour × dow grid (with metric toggle when samples grid exists) ----
+    document.getElementById('grid-toggle').style.display =
+      s.grid_samples ? '' : 'none';
+    if (!s.grid_samples) gridMetric = 'ac';
+    renderGrid(s);
+
+    // ---- hour-of-day / day-of-week profiles (derived from the grid) ----
+    const hourly = Array.from({ length: 24 }, (_, h) =>
+      grid.reduce((n, row) => n + row[h], 0));
+    drawBars(
+      document.getElementById('study-hourly'),
+      hourly.map((_, h) => hourLabel(h)), hourly,
+      { maxTicks: 12, height: 150 },
+    );
+    const byDow = grid.map(row => row.reduce((a, b) => a + b, 0));
+    drawBars(
+      document.getElementById('study-dow'), DAYS, byDow,
+      { maxTicks: 7, height: 150, color: i => i >= 5 ? '#f0c040' : '#4a9eff' },
+    );
 
     // ---- daily bars ----
     drawBars(
@@ -98,15 +153,76 @@ const KANPStudy = (() => {
       },
     );
 
+    // ---- aircraft types ----
+    renderTypes(s);
+
     // ---- top aircraft table ----
+    renderTable(s);
+  }
+
+  function renderGrid(s) {
+    const grid = gridMetric === 'samples' && s.grid_samples
+      ? s.grid_samples : s.grid_unique_aircraft;
+    document.getElementById('study-grid-title').textContent =
+      (gridMetric === 'samples' ? 'Position reports' : 'Unique aircraft') +
+      ' — hour of day × day of week';
+    KANP.renderGrid(document.getElementById('study-grid'), grid);
+  }
+
+  function renderTypes(s) {
+    const note = document.getElementById('study-types-note');
+    let types = s.types;
+    if (!types) {
+      // older Pi API: approximate from the top-aircraft list
+      const m = new Map();
+      (s.top_aircraft || []).forEach(a => {
+        const t = a.type || '?';
+        m.set(t, (m.get(t) || 0) + 1);
+      });
+      types = [...m.entries()].map(([type, ac]) => ({ type, ac }))
+        .sort((a, b) => b.ac - a.ac);
+      note.textContent = '· unique aircraft per type (top 25 aircraft only — update the Pi server for full data)';
+    } else {
+      note.textContent = '· unique aircraft per type';
+    }
+    types = types.slice(0, 20);
+    drawBars(
+      document.getElementById('study-types'),
+      types.map(t => t.type || '?'),
+      types.map(t => t.ac),
+      { maxTicks: 20 },
+    );
+  }
+
+  function renderTable(s) {
+    const rows = [...(s.top_aircraft || [])];
+    const dir = sortDesc ? -1 : 1;
+    rows.sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey];
+      if (sortKey === 'reg') { va = a.reg || a.hex; vb = b.reg || b.hex; }
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'string') return va.localeCompare(vb) * dir;
+      return (va - vb) * dir;
+    });
+
+    // sort indicator
+    document.querySelectorAll('#study-top th').forEach(th => {
+      const base = th.textContent.replace(/ [▾▴]$/, '');
+      th.textContent = th.dataset.k === sortKey ? `${base} ${sortDesc ? '▾' : '▴'}` : base;
+    });
+
     const tbody = document.querySelector('#study-top tbody');
     tbody.innerHTML = '';
-    s.top_aircraft.forEach(a => {
+    rows.forEach(a => {
       const tr = document.createElement('tr');
       const alt = a.min_alt != null && a.max_alt != null
         ? `${fmtAlt(a.min_alt)}–${fmtAlt(a.max_alt)}` : '—';
+      const regLink =
+        `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(a.hex)}" ` +
+        `target="_blank" rel="noopener">${a.reg || a.hex}</a>`;
       const cells = [
-        (a.reg || a.hex) + (a.military ? '<span class="mil-tag">MIL</span>' : ''),
+        regLink + (a.military ? '<span class="mil-tag">MIL</span>' : ''),
         a.type || '—',
         (a.callsigns || '—').split(',').slice(0, 3).join(', '),
         a.hex,
@@ -127,13 +243,13 @@ const KANPStudy = (() => {
   // simple canvas bar chart
   function drawBars(canvas, labels, values, opts = {}) {
     const W = canvas.parentElement.clientWidth || 620;
-    const H = 160;
+    const H = opts.height || 160;
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, W, H);
 
-    if (!values.length) {
+    if (!values.length || !values.some(v => v > 0)) {
       ctx.fillStyle = '#444';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';

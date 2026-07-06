@@ -172,11 +172,16 @@ const KANPStatic = (() => {
 
     const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
     const gridSets = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => new Set()));
+    const gridSamples = Array.from({ length: 7 }, () => new Array(24).fill(0));
     const daily = new Map();
     const altHist = new Map();
     const top = new Map();
+    const typeSets = new Map();
 
     tracks.forEach(t => {
+      const typeKey = t.type || '?';
+      if (!typeSets.has(typeKey)) typeSets.set(typeKey, new Set());
+      typeSets.get(typeKey).add(t.hex);
       let e = top.get(t.hex);
       if (!e) {
         e = { hex: t.hex, reg: t.reg, type: t.type, descr: t.descr,
@@ -191,6 +196,7 @@ const KANPStatic = (() => {
         const d = new Date(ts * 1000);
         const dow = (d.getDay() + 6) % 7, hr = d.getHours();
         gridSets[dow][hr].add(t.hex);
+        gridSamples[dow][hr]++;
 
         const dayKey = localDateStr(ts);
         let day = daily.get(dayKey);
@@ -223,6 +229,9 @@ const KANPStatic = (() => {
       start, end,
       totals: { samples: totalPoints, aircraft: tracks.size },
       grid_unique_aircraft: grid,
+      grid_samples: gridSamples,
+      types: [...typeSets.entries()].map(([type, hexes]) => ({ type, ac: hexes.size }))
+        .sort((a, b) => b.ac - a.ac),
       daily: [...daily.values()].sort((a, b) => a.d.localeCompare(b.d))
         .map(d => ({ d: d.d, ac: d.ac.size, samples: d.samples })),
       altitude_histogram: [...altHist.entries()].sort((a, b) => a[0] - b[0])

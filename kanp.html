@@ -217,6 +217,20 @@
     #alt-legend-bar { flex: 1; max-width: 340px; height: 10px; border-radius: 3px; }
 
     /* ---- study tab ---- */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+    @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+    .grid-toggle { display: inline-flex; }
+    .mini-btn {
+      background: #111; border: 1px solid #3a3a3a; color: #777;
+      font-size: 11px; padding: 2px 10px; cursor: pointer; font-family: inherit;
+    }
+    .mini-btn:first-child { border-radius: 4px 0 0 4px; }
+    .mini-btn:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+    .mini-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .ac-table th { cursor: pointer; user-select: none; white-space: nowrap; }
+    .ac-table th:hover { color: #ccc; }
+    .ac-table a { color: #7ab8ff; text-decoration: none; }
+    .ac-table a:hover { text-decoration: underline; }
     .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
     .stat-card {
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
@@ -459,14 +473,32 @@
       <div class="stat-card"><div class="num" id="sc-samples">–</div><div class="lbl">position reports</div></div>
       <div class="stat-card"><div class="num" id="sc-perday">–</div><div class="lbl">aircraft / day (avg)</div></div>
       <div class="stat-card"><div class="num" id="sc-busiest">–</div><div class="lbl" id="sc-busiest-lbl">busiest day</div></div>
+      <div class="stat-card"><div class="num" id="sc-peakhour">–</div><div class="lbl" id="sc-peakhour-lbl">peak hour</div></div>
+      <div class="stat-card"><div class="num" id="sc-weekend">–</div><div class="lbl">weekend share</div></div>
     </div>
 
     <div id="study-charts" style="display:none">
-      <div class="section-title">Unique aircraft — hour of day × day of week</div>
+      <div class="section-title" style="display:flex;align-items:center;gap:12px">
+        <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
+        <span class="grid-toggle" id="grid-toggle" style="display:none">
+          <button class="mini-btn on" data-metric="ac">aircraft</button><button class="mini-btn" data-metric="samples">reports</button>
+        </span>
+      </div>
       <div class="card">
         <canvas id="study-grid" class="chart" style="height:168px"></canvas>
         <div class="heatmap-legend">
           <span>Less</span><div class="legend-gradient"></div><span>More</span>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-title">Traffic by hour of day</div>
+          <div class="card"><canvas id="study-hourly" class="chart" style="height:150px"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title">Traffic by day of week</div>
+          <div class="card"><canvas id="study-dow" class="chart" style="height:150px"></canvas></div>
         </div>
       </div>
 
@@ -476,12 +508,15 @@
       <div class="section-title">Altitude distribution (position reports, airborne)</div>
       <div class="card"><canvas id="study-alt" class="chart" style="height:160px"></canvas></div>
 
-      <div class="section-title">Most-seen aircraft</div>
+      <div class="section-title">Aircraft types <span id="study-types-note" style="font-weight:400;color:#555;font-size:12px"></span></div>
+      <div class="card"><canvas id="study-types" class="chart" style="height:160px"></canvas></div>
+
+      <div class="section-title">Most-seen aircraft <span style="font-weight:400;color:#555;font-size:12px">· click a column to sort · reg links open the globe view</span></div>
       <div class="card" style="overflow-x:auto">
         <table class="ac-table" id="study-top">
           <thead><tr>
-            <th>Reg</th><th>Type</th><th>Callsigns</th><th>Hex</th>
-            <th>Reports</th><th>Alt range</th><th>Closest</th><th>Last seen</th>
+            <th data-k="reg">Reg</th><th data-k="type">Type</th><th data-k="callsigns">Callsigns</th><th data-k="hex">Hex</th>
+            <th data-k="samples">Reports ▾</th><th data-k="max_alt">Alt range</th><th data-k="min_dist">Closest</th><th data-k="last_ts">Last seen</th>
           </tr></thead>
           <tbody></tbody>
         </table>
