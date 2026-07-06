@@ -26,8 +26,9 @@ DEFAULTS = {
     "KANP_LAT": "38.9422",
     "KANP_LON": "-76.5684",
     "KANP_RADIUS_NM": "20",
-    # "airplanes" = airplanes.live API; anything starting with http = local
-    # receiver aircraft.json URL, e.g. http://127.0.0.1/skyaware/data/aircraft.json
+    # "airplanes" = public ADS-B API feeds (adsb.lol / adsb.fi / airplanes.live,
+    # whichever answers first); anything starting with http = local receiver
+    # aircraft.json URL, e.g. http://127.0.0.1/skyaware/data/aircraft.json
     "KANP_SOURCE": "airplanes",
     "KANP_POLL_SECONDS": "15",
     "KANP_DB": "/var/lib/kanp/kanp.db",
@@ -55,7 +56,15 @@ RETENTION_DAYS = int(cfg("KANP_RETENTION_DAYS"))
 MAX_DB_MB = int(cfg("KANP_MAX_DB_MB"))
 STATIONARY_SECONDS = int(cfg("KANP_STATIONARY_SECONDS"))
 
-AIRPLANES_URL = f"https://api.airplanes.live/v2/point/{LAT}/{LON}/{RADIUS_NM:g}"
+# Public readsb "re-api" feeds for the "airplanes" source, tried in order until
+# one answers with an {ac:[…]} / {aircraft:[…]} body. All share the same schema.
+# airplanes.live is kept last: as of 2026 its /v2/point endpoint 404s, but it's
+# harmless as a fallback if it returns. Mirrors KANP.LIVE_SOURCES in js/kanp.js.
+API_FEEDS = [
+    f"https://api.adsb.lol/v2/point/{LAT}/{LON}/{RADIUS_NM:g}",
+    f"https://opendata.adsb.fi/api/v2/lat/{LAT}/lon/{LON}/dist/{RADIUS_NM:g}",
+    f"https://api.airplanes.live/v2/point/{LAT}/{LON}/{RADIUS_NM:g}",
+]
 
 log = logging.getLogger("kanp-collector")
 
@@ -118,14 +127,35 @@ def open_db():
     return db
 
 
-def fetch_aircraft():
-    """Return list of aircraft dicts from the configured source."""
-    url = AIRPLANES_URL if SOURCE == "airplanes" else SOURCE
+def _fetch_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "kanp-tracker-collector/1.0"})
     with urllib.request.urlopen(req, timeout=20) as resp:
-        data = json.load(resp)
-    # airplanes.live uses "ac"; dump1090/readsb/tar1090 use "aircraft"
-    return data.get("ac") or data.get("aircraft") or []
+        return json.load(resp)
+
+
+def fetch_aircraft():
+    """Return list of aircraft dicts from the configured source.
+
+    For a local receiver URL there's a single source. For "airplanes" we try
+    the public feeds in order and use the first that returns a well-formed
+    response, so one feed 404ing or going down doesn't halt collection.
+    """
+    # airplanes.live/adsb.lol use "ac"; dump1090/readsb/tar1090 use "aircraft"
+    if SOURCE != "airplanes":
+        data = _fetch_json(SOURCE)
+        return data.get("ac") or data.get("aircraft") or []
+
+    last_err = None
+    for url in API_FEEDS:
+        try:
+            data = _fetch_json(url)
+        except Exception as e:  # network / HTTP error — try the next feed
+            last_err = e
+            continue
+        if "ac" in data or "aircraft" in data:
+            return data.get("ac") or data.get("aircraft") or []
+        last_err = ValueError(f"{url}: no ac/aircraft key in response")
+    raise last_err or RuntimeError("no ADS-B feed reachable")
 
 
 def set_meta(db, key, value):
@@ -235,7 +265,7 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
         stream=sys.stdout,
     )
-    src = "airplanes.live" if SOURCE == "airplanes" else SOURCE
+    src = "public ADS-B feeds" if SOURCE == "airplanes" else SOURCE
     log.info("collector starting: %s, %.0f nm around %.4f,%.4f every %ds -> %s",
              src, RADIUS_NM, LAT, LON, POLL_SECONDS, DB_PATH)
 
