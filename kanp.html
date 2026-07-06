@@ -163,6 +163,31 @@
       border-radius: 4px; font-size: 11px; cursor: pointer;
     }
     .dow-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    /* dual-thumb altitude slider */
+    .alt-range-val { color: #4a9eff; font-variant-numeric: tabular-nums; }
+    .alt-range .dual-range { position: relative; width: 170px; height: 22px; }
+    .dual-range .track {
+      position: absolute; top: 9px; left: 0; right: 0; height: 4px;
+      background: #333; border-radius: 2px;
+    }
+    .dual-range .track .fill {
+      position: absolute; top: 0; height: 100%; background: #4a9eff; border-radius: 2px;
+    }
+    .dual-range input[type=range] {
+      position: absolute; top: 0; left: 0; width: 100%; height: 22px; margin: 0;
+      -webkit-appearance: none; appearance: none; pointer-events: none;
+      background: transparent; border: none; padding: 0;
+    }
+    .dual-range input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; pointer-events: auto;
+      width: 14px; height: 14px; border-radius: 50%; background: #4a9eff;
+      border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    .dual-range input[type=range]::-moz-range-thumb {
+      pointer-events: auto; width: 14px; height: 14px; border-radius: 50%;
+      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    .dual-range input[type=range]::-moz-range-track { background: transparent; }
     .btn {
       background: #1d3a5f;
       color: #cfe6ff;
@@ -311,6 +336,14 @@
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
       <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field alt-range">
+        <label>Altitude <span class="alt-range-val">0 – ∞ ft</span></label>
+        <div class="dual-range">
+          <div class="track"><div class="fill"></div></div>
+          <input type="range" class="alt-min" min="0" max="40000" step="500" value="0" aria-label="Minimum altitude">
+          <input type="range" class="alt-max" min="0" max="40000" step="500" value="40000" aria-label="Maximum altitude">
+        </div>
+      </div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
@@ -333,12 +366,15 @@
       <div class="filter-field">
         <label>&nbsp;</label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
+          <input type="checkbox" data-f="ga"> GA only
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999;margin-top:4px">
           <input type="checkbox" data-f="military"> military only
         </label>
       </div>
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
-    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Uses the Pi database on your home network, or hourly GitHub snapshots when away.</div>
+    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Data collected 24/7 by the Raspberry Pi, read from its hourly GitHub snapshots (or the Pi directly on the home network).</div>
 
     <div id="hist-map"></div>
 
@@ -368,6 +404,14 @@
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
       <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
+      <div class="filter-field alt-range">
+        <label>Altitude <span class="alt-range-val">0 – ∞ ft</span></label>
+        <div class="dual-range">
+          <div class="track"><div class="fill"></div></div>
+          <input type="range" class="alt-min" min="0" max="40000" step="500" value="0" aria-label="Minimum altitude">
+          <input type="range" class="alt-max" min="0" max="40000" step="500" value="40000" aria-label="Maximum altitude">
+        </div>
+      </div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
@@ -390,13 +434,16 @@
       <div class="filter-field">
         <label>&nbsp;</label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
+          <input type="checkbox" data-f="ga"> GA only
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999;margin-top:4px">
           <input type="checkbox" data-f="military"> military only
         </label>
       </div>
       <button class="btn" id="study-load">Run study</button>
       <button class="btn secondary" id="study-export">Export CSV</button>
     </div>
-    <div class="result-line" id="study-result">Pick a range and hit <em>Run study</em>. Uses the Pi database on your home network, or hourly GitHub snapshots when away.</div>
+    <div class="result-line" id="study-result">Pick a range and hit <em>Run study</em>. Data collected 24/7 by the Raspberry Pi, read from its hourly GitHub snapshots (or the Pi directly on the home network).</div>
 
     <div class="stat-cards" id="study-cards" style="display:none">
       <div class="stat-card"><div class="num" id="sc-aircraft">–</div><div class="lbl">unique aircraft</div></div>
@@ -447,11 +494,11 @@
     <div class="settings-hint">
       Live tab: <a href="https://airplanes.live" target="_blank" rel="noopener">airplanes.live</a>, polled every 60 s
       while the page is open; session history stays in your browser.<br>
-      History Map &amp; Traffic Study: collected 24/7 by the Raspberry Pi
-      (<a href="https://github.com/nuvig/nuvig.github.io/tree/main/pi" target="_blank" rel="noopener">pi/README</a>).
-      On the home network the page talks to the Pi directly (auto-connects when loaded from
-      <code>http://raspberrypi.local:8787/</code>); anywhere else it falls back to hourly snapshots
-      the Pi publishes to GitHub — slightly stale and thinned, but works over HTTPS from anywhere.<br>
+      History Map &amp; Traffic Study: one dataset, collected 24/7 by the Raspberry Pi
+      (<a href="https://github.com/nuvig/nuvig.github.io/tree/main/pi" target="_blank" rel="noopener">pi/README</a>)
+      and published hourly to GitHub, which the page reads over HTTPS from anywhere.
+      On the home network it reads the Pi directly for full resolution (auto-connects when
+      loaded from <code>http://raspberrypi.local:8787/</code>).<br>
       Charts: FAA VFR Sectional &amp; Terminal Area (official FAA tile service) ·
       Weather: NEXRAD via Iowa Environmental Mesonet.
     </div>

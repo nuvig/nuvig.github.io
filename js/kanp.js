@@ -177,6 +177,60 @@ KANP.initFilterBar = function (barId) {
   quick.addEventListener('change', applyQuick);
   [start, end].forEach(el => el.addEventListener('input', () => { quick.value = ''; }));
   applyQuick();
+
+  KANP.initAltSlider(bar);
+};
+
+// Dual-thumb altitude slider that stays in sync with the min_alt / max_alt
+// number inputs (readFilters still reads those, so nothing downstream changes).
+// Bottom of range (0) means "no floor"; top (40k) means "no ceiling" — both
+// map to an empty number input so the filter is unbounded on that end.
+KANP.initAltSlider = function (bar) {
+  const wrap = bar.querySelector('.dual-range');
+  if (!wrap) return;
+  const sMin = wrap.querySelector('.alt-min');
+  const sMax = wrap.querySelector('.alt-max');
+  const fill = wrap.querySelector('.fill');
+  const val = bar.querySelector('.alt-range-val');
+  const nMin = bar.querySelector('[data-f=min_alt]');
+  const nMax = bar.querySelector('[data-f=max_alt]');
+  const MAX = +sMax.max;
+  const clamp = v => Math.max(0, Math.min(MAX, v));
+
+  const paint = () => {
+    const lo = +sMin.value, hi = +sMax.value;
+    fill.style.left = `${lo / MAX * 100}%`;
+    fill.style.width = `${(hi - lo) / MAX * 100}%`;
+    val.textContent = `${lo === 0 ? '0' : lo.toLocaleString()} – ` +
+      `${hi >= MAX ? '∞' : hi.toLocaleString()} ft`;
+  };
+
+  // slider drag → number inputs
+  const fromSlider = mover => {
+    let lo = +sMin.value, hi = +sMax.value;
+    if (lo > hi) {                       // don't let thumbs cross
+      if (mover === sMin) sMax.value = hi = lo;
+      else sMin.value = lo = hi;
+    }
+    nMin.value = lo === 0 ? '' : lo;
+    nMax.value = hi >= MAX ? '' : hi;
+    paint();
+  };
+  sMin.addEventListener('input', () => fromSlider(sMin));
+  sMax.addEventListener('input', () => fromSlider(sMax));
+
+  // typed number → slider (leave the typed value alone; just reflect it)
+  const fromNumber = () => {
+    const lo = nMin.value === '' ? 0 : clamp(+nMin.value);
+    const hi = nMax.value === '' ? MAX : clamp(+nMax.value);
+    sMin.value = Math.min(lo, hi);
+    sMax.value = Math.max(lo, hi);
+    paint();
+  };
+  nMin.addEventListener('input', fromNumber);
+  nMax.addEventListener('input', fromNumber);
+
+  fromNumber();   // initialise thumbs + fill from any preset number values
 };
 
 KANP.readFilters = function (barId) {
@@ -199,6 +253,7 @@ KANP.readFilters = function (barId) {
   if (get('callsign').value.trim()) p.callsign = get('callsign').value.trim();
   if (get('hours') && get('hours').value.trim()) p.hours = get('hours').value.trim();
   if (get('military').checked) p.military = 1;
+  if (get('ga') && get('ga').checked) p.ga = 1;
 
   const dowBtns = [...bar.querySelectorAll('.dow-btn')];
   const on = dowBtns.map((b, i) => b.classList.contains('on') ? i : -1).filter(i => i >= 0);
@@ -211,6 +266,36 @@ function toLocalInput(d) {
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+// ---------------------------------------------------------------------------
+// Shared: "general aviation" classifier for the GA-only filter.
+// GA = everything that isn't a scheduled airliner, regional carrier, large
+// transport, or military — so light pistons, twins, turboprops, business
+// jets, helicopters, and untyped/experimental aircraft all count. Works from
+// the ICAO type designator + military flag, the only identity fields present
+// in both the Pi database and the GitHub snapshots. NOTE: the airliner set is
+// mirrored in pi/server.py (build_filters) — keep the two in sync.
+KANP.AIRLINER_TYPES = new Set([
+  // Airbus neo / Boeing MAX (non A3../B7.. designators)
+  'A19N', 'A20N', 'A21N', 'B37M', 'B38M', 'B39M', 'B3XM',
+  // regional jets
+  'CRJ1', 'CRJ2', 'CRJ7', 'CRJ9', 'CRJX', 'BCS1', 'BCS3',
+  'E135', 'E145', 'E170', 'E75L', 'E75S', 'E190', 'E195', 'E290', 'E295',
+  'RJ1H', 'RJ85', 'RJ70', 'B461', 'B462', 'B463', 'F70', 'F100',
+  // regional turboprops
+  'AT43', 'AT44', 'AT45', 'AT46', 'AT72', 'AT73', 'AT75', 'AT76',
+  'DH8A', 'DH8B', 'DH8C', 'DH8D', 'SF34', 'SB20', 'D328', 'J328',
+  // older / large transports
+  'MD11', 'MD81', 'MD82', 'MD83', 'MD87', 'MD88', 'MD90', 'DC10', 'DC93', 'DC94',
+]);
+
+KANP.isGA = function (t) {
+  if (!t || t.military) return false;
+  const type = (t.type || '').toUpperCase().trim();
+  if (!type) return true;                              // untyped → assume light GA
+  if (/^A3..$/.test(type) || /^B7..$/.test(type)) return false;  // Airbus/Boeing airliner families
+  return !KANP.AIRLINER_TYPES.has(type);
+};
 
 // ---------------------------------------------------------------------------
 // Shared: tar1090-style altitude color (dump1090-fa ColorByAlt)

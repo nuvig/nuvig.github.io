@@ -23,6 +23,7 @@ Common filter query params (tracks / stats / aircraft / export):
   hex              exact icao24 (comma-separated list allowed)
   category         ADS-B emitter category, comma list (e.g. A1,A2)
   military         1 = military only
+  ga               1 = general aviation only (no airliners/regional/military)
   min_dist,max_dist  distance from field in nm
   hours            local hours of day, e.g. 7-19 or 6,7,8
   dow              local days of week, comma list, 0=Mon .. 6=Sun
@@ -43,6 +44,19 @@ WEB_ROOT = os.environ.get(
 )
 MAX_POINTS_DEFAULT = 150_000
 MAX_CSV_ROWS = 500_000
+
+# ICAO type designators treated as non-GA (scheduled airliners / regional /
+# large transport), in addition to the A3.. and B7.. families matched by
+# prefix. Mirrors KANP.AIRLINER_TYPES in js/kanp.js — keep the two in sync.
+AIRLINER_TYPES = [
+    "A19N", "A20N", "A21N", "B37M", "B38M", "B39M", "B3XM",
+    "CRJ1", "CRJ2", "CRJ7", "CRJ9", "CRJX", "BCS1", "BCS3",
+    "E135", "E145", "E170", "E75L", "E75S", "E190", "E195", "E290", "E295",
+    "RJ1H", "RJ85", "RJ70", "B461", "B462", "B463", "F70", "F100",
+    "AT43", "AT44", "AT45", "AT46", "AT72", "AT73", "AT75", "AT76",
+    "DH8A", "DH8B", "DH8C", "DH8D", "SF34", "SB20", "D328", "J328",
+    "MD11", "MD81", "MD82", "MD83", "MD87", "MD88", "MD90", "DC10", "DC93", "DC94",
+]
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -116,6 +130,17 @@ def build_filters(q):
 
     if q.get("military") == "1":
         where.append("p.military = 1")
+
+    if q.get("ga") == "1":
+        # General aviation only: not military, and the ICAO type isn't a
+        # scheduled airliner / regional / large transport (A3.. and B7..
+        # families by prefix, plus the AIRLINER_TYPES list). Untyped aircraft
+        # are kept (most GA/experimental broadcast no type).
+        airliner = ("type LIKE 'A3__' OR type LIKE 'B7__' OR type IN ("
+                    + ",".join("?" * len(AIRLINER_TYPES)) + ")")
+        where.append("p.military = 0 AND p.hex NOT IN "
+                     f"(SELECT hex FROM aircraft WHERE {airliner})")
+        params.extend(AIRLINER_TYPES)
 
     if "min_dist" in q:
         where.append("p.dist_nm >= ?")
