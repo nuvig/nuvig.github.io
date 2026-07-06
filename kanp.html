@@ -338,7 +338,7 @@
       </div>
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
-    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Requires the Pi collector — see Data Source below.</div>
+    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Uses the Pi database on your home network, or hourly GitHub snapshots when away.</div>
 
     <div id="hist-map"></div>
 
@@ -396,7 +396,7 @@
       <button class="btn" id="study-load">Run study</button>
       <button class="btn secondary" id="study-export">Export CSV</button>
     </div>
-    <div class="result-line" id="study-result">Pick a range and hit <em>Run study</em>. Requires the Pi collector — see Data Source below.</div>
+    <div class="result-line" id="study-result">Pick a range and hit <em>Run study</em>. Uses the Pi database on your home network, or hourly GitHub snapshots when away.</div>
 
     <div class="stat-cards" id="study-cards" style="display:none">
       <div class="stat-card"><div class="num" id="sc-aircraft">–</div><div class="lbl">unique aircraft</div></div>
@@ -447,11 +447,11 @@
     <div class="settings-hint">
       Live tab: <a href="https://airplanes.live" target="_blank" rel="noopener">airplanes.live</a>, polled every 60 s
       while the page is open; session history stays in your browser.<br>
-      History Map &amp; Traffic Study: served by the Raspberry Pi collector
+      History Map &amp; Traffic Study: collected 24/7 by the Raspberry Pi
       (<a href="https://github.com/nuvig/nuvig.github.io/tree/main/pi" target="_blank" rel="noopener">pi/README</a>).
-      If this page is loaded from the Pi itself (<code>http://pi:8787/</code>) it auto-connects; from
-      jesselevine.net over HTTPS you'll need an HTTPS tunnel to the Pi (Cloudflare Tunnel / Tailscale)
-      because browsers block HTTPS→HTTP requests.<br>
+      On the home network the page talks to the Pi directly (auto-connects when loaded from
+      <code>http://raspberrypi.local:8787/</code>); anywhere else it falls back to hourly snapshots
+      the Pi publishes to GitHub — slightly stale and thinned, but works over HTTPS from anywhere.<br>
       Charts: FAA VFR Sectional &amp; Terminal Area (official FAA tile service) ·
       Weather: NEXRAD via Iowa Environmental Mesonet.
     </div>
@@ -459,6 +459,7 @@
 
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
+  <script src="js/kanp-static.js"></script>
   <script src="js/kanp.js"></script>
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>

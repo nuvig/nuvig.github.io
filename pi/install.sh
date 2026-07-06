@@ -24,8 +24,10 @@ chown -R kanp:kanp /opt/kanp
 echo "==> installing systemd units"
 cp /opt/kanp/pi/kanp-collector.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-api.service /etc/systemd/system/
+cp /opt/kanp/pi/kanp-export.service /etc/systemd/system/
+cp /opt/kanp/pi/kanp-export.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now kanp-collector.service kanp-api.service
+systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer
 
 echo
 echo "done."

@@ -20,14 +20,14 @@ const KANPStudy = (() => {
     out.textContent = 'Crunching…';
     try {
       lastParams = KANP.readFilters('study-filters');
-      const stats = await KANP.apiFetch('/api/stats', lastParams);
+      const stats = await KANP.getStats(lastParams);
       lastStats = stats;
       render(stats);
       const days = Math.max(1, (stats.end - stats.start) / 86400);
       out.textContent =
         `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft, ` +
         `${Number(stats.totals.samples).toLocaleString()} position reports over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days`;
+        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(stats)}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
@@ -35,17 +35,25 @@ const KANPStudy = (() => {
     }
   }
 
-  function exportCsv() {
+  async function exportCsv() {
     const base = KANP.apiBase();
     const out = document.getElementById('study-result');
-    if (!base) {
-      out.innerHTML = '<span class="err">No Pi API configured — set it under Data Source below</span>';
+    const params = KANP.readFilters('study-filters');
+    if (base) {
+      // full-resolution export straight from the Pi database
+      const url = new URL(base + '/api/export.csv');
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+      window.open(url, '_blank');
       return;
     }
-    const params = KANP.readFilters('study-filters');
-    const url = new URL(base + '/api/export.csv');
-    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-    window.open(url, '_blank');
+    // remote: build a CSV in the browser from the GitHub snapshots
+    out.textContent = 'Building CSV from snapshots…';
+    try {
+      await KANPStatic.exportCsv(params);
+      out.textContent = 'CSV downloaded (snapshot resolution)';
+    } catch (e) {
+      out.innerHTML = `<span class="err">${e.message}</span>`;
+    }
   }
 
   function render(s) {

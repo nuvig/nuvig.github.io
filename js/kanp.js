@@ -44,10 +44,52 @@ function initTabs() {
 // ---------------------------------------------------------------------------
 KANP.apiBase = function () {
   const saved = localStorage.getItem(KANP.API_KEY);
+  if (saved === 'none') return null; // force GitHub-snapshot mode
   if (saved) return saved.replace(/\/+$/, '');
   // Served from the Pi itself? Use same origin.
   if (location.protocol === 'http:' && location.port) return location.origin;
   return null;
+};
+
+// ---------------------------------------------------------------------------
+// Data routing: Pi API when reachable, GitHub hourly snapshots otherwise
+// ---------------------------------------------------------------------------
+KANP.getTracks = async function (params) {
+  if (KANP.apiBase()) {
+    try {
+      const d = await KANP.apiFetch('/api/tracks', params);
+      d._source = 'pi';
+      return d;
+    } catch (e) {
+      console.warn('[KANP] Pi API unreachable, falling back to snapshots:', e.message);
+    }
+  }
+  const d = await KANPStatic.getTracks(params);
+  d._source = 'github';
+  return d;
+};
+
+KANP.getStats = async function (params) {
+  if (KANP.apiBase()) {
+    try {
+      const d = await KANP.apiFetch('/api/stats', params);
+      d._source = 'pi';
+      return d;
+    } catch (e) {
+      console.warn('[KANP] Pi API unreachable, falling back to snapshots:', e.message);
+    }
+  }
+  const d = await KANPStatic.getStats(params);
+  d._source = 'github';
+  return d;
+};
+
+KANP.sourceLabel = function (d) {
+  if (d._source === 'pi') return 'via Pi database';
+  const age = d.snapshot_generated
+    ? ` · snapshot ${Math.max(0, Math.round((Date.now() / 1000 - d.snapshot_generated) / 60))} min old`
+    : '';
+  return `via GitHub snapshot${age}`;
 };
 
 KANP.apiFetch = async function (path, params) {

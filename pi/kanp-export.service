@@ -1,0 +1,19 @@
+[Unit]
+Description=KANP traffic snapshot exporter (SQLite -> traffic-data branch)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=kanp
+Group=kanp
+ExecStart=/usr/bin/python3 /opt/kanp/pi/exporter.py
+
+#Environment=KANP_EXPORT_DIR=/var/lib/kanp/traffic-data
+#Environment=KANP_EXPORT_MAX_PTS=40000
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kanp
+PrivateTmp=true

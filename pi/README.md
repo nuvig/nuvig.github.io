@@ -19,6 +19,7 @@ starts two services:
 |---|---|
 | `kanp-collector` | polls airplanes.live every 15 s, writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
+| `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
 Then open `http://<pi-ip>:8787/` — the tracker served from the Pi itself,
 with the History Map and Traffic Study tabs talking to the local database.
@@ -47,18 +48,36 @@ aircraft in range that's roughly **8–20 MB/day**, so a full year lands
 around 3–7 GB — comfortably inside the 8 GB cap, which itself leaves
 plenty of headroom on the card.
 
-## Using it from jesselevine.net (HTTPS)
+## Remote access (jesselevine.net, HTTPS)
 
 The public page is HTTPS, so browsers block it from calling a plain-HTTP
-Pi on your LAN (mixed content). Options, easiest first:
+Pi on your LAN (mixed content). Two ways in, both supported by the page:
 
-1. **Use the Pi-served page** at `http://<pi-ip>:8787/` when on your LAN
-   (recommended — same UI, zero setup).
-2. **Cloudflare Tunnel**: expose `localhost:8787` as an HTTPS subdomain
-   (e.g. `kanp-api.jesselevine.net`), then paste that URL into the
-   tracker's Data Source settings. Works from anywhere.
-3. **Tailscale** with HTTPS certs (`tailscale serve`) if you don't want
-   anything public.
+**1. GitHub snapshots (built in — recommended).** `exporter.py` publishes
+per-day JSON files to the repo's `traffic-data` branch every hour; the page
+automatically falls back to them whenever the Pi API isn't reachable. Data
+is up to an hour stale and decimated to ≤40 k points/day, which is plenty
+for the study views. One-time setup:
+
+1. Create a **fine-grained personal access token** at
+   github.com → Settings → Developer settings → Fine-grained tokens:
+   repository access = *only this repo*, permissions = **Contents:
+   Read and write**. Copy the token.
+2. On the Pi:
+   ```bash
+   sudo -u kanp git clone --branch traffic-data \
+     https://<TOKEN>@github.com/nuvig/nuvig.github.io.git /var/lib/kanp/traffic-data
+   sudo systemctl start kanp-export.service   # first run backfills all days
+   journalctl -u kanp-export -n 20            # check it pushed
+   ```
+   The hourly timer takes it from there. The branch is kept at a single
+   commit (amend + force-push) so the repo never bloats.
+
+**2. Cloudflare Tunnel / Tailscale** for full live-database access from
+anywhere: expose `localhost:8787` as an HTTPS URL and paste it into the
+tracker's Data Source settings.
+
+On the LAN, neither is needed — just use `http://<pi-ip>:8787/`.
 
 ## API quick reference
 

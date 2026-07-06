@@ -48,11 +48,11 @@ const KANPHistory = (() => {
 
     try {
       const params = KANP.readFilters('hist-filters');
-      const data = await KANP.apiFetch('/api/tracks', params);
+      const data = await KANP.getTracks(params);
       draw(data);
 
       let msg = `${data.aircraft_count} aircraft · ` +
-        `${Number(data.returned_points).toLocaleString()} points`;
+        `${Number(data.returned_points).toLocaleString()} points · ${KANP.sourceLabel(data)}`;
       if (data.stride > 1) {
         msg += ` <span class="warn">(decimated 1:${data.stride} of ` +
           `${Number(data.total_points).toLocaleString()} — narrow the range for full detail)</span>`;
