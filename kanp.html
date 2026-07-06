@@ -227,6 +227,18 @@
     .mini-btn:first-child { border-radius: 4px 0 0 4px; }
     .mini-btn:last-child { border-radius: 0 4px 4px 0; border-left: none; }
     .mini-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .rwy-row {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: #bbb; padding: 4px 0; flex-wrap: wrap;
+    }
+    .rwy-name { width: 58px; font-weight: 600; color: #ddd; }
+    .rwy-bar {
+      flex: 0 1 220px; height: 12px; background: #111;
+      border: 1px solid #2a2a2a; border-radius: 4px; overflow: hidden;
+    }
+    .rwy-bar span { display: block; height: 100%; background: #4a9eff; }
+    .rwy-pct { width: 40px; color: #ddd; }
+    .rwy-side { font-size: 12px; color: #888; }
     .ac-table th { cursor: pointer; user-select: none; white-space: nowrap; }
     .ac-table th:hover { color: #ccc; }
     .ac-table a { color: #7ab8ff; text-decoration: none; }
@@ -477,6 +489,58 @@
       <div class="stat-card"><div class="num" id="sc-weekend">–</div><div class="lbl">weekend share</div></div>
     </div>
 
+    <!-- ---- runway operations ---- -->
+    <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      Runway operations
+      <button class="btn" id="ops-load" style="padding:4px 12px;font-size:12px">Analyze operations</button>
+    </div>
+    <div class="result-line" id="ops-result">
+      Detects arrivals, departures and touch-and-gos from track shapes near the field
+      (touch-and-go = 2 ops, FAA counting) and attributes each to RWY 12 or 30 with the
+      pattern side flown. Uses the filters above (altitude/ground filters are overridden).
+    </div>
+
+    <div id="ops-out" style="display:none">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="num" id="oc-total">–</div><div class="lbl">operations</div></div>
+        <div class="stat-card"><div class="num" id="oc-perday">–</div><div class="lbl">ops / day (avg)</div></div>
+        <div class="stat-card"><div class="num" id="oc-arr">–</div><div class="lbl">arrivals</div></div>
+        <div class="stat-card"><div class="num" id="oc-dep">–</div><div class="lbl">departures</div></div>
+        <div class="stat-card"><div class="num" id="oc-tng">–</div><div class="lbl">touch-and-gos</div></div>
+        <div class="stat-card"><div class="num" id="oc-rwy">–</div><div class="lbl" id="oc-rwy-lbl">ops on RWY 30</div></div>
+      </div>
+
+      <div class="section-title">Runway usage &amp; traffic pattern</div>
+      <div class="card" id="ops-rwy"></div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-title">Operations per day
+            <span style="font-weight:400;color:#555;font-size:11px">
+              · <span style="color:#4a9eff">■</span> arr
+              <span style="color:#22c55e">■</span> dep
+              <span style="color:#f0c040">■</span> t&amp;g
+              <span style="color:#666">■</span> unclassified</span>
+          </div>
+          <div class="card"><canvas id="ops-daily" class="chart" style="height:150px"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title">Operations by hour of day</div>
+          <div class="card"><canvas id="ops-hourly" class="chart" style="height:150px"></canvas></div>
+        </div>
+      </div>
+
+      <div class="section-title">Most operations</div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="ops-top">
+          <thead><tr>
+            <th>Reg</th><th>Type</th><th>Arrivals</th><th>Departures</th><th>Touch-and-gos</th><th>Total ops</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="study-charts" style="display:none">
       <div class="section-title" style="display:flex;align-items:center;gap:12px">
         <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
@@ -556,5 +620,6 @@
   <script src="js/kanp.js"></script>
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>
+  <script src="js/kanp-ops.js"></script>
 </body>
 </html>

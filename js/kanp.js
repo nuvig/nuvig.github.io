@@ -16,11 +16,13 @@ const KANP = {
 // Boot
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
-  initTabs();
-  initApiSettings();
-  initLive();
-  KANPHistory.init();
-  KANPStudy.init();
+  // Each tab boots independently: one failing must not kill the others
+  // (e.g. leaflet-heat throws on a zero-width map container when the page
+  // loads in a hidden/background pane).
+  [initTabs, initApiSettings, initLive,
+   () => KANPHistory.init(), () => KANPStudy.init()].forEach(step => {
+    try { step(); } catch (e) { console.error('[KANP] init step failed:', e); }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -329,6 +331,91 @@ KANP.classifyArrDep = function (points) {
 };
 
 // ---------------------------------------------------------------------------
+// Shared: runway geometry. KANP has a single strip, 12/30. The true axis was
+// fitted from ~2 weeks of collected ground/low-altitude ADS-B segments within
+// 1 nm of the field (principal course axis): 107° / 287° true, consistent
+// with the charted 120/300 magnetic minus ~11°W variation.
+// ---------------------------------------------------------------------------
+KANP.RWY = {
+  axisTrue: 107,            // landing direction on RWY 12, degrees true
+  names: ['12', '30'],      // names[0] = axisTrue direction, names[1] = reciprocal
+};
+
+// ---------------------------------------------------------------------------
+// Shared: simple canvas bar chart (Traffic Study + Operations sections)
+// ---------------------------------------------------------------------------
+KANP.drawBars = function (canvas, labels, values, opts = {}) {
+  const W = canvas.parentElement.clientWidth || 620;
+  const H = opts.height || 160;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  // values: number[] (plain bars) or number[][] (stacked series per bar)
+  const stacked = Array.isArray(values[0]);
+  const totals = stacked ? values.map(v => v.reduce((a, b) => a + b, 0)) : values;
+
+  if (!totals.length || !totals.some(v => v > 0)) {
+    ctx.fillStyle = '#444';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('no data in range', W / 2, H / 2);
+    return;
+  }
+
+  const PAD_L = 44, PAD_B = 22, PAD_T = 8;
+  const plotW = W - PAD_L - 6;
+  const plotH = H - PAD_T - PAD_B;
+  const maxV = Math.max(1, ...totals);
+  const bw = plotW / totals.length;
+
+  // y grid + labels
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.fillStyle = '#666';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 4; i++) {
+    const v = maxV * i / 4;
+    const y = PAD_T + plotH - plotH * i / 4;
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, y);
+    ctx.lineTo(W - 6, y);
+    ctx.stroke();
+    ctx.fillText(Math.round(v).toLocaleString(), PAD_L - 5, y);
+  }
+
+  // bars
+  for (let i = 0; i < totals.length; i++) {
+    const x = PAD_L + i * bw + 1, w = Math.max(1, bw - 2);
+    if (stacked) {
+      let y = PAD_T + plotH;
+      values[i].forEach((v, s) => {
+        const h = plotH * v / maxV;
+        const colors = opts.stackColors || ['#4a9eff', '#22c55e', '#f0c040'];
+        ctx.fillStyle = colors[s % colors.length];
+        ctx.fillRect(x, y - h, w, h);
+        y -= h;
+      });
+    } else {
+      const h = plotH * totals[i] / maxV;
+      ctx.fillStyle = opts.color ? opts.color(i) : '#4a9eff';
+      ctx.fillRect(x, PAD_T + plotH - h, w, h);
+    }
+  }
+
+  // x labels (sparse)
+  const every = Math.ceil(labels.length / (opts.maxTicks || 12));
+  ctx.fillStyle = '#666';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i < labels.length; i += every) {
+    ctx.fillText(String(labels[i]), PAD_L + i * bw + bw / 2, PAD_T + plotH + 5);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Shared: tar1090-style altitude color (dump1090-fa ColorByAlt)
 // ---------------------------------------------------------------------------
 KANP.altColor = function (alt, onGround) {
@@ -476,7 +563,16 @@ function initLive() {
   heatLayer = L.heatLayer([], {
     radius: 22, blur: 28, maxZoom: 13,
     gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' },
-  }).addTo(liveMap);
+  });
+  try {
+    heatLayer.addTo(liveMap);
+  } catch (e) {
+    // zero-width container: leaflet-heat can't draw yet — attach once the
+    // map first gets real dimensions (invalidateSize fires 'resize')
+    liveMap.once('resize', () => {
+      try { heatLayer.addTo(liveMap); renderFromStorage(); } catch { /* still hidden */ }
+    });
+  }
   aircraftLayer = L.layerGroup().addTo(liveMap);
 
   const ro = new ResizeObserver(() => renderTemporalHeatmap(getObs()));
@@ -601,7 +697,7 @@ function renderFromStorage() {
   const obs = getObs();
   const pts = [];
   obs.forEach(o => o.ac.forEach(a => { if (a.lat && a.lon) pts.push([a.lat, a.lon, 0.6]); }));
-  heatLayer.setLatLngs(pts);
+  if (heatLayer && liveMap && liveMap.hasLayer(heatLayer)) heatLayer.setLatLngs(pts);
   renderTemporalHeatmap(obs);
 
   const total = obs.reduce((n, o) => n + o.ac.length, 0);

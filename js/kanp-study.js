@@ -1,4 +1,4 @@
-// KANP Flight Tracker — Traffic Study tab
+﻿// KANP Flight Tracker â€” Traffic Study tab
 // Aggregate statistics from the Pi collector database.
 
 const KANPStudy = (() => {
@@ -38,7 +38,7 @@ const KANPStudy = (() => {
     const btn = document.getElementById('study-load');
     const out = document.getElementById('study-result');
     btn.disabled = true;
-    out.textContent = 'Crunching…';
+    out.textContent = 'Crunchingâ€¦';
     try {
       lastParams = KANP.readFilters('study-filters');
       const stats = await KANP.getStats(lastParams);
@@ -48,7 +48,7 @@ const KANPStudy = (() => {
       out.textContent =
         `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft, ` +
         `${Number(stats.totals.samples).toLocaleString()} position reports over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(stats)}`;
+        `${days < 2 ? days.toFixed(1) : Math.round(days)} days Â· ${KANP.sourceLabel(stats)}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
@@ -68,7 +68,7 @@ const KANPStudy = (() => {
       return;
     }
     // remote: build a CSV in the browser from the GitHub snapshots
-    out.textContent = 'Building CSV from snapshots…';
+    out.textContent = 'Building CSV from snapshotsâ€¦';
     try {
       await KANPStatic.exportCsv(params);
       out.textContent = 'CSV downloaded (snapshot resolution)';
@@ -91,13 +91,13 @@ const KANPStudy = (() => {
     const perDay = s.daily.reduce((n, d) => n + d.ac, 0) / activeDays;
     document.getElementById('sc-perday').textContent = perDay.toFixed(1);
 
-    let busiest = { d: '—', ac: 0 };
+    let busiest = { d: 'â€”', ac: 0 };
     s.daily.forEach(d => { if (d.ac > busiest.ac) busiest = d; });
-    document.getElementById('sc-busiest').textContent = busiest.ac || '–';
+    document.getElementById('sc-busiest').textContent = busiest.ac || 'â€“';
     document.getElementById('sc-busiest-lbl').textContent =
       busiest.ac ? `busiest day (${busiest.d})` : 'busiest day';
 
-    // peak hour + weekend share, both from the hour × dow grid
+    // peak hour + weekend share, both from the hour Ã— dow grid
     const grid = s.grid_unique_aircraft;
     let peak = { d: 0, h: 0, v: 0 }, weekend = 0, total = 0;
     for (let d = 0; d < 7; d++) {
@@ -108,13 +108,13 @@ const KANPStudy = (() => {
         if (v > peak.v) peak = { d, h, v };
       }
     }
-    document.getElementById('sc-peakhour').textContent = peak.v || '–';
+    document.getElementById('sc-peakhour').textContent = peak.v || 'â€“';
     document.getElementById('sc-peakhour-lbl').textContent =
       peak.v ? `peak hour (${DAYS[peak.d]} ${hourLabel(peak.h)})` : 'peak hour';
     document.getElementById('sc-weekend').textContent =
-      total ? `${Math.round(100 * weekend / total)}%` : '–';
+      total ? `${Math.round(100 * weekend / total)}%` : 'â€“';
 
-    // ---- hour × dow grid (with metric toggle when samples grid exists) ----
+    // ---- hour Ã— dow grid (with metric toggle when samples grid exists) ----
     document.getElementById('grid-toggle').style.display =
       s.grid_samples ? '' : 'none';
     if (!s.grid_samples) gridMetric = 'ac';
@@ -123,19 +123,19 @@ const KANPStudy = (() => {
     // ---- hour-of-day / day-of-week profiles (derived from the grid) ----
     const hourly = Array.from({ length: 24 }, (_, h) =>
       grid.reduce((n, row) => n + row[h], 0));
-    drawBars(
+    KANP.drawBars(
       document.getElementById('study-hourly'),
       hourly.map((_, h) => hourLabel(h)), hourly,
       { maxTicks: 12, height: 150 },
     );
     const byDow = grid.map(row => row.reduce((a, b) => a + b, 0));
-    drawBars(
+    KANP.drawBars(
       document.getElementById('study-dow'), DAYS, byDow,
       { maxTicks: 7, height: 150, color: i => i >= 5 ? '#f0c040' : '#4a9eff' },
     );
 
     // ---- daily bars ----
-    drawBars(
+    KANP.drawBars(
       document.getElementById('study-daily'),
       s.daily.map(d => d.d.slice(5)),  // MM-DD
       s.daily.map(d => d.ac),
@@ -143,7 +143,7 @@ const KANPStudy = (() => {
     );
 
     // ---- altitude histogram ----
-    drawBars(
+    KANP.drawBars(
       document.getElementById('study-alt'),
       s.altitude_histogram.map(b => b.bucket >= 1000 ? `${b.bucket / 1000}k` : b.bucket),
       s.altitude_histogram.map(b => b.samples),
@@ -165,7 +165,7 @@ const KANPStudy = (() => {
       ? s.grid_samples : s.grid_unique_aircraft;
     document.getElementById('study-grid-title').textContent =
       (gridMetric === 'samples' ? 'Position reports' : 'Unique aircraft') +
-      ' — hour of day × day of week';
+      ' â€” hour of day Ã— day of week';
     KANP.renderGrid(document.getElementById('study-grid'), grid);
   }
 
@@ -181,12 +181,12 @@ const KANPStudy = (() => {
       });
       types = [...m.entries()].map(([type, ac]) => ({ type, ac }))
         .sort((a, b) => b.ac - a.ac);
-      note.textContent = '· unique aircraft per type (top 25 aircraft only — update the Pi server for full data)';
+      note.textContent = 'Â· unique aircraft per type (top 25 aircraft only â€” update the Pi server for full data)';
     } else {
-      note.textContent = '· unique aircraft per type';
+      note.textContent = 'Â· unique aircraft per type';
     }
     types = types.slice(0, 20);
-    drawBars(
+    KANP.drawBars(
       document.getElementById('study-types'),
       types.map(t => t.type || '?'),
       types.map(t => t.ac),
@@ -208,8 +208,8 @@ const KANPStudy = (() => {
 
     // sort indicator
     document.querySelectorAll('#study-top th').forEach(th => {
-      const base = th.textContent.replace(/ [▾▴]$/, '');
-      th.textContent = th.dataset.k === sortKey ? `${base} ${sortDesc ? '▾' : '▴'}` : base;
+      const base = th.textContent.replace(/ [â–¾â–´]$/, '');
+      th.textContent = th.dataset.k === sortKey ? `${base} ${sortDesc ? 'â–¾' : 'â–´'}` : base;
     });
 
     const tbody = document.querySelector('#study-top tbody');
@@ -217,18 +217,18 @@ const KANPStudy = (() => {
     rows.forEach(a => {
       const tr = document.createElement('tr');
       const alt = a.min_alt != null && a.max_alt != null
-        ? `${fmtAlt(a.min_alt)}–${fmtAlt(a.max_alt)}` : '—';
+        ? `${fmtAlt(a.min_alt)}â€“${fmtAlt(a.max_alt)}` : 'â€”';
       const regLink =
         `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(a.hex)}" ` +
         `target="_blank" rel="noopener">${a.reg || a.hex}</a>`;
       const cells = [
         regLink + (a.military ? '<span class="mil-tag">MIL</span>' : ''),
-        a.type || '—',
-        (a.callsigns || '—').split(',').slice(0, 3).join(', '),
+        a.type || 'â€”',
+        (a.callsigns || 'â€”').split(',').slice(0, 3).join(', '),
         a.hex,
         Number(a.samples).toLocaleString(),
         alt,
-        a.min_dist != null ? `${a.min_dist.toFixed(1)} nm` : '—',
+        a.min_dist != null ? `${a.min_dist.toFixed(1)} nm` : 'â€”',
         new Date(a.last_ts * 1000).toLocaleString(),
       ];
       tr.innerHTML = cells.map(c => `<td>${c}</td>`).join('');
@@ -238,62 +238,6 @@ const KANPStudy = (() => {
 
   function fmtAlt(a) {
     return a >= 1000 ? `${(a / 1000).toFixed(1)}k` : String(a);
-  }
-
-  // simple canvas bar chart
-  function drawBars(canvas, labels, values, opts = {}) {
-    const W = canvas.parentElement.clientWidth || 620;
-    const H = opts.height || 160;
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-
-    if (!values.length || !values.some(v => v > 0)) {
-      ctx.fillStyle = '#444';
-      ctx.font = '13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('no data in range', W / 2, H / 2);
-      return;
-    }
-
-    const PAD_L = 44, PAD_B = 22, PAD_T = 8;
-    const plotW = W - PAD_L - 6;
-    const plotH = H - PAD_T - PAD_B;
-    const maxV = Math.max(1, ...values);
-    const bw = plotW / values.length;
-
-    // y grid + labels
-    ctx.strokeStyle = '#2a2a2a';
-    ctx.fillStyle = '#666';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (let i = 0; i <= 4; i++) {
-      const v = maxV * i / 4;
-      const y = PAD_T + plotH - plotH * i / 4;
-      ctx.beginPath();
-      ctx.moveTo(PAD_L, y);
-      ctx.lineTo(W - 6, y);
-      ctx.stroke();
-      ctx.fillText(Math.round(v).toLocaleString(), PAD_L - 5, y);
-    }
-
-    // bars
-    for (let i = 0; i < values.length; i++) {
-      const h = plotH * values[i] / maxV;
-      ctx.fillStyle = opts.color ? opts.color(i) : '#4a9eff';
-      ctx.fillRect(PAD_L + i * bw + 1, PAD_T + plotH - h, Math.max(1, bw - 2), h);
-    }
-
-    // x labels (sparse)
-    const every = Math.ceil(labels.length / (opts.maxTicks || 12));
-    ctx.fillStyle = '#666';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let i = 0; i < labels.length; i += every) {
-      ctx.fillText(String(labels[i]), PAD_L + i * bw + bw / 2, PAD_T + plotH + 5);
-    }
   }
 
   return { init };
