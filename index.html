@@ -67,25 +67,34 @@
     <p>© Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
   </footer>
 
-  <!-- Ball-physics sim (easter egg) -->
+  <!-- Neon ball-physics playground (easter egg) -->
   <div id="sim-controls">
-    <label>Ball Color:
-      <input type="color" id="ball-color" value="#39ff14">
-    </label>
-    <button id="add-ball">Add Ball</button>
-    <div class="row">
-      <label>Gravity Y:
-        <input type="range" id="gravity-y" min="-1" max="1" step="0.01" value="0.3">
-      </label>
-      <span id="gravity-y-value">0.3</span>
-      <br>
-      <label>Bounce:
-        <input type="range" id="bounce" min="0" max="1" step="0.01" value="0.7">
-      </label>
-      <span id="bounce-value">0.7</span>
+    <div class="row modes">
+      <button class="mode-btn active" data-mode="gravity">Gravity</button>
+      <button class="mode-btn" data-mode="orbit">Orbit</button>
+      <button class="mode-btn" data-mode="repel">Repel</button>
+      <button class="mode-btn" data-mode="zerog">Zero-G</button>
     </div>
+    <div class="row sliders">
+      <label>Gravity
+        <input type="range" id="gravity-y" min="0" max="1" step="0.01" value="0.25">
+      </label>
+      <label>Bounce
+        <input type="range" id="bounce" min="0" max="1" step="0.01" value="0.85">
+      </label>
+      <label>Trails
+        <input type="range" id="trails" min="0" max="0.95" step="0.01" value="0.75">
+      </label>
+    </div>
+    <div class="row actions">
+      <button id="add-ball">+10 Balls</button>
+      <button id="blast">💥 Blast</button>
+      <button id="clear-balls">Reset</button>
+      <span id="ball-count" class="count"></span>
+    </div>
+    <p class="hint">Drag balls to fling · tap space to burst · hold in Orbit/Repel to bend space · Spacebar = blast · Esc closes</p>
   </div>
-  <canvas id="sim" width="600" height="400"></canvas>
+  <canvas id="sim"></canvas>
   <button id="sim-toggle-btn" title="Open Sim">▶</button>
 
   <script src="js/sim.js"></script>
