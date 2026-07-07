@@ -61,6 +61,7 @@ const TZ = 'America/New_York';
 const state = {
   metars: {},     // station id -> parsed metar (or {error})
   om: null,       // open-meteo payload
+  grid: null,     // NWS forecast grid, expanded to per-hour Maps
   sun: null,      // today's solar times
   fly: null,      // flyability hours
   alerts: null,
@@ -383,8 +384,64 @@ function drawPrecipChart(canvas, hours) {
   ctx.fillStyle = 'rgba(74,158,255,0.55)';
   hours.forEach((h, i) => ctx.fillRect(x(i) - bw / 2, y(h.pp), bw, y(0) - y(h.pp)));
   ctx.strokeStyle = '#999'; ctx.lineWidth = 1.6; ctx.beginPath();
-  hours.forEach((h, i) => { i ? ctx.lineTo(x(i), y(h.cc)) : ctx.moveTo(x(i), y(h.cc)); });
+  hours.forEach((h, i) => { i ? ctx.lineTo(x(i), y(h.sky)) : ctx.moveTo(x(i), y(h.sky)); });
   ctx.stroke();
+}
+
+function drawCeilingChart(canvas, hours) {
+  const { ctx, W, H } = prepCanvas(canvas);
+  const L = 38, R = 8, T = 8, B = 18;
+  const CAP = 10000; // display cap; higher/unlimited = no bar
+  const x = xAxis(ctx, hours, L, R, W, H);
+  const y = (v) => T + (1 - v / CAP) * (H - T - B);
+  for (let v = 0; v <= CAP; v += 2000) gridY(ctx, v, y(v), L, W, R, v ? (v / 1000) + 'k' : '0');
+
+  // sky cover as faint background area (scaled to full chart height)
+  ctx.beginPath();
+  hours.forEach((h, i) => { const yy = T + (1 - (h.sky || 0) / 100) * (H - T - B); i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); });
+  ctx.lineTo(x(hours.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+  ctx.fillStyle = 'rgba(160,160,160,0.13)'; ctx.fill();
+
+  const bw = Math.max(2, (W - L - R) / hours.length - 2);
+  hours.forEach((h, i) => {
+    if (h.ceil == null) return;
+    const c = Math.min(h.ceil, CAP);
+    ctx.fillStyle = CAT_COLORS[flightCat(99, h.ceil)];
+    ctx.fillRect(x(i) - bw / 2, y(c), bw, y(0) - y(c));
+  });
+}
+
+function drawDaChart(canvas, hours) {
+  const { ctx, W, H } = prepCanvas(canvas);
+  const L = 38, R = 8, T = 8, B = 18;
+  const vals = hours.map((h) => h.da).filter((v) => v != null);
+  if (!vals.length) return;
+  const lo = Math.min(0, Math.floor(Math.min(...vals) / 500) * 500);
+  const hi = Math.max(3500, Math.ceil(Math.max(...vals) / 500) * 500 + 500);
+  const x = xAxis(ctx, hours, L, R, W, H);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  for (let v = lo; v <= hi; v += 1000) gridY(ctx, v, y(v), L, W, R, (v / 1000) + 'k');
+
+  // amber caution zone above 3,000 ft DA
+  ctx.fillStyle = 'rgba(245,158,11,0.08)';
+  ctx.fillRect(L, T, W - L - R, Math.max(0, y(3000) - T));
+  ctx.strokeStyle = 'rgba(245,158,11,0.5)'; ctx.setLineDash([4, 4]); ctx.beginPath();
+  ctx.moveTo(L, y(3000)); ctx.lineTo(W - R, y(3000)); ctx.stroke(); ctx.setLineDash([]);
+
+  ctx.strokeStyle = '#f0c040'; ctx.lineWidth = 2; ctx.beginPath();
+  let started = false;
+  hours.forEach((h, i) => {
+    if (h.da == null) return;
+    started ? ctx.lineTo(x(i), y(h.da)) : ctx.moveTo(x(i), y(h.da));
+    started = true;
+  });
+  ctx.stroke();
+
+  // field elevation reference
+  ctx.strokeStyle = '#3a3a3a'; ctx.beginPath();
+  ctx.moveTo(L, y(KANP.elevFt)); ctx.lineTo(W - R, y(KANP.elevFt)); ctx.stroke();
+  ctx.fillStyle = '#555'; ctx.textAlign = 'left';
+  ctx.fillText(`field elev ${KANP.elevFt} ft`, L + 4, y(KANP.elevFt) - 4);
 }
 
 /* ============================ flyability ================================= */
@@ -401,12 +458,31 @@ function scoreHour(h) {
     const xw = Math.abs(b.cross);
     if (xw > 7) { s -= (xw - 7) * 3; why.push(`${round(xw)} kt crosswind on best rwy`); }
   }
+  if (h.ceil != null) {
+    if (h.ceil < 500) s -= 55;
+    else if (h.ceil < 1000) s -= 40;
+    else if (h.ceil < 2000) s -= 22;
+    else if (h.ceil < 3000) s -= 12;
+    else if (h.ceil < 5000) s -= 5;
+    if (h.ceil < 3000) why.push(`ceiling ${round(h.ceil / 100) * 100} ft`);
+  } else if (h.sky > 85) {
+    s -= 5; // overcast but high/unlimited base
+  }
+  if (h.visSM < 6) {
+    if (h.visSM < 1) s -= 50;
+    else if (h.visSM < 3) s -= 30;
+    else if (h.visSM < 5) s -= 12;
+    else s -= 6;
+    why.push(`${h.visSM < 3 ? h.visSM.toFixed(1) : round(h.visSM)} SM visibility`);
+  }
   if (h.pp >= 30) why.push(`${h.pp}% precip chance`);
   s -= h.pp * 0.25;
-  if (h.precip > 0.4) { s -= 15; why.push('rain'); }
-  if (h.cc > 85) { s -= 8; why.push('overcast'); }
-  if (h.visSM < 6) { s -= (6 - h.visSM) * 6; why.push(`${h.visSM.toFixed(1)} SM visibility`); }
+  if (h.precip > 0.4) { s -= 10; why.push('rain'); }
   if (h.cape > 1000) { s -= (h.cape - 1000) / 50; why.push(`convective potential (CAPE ${round(h.cape)})`); }
+  if (h.da != null && h.da > 2500) {
+    s -= (h.da - 2500) / 75;
+    if (h.da > 3000) why.push(`density altitude ${(round(h.da / 50) * 50).toLocaleString()} ft`);
+  }
   h.score = Math.max(5, Math.min(100, round(s)));
   h.why = why;
   return h;
@@ -427,7 +503,8 @@ function renderFlyStrip(hours) {
     const el = document.createElement('div');
     el.className = 'fly-block' + (h.night ? ' night' : '');
     el.style.background = color;
-    el.innerHTML = `<span class="hr">${fmtHour(h.t)}</span><span class="sc">${h.score}</span>`;
+    el.innerHTML = `<span class="hr">${fmtHour(h.t)}</span><span class="sc">${h.score}</span>` +
+      `<span class="catbar" style="background:${CAT_COLORS[h.cat]}"></span>`;
     const show = () => {
       document.querySelectorAll('.fly-block.sel').forEach((b) => b.classList.remove('sel'));
       el.classList.add('sel');
@@ -435,10 +512,17 @@ function renderFlyStrip(hours) {
         ? `wind ${String(round(h.dir)).padStart(3, '0')}°@${round(h.spd)}${h.gst && h.gst - h.spd > 4 ? 'G' + round(h.gst) : ''} kt`
         : `wind ${round(h.spd)} kt`;
       const rwyTxt = h.best ? `, favors RWY ${h.best.end} (xw ${round(Math.abs(h.best.cross))} kt)` : '';
+      const cloudTxt = h.ceil != null
+        ? `${skyWord(h.sky)} ceiling ${(round(h.ceil / 100) * 100).toLocaleString()} ft`
+        : (h.sky > 10 ? `${skyWord(h.sky)}, no ceiling` : 'clear');
+      const visTxt = h.visSM < 10 ? ` · vis ${h.visSM < 3 ? h.visSM.toFixed(1) : round(h.visSM)} SM` : '';
+      const daTxt = h.da != null ? ` · DA ${(round(h.da / 50) * 50).toLocaleString()} ft` : '';
       $('fly-detail').innerHTML =
-        `<b>${fmtTime(h.t, { minute: undefined })}</b> — <b>${h.score} · ${band}</b>${h.night ? ' · night' : ''} — ` +
-        esc(windTxt + rwyTxt) +
-        (h.why.length ? ' · ' + esc(h.why.join(' · ')) : ' · no significant factors');
+        `<b>${fmtTime(h.t, { minute: undefined })}</b> — <b>${h.score} · ${band}</b>` +
+        ` <span class="cat-chip" style="background:${CAT_COLORS[h.cat]}">${h.cat}</span>` +
+        `${h.night ? ' · night' : ''} — ` +
+        esc(`${windTxt}${rwyTxt} · ${cloudTxt}${visTxt}${daTxt}`) +
+        (h.why.length ? `<br><span class="faint">issues: ${esc(h.why.join(' · '))}</span>` : '');
     };
     el.addEventListener('mouseenter', show);
     el.addEventListener('click', show);
@@ -473,33 +557,101 @@ async function loadOpenMeteo() {
   ].join(',');
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${KANP.lat}&longitude=${KANP.lon}` +
     `&current=temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-    `&hourly=${H}&wind_speed_unit=kn&timeformat=unixtime&timezone=UTC&forecast_days=2`;
+    `&hourly=${H},pressure_msl&wind_speed_unit=kn&timeformat=unixtime&timezone=UTC&forecast_days=2`;
   state.om = await fetchJSON(url);
 }
 
+/* -------- NWS forecast grid (the data behind NWS/aviation forecasts) ------ */
+
+// Expand one grid property ({uom, values:[{validTime:"iso/PT3H", value}]})
+// into a Map of hour-start(ms) -> converted value (null = explicit "none").
+function expandSeries(prop, conv) {
+  const out = new Map();
+  if (!prop || !prop.values) return out;
+  for (const v of prop.values) {
+    const [startIso, dur] = v.validTime.split('/');
+    const start = new Date(startIso).getTime();
+    const m = (dur || 'PT1H').match(/P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/);
+    const hrs = Math.max(1, (m ? (+m[1] || 0) * 24 + (+m[2] || 0) : 0) + ((m && +m[3]) ? 1 : 0));
+    for (let h = 0; h < hrs; h++) {
+      out.set(start + h * 3600000, v.value == null ? null : conv(v.value));
+    }
+  }
+  return out;
+}
+
+async function loadNwsGrid() {
+  let gUrl = localStorage.getItem('wx_grid_url');
+  if (!gUrl) {
+    const pt = await fetchJSON(`${NWS}/points/${KANP.lat},${KANP.lon}`);
+    gUrl = pt.properties.forecastGridData;
+    localStorage.setItem('wx_grid_url', gUrl);
+  }
+  let g;
+  try {
+    g = (await fetchJSON(gUrl)).properties;
+  } catch (e) {
+    localStorage.removeItem('wx_grid_url');
+    throw e;
+  }
+  const kmh2kt = (v) => v / 1.852;
+  const m2ft = (v) => v * 3.28084;
+  const m2sm = (v) => v / 1609.34;
+  const id = (v) => v;
+  state.grid = {
+    spd: expandSeries(g.windSpeed, kmh2kt),
+    gst: expandSeries(g.windGust, kmh2kt),
+    dir: expandSeries(g.windDirection, id),
+    sky: expandSeries(g.skyCover, id),
+    ceil: expandSeries(g.ceilingHeight, m2ft),
+    vis: expandSeries(g.visibility, m2sm),
+    pp: expandSeries(g.probabilityOfPrecipitation, id),
+    tempC: expandSeries(g.temperature, id),
+    dewC: expandSeries(g.dewpoint, id),
+  };
+}
+
+// Merge NWS grid (primary — same NOAA data family aviation apps use) with
+// Open-Meteo (fallback + CAPE + pressure for density altitude).
 function buildHours() {
   const om = state.om;
+  const g = state.grid;
   const now = Date.now() / 1000;
   const t = om.hourly.time;
   let i0 = t.findIndex((s) => s >= now - 1800);
   if (i0 < 0) i0 = 0;
   const hours = [];
   const solarCache = {};
+  const gv = (map, ms) => (g && map.has(ms) ? map.get(ms) : undefined);
   for (let i = i0; i < Math.min(i0 + 24, t.length); i++) {
     const ms = t[i] * 1000;
+    const tempC = gv(g && g.tempC, ms) ?? om.hourly.temperature_2m[i];
+    const dewC = gv(g && g.dewC, ms) ?? om.hourly.dew_point_2m[i];
+    // NWS ceiling: value null (or hour absent) = no ceiling forecast
+    const ceilRaw = gv(g && g.ceil, ms);
+    const pmsl = om.hourly.pressure_msl ? om.hourly.pressure_msl[i] : null;
     const h = {
       t: ms,
-      tempF: cToF(om.hourly.temperature_2m[i]),
-      dewF: cToF(om.hourly.dew_point_2m[i]),
-      pp: om.hourly.precipitation_probability[i] ?? 0,
+      tempF: cToF(tempC),
+      dewF: cToF(dewC),
+      pp: gv(g && g.pp, ms) ?? om.hourly.precipitation_probability[i] ?? 0,
       precip: om.hourly.precipitation[i] ?? 0,
-      cc: om.hourly.cloud_cover[i] ?? 0,
-      visSM: (om.hourly.visibility[i] ?? 99999) / 1609.34,
+      sky: gv(g && g.sky, ms) ?? om.hourly.cloud_cover[i] ?? 0,
+      ceil: ceilRaw == null ? null : ceilRaw,
+      visSM: gv(g && g.vis, ms) ?? (om.hourly.visibility[i] ?? 99999) / 1609.34,
       cape: om.hourly.cape[i] ?? 0,
-      spd: om.hourly.wind_speed_10m[i] ?? 0,
-      dir: om.hourly.wind_direction_10m[i],
-      gst: om.hourly.wind_gusts_10m[i],
+      spd: gv(g && g.spd, ms) ?? om.hourly.wind_speed_10m[i] ?? 0,
+      dir: gv(g && g.dir, ms) ?? om.hourly.wind_direction_10m[i],
+      gst: gv(g && g.gst, ms) ?? om.hourly.wind_gusts_10m[i],
     };
+    if (h.gst != null && h.gst < h.spd) h.gst = h.spd;
+    h.cat = flightCat(h.visSM, h.ceil);
+    if (tempC != null && pmsl != null) {
+      const altInHg = pmsl * 0.02953;
+      const pa = KANP.elevFt + (29.92 - altInHg) * 1000;
+      const isa = 15 - 1.98 * (KANP.elevFt / 1000);
+      h.da = pa + 118.8 * (tempC - isa);
+    }
     const day = new Date(ms).toLocaleDateString('en-CA', { timeZone: TZ });
     if (!solarCache[day]) solarCache[day] = solarTimes(new Date(ms), KANP.lat, KANP.lon);
     const s = solarCache[day];
@@ -507,6 +659,16 @@ function buildHours() {
     hours.push(scoreHour(h));
   }
   return hours;
+}
+
+// sky cover % -> METAR-style word
+function skyWord(sky) {
+  if (sky == null) return '';
+  if (sky <= 10) return 'CLR';
+  if (sky <= 25) return 'FEW';
+  if (sky <= 50) return 'SCT';
+  if (sky <= 87) return 'BKN';
+  return 'OVC';
 }
 
 function renderHero() {
@@ -935,6 +1097,8 @@ async function loadRadarFrames() {
 function renderCharts() {
   if (!state.fly) return;
   drawWindChart($('chart-wind'), state.fly);
+  drawCeilingChart($('chart-ceiling'), state.fly);
+  drawDaChart($('chart-da'), state.fly);
   drawTempChart($('chart-temp'), state.fly);
   drawPrecipChart($('chart-precip'), state.fly);
 }
@@ -948,6 +1112,7 @@ async function loadAll() {
   const jobs = [
     loadMetars().catch((e) => state.errors.push('obs: ' + e.message)),
     loadOpenMeteo().catch((e) => state.errors.push('model: ' + e.message)),
+    loadNwsGrid().catch((e) => state.errors.push('NWS grid: ' + e.message)),
     loadAlerts(),
     loadOutlook(),
     loadTafs().catch(() => {}),

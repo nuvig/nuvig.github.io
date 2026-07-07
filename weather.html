@@ -123,6 +123,10 @@
       background: rgba(10,10,30,0.45); pointer-events: none;
     }
     .fly-block.night .hr::before { content: "☾ "; font-size: 8px; }
+    .fly-block .catbar {
+      position: absolute; left: 3px; right: 3px; bottom: 2px; height: 3px;
+      border-radius: 2px; opacity: .9;
+    }
     #fly-detail { font-size: 12.5px; color: #999; margin-top: 8px; min-height: 18px; }
     #fly-detail b { color: #ddd; }
     .fly-legend { display: flex; gap: 14px; font-size: 11px; color: #666; margin-top: 8px; flex-wrap: wrap; }
@@ -248,7 +252,7 @@
 
   <!-- ============ FLYABILITY ============ -->
   <div class="section-title">Flight windows — next 24 hours
-    <span class="sub">wind · gusts · crosswind at KANP · precip · storms · ceiling &amp; visibility (model-based, not a briefing)</span>
+    <span class="sub">NWS forecast grid: wind · gusts · crosswind at KANP · ceiling &amp; visibility · precip · storms · density altitude (not a briefing)</span>
   </div>
   <div class="card">
     <div id="fly-strip"><span class="muted" style="font-size:13px">Loading forecast…</span></div>
@@ -259,14 +263,28 @@
       <span><i style="background:#f59e0b"></i>Marginal</span>
       <span><i style="background:#ef4444"></i>Poor</span>
       <span><i style="background:#333">☾</i> night (civil twilight)</span>
+      <span>bottom bar = forecast flight category
+        (<span style="color:#22c55e">VFR</span> <span style="color:#4a9eff">MVFR</span>
+        <span style="color:#ef4444">IFR</span> <span style="color:#c026d3">LIFR</span>)</span>
     </div>
   </div>
 
   <!-- ============ HOURLY CHARTS ============ -->
   <div class="section-title">Surface wind forecast
-    <span class="sub">sustained · gusts · arrows point downwind (the way the air is moving)</span>
+    <span class="sub">NWS forecast · sustained · gusts · arrows point downwind (the way the air is moving)</span>
   </div>
   <div class="card"><canvas id="chart-wind" class="chart" style="height:190px"></canvas></div>
+
+  <div class="two-col" style="margin-top:14px">
+    <div class="card">
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Forecast ceiling (bars, ft AGL — no bar = unlimited) &amp; sky cover (gray area)</div>
+      <canvas id="chart-ceiling" class="chart" style="height:150px"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Density altitude at KANP (ft) — amber above 3,000</div>
+      <canvas id="chart-da" class="chart" style="height:150px"></canvas>
+    </div>
+  </div>
 
   <div class="two-col" style="margin-top:14px">
     <div class="card">
@@ -274,7 +292,7 @@
       <canvas id="chart-temp" class="chart" style="height:150px"></canvas>
     </div>
     <div class="card">
-      <div style="font-size:12px;color:#777;margin-bottom:6px">Precip probability (bars) &amp; cloud cover (line)</div>
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Precip probability (bars) &amp; sky cover (line)</div>
       <canvas id="chart-precip" class="chart" style="height:150px"></canvas>
     </div>
   </div>
