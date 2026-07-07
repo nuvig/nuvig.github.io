@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KANP Weather Hub — Lee Airport, Annapolis MD</title>
+  <meta name="description" content="Local aviation weather dashboard for Lee Airport (KANP), Annapolis MD: live winds, runway crosswind analysis for ANP/ESN/FME/CGE/MTN, hourly forecasts, TAFs, radar, and flight-planning tools.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="canonical" href="https://jesselevine.net/weather.html">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body {
+      max-width: 1100px;
+      padding-bottom: 40px;
+    }
+    a { color: #aaa; }
+    #back-link {
+      display: inline-block;
+      margin-top: 16px;
+      font-size: 14px;
+      text-decoration: none;
+      color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 14px;
+    }
+    .indicator { display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #444; flex-shrink: 0; }
+    .dot.green  { background: #22c55e; animation: pulse 2s infinite; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.red    { background: #ef4444; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 5px 14px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #26497a; }
+    .btn.secondary { background: #333; border-color: #444; color: #ddd; }
+    .btn.secondary:hover { background: #444; }
+
+    .section-title {
+      font-size: 15px; font-weight: 600; color: #ccc;
+      margin: 22px 0 8px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .sub { font-weight: 400; font-size: 12px; color: #555; }
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin-bottom: 0;
+    }
+    .muted { color: #888; }
+    .faint { color: #555; }
+    .num-mono { font-variant-numeric: tabular-nums; }
+
+    /* ---- alerts ---- */
+    #alerts { display: none; margin-bottom: 14px; }
+    .alert-box {
+      border: 1px solid #6b2020; background: #2a1010; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; color: #fca5a5; margin-bottom: 8px;
+    }
+    .alert-box .hd { font-weight: 600; color: #f87171; }
+    .alert-box.minor { border-color: #6b5520; background: #2a2210; color: #fcd34d; }
+    .alert-box.minor .hd { color: #f0c040; }
+
+    /* ---- hero grid ---- */
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+    @media (max-width: 900px) { .hero-grid { grid-template-columns: 1fr 1fr; } .compass-card { grid-column: 1 / -1; } }
+    @media (max-width: 640px) { .hero-grid { grid-template-columns: 1fr; } }
+
+    .compass-card { display: flex; flex-direction: column; align-items: center; }
+    #hero-compass { width: 100%; max-width: 300px; }
+    #hero-wind-line { font-size: 14px; color: #ddd; text-align: center; margin-top: 4px; }
+    #hero-rwy-line  { font-size: 12.5px; color: #888; text-align: center; margin-top: 4px; line-height: 1.5; }
+    #hero-src-line  { font-size: 11px; color: #555; text-align: center; margin-top: 6px; }
+
+    .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; }
+    .kv .k { color: #777; }
+    .kv .v { color: #ddd; text-align: right; font-variant-numeric: tabular-nums; }
+    .card h3 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .cat-chip {
+      display: inline-block; padding: 0 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #111;
+    }
+    .big-num { font-size: 26px; font-weight: 600; color: #fff; }
+
+    /* ---- flyability strip ---- */
+    #fly-strip { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+    .fly-block {
+      flex: 1 0 32px; border-radius: 4px; cursor: pointer; position: relative;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 6px 0 4px; border: 1px solid transparent;
+    }
+    .fly-block:hover, .fly-block.sel { border-color: #ccc; }
+    .fly-block .hr { font-size: 10px; color: #111; font-weight: 700; opacity: .75; }
+    .fly-block .sc { font-size: 11px; color: #111; font-weight: 700; }
+    .fly-block.night::after {
+      content: ""; position: absolute; inset: 0; border-radius: 4px;
+      background: rgba(10,10,30,0.45); pointer-events: none;
+    }
+    .fly-block.night .hr::before { content: "☾ "; font-size: 8px; }
+    #fly-detail { font-size: 12.5px; color: #999; margin-top: 8px; min-height: 18px; }
+    #fly-detail b { color: #ddd; }
+    .fly-legend { display: flex; gap: 14px; font-size: 11px; color: #666; margin-top: 8px; flex-wrap: wrap; }
+    .fly-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; font-style: normal; }
+
+    /* ---- charts ---- */
+    canvas.chart { display: block; width: 100%; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ---- winds aloft / outlook ---- */
+    table.wx-table { width: 100%; border-collapse: collapse; font-size: 12.5px; color: #bbb; }
+    .wx-table th, .wx-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
+    .wx-table th { color: #666; font-weight: 500; font-size: 11px; }
+    .wx-table tr:last-child td { border-bottom: none; }
+    .outlook-row { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid #242424; font-size: 12.5px; }
+    .outlook-row:last-child { border-bottom: none; }
+    .outlook-row .day { width: 92px; flex-shrink: 0; color: #ccc; font-weight: 600; }
+    .outlook-row .tmp { width: 42px; flex-shrink: 0; color: #ddd; font-variant-numeric: tabular-nums; }
+    .outlook-row .txt { color: #888; }
+
+    /* ---- radar ---- */
+    #radar-map {
+      height: 420px; border-radius: 8px; border: 1px solid #333;
+      background: #0b0b0b; margin-top: 8px;
+    }
+    .radar-controls {
+      display: flex; align-items: center; gap: 12px; font-size: 12px;
+      color: #777; margin-top: 8px; flex-wrap: wrap;
+    }
+    .leaflet-container { font-family: inherit; }
+    .leaflet-control-layers { background: #1a1a1af0; color: #ccc; border: 1px solid #444; }
+    .leaflet-control-layers label { color: #ccc; }
+
+    /* ---- airport / runway cards ---- */
+    .airport-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .apt-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+    .apt-head .icao { font-size: 16px; font-weight: 700; color: #fff; }
+    .apt-head .name { font-size: 12px; color: #777; }
+    .apt-raw {
+      font-family: Consolas, Menlo, monospace; font-size: 11px; color: #6f8296;
+      background: #111; border: 1px solid #262626; border-radius: 5px;
+      padding: 6px 8px; margin: 6px 0 8px; word-break: break-word; line-height: 1.5;
+    }
+    .apt-body { display: flex; gap: 12px; align-items: flex-start; }
+    .apt-rows { flex: 1; min-width: 0; }
+    .apt-compass { width: 128px; flex-shrink: 0; }
+    .rwy-row {
+      display: flex; align-items: baseline; gap: 8px;
+      font-size: 12.5px; padding: 3px 0; flex-wrap: wrap;
+    }
+    .rwy-row .rwy { width: 34px; font-weight: 700; color: #ddd; flex-shrink: 0; }
+    .rwy-row.best .rwy { color: #22c55e; }
+    .rwy-row .comp { color: #999; font-variant-numeric: tabular-nums; }
+    .rwy-row .comp b { color: #ddd; font-weight: 600; }
+    .rwy-row .tail b { color: #f59e0b; }
+    .rwy-row .xw-bad b { color: #ef4444; }
+    .best-tag {
+      font-size: 10px; font-weight: 700; color: #111; background: #22c55e;
+      border-radius: 3px; padding: 0 5px; letter-spacing: 0.03em;
+    }
+    .apt-meta { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
+    .apt-err { font-size: 12.5px; color: #b45309; }
+
+    /* ---- TAFs ---- */
+    .taf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    .taf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+    .taf-head .icao { font-weight: 700; color: #fff; }
+    .taf-head .iss { font-size: 11px; color: #555; }
+    .taf-period { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid #242424; font-size: 12px; align-items: baseline; }
+    .taf-period:last-child { border-bottom: none; }
+    .taf-period .when { width: 108px; flex-shrink: 0; color: #999; font-variant-numeric: tabular-nums; }
+    .taf-period .when .ind { color: #f0c040; font-size: 10px; font-weight: 700; }
+    .taf-period .what { color: #bbb; line-height: 1.5; min-width: 0; }
+    .taf-period .catdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+
+    footer.sources { margin-top: 28px; font-size: 11px; color: #555; line-height: 1.7; }
+    footer.sources a { color: #666; }
+  </style>
+</head>
+<body>
+  <a href="/" id="back-link">← Jesse Levine</a>
+
+  <h1>KANP Weather Hub</h1>
+  <p class="subtitle">
+    Aviation weather for Lee Airport, Annapolis MD — winds, runway analysis &amp; planning ·
+    <a href="/kanp.html">flight tracker →</a>
+  </p>
+
+  <div class="status-bar">
+    <div class="indicator"><div class="dot" id="status-dot"></div><span id="status-text">Loading…</span></div>
+    <span>Updated <span id="update-time" class="num-mono">—</span></span>
+    <span class="faint" id="refresh-count"></span>
+    <button class="btn secondary" id="refresh-btn" style="margin-left:auto">Refresh now</button>
+  </div>
+
+  <div id="alerts"></div>
+
+  <!-- ============ HERO: wind / conditions / sun ============ -->
+  <div class="hero-grid">
+    <div class="card compass-card">
+      <h3 style="align-self:flex-start">Wind — KANP</h3>
+      <div id="hero-compass"></div>
+      <div id="hero-wind-line">—</div>
+      <div id="hero-rwy-line"></div>
+      <div id="hero-src-line"></div>
+    </div>
+
+    <div class="card" id="cond-card">
+      <h3>Current conditions</h3>
+      <div id="cond-body"><span class="muted">Loading…</span></div>
+    </div>
+
+    <div class="card" id="sun-card">
+      <h3>Daylight &amp; night ops</h3>
+      <div id="sun-body"><span class="muted">Loading…</span></div>
+    </div>
+  </div>
+
+  <!-- ============ FLYABILITY ============ -->
+  <div class="section-title">Flight windows — next 24 hours
+    <span class="sub">wind · gusts · crosswind at KANP · precip · storms · ceiling &amp; visibility (model-based, not a briefing)</span>
+  </div>
+  <div class="card">
+    <div id="fly-strip"><span class="muted" style="font-size:13px">Loading forecast…</span></div>
+    <div id="fly-detail">Hover or tap an hour for details.</div>
+    <div class="fly-legend">
+      <span><i style="background:#22c55e"></i>Good</span>
+      <span><i style="background:#a3d635"></i>Fair</span>
+      <span><i style="background:#f59e0b"></i>Marginal</span>
+      <span><i style="background:#ef4444"></i>Poor</span>
+      <span><i style="background:#333">☾</i> night (civil twilight)</span>
+    </div>
+  </div>
+
+  <!-- ============ HOURLY CHARTS ============ -->
+  <div class="section-title">Surface wind forecast
+    <span class="sub">sustained · gusts · arrows point downwind (the way the air is moving)</span>
+  </div>
+  <div class="card"><canvas id="chart-wind" class="chart" style="height:190px"></canvas></div>
+
+  <div class="two-col" style="margin-top:14px">
+    <div class="card">
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Temperature &amp; dewpoint (°F)</div>
+      <canvas id="chart-temp" class="chart" style="height:150px"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Precip probability (bars) &amp; cloud cover (line)</div>
+      <canvas id="chart-precip" class="chart" style="height:150px"></canvas>
+    </div>
+  </div>
+
+  <!-- ============ WINDS ALOFT + OUTLOOK ============ -->
+  <div class="two-col" style="margin-top:14px">
+    <div class="card">
+      <h3>Winds &amp; temps aloft — over KANP <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#555">(model)</span></h3>
+      <div id="aloft-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+    </div>
+    <div class="card">
+      <h3>Outlook — NWS Baltimore/Washington</h3>
+      <div id="outlook-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+    </div>
+  </div>
+
+  <!-- ============ RUNWAY ANALYSIS ============ -->
+  <div class="section-title">Runway wind analysis
+    <span class="sub">live METAR winds resolved into head/tail &amp; crosswind components per runway · green = favored runway</span>
+  </div>
+  <div class="airport-grid" id="airports"></div>
+
+  <!-- ============ TAFs ============ -->
+  <div class="section-title">Terminal forecasts (TAF)
+    <span class="sub">nearest TAF airports — KANP itself has no TAF</span>
+  </div>
+  <div class="taf-grid" id="tafs"></div>
+
+  <!-- ============ RADAR ============ -->
+  <div class="section-title">Radar
+    <span class="sub">airport dots colored by current flight category · rings at 10 &amp; 25 NM from KANP</span>
+  </div>
+  <div id="radar-map"></div>
+  <div class="radar-controls">
+    <button class="btn secondary" id="radar-play">⏸ Pause</button>
+    <span id="radar-label" class="num-mono">—</span>
+    <span class="faint">layers ▛ top-right: VFR sectional overlay</span>
+    <span style="margin-left:auto" class="faint">
+      <span style="color:#22c55e">●</span> VFR
+      <span style="color:#4a9eff">●</span> MVFR
+      <span style="color:#ef4444">●</span> IFR
+      <span style="color:#c026d3">●</span> LIFR
+    </span>
+  </div>
+
+  <footer class="sources">
+    Not for operational use — always get an official briefing.
+    Observations &amp; TAFs: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a> ·
+    model forecasts: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ·
+    radar: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> /
+    <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">IEM NEXRAD</a> ·
+    charts: FAA VFR sectional tiles.
+    KANP has no on-field weather sensor; surface obs come from KNAK (USNA, ~3 NM NE).
+    Wind directions are °true. Runway alignments from FAA data.
+  </footer>
+
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/weather.js"></script>
+</body>
+</html>
