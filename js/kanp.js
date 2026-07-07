@@ -7,7 +7,7 @@ const KANP = {
   LON: -76.5684,
   SEARCH_NM: 60,          // study/display radius around the field, nm
   POLL_MS: 60_000,        // snapshot mode: the GitHub data only changes hourly
-  PI_POLL_MS: 1_000,      // Pi API mode: the collector samples every second
+  PI_POLL_MS: 3_000,      // Pi API mode: the collector samples every 3 s
   MAX_AGE_MS: 7 * 86_400_000,
   OBS_KEY: 'kanp_obs',
   API_KEY: 'kanp_api_base',
@@ -598,7 +598,7 @@ function initLive() {
 
   renderFromStorage();
   // Poll fast only when the Pi API is answering — hammering the hourly
-  // GitHub snapshots (or a dead network) every second buys nothing.
+  // GitHub snapshots (or a dead network) every few seconds buys nothing.
   const poll = async () => {
     const source = await fetchNow();
     pollTimer = setTimeout(poll, source === 'pi' ? KANP.PI_POLL_MS : KANP.POLL_MS);
@@ -607,7 +607,7 @@ function initLive() {
 }
 
 async function fetchNow() {
-  // only before the first data lands — at 1 s Pi polls this would flicker
+  // only before the first data lands — at fast Pi polls this would flicker
   if (!KANP._liveNewest) setStatus('yellow', 'Loading…');
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -635,7 +635,7 @@ async function fetchNow() {
     }
 
     // only fold a genuinely new snapshot into the session history, at most
-    // once a minute — 1 s Pi polls would otherwise flood localStorage, and
+    // once a minute — fast Pi polls would otherwise flood localStorage, and
     // the public snapshot updates hourly so re-storing it would dupe it
     if (newest && newest !== KANP._liveNewest &&
         Date.now() - (KANP._lastObsMs || 0) >= KANP.POLL_MS) {

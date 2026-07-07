@@ -29,7 +29,7 @@ cd ~/traffic-data && git config user.name kanp-collector && git config user.emai
 
 # 3. Fetch the collector and test-run it (Ctrl-C to stop)
 cd ~ && curl -sO https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/scripts/api-collector.js
-KANP_POLL_S=1 node api-collector.js ~/traffic-data --push
+KANP_POLL_S=3 node api-collector.js ~/traffic-data --push
 ```
 
 You should see a status line every few minutes and a `pushed` line within
@@ -45,7 +45,7 @@ Wants=network-online.target
 
 [Service]
 User=pi
-Environment=KANP_POLL_S=1
+Environment=KANP_POLL_S=3
 ExecStart=/usr/bin/node /home/pi/api-collector.js /home/pi/traffic-data --push
 Restart=always
 RestartSec=30
@@ -59,8 +59,8 @@ sudo systemctl enable --now kanp-collector
 journalctl -u kanp-collector -f     # watch it work
 ```
 
-**How the numbers fit together:** `KANP_POLL_S=1` polls once per second —
-the maximum airplanes.live allows. Storage is bounded separately by
+**How the numbers fit together:** `KANP_POLL_S=3` polls every 3 s (the
+airplanes.live floor is 1 s). Storage is bounded separately by
 `KANP_KEEP_S` (default 5): at most one stored fix per aircraft per 5 s.
 That's deliberate — 60 nm around KANP includes BWI/DCA traffic, and
 storing every 1-second fix would make day files too large for the web page
@@ -139,7 +139,7 @@ On the [tracker page](https://jesselevine.net/kanp.html):
 http://<receiver-ip>/tar1090/data/aircraft.json
 ```
 
-The page polls it every second, so trails
+The page polls it every 3 seconds, so trails
 get noticeably smoother. Settings stay in your browser's localStorage —
 nothing is committed to the repo.
 

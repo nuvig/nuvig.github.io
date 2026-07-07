@@ -30,7 +30,7 @@ DEFAULTS = {
     # whichever answers first); anything starting with http = local receiver
     # aircraft.json URL, e.g. http://127.0.0.1/skyaware/data/aircraft.json
     "KANP_SOURCE": "airplanes",
-    "KANP_POLL_SECONDS": "1",
+    "KANP_POLL_SECONDS": "3",
     "KANP_DB": "/var/lib/kanp/kanp.db",
     "KANP_RETENTION_DAYS": "365",
     # Safety cap so the DB can never fill the SD card. Oldest data is pruned
