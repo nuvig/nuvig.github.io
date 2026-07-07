@@ -30,7 +30,7 @@ DEFAULTS = {
     # whichever answers first); anything starting with http = local receiver
     # aircraft.json URL, e.g. http://127.0.0.1/skyaware/data/aircraft.json
     "KANP_SOURCE": "airplanes",
-    "KANP_POLL_SECONDS": "15",
+    "KANP_POLL_SECONDS": "1",
     "KANP_DB": "/var/lib/kanp/kanp.db",
     "KANP_RETENTION_DAYS": "365",
     # Safety cap so the DB can never fill the SD card. Oldest data is pruned
@@ -50,7 +50,7 @@ LAT = float(cfg("KANP_LAT"))
 LON = float(cfg("KANP_LON"))
 RADIUS_NM = float(cfg("KANP_RADIUS_NM"))
 SOURCE = cfg("KANP_SOURCE")
-POLL_SECONDS = max(5, int(cfg("KANP_POLL_SECONDS")))
+POLL_SECONDS = max(1, int(cfg("KANP_POLL_SECONDS")))
 DB_PATH = cfg("KANP_DB")
 RETENTION_DAYS = int(cfg("KANP_RETENTION_DAYS"))
 MAX_DB_MB = int(cfg("KANP_MAX_DB_MB"))

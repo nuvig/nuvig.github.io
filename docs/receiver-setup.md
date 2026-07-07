@@ -139,7 +139,7 @@ On the [tracker page](https://jesselevine.net/kanp.html):
 http://<receiver-ip>/tar1090/data/aircraft.json
 ```
 
-The page polls it every 5 seconds (vs 15 s for airplanes.live), so trails
+The page polls it every second, so trails
 get noticeably smoother. Settings stay in your browser's localStorage —
 nothing is committed to the repo.
 

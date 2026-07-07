@@ -6,7 +6,8 @@ const KANP = {
   LAT: 38.9422,
   LON: -76.5684,
   SEARCH_NM: 60,          // study/display radius around the field, nm
-  POLL_MS: 60_000,
+  POLL_MS: 60_000,        // snapshot mode: the GitHub data only changes hourly
+  PI_POLL_MS: 1_000,      // Pi API mode: the collector samples every second
   MAX_AGE_MS: 7 * 86_400_000,
   OBS_KEY: 'kanp_obs',
   API_KEY: 'kanp_api_base',
@@ -596,12 +597,18 @@ function initLive() {
   ro.observe(document.getElementById('temporal-canvas').parentElement);
 
   renderFromStorage();
-  pollTimer = setInterval(fetchNow, KANP.POLL_MS);
-  fetchNow();
+  // Poll fast only when the Pi API is answering — hammering the hourly
+  // GitHub snapshots (or a dead network) every second buys nothing.
+  const poll = async () => {
+    const source = await fetchNow();
+    pollTimer = setTimeout(poll, source === 'pi' ? KANP.PI_POLL_MS : KANP.POLL_MS);
+  };
+  poll();
 }
 
 async function fetchNow() {
-  setStatus('yellow', 'Loading…');
+  // only before the first data lands — at 1 s Pi polls this would flicker
+  if (!KANP._liveNewest) setStatus('yellow', 'Loading…');
   try {
     const now = Math.floor(Date.now() / 1000);
     const data = await KANP.getTracks({ start: now - LIVE_WINDOW_S, end: now, ground: 'include' });
@@ -627,14 +634,17 @@ async function fetchNow() {
       });
     }
 
-    // only fold a genuinely new snapshot into the session history — the public
-    // snapshot updates hourly, so polling each minute would otherwise dupe it
-    if (newest && newest !== KANP._liveNewest) {
+    // only fold a genuinely new snapshot into the session history, at most
+    // once a minute — 1 s Pi polls would otherwise flood localStorage, and
+    // the public snapshot updates hourly so re-storing it would dupe it
+    if (newest && newest !== KANP._liveNewest &&
+        Date.now() - (KANP._lastObsMs || 0) >= KANP.POLL_MS) {
       KANP._liveNewest = newest;
+      KANP._lastObsMs = Date.now();
       storeObs(ac);
+      renderFromStorage();
     }
     renderLiveAircraft(ac);
-    renderFromStorage();
 
     const ageMin = newest ? Math.max(0, Math.round((Date.now() / 1000 - newest) / 60)) : null;
     const viaPi = data._source === 'pi';
@@ -647,9 +657,11 @@ async function fetchNow() {
     document.getElementById('ac-num').textContent = ac.length;
     show('update-wrap');
     document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+    return data._source;
   } catch (err) {
     setStatus('red', 'No data — try History / Traffic Study');
     console.warn('[KANP] live latest-positions failed:', err.message);
+    return null;
   }
 }
 

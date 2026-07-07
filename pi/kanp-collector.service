@@ -13,7 +13,7 @@ RestartSec=15
 
 # Tune here instead of editing collector.py:
 #Environment=KANP_SOURCE=http://127.0.0.1/skyaware/data/aircraft.json
-#Environment=KANP_POLL_SECONDS=15
+#Environment=KANP_POLL_SECONDS=1
 #Environment=KANP_RADIUS_NM=60
 #Environment=KANP_RETENTION_DAYS=365
 #Environment=KANP_MAX_DB_MB=8000
