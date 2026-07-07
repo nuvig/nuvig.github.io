@@ -24,7 +24,7 @@ Annapolis, MD. Hosted on GitHub Pages.
   keys to this public repo). See `docs/receiver-setup.md` for wiring up an
   RTL-SDR receiver.
 - **24/7 collection**: `scripts/api-collector.js` runs continuously on a
-  Raspberry Pi, polling the airplanes.live API once per second for all
+  Raspberry Pi, polling the airplanes.live API every 3 s for all
   traffic within 60 nm of KANP (radius/intervals env-tunable). It stores
   one fix per aircraft per 5 s into per-day track files plus temporal
   heatmap snapshots, and pushes the `traffic-data` branch hourly. It can

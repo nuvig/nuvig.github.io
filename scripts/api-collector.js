@@ -3,11 +3,11 @@
 // Two modes, same output — the per-day track files the History Explorer
 // reads, plus temporal-heatmap snapshots:
 //
-//   API mode (default): polls the free airplanes.live point API every 20 s.
+//   API mode (default): polls the free airplanes.live point API every 3 s.
 //     Runs on any always-on machine; no receiver hardware required.
 //
 //   Local receiver mode (--url): polls a dump1090-fa / readsb / tar1090
-//     aircraft.json on your own network every 5 s. No rate limits, higher
+//     aircraft.json on your own network every 3 s. No rate limits, higher
 //     resolution, your own antenna. e.g.
 //       --url http://localhost/skyaware/data/aircraft.json   (dump1090-fa)
 //       --url http://localhost/tar1090/data/aircraft.json    (tar1090)
@@ -23,8 +23,8 @@
 //   --url       poll this aircraft.json instead of airplanes.live
 //
 // Tuning (env-overridable):
-//   KANP_POLL_S       poll interval, seconds (default 5 for API — the
-//                     airplanes.live limit is 1 req/s, so 1 is the floor)
+//   KANP_POLL_S       poll interval, seconds (default 3; the airplanes.live
+//                     limit is 1 req/s, so 1 is the floor)
 //   KANP_KEEP_S=5     store at most one fix per aircraft per this many
 //                     seconds. Polling faster than this improves fix
 //                     *selection*, but storage stays bounded — at 60 nm
@@ -63,7 +63,7 @@ if (!dataDir || (args.includes('--url') && !sourceUrl)) {
   process.exit(1);
 }
 
-const POLL_S    = envNum('KANP_POLL_S', 5);
+const POLL_S    = envNum('KANP_POLL_S', 3);
 const KEEP_S    = envNum('KANP_KEEP_S', 5);
 const SEARCH_NM = envNum('KANP_RADIUS_NM', 60);
 const FLUSH_S   = envNum('KANP_FLUSH_S', 300);

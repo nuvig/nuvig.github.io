@@ -17,7 +17,7 @@ starts two services:
 
 | service | what it does |
 |---|---|
-| `kanp-collector` | polls airplanes.live every 15 s, writes `/var/lib/kanp/kanp.db` |
+| `kanp-collector` | polls airplanes.live every 3 s, writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
@@ -35,7 +35,7 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 | var | default | notes |
 |---|---|---|
 | `KANP_SOURCE` | `airplanes` | or a local receiver URL, e.g. `http://127.0.0.1/skyaware/data/aircraft.json` (dump1090-fa) or `http://127.0.0.1/tar1090/data/aircraft.json` |
-| `KANP_POLL_SECONDS` | `15` | airplanes.live allows 1 req/s; 15 s is polite. Use 5 s if polling your own receiver |
+| `KANP_POLL_SECONDS` | `3` | airplanes.live allows 1 req/s, so 1 is the floor. Raise to 15 to cut storage / be polite to the public feeds |
 | `KANP_RADIUS_NM` | `60` | search radius around KANP |
 | `KANP_RETENTION_DAYS` | `365` | positions older than this are pruned hourly |
 | `KANP_MAX_DB_MB` | `8000` | hard cap; oldest 30-day chunks dropped if exceeded |
