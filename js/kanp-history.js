@@ -11,6 +11,9 @@ const KANPHistory = (() => {
   let renderTimer = null;       // coalesces rapid slider events into one redraw
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
+  // Only when the *drawn* set (after every filter) exceeds this many points do
+  // we coarsen it to stay responsive — so a handful of tracks never triggers it.
+  const DRAW_LIMIT = 250_000;
 
   function init() {
     KANP.initFilterBar('hist-filters');
@@ -164,6 +167,17 @@ const KANPHistory = (() => {
     };
     shown = applyArrDep(shown);
 
+    // The tracks are already shape-simplified; only if what's actually on the
+    // map is still huge do we coarsen further (shape-preserving) to keep it
+    // responsive. This is decided on the *drawn* set, so filtering down to a
+    // few tracks never limits or warns.
+    let coarsened = false;
+    if (shown.returned_points > DRAW_LIMIT) {
+      shown.tracks = shown.tracks.map(t => ({ ...t, points: KANP.simplifyTrack(t.points, 0.08) }));
+      shown.returned_points = shown.tracks.reduce((n, t) => n + t.points.length, 0);
+      coarsened = true;
+    }
+
     draw(shown);
     renderLeeList(shown);
 
@@ -171,9 +185,9 @@ const KANPHistory = (() => {
                        both: ' · arrivals + departures' }[arrDepMode()] || '';
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
-    if (fullData.dense) {
-      msg += ` <span class="warn">— large range; tracks coarsened to stay responsive. ` +
-        `Narrow the dates or add a filter (altitude / KANP only / callsign) for full detail.</span>`;
+    if (coarsened) {
+      msg += ` <span class="warn">— large range coarsened to stay responsive; ` +
+        `narrow the dates or add a filter for full detail.</span>`;
     }
     out.innerHTML = msg;
   }

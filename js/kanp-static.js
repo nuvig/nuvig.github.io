@@ -10,12 +10,10 @@ const KANPStatic = (() => {
     'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2';
   const base = () => localStorage.getItem('kanp_static_base') || DEFAULT_BASE;
   const MAX_DAYS = 62;
-  // Day files arrive already shape-simplified by the exporter, so we draw them
-  // as-is. Only when a very large multi-day range would be too heavy do we run
-  // a coarser client-side shape-simplify (never a corner-cutting stride) and
-  // flag the response "dense" so the page can suggest narrowing the range.
-  const DRAW_LIMIT = 300_000;
-  const DENSE_SIMPLIFY_NM = 0.08;
+  // Day files arrive already shape-simplified by the exporter, so they're
+  // returned as-is. Any "too much to draw" decision is made by the History tab
+  // on the *drawn* set (after filters), not here on the raw fetch.
+  const DENSE_POINTS = 250_000;
 
   let summaryCache = null;
   let summaryAt = 0;
@@ -153,20 +151,13 @@ const KANPStatic = (() => {
 
   async function getTracks(p) {
     const { tracks, totalPoints, start, end } = await filteredTracks(p);
-    const dense = totalPoints > DRAW_LIMIT;
-    const eps = dense ? DENSE_SIMPLIFY_NM : 0;   // 0 => draw as-is (already simplified)
-    let returned = 0;
-    const list = [...tracks.values()].map(t => {
-      const pts = eps > 0 ? KANP.simplifyTrack(t.points, eps) : t.points;
-      returned += pts.length;
-      return { ...t, points: pts };
-    }).sort((a, b) => b.points.length - a.points.length);
+    const list = [...tracks.values()].sort((a, b) => b.points.length - a.points.length);
 
     return {
       start, end,
       total_points: totalPoints,
-      returned_points: returned,
-      dense,
+      returned_points: totalPoints,
+      dense: totalPoints > DENSE_POINTS,
       aircraft_count: list.length,
       tracks: list,
       snapshot_generated: summaryCache ? summaryCache.generated : null,

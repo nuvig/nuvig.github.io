@@ -50,10 +50,10 @@ WEB_ROOT = os.environ.get(
 # so tracks stay crisp at any zoom. Mirrors the exporter's KANP_SIMPLIFY_NM so
 # the home API and the public snapshots render identically.
 SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
-# Above this many raw fixes in one query the response sets "dense": the page
-# warns and suggests narrowing the range / adding a filter, rather than the data
-# being crudely thinned.
-DENSE_POINTS = int(os.environ.get("KANP_API_DENSE_POINTS", "600000"))
+# If a query returns more than this many *simplified* points it's flagged
+# "dense" — a hint that it's a heavy draw. The page decides what to warn about
+# from the on-screen (post-filter) set, so this is just an upper-bound signal.
+DENSE_POINTS = int(os.environ.get("KANP_API_DENSE_POINTS", "250000"))
 MAX_CSV_ROWS = 500_000
 
 # ICAO type designators treated as non-GA (scheduled airliners / regional /
@@ -234,7 +234,7 @@ def q_tracks(q):
         "total_points": total,
         "returned_points": kept,
         "simplify_nm": SIMPLIFY_NM,
-        "dense": total > DENSE_POINTS,
+        "dense": kept > DENSE_POINTS,
         "aircraft_count": len(tracks),
         "tracks": tracks,
     }
