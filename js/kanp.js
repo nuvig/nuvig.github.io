@@ -363,6 +363,53 @@ KANP.fieldContact = function (points) {
   return false;
 };
 
+// Douglas-Peucker track simplification (mirror of pi/trackutil.py). Drops only
+// points that don't change a track's shape, so turns stay crisp — used
+// client-side purely to keep very large multi-day snapshot ranges drawable
+// (the exporter/API already simplify what they serve). Point: [ts,lat,lon,alt,gs,og].
+KANP.simplifyTrack = function (pts, epsNm) {
+  const n = pts.length;
+  if (n <= 2 || epsNm <= 0) return pts;
+  const NM_DEG = 60, GAP = 300, BUCKET = 500;
+  const cosLat = Math.cos(pts[0][1] * Math.PI / 180);
+  const colour = p => (p[5] ? 'g' : p[3] == null ? 'u' : Math.floor(p[3] / BUCKET));
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const rdp = (lo, hi) => {
+    const stack = [[lo, hi]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      if (b <= a + 1) continue;
+      const ax = pts[a][2] * cosLat, ay = pts[a][1];
+      const bx = pts[b][2] * cosLat, by = pts[b][1];
+      const dx = bx - ax, dy = by - ay, seg2 = dx * dx + dy * dy;
+      let dmax = -1, idx = -1;
+      for (let k = a + 1; k < b; k++) {
+        const px = pts[k][2] * cosLat, py = pts[k][1];
+        let d;
+        if (seg2 === 0) d = Math.hypot(px - ax, py - ay);
+        else {
+          let t = ((px - ax) * dx + (py - ay) * dy) / seg2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+        }
+        if (d > dmax) { dmax = d; idx = k; }
+      }
+      if (idx >= 0 && dmax * NM_DEG > epsNm) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
+    }
+  };
+  let segStart = 0, prev = colour(pts[0]);
+  for (let i = 1; i < n; i++) {
+    const c = colour(pts[i]);
+    if (c !== prev) { keep[i] = 1; keep[i - 1] = 1; prev = c; }
+    if (pts[i][0] - pts[i - 1][0] > GAP) { keep[i - 1] = 1; keep[i] = 1; rdp(segStart, i - 1); segStart = i; }
+  }
+  rdp(segStart, n - 1);
+  const out = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+};
+
 // ---------------------------------------------------------------------------
 // Shared: simple canvas bar chart (Traffic Study + Operations sections)
 // ---------------------------------------------------------------------------

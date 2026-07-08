@@ -30,15 +30,16 @@ import sqlite3
 import subprocess
 import sys
 
+from trackutil import simplify_track
+
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
 EXPORT_DIR = os.environ.get("KANP_EXPORT_DIR", "/var/lib/kanp/traffic-data")
-# Per-day point budget: each aircraft's fixes are uniformly decimated to keep a
-# day under this many points. The resulting spacing is roughly
-# total_aircraft_seconds / budget — independent of the poll rate — so it was the
-# old, small 40k budget that made tracks coarse (~2 min between fixes on busy
-# DC-airspace days), not the polling. 200k keeps busy days near ~25 s spacing in
-# a few-MB file; quieter days stay at native resolution (stride 1).
-MAX_PTS_PER_DAY = int(os.environ.get("KANP_EXPORT_MAX_PTS", "200000"))
+# Track simplification tolerance (nm) — see trackutil.simplify_track. Fixes are
+# dropped only where they don't change a track's shape, so turns and pattern
+# work stay crisp (no corner-cutting) while straight cruise legs collapse to a
+# couple of points. ~0.03 nm (~180 ft) is finer than ADS-B noise → visually
+# lossless; raise it to shrink files further, lower it for even more fidelity.
+SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
 PUSH = os.environ.get("KANP_EXPORT_PUSH", "1") == "1"
 
 V2_DIR = os.path.join(EXPORT_DIR, "v2")
@@ -73,43 +74,55 @@ def export_day(db, day_str):
     ).fetchone()[0]
     if total == 0:
         return None
-    stride = max(1, -(-total // MAX_PTS_PER_DAY))
 
+    # Stream rows in (hex, ts) order and simplify each aircraft's track as its
+    # run ends — bounds memory to a single aircraft's raw fixes.
     rows = db.execute(
-        """WITH f AS (
-               SELECT ts, hex, flight, lat, lon, alt, gs, on_ground, military,
-                      ROW_NUMBER() OVER (PARTITION BY hex ORDER BY ts) rn
-               FROM positions WHERE ts >= ? AND ts < ?
-           )
-           SELECT f.*, a.reg, a.type, a.descr
-           FROM f LEFT JOIN aircraft a ON a.hex = f.hex
-           WHERE (f.rn - 1) % ? = 0
+        """SELECT f.ts, f.hex, f.flight, f.lat, f.lon, f.alt, f.gs, f.on_ground,
+                  f.military, a.reg, a.type, a.descr
+           FROM positions f LEFT JOIN aircraft a ON a.hex = f.hex
+           WHERE f.ts >= ? AND f.ts < ?
            ORDER BY f.hex, f.ts""",
-        (start, end, stride),
-    ).fetchall()
+        (start, end),
+    )
 
-    tracks = {}
+    tracks = []
+    kept = 0
+    cur = None      # current track's metadata dict
+    buf = None      # current aircraft's raw [ts,lat,lon,alt,gs,og] fixes
+
+    def flush():
+        nonlocal kept
+        if cur is None:
+            return
+        cur["points"] = [
+            [p[0], round(p[1], 5), round(p[2], 5), p[3],
+             round(p[4], 1) if p[4] is not None else None, p[5]]
+            for p in simplify_track(buf, SIMPLIFY_NM)
+        ]
+        kept += len(cur["points"])
+        tracks.append(cur)
+
     for r in rows:
-        t = tracks.get(r["hex"])
-        if t is None:
-            t = tracks[r["hex"]] = {
-                "hex": r["hex"], "flight": r["flight"], "reg": r["reg"],
-                "type": r["type"], "descr": r["descr"],
-                "military": r["military"], "points": [],
-            }
+        if cur is None or r["hex"] != cur["hex"]:
+            flush()
+            cur = {"hex": r["hex"], "flight": r["flight"], "reg": r["reg"],
+                   "type": r["type"], "descr": r["descr"],
+                   "military": r["military"], "points": []}
+            buf = []
         if r["flight"]:
-            t["flight"] = r["flight"]
-        t["points"].append([
-            r["ts"], round(r["lat"], 5), round(r["lon"], 5), r["alt"],
-            round(r["gs"], 1) if r["gs"] is not None else None, r["on_ground"],
-        ])
+            cur["flight"] = r["flight"]
+        buf.append([r["ts"], r["lat"], r["lon"], r["alt"], r["gs"], r["on_ground"]])
+    flush()
 
+    tracks.sort(key=lambda t: -len(t["points"]))
     out = {
         "date": day_str,
         "generated": int(datetime.datetime.now().timestamp()),
-        "stride": stride,
+        "simplify_nm": SIMPLIFY_NM,
         "total_points": total,
-        "tracks": sorted(tracks.values(), key=lambda t: -len(t["points"])),
+        "points": kept,
+        "tracks": tracks,
     }
     path = os.path.join(DAYS_DIR, f"{day_str}.json")
     with open(path, "w") as f:
@@ -117,7 +130,7 @@ def export_day(db, day_str):
     return {
         "date": day_str,
         "aircraft": len(tracks),
-        "points": sum(len(t["points"]) for t in tracks.values()),
+        "points": kept,
         "total_points": total,
     }
 

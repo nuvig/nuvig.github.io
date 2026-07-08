@@ -10,9 +10,10 @@ Group=kanp
 ExecStart=/usr/bin/python3 /opt/kanp/pi/exporter.py
 
 #Environment=KANP_EXPORT_DIR=/var/lib/kanp/traffic-data
-# Per-day point budget: higher = finer tracks but bigger day files. 200k keeps
-# busy days near ~25s spacing (~8-10 MB/day); lower it to shrink files.
-#Environment=KANP_EXPORT_MAX_PTS=200000
+# Track simplification tolerance in nm: fixes are dropped only where they don't
+# change a track's shape (no corner-cutting). Lower = more fidelity/bigger files,
+# higher = smaller files. 0.03 nm (~180 ft) is visually lossless.
+#Environment=KANP_SIMPLIFY_NM=0.03
 
 NoNewPrivileges=true
 ProtectSystem=strict
