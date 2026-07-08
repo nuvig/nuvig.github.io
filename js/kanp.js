@@ -248,15 +248,19 @@ KANP.readFilters = function (barId) {
   }
 
   const p = {};
-  const sv = get('start').value, ev = get('end').value;
+  // Controls are read defensively: the History bar omits some of these
+  // (altitude / GA / military are applied client-side there for instant
+  // filtering), so any missing control is simply skipped.
+  const val = f => { const el = get(f); return el ? el.value : null; };
+  const sv = val('start'), ev = val('end');
   if (sv) p.start = Math.floor(new Date(sv).getTime() / 1000);
   if (ev) p.end = Math.floor(new Date(ev).getTime() / 1000);
-  if (get('min_alt').value !== '') p.min_alt = get('min_alt').value;
-  if (get('max_alt').value !== '') p.max_alt = get('max_alt').value;
-  p.ground = get('ground').value;
-  if (get('callsign').value.trim()) p.callsign = get('callsign').value.trim();
-  if (get('hours') && get('hours').value.trim()) p.hours = get('hours').value.trim();
-  if (get('military').checked) p.military = 1;
+  if (val('min_alt') != null && val('min_alt') !== '') p.min_alt = val('min_alt');
+  if (val('max_alt') != null && val('max_alt') !== '') p.max_alt = val('max_alt');
+  if (val('ground') != null) p.ground = val('ground');
+  if (val('callsign') && val('callsign').trim()) p.callsign = val('callsign').trim();
+  if (val('hours') && val('hours').trim()) p.hours = val('hours').trim();
+  if (get('military') && get('military').checked) p.military = 1;
   if (get('ga') && get('ga').checked) p.ga = 1;
 
   const dowBtns = [...bar.querySelectorAll('.dow-btn')];
