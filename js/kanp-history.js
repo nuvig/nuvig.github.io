@@ -7,18 +7,77 @@ const KANPHistory = (() => {
   let trackLayer = null;
   let renderer = null;
   let trailStyle = { weight: 1.2, opacity: 0.45 };  // recomputed per load, see heatStyle()
+  let fullData = null;          // last fetched dataset; instant filters redraw from this
+  let renderTimer = null;       // coalesces rapid slider events into one redraw
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
 
   function init() {
     KANP.initFilterBar('hist-filters');
     document.getElementById('hist-load').addEventListener('click', load);
+    initAltPanel();
+    initInstantControls();
     drawAltLegend();
     // History Map is the default tab: build the map and load tracks right away
     if (document.getElementById('tab-history').classList.contains('active')) {
       onShow();
       load();
     }
+  }
+
+  // Vertical floor/ceiling sliders beside the map. Dragging either redraws the
+  // already-loaded tracks instantly (no refetch) — see render().
+  function initAltPanel() {
+    const panel = document.getElementById('hist-alt');
+    if (!panel) return;
+    const floor = panel.querySelector('.alt-floor');
+    const ceil = panel.querySelector('.alt-ceiling');
+    const floorNum = document.getElementById('hist-floor-num');
+    const ceilNum = document.getElementById('hist-ceil-num');
+    const MAX = +ceil.max;
+
+    const paint = () => {
+      floorNum.textContent = +floor.value === 0 ? '0' : (+floor.value).toLocaleString();
+      ceilNum.textContent = +ceil.value >= MAX ? '∞' : (+ceil.value).toLocaleString();
+    };
+    const onInput = mover => {
+      let lo = +floor.value, hi = +ceil.value;
+      if (lo > hi) {                       // don't let the thumbs cross
+        if (mover === floor) ceil.value = hi = lo;
+        else floor.value = lo = hi;
+      }
+      paint();
+      scheduleRender();
+    };
+    floor.addEventListener('input', () => onInput(floor));
+    ceil.addEventListener('input', () => onInput(ceil));
+    paint();
+  }
+
+  // GA / Military / KANP-only toggle buttons — all filter client-side, so a
+  // click redraws instantly. KANP-only reveals the arr/dep sub-mode dropdown.
+  function initInstantControls() {
+    ['hist-ga', 'hist-mil'].forEach(id =>
+      document.getElementById(id).addEventListener('click', e => {
+        e.currentTarget.classList.toggle('on');
+        render();
+      }));
+
+    const kanp = document.getElementById('hist-kanp');
+    const modeWrap = document.getElementById('hist-kanp-mode-wrap');
+    const mode = document.getElementById('hist-arrdep');
+    kanp.addEventListener('click', () => {
+      const on = kanp.classList.toggle('on');
+      mode.disabled = !on;
+      modeWrap.style.opacity = on ? '1' : '.4';
+      render();
+    });
+    mode.addEventListener('change', render);
+  }
+
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(render, 90);
   }
 
   function onShow() {
@@ -45,6 +104,10 @@ const KANPHistory = (() => {
     setInterval(() => { if (map.hasLayer(wx)) wx.redraw(); }, 300_000);
   }
 
+  // Fetch the dataset for the current date range / callsign / hours / days.
+  // Altitude, GA, Military and KANP filters are deliberately NOT sent — they're
+  // applied client-side in render() so they can update the map without a
+  // network round-trip. Ground traffic stays a fetch param (see readFilters).
   async function load() {
     if (!map) initMap();
     const btn = document.getElementById('hist-load');
@@ -54,25 +117,65 @@ const KANPHistory = (() => {
 
     try {
       const params = KANP.readFilters('hist-filters');
-      const data = await KANP.getTracks(params);
-      const shown = applyArrDep(data);
-      draw(shown);
-      renderLeeList(shown);
-
-      const opsLabel = { arr: ' · arrivals', dep: ' · departures',
-                         both: ' · arrivals + departures' }[arrDepMode()] || '';
-      let msg = `${shown.aircraft_count} aircraft · ` +
-        `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(data)}`;
-      if (data.stride > 1) {
-        msg += ` <span class="warn">(decimated 1:${data.stride} of ` +
-          `${Number(data.total_points).toLocaleString()} — narrow the range for full detail)</span>`;
-      }
-      out.innerHTML = msg;
+      fullData = await KANP.getTracks(params);
+      render();
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
       btn.disabled = false;
     }
+  }
+
+  // Apply the instant client-side filters to the last-fetched dataset and draw.
+  // Called on every altitude-slider drag and toggle-button click.
+  function render() {
+    if (!fullData) return;
+    const out = document.getElementById('hist-result');
+
+    const panel = document.getElementById('hist-alt');
+    const MAX = +panel.querySelector('.alt-ceiling').max;
+    const floorV = +panel.querySelector('.alt-floor').value;
+    const ceilV = +panel.querySelector('.alt-ceiling').value;
+    const floor = floorV === 0 ? null : floorV;         // bottom of range = no floor
+    const ceil = ceilV >= MAX ? null : ceilV;           // top of range = no ceiling
+    const ga = document.getElementById('hist-ga').classList.contains('on');
+    const mil = document.getElementById('hist-mil').classList.contains('on');
+
+    let tracks = fullData.tracks;
+    if (mil) tracks = tracks.filter(t => t.military);
+    if (ga) tracks = tracks.filter(t => KANP.isGA(t));
+    if (floor != null || ceil != null) {
+      tracks = tracks.map(t => ({
+        ...t,
+        points: t.points.filter(p => {
+          const alt = p[3], og = p[5];
+          // ground fixes ignore the floor; the ceiling drops anything above it
+          if (floor != null && !og && !(alt != null && alt >= floor)) return false;
+          if (ceil != null && alt != null && alt > ceil) return false;
+          return true;
+        }),
+      })).filter(t => t.points.length);
+    }
+
+    let shown = {
+      ...fullData, tracks,
+      aircraft_count: tracks.length,
+      returned_points: tracks.reduce((n, t) => n + t.points.length, 0),
+    };
+    shown = applyArrDep(shown);
+
+    draw(shown);
+    renderLeeList(shown);
+
+    const opsLabel = { lee: ' · KANP ops', arr: ' · arrivals', dep: ' · departures',
+                       both: ' · arrivals + departures' }[arrDepMode()] || '';
+    let msg = `${shown.aircraft_count} aircraft · ` +
+      `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
+    if (fullData.stride > 1) {
+      msg += ` <span class="warn">(decimated 1:${fullData.stride} of ` +
+        `${Number(fullData.total_points).toLocaleString()} — narrow the range for full detail)</span>`;
+    }
+    out.innerHTML = msg;
   }
 
   // Collapsed per-aircraft summary of Lee Airport activity for whatever is
@@ -128,9 +231,13 @@ const KANPHistory = (() => {
       'touch-and-go = 2 ops (FAA counting); low passes and stop-and-gos are indistinguishable from touch-and-gos in ADS-B data';
   }
 
+  // 'all' unless the KANP-only toggle is on, in which case the sub-mode
+  // dropdown decides which field operations to keep.
   function arrDepMode() {
-    const sel = document.querySelector('#hist-filters [data-f=arrdep]');
-    return sel ? sel.value : 'all';
+    const kanp = document.getElementById('hist-kanp');
+    if (!kanp || !kanp.classList.contains('on')) return 'all';
+    const sel = document.getElementById('hist-arrdep');
+    return sel ? sel.value : 'lee';
   }
 
   // Restrict the drawn tracks to KANP arrivals / departures (classified from
