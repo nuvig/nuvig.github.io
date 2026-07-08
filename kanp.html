@@ -187,6 +187,52 @@
       background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
     }
     .dual-range input[type=range]::-moz-range-track { background: transparent; }
+
+    /* ---- toggle buttons (GA / Military / KANP-only) ---- */
+    .tgl-row { display: flex; gap: 6px; }
+    .tgl-btn {
+      background: #111; border: 1px solid #3a3a3a; color: #888;
+      border-radius: 5px; padding: 6px 11px; font-size: 12px;
+      cursor: pointer; font-family: inherit; white-space: nowrap;
+    }
+    .tgl-btn:hover { color: #ccc; border-color: #555; }
+    .tgl-btn.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+
+    /* ---- History map + vertical altitude panel ---- */
+    .hist-map-row { display: flex; gap: 10px; align-items: stretch; margin: 12px 0; }
+    .hist-map-row #hist-map { flex: 1; min-width: 0; margin: 0; }
+    .alt-vpanel {
+      flex: none; width: 96px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center;
+    }
+    .alt-vpanel .ttl { font-size: 11px; color: #888; margin-bottom: 8px; letter-spacing: .02em; }
+    .alt-sliders { flex: 1; display: flex; gap: 8px; justify-content: center; width: 100%; min-height: 0; }
+    .alt-col { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 0; }
+    .alt-col .alt-num {
+      font-size: 11px; color: #4a9eff; font-variant-numeric: tabular-nums; min-height: 14px;
+    }
+    .alt-col .cap { font-size: 10px; color: #666; }
+    .vrange {
+      writing-mode: vertical-lr; direction: rtl;
+      width: 22px; flex: 1; min-height: 0; margin: 0; padding: 0;
+      -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+    }
+    .vrange::-webkit-slider-runnable-track { width: 4px; background: #333; border-radius: 2px; }
+    .vrange::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; margin-left: -6px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    .vrange::-moz-range-track { width: 4px; background: #333; border-radius: 2px; }
+    .vrange::-moz-range-thumb {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    }
+    @media (max-width: 560px) {
+      .alt-vpanel { width: 76px; }
+      .vrange { width: 18px; }
+    }
     .btn {
       background: #1d3a5f;
       color: #cfe6ff;
@@ -368,32 +414,12 @@
       </div>
       <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
-      <div class="filter-field"><label>Alt min (ft)</label><input type="number" data-f="min_alt" step="100" placeholder="0"></div>
-      <div class="filter-field"><label>Alt max (ft)</label><input type="number" data-f="max_alt" step="100" placeholder="∞"></div>
-      <div class="filter-field alt-range">
-        <label>Altitude <span class="alt-range-val">0 – ∞ ft</span></label>
-        <div class="dual-range">
-          <div class="track"><div class="fill"></div></div>
-          <input type="range" class="alt-min" min="0" max="40000" step="500" value="0" aria-label="Minimum altitude">
-          <input type="range" class="alt-max" min="0" max="40000" step="500" value="40000" aria-label="Maximum altitude">
-        </div>
-      </div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
           <option value="include">include</option>
           <option value="exclude">exclude</option>
           <option value="only">only</option>
-        </select>
-      </div>
-      <div class="filter-field">
-        <label>Airport ops (KANP)</label>
-        <select data-f="arrdep">
-          <option value="all">all traffic</option>
-          <option value="lee">Lee traffic only (in / out / pattern)</option>
-          <option value="arr">arrivals</option>
-          <option value="dep">departures</option>
-          <option value="both">arrivals + departures</option>
         </select>
       </div>
       <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign" placeholder="e.g. N123"></div>
@@ -408,19 +434,44 @@
         </div>
       </div>
       <div class="filter-field">
-        <label>&nbsp;</label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
-          <input type="checkbox" data-f="ga"> GA only
-        </label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#999;margin-top:4px">
-          <input type="checkbox" data-f="military"> military only
-        </label>
+        <label>Show</label>
+        <div class="tgl-row">
+          <button type="button" class="tgl-btn" id="hist-ga">GA only</button>
+          <button type="button" class="tgl-btn" id="hist-mil">Military</button>
+          <button type="button" class="tgl-btn" id="hist-kanp">KANP only</button>
+        </div>
+      </div>
+      <div class="filter-field" id="hist-kanp-mode-wrap" style="opacity:.4">
+        <label>KANP ops</label>
+        <select data-f="arrdep" id="hist-arrdep" disabled>
+          <option value="lee">in / out / pattern</option>
+          <option value="arr">arrivals</option>
+          <option value="dep">departures</option>
+          <option value="both">arrivals + departures</option>
+        </select>
       </div>
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
     <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Data collected 24/7 by the Raspberry Pi, read from its hourly GitHub snapshots (or the Pi directly on the home network).</div>
 
-    <div id="hist-map"></div>
+    <div class="hist-map-row">
+      <div id="hist-map"></div>
+      <div class="alt-vpanel" id="hist-alt">
+        <div class="ttl">Alt ft</div>
+        <div class="alt-sliders">
+          <div class="alt-col">
+            <span class="alt-num" id="hist-floor-num">0</span>
+            <input type="range" class="vrange alt-floor" min="0" max="40000" step="500" value="0" aria-label="Altitude floor">
+            <span class="cap">floor</span>
+          </div>
+          <div class="alt-col">
+            <span class="alt-num" id="hist-ceil-num">∞</span>
+            <input type="range" class="vrange alt-ceiling" min="0" max="40000" step="500" value="40000" aria-label="Altitude ceiling">
+            <span class="cap">ceil</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="alt-legend">
       <span>ground</span>
