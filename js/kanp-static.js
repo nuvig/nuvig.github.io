@@ -10,7 +10,10 @@ const KANPStatic = (() => {
     'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2';
   const base = () => localStorage.getItem('kanp_static_base') || DEFAULT_BASE;
   const MAX_DAYS = 62;
-  const MAX_POINTS = 150_000;
+  // Draw cap: how many points to render at once. Short/medium ranges (an hour,
+  // a day) fall under this and draw at the snapshot's full resolution; only
+  // large multi-day ranges get thinned client-side to stay responsive.
+  const MAX_POINTS = 250_000;
 
   let summaryCache = null;
   let summaryAt = 0;
