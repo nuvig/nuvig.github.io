@@ -56,8 +56,9 @@ Pi on your LAN (mixed content). Two ways in, both supported by the page:
 **1. GitHub snapshots (built in — recommended).** `exporter.py` publishes
 per-day JSON files to the repo's `traffic-data` branch every hour; the page
 automatically falls back to them whenever the Pi API isn't reachable. Data
-is up to an hour stale and decimated to ≤40 k points/day, which is plenty
-for the study views. One-time setup:
+is up to an hour stale and decimated to ≤200 k points/day (about ~25 s
+between fixes on the busiest days, finer on quieter ones; tune with
+`KANP_EXPORT_MAX_PTS`). One-time setup:
 
 1. Create a **fine-grained personal access token** at
    github.com → Settings → Developer settings → Fine-grained tokens:

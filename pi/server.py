@@ -42,7 +42,11 @@ WEB_ROOT = os.environ.get(
     "KANP_WEB_ROOT",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
 )
-MAX_POINTS_DEFAULT = 150_000
+# Point budget per query: fixes are uniformly decimated to stay under this.
+# Short/live windows (e.g. the last hour) fall well under it and return at
+# native resolution; only large multi-day queries get thinned. Mirrors the
+# exporter's KANP_EXPORT_MAX_PTS.
+MAX_POINTS_DEFAULT = 200_000
 MAX_CSV_ROWS = 500_000
 
 # ICAO type designators treated as non-GA (scheduled airliners / regional /

@@ -32,7 +32,13 @@ import sys
 
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
 EXPORT_DIR = os.environ.get("KANP_EXPORT_DIR", "/var/lib/kanp/traffic-data")
-MAX_PTS_PER_DAY = int(os.environ.get("KANP_EXPORT_MAX_PTS", "40000"))
+# Per-day point budget: each aircraft's fixes are uniformly decimated to keep a
+# day under this many points. The resulting spacing is roughly
+# total_aircraft_seconds / budget — independent of the poll rate — so it was the
+# old, small 40k budget that made tracks coarse (~2 min between fixes on busy
+# DC-airspace days), not the polling. 200k keeps busy days near ~25 s spacing in
+# a few-MB file; quieter days stay at native resolution (stride 1).
+MAX_PTS_PER_DAY = int(os.environ.get("KANP_EXPORT_MAX_PTS", "200000"))
 PUSH = os.environ.get("KANP_EXPORT_PUSH", "1") == "1"
 
 V2_DIR = os.path.join(EXPORT_DIR, "v2")

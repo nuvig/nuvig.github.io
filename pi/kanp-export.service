@@ -10,7 +10,9 @@ Group=kanp
 ExecStart=/usr/bin/python3 /opt/kanp/pi/exporter.py
 
 #Environment=KANP_EXPORT_DIR=/var/lib/kanp/traffic-data
-#Environment=KANP_EXPORT_MAX_PTS=40000
+# Per-day point budget: higher = finer tracks but bigger day files. 200k keeps
+# busy days near ~25s spacing (~8-10 MB/day); lower it to shrink files.
+#Environment=KANP_EXPORT_MAX_PTS=200000
 
 NoNewPrivileges=true
 ProtectSystem=strict
