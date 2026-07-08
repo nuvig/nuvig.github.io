@@ -8,7 +8,8 @@ const KANPHistory = (() => {
   let renderer = null;
   let trailStyle = { weight: 1.2, opacity: 0.45 };  // recomputed per load, see heatStyle()
   let fullData = null;          // last fetched dataset; instant filters redraw from this
-  let renderTimer = null;       // coalesces rapid slider events into one redraw
+  let lastShown = null;         // most recent filtered set, for the deferred Lee list
+  let leeTimer = null;          // defers the heavy ops analysis off the redraw path
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
   // Only when the *drawn* set (after every filter) exceeds this many points do
@@ -28,8 +29,9 @@ const KANPHistory = (() => {
     }
   }
 
-  // Vertical floor/ceiling sliders beside the map. Dragging either redraws the
-  // already-loaded tracks instantly (no refetch) — see render().
+  // Vertical floor/ceiling sliders beside the map. While dragging we only update
+  // the live number readout (cheap); the map redraws when the thumb is released
+  // (the `change` event) so a drag doesn't rebuild every track ~10×/second.
   function initAltPanel() {
     const panel = document.getElementById('hist-alt');
     if (!panel) return;
@@ -43,17 +45,18 @@ const KANPHistory = (() => {
       floorNum.textContent = +floor.value === 0 ? '0' : (+floor.value).toLocaleString();
       ceilNum.textContent = +ceil.value >= MAX ? '∞' : (+ceil.value).toLocaleString();
     };
-    const onInput = mover => {
+    const clamp = mover => {               // keep thumbs from crossing, live
       let lo = +floor.value, hi = +ceil.value;
-      if (lo > hi) {                       // don't let the thumbs cross
+      if (lo > hi) {
         if (mover === floor) ceil.value = hi = lo;
         else floor.value = lo = hi;
       }
       paint();
-      scheduleRender();
     };
-    floor.addEventListener('input', () => onInput(floor));
-    ceil.addEventListener('input', () => onInput(ceil));
+    floor.addEventListener('input', () => clamp(floor));
+    ceil.addEventListener('input', () => clamp(ceil));
+    floor.addEventListener('change', render);   // redraw on release
+    ceil.addEventListener('change', render);
     paint();
   }
 
@@ -78,9 +81,12 @@ const KANPHistory = (() => {
     mode.addEventListener('change', render);
   }
 
-  function scheduleRender() {
-    clearTimeout(renderTimer);
-    renderTimer = setTimeout(render, 90);
+  // The Lee-Airport list re-runs the operations detector over every track and
+  // rebuilds a table — too heavy to do inline on each redraw. Defer it so the
+  // map paints immediately and the list catches up once interaction settles.
+  function scheduleLee() {
+    clearTimeout(leeTimer);
+    leeTimer = setTimeout(() => { if (lastShown) renderLeeList(lastShown); }, 250);
   }
 
   function onShow() {
@@ -179,7 +185,8 @@ const KANPHistory = (() => {
     }
 
     draw(shown);
-    renderLeeList(shown);
+    lastShown = shown;
+    scheduleLee();               // heavy ops analysis + table, off the redraw path
 
     const opsLabel = { lee: ' · KANP ops', arr: ' · arrivals', dep: ' · departures',
                        both: ' · arrivals + departures' }[arrDepMode()] || '';
