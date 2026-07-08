@@ -10,10 +10,12 @@ const KANPStatic = (() => {
     'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2';
   const base = () => localStorage.getItem('kanp_static_base') || DEFAULT_BASE;
   const MAX_DAYS = 62;
-  // Draw cap: how many points to render at once. Short/medium ranges (an hour,
-  // a day) fall under this and draw at the snapshot's full resolution; only
-  // large multi-day ranges get thinned client-side to stay responsive.
-  const MAX_POINTS = 250_000;
+  // Day files arrive already shape-simplified by the exporter, so we draw them
+  // as-is. Only when a very large multi-day range would be too heavy do we run
+  // a coarser client-side shape-simplify (never a corner-cutting stride) and
+  // flag the response "dense" so the page can suggest narrowing the range.
+  const DRAW_LIMIT = 300_000;
+  const DENSE_SIMPLIFY_NM = 0.08;
 
   let summaryCache = null;
   let summaryAt = 0;
@@ -151,10 +153,11 @@ const KANPStatic = (() => {
 
   async function getTracks(p) {
     const { tracks, totalPoints, start, end } = await filteredTracks(p);
-    const stride = Math.max(1, Math.ceil(totalPoints / MAX_POINTS));
+    const dense = totalPoints > DRAW_LIMIT;
+    const eps = dense ? DENSE_SIMPLIFY_NM : 0;   // 0 => draw as-is (already simplified)
     let returned = 0;
     const list = [...tracks.values()].map(t => {
-      const pts = stride > 1 ? t.points.filter((_, i) => i % stride === 0) : t.points;
+      const pts = eps > 0 ? KANP.simplifyTrack(t.points, eps) : t.points;
       returned += pts.length;
       return { ...t, points: pts };
     }).sort((a, b) => b.points.length - a.points.length);
@@ -163,7 +166,7 @@ const KANPStatic = (() => {
       start, end,
       total_points: totalPoints,
       returned_points: returned,
-      stride,
+      dense,
       aircraft_count: list.length,
       tracks: list,
       snapshot_generated: summaryCache ? summaryCache.generated : null,

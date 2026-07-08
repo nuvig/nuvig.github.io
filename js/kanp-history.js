@@ -171,9 +171,9 @@ const KANPHistory = (() => {
                        both: ' · arrivals + departures' }[arrDepMode()] || '';
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
-    if (fullData.stride > 1) {
-      msg += ` <span class="warn">(decimated 1:${fullData.stride} of ` +
-        `${Number(fullData.total_points).toLocaleString()} — narrow the range for full detail)</span>`;
+    if (fullData.dense) {
+      msg += ` <span class="warn">— large range; tracks coarsened to stay responsive. ` +
+        `Narrow the dates or add a filter (altitude / KANP only / callsign) for full detail.</span>`;
     }
     out.innerHTML = msg;
   }

@@ -59,13 +59,13 @@ const KANPOps = (() => {
       lastOps = a;
       render(a);
       const days = Math.max(1, (d.end - d.start) / 86400);
-      const stride = d.stride > 1
-        ? ` · <span class="warn">position data thinned ×${d.stride}, counts may undercount</span>` : '';
+      const dense = d.dense
+        ? ` · <span class="warn">large range — counts may be approximate; narrow it for accuracy</span>` : '';
       out.innerHTML =
         `<strong>${a.totalOps.toLocaleString()}</strong> operations ` +
         `(${a.counts.arr} arrivals, ${a.counts.dep} departures, ${a.counts.tng} touch-and-gos` +
         `${a.counts.unk ? `, ${a.counts.unk} unclassified` : ''}) over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(d)}${stride}`;
+        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(d)}${dense}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {

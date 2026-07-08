@@ -36,17 +36,24 @@ import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from trackutil import simplify_track
+
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
 PORT = int(os.environ.get("KANP_PORT", "8787"))
 WEB_ROOT = os.environ.get(
     "KANP_WEB_ROOT",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
 )
-# Point budget per query: fixes are uniformly decimated to stay under this.
-# Short/live windows (e.g. the last hour) fall well under it and return at
-# native resolution; only large multi-day queries get thinned. Mirrors the
-# exporter's KANP_EXPORT_MAX_PTS.
-MAX_POINTS_DEFAULT = 200_000
+# Douglas-Peucker tolerance (nm) for track simplification — see
+# trackutil.simplify_track. Drops only points that don't change a track's shape,
+# so tracks stay crisp at any zoom. Mirrors the exporter's KANP_SIMPLIFY_NM so
+# the home API and the public snapshots render identically.
+SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
+# Above this many raw fixes in one query the response sets "dense": the page
+# warns and suggests narrowing the range / adding a filter, rather than the data
+# being crudely thinned.
+DENSE_POINTS = int(os.environ.get("KANP_API_DENSE_POINTS", "600000"))
 MAX_CSV_ROWS = 500_000
 
 # ICAO type designators treated as non-GA (scheduled airliners / regional /
@@ -175,57 +182,61 @@ def build_filters(q):
 
 def q_tracks(q):
     where, params, start, end = build_filters(q)
-    max_points = min(int(q.get("max_points", MAX_POINTS_DEFAULT)), 400_000)
 
     with db_conn() as db:
         total = db.execute(
             f"SELECT COUNT(*) c FROM positions p WHERE {where}", params
         ).fetchone()["c"]
-        stride = max(1, -(-total // max_points))  # ceil division
-
+        # Stream in (hex, ts) order and shape-simplify each aircraft's track as
+        # its run ends — no corner-cutting stride, bounded memory.
         rows = db.execute(
-            f"""WITH f AS (
-                    SELECT p.ts, p.hex, p.flight, p.lat, p.lon, p.alt, p.gs,
-                           p.track, p.on_ground, p.military,
-                           ROW_NUMBER() OVER (PARTITION BY p.hex ORDER BY p.ts) rn
-                    FROM positions p WHERE {where}
-                )
-                SELECT f.*, a.reg, a.type, a.descr
-                FROM f LEFT JOIN aircraft a ON a.hex = f.hex
-                WHERE (f.rn - 1) % ? = 0
-                ORDER BY f.hex, f.ts""",
-            params + [stride],
-        ).fetchall()
+            f"""SELECT p.ts, p.hex, p.flight, p.lat, p.lon, p.alt, p.gs,
+                       p.on_ground, p.military, a.reg, a.type, a.descr
+                FROM positions p LEFT JOIN aircraft a ON a.hex = p.hex
+                WHERE {where}
+                ORDER BY p.hex, p.ts""",
+            params,
+        )
 
-    tracks = {}
-    for r in rows:
-        t = tracks.get(r["hex"])
-        if t is None:
-            t = tracks[r["hex"]] = {
-                "hex": r["hex"],
-                "flight": r["flight"],
-                "reg": r["reg"],
-                "type": r["type"],
-                "descr": r["descr"],
-                "military": r["military"],
-                "points": [],
-            }
-        if r["flight"]:
-            t["flight"] = r["flight"]
-        # [ts, lat, lon, alt(ft, null=ground/unknown), gs, on_ground]
-        t["points"].append([
-            r["ts"], round(r["lat"], 5), round(r["lon"], 5), r["alt"],
-            round(r["gs"], 1) if r["gs"] is not None else None, r["on_ground"],
-        ])
+        tracks = []
+        kept = 0
+        cur = None
+        buf = None
 
+        def flush():
+            nonlocal kept
+            if cur is None:
+                return
+            cur["points"] = [
+                [p[0], round(p[1], 5), round(p[2], 5), p[3],
+                 round(p[4], 1) if p[4] is not None else None, p[5]]
+                for p in simplify_track(buf, SIMPLIFY_NM)
+            ]
+            kept += len(cur["points"])
+            tracks.append(cur)
+
+        for r in rows:
+            if cur is None or r["hex"] != cur["hex"]:
+                flush()
+                cur = {"hex": r["hex"], "flight": r["flight"], "reg": r["reg"],
+                       "type": r["type"], "descr": r["descr"],
+                       "military": r["military"], "points": []}
+                buf = []
+            if r["flight"]:
+                cur["flight"] = r["flight"]
+            buf.append([r["ts"], r["lat"], r["lon"], r["alt"], r["gs"], r["on_ground"]])
+        flush()
+
+    tracks.sort(key=lambda t: -len(t["points"]))
     return {
         "start": start,
         "end": end,
         "total_points": total,
-        "returned_points": len(rows),
-        "stride": stride,
+        "returned_points": kept,
+        "simplify_nm": SIMPLIFY_NM,
+        "dense": total > DENSE_POINTS,
         "aircraft_count": len(tracks),
-        "tracks": sorted(tracks.values(), key=lambda t: -len(t["points"])),
+        "tracks": tracks,
     }
 
 
