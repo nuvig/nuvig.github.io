@@ -1,8 +1,10 @@
 // KANP Flight Tracker — Runway operations analysis (Traffic Study tab)
 //
-// Detects individual operations (arrivals, departures, touch-and-gos) from
+// Detects individual operations (arrivals, departures, go-arounds) from
 // track geometry near the field, and attributes each to a runway end (12/30)
-// and, where possible, a pattern side (left/right traffic).
+// and, where possible, a pattern side (left/right traffic). Touch-and-gos
+// are not permitted at KANP, so a touch-and-look profile ('tng' internally)
+// is reported as a go-around; FAA counting treats it as 2 operations either way.
 //
 // Method: within each aircraft track, find contiguous "at the field" segments
 // — points inside NEAR_NM of the field that are on the ground or at/below
@@ -63,7 +65,7 @@ const KANPOps = (() => {
         ? ` · <span class="warn">position data thinned ×${d.stride}, counts may undercount</span>` : '';
       out.innerHTML =
         `<strong>${a.totalOps.toLocaleString()}</strong> operations ` +
-        `(${a.counts.arr} arrivals, ${a.counts.dep} departures, ${a.counts.tng} touch-and-gos` +
+        `(${a.counts.arr} arrivals, ${a.counts.dep} departures, ${a.counts.tng} go-arounds` +
         `${a.counts.unk ? `, ${a.counts.unk} unclassified` : ''}) over ` +
         `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(d)}${stride}`;
     } catch (e) {

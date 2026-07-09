@@ -7,22 +7,101 @@ const KANPHistory = (() => {
   let trackLayer = null;
   let renderer = null;
   let trailStyle = { weight: 1.2, opacity: 0.45 };  // recomputed per load, see heatStyle()
+  let everLoaded = false;
+  let loadSeq = 0;          // drops out-of-order results from overlapping loads
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
 
   function init() {
     KANP.initFilterBar('hist-filters');
     document.getElementById('hist-load').addEventListener('click', load);
+    initLiveAltitude();
     drawAltLegend();
-    // History Map is the default tab: build the map and load tracks right away
-    if (document.getElementById('tab-history').classList.contains('active')) {
-      onShow();
-      load();
-    }
+    window.addEventListener('resize', renderWeekGrid);
+    // If starting on this tab, build the map and load tracks right away
+    // (onShow auto-loads on first show)
+    if (document.getElementById('tab-history').classList.contains('active')) onShow();
   }
 
   function onShow() {
     if (!map) initMap();
+    map.invalidateSize();
+    // first time the tab is opened (when it wasn't the initial tab): auto-load
+    if (!everLoaded) load();
+    if (!weekGrid) loadWeekGrid();
+  }
+
+  // ---- trailing-7-days hour × day-of-week grid ----
+  let weekGrid = null;
+
+  async function loadWeekGrid() {
+    weekGrid = 'loading';
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const s = await KANP.getStats({ start: now - 7 * 86_400, end: now });
+      weekGrid = s.grid_unique_aircraft;
+      document.getElementById('hist-grid-label').textContent =
+        `${Number(s.totals.aircraft).toLocaleString()} aircraft · ${KANP.sourceLabel(s)}`;
+      renderWeekGrid();
+    } catch (e) {
+      weekGrid = null;
+      document.getElementById('hist-grid-empty').textContent =
+        'Could not load past-week activity.';
+      console.warn('[KANP] history 7-day grid failed:', e.message);
+    }
+  }
+
+  function renderWeekGrid() {
+    if (!weekGrid || weekGrid === 'loading') return;
+    document.getElementById('hist-grid-empty').style.display = 'none';
+    const canvas = document.getElementById('hist-grid');
+    canvas.style.display = 'block';
+    KANP.renderGrid(canvas, weekGrid);
+  }
+
+  // ---- expandable map with the altitude slider floating over it ----
+  let expanded = false;
+  let altHome = null;       // where the alt-range field goes back on collapse
+
+  function initExpand() {
+    const Ctl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const btn = L.DomUtil.create('button', 'map-expand-btn');
+        btn.textContent = '⛶';
+        btn.title = 'Expand map (Esc to exit)';
+        L.DomEvent.disableClickPropagation(btn);
+        btn.addEventListener('click', toggleExpand);
+        return btn;
+      },
+    });
+    map.addControl(new Ctl());
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && expanded) toggleExpand();
+    });
+  }
+
+  function toggleExpand() {
+    expanded = !expanded;
+    const el = document.getElementById('hist-map');
+    const altField = document.querySelector('#hist-filters .alt-range');
+    el.classList.toggle('expanded', expanded);
+    if (expanded) {
+      // move the live altitude control into a floating panel over the map,
+      // keeping its listeners (slider drag / wheel keep reloading tracks)
+      altHome = { parent: altField.parentElement, next: altField.nextSibling };
+      const float = document.createElement('div');
+      float.className = 'alt-float';
+      float.id = 'alt-float';
+      float.appendChild(altField);
+      document.body.appendChild(float);
+      document.body.style.overflow = 'hidden';
+    } else {
+      const float = document.getElementById('alt-float');
+      altHome.parent.insertBefore(float.firstChild, altHome.next);
+      float.remove();
+      document.body.style.overflow = '';
+    }
     map.invalidateSize();
   }
 
@@ -39,6 +118,7 @@ const KANPHistory = (() => {
     L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
 
     KANP.addAirport(map);
+    initExpand();
 
     // keep NEXRAD current while the page sits open
     const wx = overlays['Weather (NEXRAD)'];
@@ -49,18 +129,20 @@ const KANPHistory = (() => {
     if (!map) initMap();
     const btn = document.getElementById('hist-load');
     const out = document.getElementById('hist-result');
+    everLoaded = true;
     btn.disabled = true;
     out.textContent = 'Loading tracks…';
+    const seq = ++loadSeq;
 
     try {
       const params = KANP.readFilters('hist-filters');
       const data = await KANP.getTracks(params);
-      const shown = applyArrDep(data);
+      if (seq !== loadSeq) return;   // a newer load superseded this one
+      const shown = applyOpsFilter(data);
       draw(shown);
       renderLeeList(shown);
 
-      const opsLabel = { arr: ' · arrivals', dep: ' · departures',
-                         both: ' · arrivals + departures' }[arrDepMode()] || '';
+      const opsLabel = { kanp: ' · KANP ops', pattern: ' · closed pattern ops' }[opsMode()] || '';
       let msg = `${shown.aircraft_count} aircraft · ` +
         `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(data)}`;
       if (data.stride > 1) {
@@ -69,10 +151,25 @@ const KANPHistory = (() => {
       }
       out.innerHTML = msg;
     } catch (e) {
+      if (seq !== loadSeq) return;
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
-      btn.disabled = false;
+      if (seq === loadSeq) btn.disabled = false;
     }
+  }
+
+  // Reload tracks live while the altitude slider (or the alt number inputs)
+  // is being adjusted. Debounced; snapshot day files are cached in memory, so
+  // a refilter is quick after the first load.
+  function initLiveAltitude() {
+    const bar = document.getElementById('hist-filters');
+    let timer = null;
+    bar.querySelectorAll('.dual-range input[type=range], [data-f=min_alt], [data-f=max_alt]')
+      .forEach(el => el.addEventListener('input', () => {
+        if (!everLoaded) return;
+        clearTimeout(timer);
+        timer = setTimeout(load, 250);
+      }));
   }
 
   // Collapsed per-aircraft summary of Lee Airport activity for whatever is
@@ -98,14 +195,13 @@ const KANPHistory = (() => {
 
     const leeAc = [...byAc.values()].filter(e => e.opsN > 0)
       .sort((a, b) => b.opsN - a.opsN || b.last - a.last);
-    const overflights = byAc.size - leeAc.length;
     const totalOps = leeAc.reduce((n, e) => n + e.opsN, 0);
 
     details.style.display = '';
     document.getElementById('lee-list-summary').innerHTML =
       `Lee Airport activity — <span class="cnt">${leeAc.length}</span> aircraft, ` +
       `<span class="cnt">${totalOps}</span> ops` +
-      `<span class="sub">${overflights} others in view never touched the field · click to expand</span>`;
+      `<span class="sub">click to expand</span>`;
 
     const tbody = document.querySelector('#lee-table tbody');
     tbody.innerHTML = '';
@@ -125,31 +221,31 @@ const KANPHistory = (() => {
       (leeAc.length > 300 ? `showing first 300 of ${leeAc.length} aircraft · ` : '') +
       (leeAc.reduce((n, e) => n + e.unk, 0)
         ? 'some field contacts had no airborne context (coverage gaps) and count as 1 op each · ' : '') +
-      'touch-and-go = 2 ops (FAA counting); low passes and stop-and-gos are indistinguishable from touch-and-gos in ADS-B data';
+      'go-around / low approach = 2 ops (FAA counting); T&Gs are not permitted at KANP, so touch-and-look profiles count as go-arounds';
   }
 
-  function arrDepMode() {
+  function opsMode() {
     const sel = document.querySelector('#hist-filters [data-f=arrdep]');
     return sel ? sel.value : 'all';
   }
 
-  // Restrict the drawn tracks to KANP arrivals / departures (classified from
-  // each track's trajectory). Returns a shallow copy with filtered tracks and
-  // recomputed counts so the count message and heat-map opacity both reflect
-  // what's actually on the map.
-  function applyArrDep(data) {
-    const mode = arrDepMode();
+  // 'all' shows everything (the regional corridor view). 'kanp' keeps
+  // anything that touched the field — arrivals, departures and pattern work.
+  // 'pattern' keeps only aircraft that flew closed pattern (at least one
+  // go-around detected by the operations detector — T&Gs are not permitted
+  // at KANP, so touch-and-look profiles are go-arounds). Returns a shallow
+  // copy with recomputed counts so the count message and heat-map opacity
+  // both reflect what's actually on the map.
+  function applyOpsFilter(data) {
+    const mode = opsMode();
     if (mode === 'all') return data;
-    // 'lee' keeps anything that touched the field — arrivals, departures AND
-    // local pattern work, which the endpoint-based arr/dep classifier misses
-    // (a touch-and-go session both starts and ends at the field).
-    const tracks = data.tracks.filter(t => {
-      if (mode === 'lee') return KANP.fieldContact(t.points);
-      const c = KANP.classifyArrDep(t.points);
-      return mode === 'arr' ? c.arrival
-           : mode === 'dep' ? c.departure
-           : c.arrival || c.departure;   // 'both'
-    });
+    let tracks = data.tracks.filter(t => KANP.fieldContact(t.points));
+    if (mode === 'pattern') {
+      const { ops } = KANPOps.analyze({ tracks });
+      const patternHexes = new Set(
+        ops.filter(o => o.kind === 'tng').map(o => o.hex));
+      tracks = tracks.filter(t => patternHexes.has(t.hex));
+    }
     return {
       ...data,
       tracks,
@@ -240,11 +336,12 @@ const KANPHistory = (() => {
 
   function drawAltLegend() {
     const canvas = document.getElementById('alt-legend-bar');
-    const ctx = canvas.getContext('2d');
-    for (let x = 0; x < canvas.width; x++) {
-      const alt = (x / canvas.width) * 40000;
+    const W = 340, H = 10;
+    const ctx = KANP.setupCanvas(canvas, W, H);
+    for (let x = 0; x < W; x++) {
+      const alt = (x / W) * 40000;
       ctx.fillStyle = KANP.altColor(alt, false);
-      ctx.fillRect(x, 0, 1, canvas.height);
+      ctx.fillRect(x, 0, 1, H);
     }
   }
 
