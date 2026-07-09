@@ -4,14 +4,18 @@
 
 const KANPHistory = (() => {
   let map = null;
-  let trackLayer = null;
-  let renderer = null;
-  let trailStyle = { weight: 1.2, opacity: 0.45 };  // recomputed per load, see heatStyle()
+  let trackCanvas = null;       // single-canvas track layer, see TrackCanvas below
   let fullData = null;          // last fetched dataset; instant filters redraw from this
   let lastShown = null;         // most recent filtered set, for the deferred Lee list
   let leeTimer = null;          // defers the heavy ops analysis off the redraw path
   const GAP_SECONDS = 300;      // start a new segment after this gap
   const ALT_BUCKET_FT = 500;    // color resolution along a track
+  const ALT_MAX = 40000;        // top of the altitude band scale
+  const ALT_STEP = 500;
+  // Floor/ceiling of the altitude band beside the map. Ceiling at ALT_MAX means
+  // "no ceiling"; floor 0 means "no floor". Defaults to the 0–5,000 ft slice
+  // where the airport-pattern traffic lives.
+  const altState = { floor: 0, ceil: 5000 };
   // Only when the *drawn* set (after every filter) exceeds this many points do
   // we coarsen it to stay responsive — so a handful of tracks never triggers it.
   const DRAW_LIMIT = 250_000;
@@ -29,35 +33,94 @@ const KANPHistory = (() => {
     }
   }
 
-  // Vertical floor/ceiling sliders beside the map. While dragging we only update
-  // the live number readout (cheap); the map redraws when the thumb is released
-  // (the `change` event) so a drag doesn't rebuild every track ~10×/second.
+  // One vertical altitude-band slider beside the map: drag the top edge to set
+  // the ceiling, the bottom edge to set the floor, or the middle to slide the
+  // whole slice up/down. The scale behind it is the tar1090 altitude gradient,
+  // shaded outside the selection. Readouts update live while dragging; the map
+  // redraws on release.
   function initAltPanel() {
-    const panel = document.getElementById('hist-alt');
-    if (!panel) return;
-    const floor = panel.querySelector('.alt-floor');
-    const ceil = panel.querySelector('.alt-ceiling');
+    const track = document.getElementById('hist-alt-track');
+    if (!track) return;
+    const band = document.getElementById('hist-alt-band');
+    const shadeTop = track.querySelector('.alt-shade.top');
+    const shadeBot = track.querySelector('.alt-shade.bot');
     const floorNum = document.getElementById('hist-floor-num');
     const ceilNum = document.getElementById('hist-ceil-num');
-    const MAX = +ceil.max;
+    const HANDLE_PX = 12;      // grab tolerance around each band edge
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    const paint = () => {
-      floorNum.textContent = +floor.value === 0 ? '0' : (+floor.value).toLocaleString();
-      ceilNum.textContent = +ceil.value >= MAX ? '∞' : (+ceil.value).toLocaleString();
+    // altitude gradient scale (stretched by CSS)
+    const scale = track.querySelector('canvas.alt-scale');
+    scale.width = 10; scale.height = 400;
+    const c = scale.getContext('2d');
+    for (let y = 0; y < scale.height; y++) {
+      c.fillStyle = KANP.altColor((1 - y / scale.height) * ALT_MAX, false);
+      c.fillRect(0, y, scale.width, 1);
+    }
+
+    const layout = () => {
+      const topPct = (1 - altState.ceil / ALT_MAX) * 100;
+      const botPct = (altState.floor / ALT_MAX) * 100;
+      band.style.top = `${topPct}%`;
+      band.style.bottom = `${botPct}%`;
+      shadeTop.style.height = `${topPct}%`;
+      shadeBot.style.height = `${botPct}%`;
+      ceilNum.textContent = altState.ceil >= ALT_MAX ? '∞' : altState.ceil.toLocaleString();
+      floorNum.textContent = altState.floor.toLocaleString();
     };
-    const clamp = mover => {               // keep thumbs from crossing, live
-      let lo = +floor.value, hi = +ceil.value;
-      if (lo > hi) {
-        if (mover === floor) ceil.value = hi = lo;
-        else floor.value = lo = hi;
-      }
-      paint();
+
+    const yToAlt = clientY => {
+      const r = track.getBoundingClientRect();
+      const frac = 1 - (clientY - r.top) / r.height;
+      return Math.round(clamp(frac, 0, 1) * ALT_MAX / ALT_STEP) * ALT_STEP;
     };
-    floor.addEventListener('input', () => clamp(floor));
-    ceil.addEventListener('input', () => clamp(ceil));
-    floor.addEventListener('change', render);   // redraw on release
-    ceil.addEventListener('change', render);
-    paint();
+
+    track.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const r = track.getBoundingClientRect();
+      const ceilY = r.top + (1 - altState.ceil / ALT_MAX) * r.height;
+      const floorY = r.top + (1 - altState.floor / ALT_MAX) * r.height;
+      // nearest-edge wins inside the grab zones; the middle drags the band
+      const mode =
+        Math.abs(e.clientY - ceilY) <= HANDLE_PX &&
+          Math.abs(e.clientY - ceilY) <= Math.abs(e.clientY - floorY) ? 'ceil'
+        : Math.abs(e.clientY - floorY) <= HANDLE_PX ? 'floor'
+        : e.clientY > ceilY && e.clientY < floorY ? 'band'
+        : e.clientY < ceilY ? 'ceil' : 'floor';   // click outside jumps that edge
+      const startAlt = yToAlt(e.clientY);
+      const start = { ...altState };
+
+      const apply = ev => {
+        const a = yToAlt(ev.clientY);
+        if (mode === 'ceil') {
+          altState.ceil = clamp(a, start.floor + ALT_STEP, ALT_MAX);
+        } else if (mode === 'floor') {
+          altState.floor = clamp(a, 0, start.ceil - ALT_STEP);
+        } else {
+          const span = start.ceil - start.floor;
+          altState.floor = clamp(start.floor + (a - startAlt), 0, ALT_MAX - span);
+          altState.ceil = altState.floor + span;
+        }
+        layout();
+      };
+
+      track.setPointerCapture(e.pointerId);
+      track.classList.add('dragging');
+      if (mode !== 'band') apply(e);     // edge grabs / jumps take effect on press
+      const move = ev => apply(ev);
+      const up = () => {
+        track.removeEventListener('pointermove', move);
+        track.removeEventListener('pointerup', up);
+        track.removeEventListener('pointercancel', up);
+        track.classList.remove('dragging');
+        render();                        // one redraw when the drag settles
+      };
+      track.addEventListener('pointermove', move);
+      track.addEventListener('pointerup', up);
+      track.addEventListener('pointercancel', up);
+    });
+
+    layout();
   }
 
   // GA / Military / KANP-only toggle buttons — all filter client-side, so a
@@ -96,14 +159,13 @@ const KANPHistory = (() => {
 
   function initMap() {
     map = L.map('hist-map').setView([KANP.LAT, KANP.LON], 8);  // ~60 nm radius in view
-    renderer = L.canvas({ padding: 0.4 });
 
     const bases = KANP.baseLayers();
     const overlays = KANP.overlayLayers();
     bases['Dark'].addTo(map);
 
-    trackLayer = L.layerGroup().addTo(map);
-    overlays['Tracks'] = trackLayer;
+    trackCanvas = new TrackCanvas().addTo(map);
+    overlays['Tracks'] = trackCanvas;
     L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
 
     KANP.addAirport(map);
@@ -141,12 +203,8 @@ const KANPHistory = (() => {
     if (!fullData) return;
     const out = document.getElementById('hist-result');
 
-    const panel = document.getElementById('hist-alt');
-    const MAX = +panel.querySelector('.alt-ceiling').max;
-    const floorV = +panel.querySelector('.alt-floor').value;
-    const ceilV = +panel.querySelector('.alt-ceiling').value;
-    const floor = floorV === 0 ? null : floorV;         // bottom of range = no floor
-    const ceil = ceilV >= MAX ? null : ceilV;           // top of range = no ceiling
+    const floor = altState.floor === 0 ? null : altState.floor;   // 0 = no floor
+    const ceil = altState.ceil >= ALT_MAX ? null : altState.ceil; // top = no ceiling
     const ga = document.getElementById('hist-ga').classList.contains('on');
     const mil = document.getElementById('hist-mil').classList.contains('on');
 
@@ -287,65 +345,182 @@ const KANPHistory = (() => {
   }
 
   function draw(data) {
-    trackLayer.clearLayers();
-    trailStyle = heatStyle(data.returned_points || 0);
-
-    data.tracks.forEach(t => {
-      const label =
-        `<strong>${t.flight || t.reg || t.hex}</strong>` +
-        (t.reg ? ` · ${t.reg}` : '') +
-        (t.type ? ` · ${t.type}` : '') +
-        (t.military ? ' · MIL' : '') +
-        (t.descr ? `<br>${t.descr}` : '');
-
-      // split into gap-free segments, then into constant-color runs
-      let seg = [];
-      const flush = () => {
-        if (seg.length > 1) drawSegment(seg, label, t);
-        seg = [];
-      };
-
-      let prevTs = null;
-      for (const p of t.points) {
-        if (prevTs != null && p[0] - prevTs > GAP_SECONDS) flush();
-        seg.push(p);
-        prevTs = p[0];
-      }
-      flush();
-    });
-  }
-
-  function drawSegment(points, label, t) {
-    // group consecutive points whose altitude falls in the same color bucket
-    let run = [points[0]];
-    let runKey = bucketKey(points[0]);
-
-    const emit = () => {
-      if (run.length < 2) return;
-      const mid = run[Math.floor(run.length / 2)];
-      const color = KANP.altColor(mid[3], mid[5]);
-      const line = L.polyline(run.map(p => [p[1], p[2]]), {
-        renderer, color, weight: trailStyle.weight, opacity: trailStyle.opacity,
-      }).addTo(trackLayer);
-      line.bindPopup(popupHtml(label, run, t));
-    };
-
-    for (let i = 1; i < points.length; i++) {
-      const key = bucketKey(points[i]);
-      run.push(points[i]);           // share the boundary point so runs connect
-      if (key !== runKey) {
-        emit();
-        run = [points[i]];
-        runKey = key;
-      }
-    }
-    emit();
+    trackCanvas.setData(data.tracks, heatStyle(data.returned_points || 0));
   }
 
   function bucketKey(p) {
     if (p[5]) return 'ground';
     if (p[3] == null) return 'unknown';
     return Math.floor(p[3] / ALT_BUCKET_FT);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TrackCanvas — all trails on ONE canvas element.
+  //
+  // The old approach created an L.polyline layer per constant-color run:
+  // thousands of Leaflet layer objects (with popup bindings) torn down and
+  // rebuilt on every filter change, which is what made the trails laggy. Here
+  // setData() splits tracks once into gap-free, constant-color runs, and
+  // _redraw() strokes them straight onto a single canvas. Each run is still its
+  // own stroke so overlapping trails accumulate into the heat-map look, and
+  // clicking the map hit-tests the drawn runs to show the same popup as before.
+  // ---------------------------------------------------------------------------
+  const TrackCanvas = L.Layer.extend({
+    initialize() {
+      this._runs = [];
+      this._style = { weight: 1.2, opacity: 0.45 };
+      this._hit = [];
+    },
+
+    setData(tracks, style) {
+      this._style = style;
+      const runs = [];
+      for (const t of tracks) {
+        let run = null, key = null, prevTs = null;
+        for (const p of t.points) {
+          const k = bucketKey(p);
+          if (run && (p[0] - prevTs > GAP_SECONDS)) {         // coverage gap
+            if (run.pts.length > 1) runs.push(run);
+            run = null;
+          }
+          if (run && k !== key) {                              // color change
+            run.pts.push(p);                                   // share boundary point
+            if (run.pts.length > 1) runs.push(run);
+            run = null;
+          }
+          if (!run) { run = { t, pts: [p] }; key = k; }
+          else run.pts.push(p);
+          prevTs = p[0];
+        }
+        if (run && run.pts.length > 1) runs.push(run);
+      }
+      // color + latlng bbox per run; sort by color so strokeStyle rarely changes
+      for (const r of runs) {
+        const mid = r.pts[Math.floor(r.pts.length / 2)];
+        r.color = KANP.altColor(mid[3], mid[5]);
+        let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+        for (const p of r.pts) {
+          if (p[1] < a) a = p[1];
+          if (p[2] < b) b = p[2];
+          if (p[1] > c) c = p[1];
+          if (p[2] > d) d = p[2];
+        }
+        r.bbox = [a, b, c, d];
+      }
+      runs.sort((x, y) => (x.color < y.color ? -1 : x.color > y.color ? 1 : 0));
+      this._runs = runs;
+      if (this._map) this._redraw();
+    },
+
+    onAdd(map) {
+      this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-animated');
+      map.getPane('overlayPane').appendChild(this._canvas);
+      map.on('viewreset zoomend moveend resize', this._reset, this);
+      if (map.options.zoomAnimation && L.Browser.any3d) {
+        map.on('zoomanim', this._animateZoom, this);
+      }
+      map.on('click', this._onClick, this);
+      this._reset();
+    },
+
+    onRemove(map) {
+      L.DomUtil.remove(this._canvas);
+      map.off('viewreset zoomend moveend resize', this._reset, this);
+      map.off('zoomanim', this._animateZoom, this);
+      map.off('click', this._onClick, this);
+    },
+
+    // scale the canvas with CSS during the zoom animation, like ImageOverlay.
+    // If this Leaflet build lacks the helper, skip it — the canvas then simply
+    // repaints at zoomend instead of animating.
+    _animateZoom(e) {
+      if (!this._map._latLngBoundsToNewLayerBounds) return;
+      const scale = this._map.getZoomScale(e.zoom);
+      const offset = this._map._latLngBoundsToNewLayerBounds(
+        this._map.getBounds(), e.zoom, e.center).min;
+      L.DomUtil.setTransform(this._canvas, offset, scale);
+    },
+
+    _reset() {
+      const size = this._map.getSize();
+      const dpr = window.devicePixelRatio || 1;
+      L.DomUtil.setPosition(this._canvas, this._map.containerPointToLayerPoint([0, 0]));
+      this._canvas.width = Math.round(size.x * dpr);
+      this._canvas.height = Math.round(size.y * dpr);
+      this._canvas.style.width = `${size.x}px`;
+      this._canvas.style.height = `${size.y}px`;
+      this._dpr = dpr;
+      this._redraw();
+    },
+
+    _redraw() {
+      const map = this._map;
+      const size = map.getSize();
+      const ctx = this._canvas.getContext('2d');
+      ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
+      ctx.clearRect(0, 0, size.x, size.y);
+      ctx.lineWidth = this._style.weight;
+      ctx.globalAlpha = this._style.opacity;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const vb = map.getBounds().pad(0.06);
+      const s = vb.getSouth(), w = vb.getWest(), n = vb.getNorth(), e = vb.getEast();
+      this._hit = [];
+      let color = null;
+      for (const r of this._runs) {
+        const [a, b, c, d] = r.bbox;                 // cull off-screen runs
+        if (c < s || a > n || d < w || b > e) continue;
+        if (r.color !== color) { ctx.strokeStyle = color = r.color; }
+        const pts = r.pts;
+        const xs = new Float32Array(pts.length);
+        const ys = new Float32Array(pts.length);
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const cp = map.latLngToContainerPoint([pts[i][1], pts[i][2]]);
+          xs[i] = cp.x; ys[i] = cp.y;
+          if (i === 0) ctx.moveTo(cp.x, cp.y);
+          else ctx.lineTo(cp.x, cp.y);
+        }
+        ctx.stroke();                                // per-run stroke keeps the heat look
+        this._hit.push({ xs, ys, run: r });
+      }
+    },
+
+    // click → nearest drawn run within tolerance → same popup as before
+    _onClick(e) {
+      const { x, y } = e.containerPoint;
+      const TOL2 = 8 * 8;
+      let best = null, bestD = TOL2;
+      for (const h of this._hit) {
+        const { xs, ys } = h;
+        for (let i = 1; i < xs.length; i++) {
+          const d = distSq(x, y, xs[i - 1], ys[i - 1], xs[i], ys[i]);
+          if (d < bestD) { bestD = d; best = h.run; }
+        }
+      }
+      if (!best) return;
+      const t = best.t;
+      const label =
+        `<strong>${t.flight || t.reg || t.hex}</strong>` +
+        (t.reg ? ` · ${t.reg}` : '') +
+        (t.type ? ` · ${t.type}` : '') +
+        (t.military ? ' · MIL' : '') +
+        (t.descr ? `<br>${t.descr}` : '');
+      L.popup().setLatLng(e.latlng)
+        .setContent(popupHtml(label, best.pts, t))
+        .openOn(this._map);
+    },
+  });
+
+  // squared distance from point (px,py) to segment (x1,y1)-(x2,y2)
+  function distSq(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const seg2 = dx * dx + dy * dy;
+    let t = seg2 === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / seg2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = px - (x1 + t * dx), ey = py - (y1 + t * dy);
+    return ex * ex + ey * ey;
   }
 
   // Thin, translucent trails so overlapping traffic reads as a heat map rather

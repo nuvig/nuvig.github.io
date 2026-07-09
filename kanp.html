@@ -206,32 +206,38 @@
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
       padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center;
     }
-    .alt-vpanel .ttl { font-size: 11px; color: #888; margin-bottom: 8px; letter-spacing: .02em; }
-    .alt-sliders { flex: 1; display: flex; gap: 8px; justify-content: center; width: 100%; min-height: 0; }
-    .alt-col { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 0; }
-    .alt-col .alt-num {
-      font-size: 11px; color: #4a9eff; font-variant-numeric: tabular-nums; min-height: 14px;
+    .alt-vpanel .ttl { font-size: 11px; color: #888; margin-bottom: 6px; letter-spacing: .02em; }
+    .alt-vpanel .alt-num {
+      font-size: 11px; color: #4a9eff; font-variant-numeric: tabular-nums;
+      min-height: 14px; margin: 3px 0;
     }
-    .alt-col .cap { font-size: 10px; color: #666; }
-    .vrange {
-      writing-mode: vertical-lr; direction: rtl;
-      width: 22px; flex: 1; min-height: 0; margin: 0; padding: 0;
-      -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+    /* One vertical band slider: the altitude scale behind, a selected band on
+       top. Drag the band's edges to set floor/ceiling, drag its middle to move
+       the whole slice. Outside the band the scale is shaded out. */
+    .alt-band-track {
+      position: relative; flex: 1; width: 26px; min-height: 120px;
+      border: 1px solid #3a3a3a; border-radius: 5px; overflow: hidden;
+      cursor: pointer; touch-action: none; user-select: none;
     }
-    .vrange::-webkit-slider-runnable-track { width: 4px; background: #333; border-radius: 2px; }
-    .vrange::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none; margin-left: -6px;
-      width: 16px; height: 16px; border-radius: 50%;
-      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    .alt-band-track canvas.alt-scale {
+      position: absolute; inset: 0; width: 100%; height: 100%; display: block;
     }
-    .vrange::-moz-range-track { width: 4px; background: #333; border-radius: 2px; }
-    .vrange::-moz-range-thumb {
-      width: 16px; height: 16px; border-radius: 50%;
-      background: #4a9eff; border: 2px solid #0b0b0b; cursor: pointer;
+    .alt-shade {
+      position: absolute; left: 0; right: 0; background: rgba(10,10,10,.72);
+      pointer-events: none;
     }
+    .alt-shade.top { top: 0; }
+    .alt-shade.bot { bottom: 0; }
+    .alt-band {
+      position: absolute; left: 0; right: 0;
+      border-top: 3px solid #4a9eff; border-bottom: 3px solid #4a9eff;
+      background: rgba(74,158,255,.14); box-sizing: border-box;
+      cursor: grab; pointer-events: none;
+    }
+    .alt-band-track.dragging .alt-band { cursor: grabbing; }
     @media (max-width: 560px) {
       .alt-vpanel { width: 76px; }
-      .vrange { width: 18px; }
+      .alt-band-track { width: 22px; }
     }
     .btn {
       background: #1d3a5f;
@@ -458,18 +464,16 @@
       <div id="hist-map"></div>
       <div class="alt-vpanel" id="hist-alt">
         <div class="ttl">Alt ft</div>
-        <div class="alt-sliders">
-          <div class="alt-col">
-            <span class="alt-num" id="hist-floor-num">0</span>
-            <input type="range" class="vrange alt-floor" min="0" max="40000" step="500" value="0" aria-label="Altitude floor">
-            <span class="cap">floor</span>
-          </div>
-          <div class="alt-col">
-            <span class="alt-num" id="hist-ceil-num">∞</span>
-            <input type="range" class="vrange alt-ceiling" min="0" max="40000" step="500" value="40000" aria-label="Altitude ceiling">
-            <span class="cap">ceil</span>
-          </div>
+        <span class="alt-num" id="hist-ceil-num">5,000</span>
+        <div class="alt-band-track" id="hist-alt-track" role="slider"
+             aria-label="Altitude band: drag edges to set floor and ceiling, drag the middle to move the band"
+             title="Drag edges: floor / ceiling · drag middle: move band">
+          <canvas class="alt-scale"></canvas>
+          <div class="alt-shade top"></div>
+          <div class="alt-shade bot"></div>
+          <div class="alt-band" id="hist-alt-band"></div>
         </div>
+        <span class="alt-num" id="hist-floor-num">0</span>
       </div>
     </div>
 
