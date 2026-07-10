@@ -202,12 +202,13 @@
     .hist-map-row { display: flex; gap: 10px; align-items: stretch; margin: 12px 0; }
     .hist-map-row #hist-map { flex: 1; min-width: 0; margin: 0; }
     /* expanded (fullscreen) map row: the altitude panel rides along, so the
-       band selector stays in view and operable */
+       band selector stays in view and operable. #hist-map carries a fixed
+       560px height, so it has to be overridden or the map leaves a dead gap. */
     .hist-map-row.expanded {
       position: fixed; inset: 0; z-index: 2000; margin: 0;
       background: #0b0b0b; padding: 10px;
     }
-    .hist-map-row.expanded #hist-map { border-radius: 6px; }
+    .hist-map-row.expanded #hist-map { height: 100%; border-radius: 6px; }
     .map-expand-btn {
       background: #1a1a1af0; color: #ccc; border: 1px solid #444;
       border-radius: 4px; width: 34px; height: 34px; font-size: 17px;
@@ -495,7 +496,7 @@
       <span>ground</span>
       <canvas id="alt-legend-bar" width="340" height="10"></canvas>
       <span>40,000 ft</span>
-      <span style="margin-left:12px">· altitude-colored tracks, tar1090 scale · layers ▛ top-right: VFR sectional, TAC, weather</span>
+      <span style="margin-left:12px">· altitude-colored tracks, tar1090 scale · layers ▛ top-right: VFR sectional, TAC, IFR low/high, weather</span>
     </div>
 
     <details id="lee-list" style="display:none">

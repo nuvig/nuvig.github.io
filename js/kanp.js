@@ -600,6 +600,19 @@ KANP.overlayLayers = function () {
         attribution: 'FAA', opacity: 0.8,
         minNativeZoom: 10, maxNativeZoom: 12, maxZoom: 19,
       }),
+    // FAA publishes IFR enroute as IFR_AreaLow (low altitude) and IFR_High.
+    // Native zoom ranges verified against the tile service — outside them the
+    // server 404s, so let Leaflet upscale instead of requesting missing tiles.
+    'IFR Enroute Low': L.tileLayer(
+      'https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/IFR_AreaLow/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'FAA', opacity: 0.8,
+        minNativeZoom: 7, maxNativeZoom: 12, maxZoom: 19,
+      }),
+    'IFR Enroute High': L.tileLayer(
+      'https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/IFR_High/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'FAA', opacity: 0.8,
+        minNativeZoom: 5, maxNativeZoom: 9, maxZoom: 19,
+      }),
     'Weather (NEXRAD)': L.tileLayer(
       'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
         attribution: 'IEM NEXRAD', opacity: 0.55, maxZoom: 19,
