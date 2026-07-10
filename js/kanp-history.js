@@ -365,9 +365,8 @@ const KANPHistory = (() => {
     lastShown = shown;
     scheduleLee();               // heavy ops analysis + table, off the redraw path
 
-    const opsLabel = { lee: ' · KANP ops', pattern: ' · closed pattern ops',
-                       arr: ' · arrivals', dep: ' · departures',
-                       both: ' · arrivals + departures' }[arrDepMode()] || '';
+    const opsLabel = { lee: ' · all KANP traffic',
+                       pattern: ' · pattern work' }[arrDepMode()] || '';
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
     if (coarsened) {
@@ -439,33 +438,51 @@ const KANPHistory = (() => {
     return sel ? sel.value : 'lee';
   }
 
-  // Restrict the drawn tracks to KANP arrivals / departures (classified from
-  // each track's trajectory). Returns a shallow copy with filtered tracks and
-  // recomputed counts so the count message and heat-map opacity both reflect
-  // what's actually on the map.
+  // Longest a full-stop taxi-back may take: land, exit, taxi back, depart.
+  // Beyond this the aircraft parked and the next departure is a new flight.
+  const TAXI_BACK_S = 25 * 60;
+
+  // Restrict the drawn tracks to KANP traffic. 'lee' keeps anything that
+  // touched the field. 'pattern' keeps only aircraft working the pattern —
+  // flying a circuit and coming back rather than arriving or departing once.
+  //
+  // A full-stop taxi-back normally shows up as a *single* field contact: the
+  // landing, taxi and takeoff are one unbroken run of at-field fixes, so the
+  // detector sees airborne flight both before and after it and labels it
+  // 'tng'. (T&Gs aren't permitted here, so a 'tng' contact is a taxi-back, or
+  // a go-around when the aircraft never touched down.) The arrival→departure
+  // pairing below is the fallback for when an ADS-B coverage gap splits that
+  // one contact into a separate arrival and departure.
+  //
+  // Returns a shallow copy with filtered tracks and recomputed counts so the
+  // count message and heat-map opacity both reflect what's on the map.
   function applyArrDep(data) {
     const mode = arrDepMode();
     if (mode === 'all') return data;
-    // 'lee' keeps anything that touched the field — arrivals, departures AND
-    // local pattern work, which the endpoint-based arr/dep classifier misses
-    // (a go-around session both starts and ends at the field). 'pattern'
-    // keeps only aircraft flying closed pattern: at least one go-around
-    // detected by the operations detector.
-    let tracks;
+    const contacts = data.tracks.filter(t => KANP.fieldContact(t.points));
+    let tracks = contacts;
     if (mode === 'pattern') {
-      const contacts = data.tracks.filter(t => KANP.fieldContact(t.points));
       const { ops } = KANPOps.analyze({ tracks: contacts });
-      const patternHexes = new Set(
-        ops.filter(o => o.kind === 'tng').map(o => o.hex));
-      tracks = contacts.filter(t => patternHexes.has(t.hex));
-    } else {
-      tracks = data.tracks.filter(t => {
-        if (mode === 'lee') return KANP.fieldContact(t.points);
-        const c = KANP.classifyArrDep(t.points);
-        return mode === 'arr' ? c.arrival
-             : mode === 'dep' ? c.departure
-             : c.arrival || c.departure;   // 'both'
+      const byAc = new Map();
+      ops.forEach(o => {
+        if (!byAc.has(o.hex)) byAc.set(o.hex, []);
+        byAc.get(o.hex).push(o);
       });
+      const pattern = new Set();
+      byAc.forEach((list, hex) => {
+        list.sort((a, b) => a.ts - b.ts);
+        for (let i = 0; i < list.length; i++) {
+          if (list[i].kind === 'tng') { pattern.add(hex); return; }   // go-around
+          // arrival, then a departure soon after → full-stop taxi-back
+          if (list[i].kind === 'arr') {
+            for (let j = i + 1; j < list.length; j++) {
+              if (list[j].ts - list[i].ts > TAXI_BACK_S) break;
+              if (list[j].kind === 'dep') { pattern.add(hex); return; }
+            }
+          }
+        }
+      });
+      tracks = contacts.filter(t => pattern.has(t.hex));
     }
     return {
       ...data,
