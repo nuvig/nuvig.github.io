@@ -595,15 +595,17 @@ async function loadNwsGrid() {
     throw e;
   }
   const kmh2kt = (v) => v / 1.852;
-  const m2ft = (v) => v * 3.28084;
-  const m2sm = (v) => v / 1609.34;
+  // LWX encodes "no ceiling" as -30.48 m (-100 ft); treat any non-positive
+  // height as no ceiling rather than a (very) low one.
+  const m2ftCeil = (v) => (v <= 0 ? null : v * 3.28084);
+  const m2sm = (v) => (v < 0 ? null : v / 1609.34);
   const id = (v) => v;
   state.grid = {
     spd: expandSeries(g.windSpeed, kmh2kt),
     gst: expandSeries(g.windGust, kmh2kt),
     dir: expandSeries(g.windDirection, id),
     sky: expandSeries(g.skyCover, id),
-    ceil: expandSeries(g.ceilingHeight, m2ft),
+    ceil: expandSeries(g.ceilingHeight, m2ftCeil),
     vis: expandSeries(g.visibility, m2sm),
     pp: expandSeries(g.probabilityOfPrecipitation, id),
     tempC: expandSeries(g.temperature, id),
