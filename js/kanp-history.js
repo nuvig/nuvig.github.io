@@ -12,6 +12,9 @@ const KANPHistory = (() => {
   const ALT_BUCKET_FT = 500;    // color resolution along a track
   const ALT_MAX = 40000;        // top of the altitude band scale
   const ALT_STEP = 500;
+  // Ground fixes are exempt from the band's floor only while the floor is at or
+  // below this — i.e. while the band still includes the surface + pattern.
+  const GROUND_EXEMPT_FT = 1500;
   // Floor/ceiling of the altitude band beside the map. Ceiling at ALT_MAX means
   // "no ceiling"; floor 0 means "no floor". Defaults to the 0–5,000 ft slice
   // where the airport-pattern traffic lives.
@@ -287,16 +290,35 @@ const KANPHistory = (() => {
     if (mil) tracks = tracks.filter(t => t.military);
     if (ga) tracks = tracks.filter(t => KANP.isGA(t));
     if (floor != null || ceil != null) {
-      tracks = tracks.map(t => ({
-        ...t,
-        points: t.points.filter(p => {
-          const alt = p[3], og = p[5];
-          // ground fixes ignore the floor; the ceiling drops anything above it
-          if (floor != null && !og && !(alt != null && alt >= floor)) return false;
-          if (ceil != null && alt != null && alt > ceil) return false;
-          return true;
-        }),
-      })).filter(t => t.points.length);
+      // Ground fixes ignore the floor so a low band still shows traffic on the
+      // field — but only while the band actually reaches down to the surface.
+      // With a high floor the aircraft's climb is filtered away, and keeping
+      // its ground fixes would leave the runway wired straight to the cruise
+      // segment (see breaks[] below).
+      const keepGround = floor == null || floor <= GROUND_EXEMPT_FT;
+      const inBand = p => {
+        const alt = p[3], og = p[5];
+        if (og) return keepGround;
+        if (floor != null && !(alt != null && alt >= floor)) return false;
+        if (ceil != null && alt != null && alt > ceil) return false;
+        return true;
+      };
+      tracks = tracks.map(t => {
+        // Keep the surviving points AND remember where a dropped point sat
+        // between two survivors: the line must break there rather than draw a
+        // straight chord across the excluded altitudes (e.g. an aircraft that
+        // descends through the band and back out inside GAP_SECONDS).
+        const points = [];
+        const breaks = new Set();
+        let dropped = false;
+        for (const p of t.points) {
+          if (!inBand(p)) { dropped = true; continue; }
+          if (dropped && points.length) breaks.add(p[0]);   // break before this fix
+          points.push(p);
+          dropped = false;
+        }
+        return { ...t, points, breaks };
+      }).filter(t => t.points.length);
     }
 
     let shown = {
@@ -312,7 +334,29 @@ const KANPHistory = (() => {
     // few tracks never limits or warns.
     let coarsened = false;
     if (shown.returned_points > DRAW_LIMIT) {
-      shown.tracks = shown.tracks.map(t => ({ ...t, points: KANP.simplifyTrack(t.points, 0.08) }));
+      // Simplify each break-free run on its own, so a break point can never be
+      // thinned away and re-join two runs across excluded altitudes.
+      shown.tracks = shown.tracks.map(t => {
+        if (!t.breaks || !t.breaks.size) {
+          return { ...t, points: KANP.simplifyTrack(t.points, 0.08) };
+        }
+        const points = [];
+        const breaks = new Set();
+        let run = [];
+        const flush = () => {
+          if (!run.length) return;
+          const s = KANP.simplifyTrack(run, 0.08);
+          if (points.length) breaks.add(s[0][0]);
+          points.push(...s);
+          run = [];
+        };
+        for (const p of t.points) {
+          if (t.breaks.has(p[0]) && run.length) flush();
+          run.push(p);
+        }
+        flush();
+        return { ...t, points, breaks };
+      });
       shown.returned_points = shown.tracks.reduce((n, t) => n + t.points.length, 0);
       coarsened = true;
     }
@@ -466,7 +510,9 @@ const KANPHistory = (() => {
         let run = null, key = null, prevTs = null;
         for (const p of t.points) {
           const k = bucketKey(p);
-          if (run && (p[0] - prevTs > GAP_SECONDS)) {         // coverage gap
+          // coverage gap, or a point the altitude band filtered out sat here
+          if (run && (p[0] - prevTs > GAP_SECONDS ||
+                      (t.breaks && t.breaks.has(p[0])))) {
             if (run.pts.length > 1) runs.push(run);
             run = null;
           }
