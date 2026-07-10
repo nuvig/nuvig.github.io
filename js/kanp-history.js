@@ -174,23 +174,32 @@ const KANPHistory = (() => {
     map.invalidateSize();
     // first time the tab is opened (when it wasn't the initial tab): auto-load
     if (!fullData) load();
-    if (!weekGrid) loadWeekGrid();
+    if (!weekPanel) loadWeekGrid();
   }
 
-  // ---- trailing-7-days hour × day-of-week grid ----
-  let weekGrid = null;
+  // ---- trailing-7-days hour × day-of-week grid (all traffic / GA ops) ----
+  let weekPanel = null;
+
+  const weekRange = () => {
+    const now = Math.floor(Date.now() / 1000);
+    return { start: now - 7 * 86_400, end: now };
+  };
 
   async function loadWeekGrid() {
-    weekGrid = 'loading';
+    weekPanel = KANP.initHeatPanel({
+      canvasId: 'hist-grid', emptyId: 'hist-grid-empty',
+      labelId: 'hist-grid-label', titleId: 'hist-grid-title',
+      titleAll: 'Past 7 days', titleGa: 'Past 7 days, GA operations at KANP',
+      range: weekRange,
+    });
     try {
-      const now = Math.floor(Date.now() / 1000);
-      const s = await KANP.getStats({ start: now - 7 * 86_400, end: now });
-      weekGrid = s.grid_unique_aircraft;
-      document.getElementById('hist-grid-label').textContent =
-        `${Number(s.totals.aircraft).toLocaleString()} aircraft · ${KANP.sourceLabel(s)}`;
-      renderWeekGrid();
+      const { start, end } = weekRange();
+      const s = await KANP.getStats({ start, end });
+      weekPanel.setAll({
+        grid: s.grid_unique_aircraft,
+        label: `${Number(s.totals.aircraft).toLocaleString()} aircraft · ${KANP.sourceLabel(s)}`,
+      });
     } catch (e) {
-      weekGrid = null;
       document.getElementById('hist-grid-empty').textContent =
         'Could not load past-week activity.';
       console.warn('[KANP] history 7-day grid failed:', e.message);
@@ -198,11 +207,7 @@ const KANPHistory = (() => {
   }
 
   function renderWeekGrid() {
-    if (!weekGrid || weekGrid === 'loading') return;
-    document.getElementById('hist-grid-empty').style.display = 'none';
-    const canvas = document.getElementById('hist-grid');
-    canvas.style.display = 'block';
-    KANP.renderGrid(canvas, weekGrid);
+    if (weekPanel) weekPanel.render();
   }
 
   // ---- expandable map: the whole map + altitude panel row goes fullscreen,

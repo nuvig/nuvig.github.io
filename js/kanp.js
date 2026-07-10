@@ -620,6 +620,90 @@ function hideGridTip() {
   if (el) el.style.display = 'none';
 }
 
+// ---------------------------------------------------------------------------
+// Shared: GA operations at the field as a 7×24 grid. Runs the same detector
+// the Traffic Study uses (kanp-ops.js) over GA traffic near the field, and
+// weights each op the FAA way (a pattern op — full-stop taxi-back or
+// go-around — counts as 2).
+// ---------------------------------------------------------------------------
+KANP.gaOpsGrid = async function (start, end) {
+  const d = await KANP.getTracks({
+    start, end, ga: 1, ground: 'include',
+    max_dist: 4, max_alt: 3500, max_points: 400000,
+  });
+  const { ops, totalOps, opWeight } = KANPOps.analyze(d);
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  ops.forEach(o => {
+    const dt = new Date(o.ts * 1000);
+    grid[(dt.getDay() + 6) % 7][dt.getHours()] += opWeight(o);
+  });
+  const aircraft = new Set(ops.map(o => o.hex)).size;
+  return {
+    grid,
+    label: totalOps
+      ? `${totalOps.toLocaleString()} GA ops · ${aircraft.toLocaleString()} aircraft · ${KANP.sourceLabel(d)}`
+      : `no GA operations detected · ${KANP.sourceLabel(d)}`,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Shared: a heat-grid card with an "all traffic" / "GA ops" toggle.
+// The all-traffic grid is supplied by the caller (each tab already fetches its
+// own stats); the GA grid is fetched lazily the first time it's selected.
+// ---------------------------------------------------------------------------
+KANP.initHeatPanel = function (cfg) {
+  const canvas = document.getElementById(cfg.canvasId);
+  const empty = document.getElementById(cfg.emptyId);
+  const label = document.getElementById(cfg.labelId);
+  const title = document.getElementById(cfg.titleId);
+  const toggle = canvas.closest('.tab-panel').querySelector('[data-heat-toggle]');
+
+  let metric = 'all';
+  const data = { all: null, ga: null };
+  let gaPending = null;
+
+  const paint = () => {
+    const d = data[metric];
+    title.textContent = (metric === 'ga' ? cfg.titleGa : cfg.titleAll) +
+      ' — hour of day × day of week';
+    if (!d) return;
+    empty.style.display = 'none';
+    canvas.style.display = 'block';
+    label.textContent = d.label;
+    KANP.renderGrid(canvas, d.grid, { unit: metric === 'ga' ? 'GA ops' : 'aircraft' });
+  };
+
+  const select = async btn => {
+    metric = btn.dataset.metric;
+    toggle.querySelectorAll('.mini-btn').forEach(b => b.classList.toggle('on', b === btn));
+    if (metric === 'ga' && !data.ga) {
+      canvas.style.display = 'none';
+      empty.style.display = 'block';
+      empty.textContent = 'Loading GA operations…';
+      title.textContent = cfg.titleGa + ' — hour of day × day of week';
+      try {
+        const { start, end } = cfg.range();
+        gaPending = gaPending || KANP.gaOpsGrid(start, end);
+        data.ga = await gaPending;
+      } catch (e) {
+        gaPending = null;
+        empty.textContent = 'Could not load GA operations.';
+        console.warn('[KANP] GA ops grid failed:', e.message);
+        return;
+      }
+    }
+    paint();
+  };
+
+  toggle.querySelectorAll('.mini-btn').forEach(btn =>
+    btn.addEventListener('click', () => select(btn)));
+
+  return {
+    setAll(d) { data.all = d; if (metric === 'all') paint(); },
+    render() { if (data[metric]) paint(); },
+  };
+};
+
 function heatColor(t) {
   if (t <= 0) return '#111';
   const stops = [
@@ -898,33 +982,42 @@ function renderFromStorage() {
 // for an hour (the snapshots update hourly anyway).
 // ---------------------------------------------------------------------------
 KANP.GRID_CACHE_KEY = 'kanp_alltime_grid_v1';
-let allTimeGrid = null;
+const ALL_TIME_DAYS = 60;
+let livePanel = null;
+
+function liveRange() {
+  const now = Math.floor(Date.now() / 1000);
+  return { start: now - ALL_TIME_DAYS * 86_400, end: now };
+}
 
 async function loadAllTimeGrid() {
-  const label = document.getElementById('obs-label');
+  livePanel = KANP.initHeatPanel({
+    canvasId: 'temporal-canvas', emptyId: 'no-history',
+    labelId: 'obs-label', titleId: 'live-grid-title',
+    titleAll: 'All collected traffic', titleGa: 'GA operations at KANP',
+    range: liveRange,
+  });
+
   try {
     const cached = JSON.parse(localStorage.getItem(KANP.GRID_CACHE_KEY) || 'null');
     if (cached && Date.now() - cached.at < 3_600_000) {
-      allTimeGrid = cached.grid;
-      label.textContent = cached.label;
-      renderTemporalGrid();
+      livePanel.setAll({ grid: cached.grid, label: cached.label });
       return;
     }
   } catch { /* bad cache — refetch */ }
 
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const s = await KANP.getStats({ start: now - 60 * 86_400, end: now });
-    allTimeGrid = s.grid_unique_aircraft;
+    const { start, end } = liveRange();
+    const s = await KANP.getStats({ start, end });
+    const grid = s.grid_unique_aircraft;
     const labelTxt =
       `${Number(s.totals.aircraft).toLocaleString()} aircraft · ` +
       `${Number(s.totals.samples).toLocaleString()} reports · ${KANP.sourceLabel(s)}`;
-    label.textContent = labelTxt;
+    livePanel.setAll({ grid, label: labelTxt });
     try {
       localStorage.setItem(KANP.GRID_CACHE_KEY,
-        JSON.stringify({ at: Date.now(), grid: allTimeGrid, label: labelTxt }));
+        JSON.stringify({ at: Date.now(), grid, label: labelTxt }));
     } catch { /* storage full — fine, just uncached */ }
-    renderTemporalGrid();
   } catch (e) {
     document.getElementById('no-history').textContent =
       'Could not load collected traffic data.';
@@ -933,11 +1026,7 @@ async function loadAllTimeGrid() {
 }
 
 function renderTemporalGrid() {
-  if (!allTimeGrid) return;
-  const canvas = document.getElementById('temporal-canvas');
-  document.getElementById('no-history').style.display = 'none';
-  canvas.style.display = 'block';
-  KANP.renderGrid(canvas, allTimeGrid);
+  if (livePanel) livePanel.render();
 }
 
 function setStatus(color, text) {
