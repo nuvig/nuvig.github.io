@@ -26,11 +26,10 @@ const KANPHistory = (() => {
     initAltPanel();
     initInstantControls();
     drawAltLegend();
-    // History Map is the default tab: build the map and load tracks right away
-    if (document.getElementById('tab-history').classList.contains('active')) {
-      onShow();
-      load();
-    }
+    window.addEventListener('resize', renderWeekGrid);
+    // If starting on this tab, build the map and load right away
+    // (onShow auto-loads on first show)
+    if (document.getElementById('tab-history').classList.contains('active')) onShow();
   }
 
   // One vertical altitude-band slider beside the map: drag the top edge to set
@@ -120,6 +119,21 @@ const KANPHistory = (() => {
       track.addEventListener('pointercancel', up);
     });
 
+    // scroll wheel over the band shifts the whole slice up/down — "x-raying"
+    // the airspace one step per notch. Filtering is client-side, so redraw
+    // immediately on each notch.
+    track.addEventListener('wheel', e => {
+      e.preventDefault();
+      const step = ALT_STEP * (e.deltaY < 0 ? 1 : -1);   // wheel up = higher
+      const span = altState.ceil - altState.floor;
+      const floor = clamp(altState.floor + step, 0, ALT_MAX - span);
+      if (floor === altState.floor) return;              // at an edge
+      altState.floor = floor;
+      altState.ceil = floor + span;
+      layout();
+      render();
+    }, { passive: false });
+
     layout();
   }
 
@@ -155,6 +169,66 @@ const KANPHistory = (() => {
   function onShow() {
     if (!map) initMap();
     map.invalidateSize();
+    // first time the tab is opened (when it wasn't the initial tab): auto-load
+    if (!fullData) load();
+    if (!weekGrid) loadWeekGrid();
+  }
+
+  // ---- trailing-7-days hour × day-of-week grid ----
+  let weekGrid = null;
+
+  async function loadWeekGrid() {
+    weekGrid = 'loading';
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const s = await KANP.getStats({ start: now - 7 * 86_400, end: now });
+      weekGrid = s.grid_unique_aircraft;
+      document.getElementById('hist-grid-label').textContent =
+        `${Number(s.totals.aircraft).toLocaleString()} aircraft · ${KANP.sourceLabel(s)}`;
+      renderWeekGrid();
+    } catch (e) {
+      weekGrid = null;
+      document.getElementById('hist-grid-empty').textContent =
+        'Could not load past-week activity.';
+      console.warn('[KANP] history 7-day grid failed:', e.message);
+    }
+  }
+
+  function renderWeekGrid() {
+    if (!weekGrid || weekGrid === 'loading') return;
+    document.getElementById('hist-grid-empty').style.display = 'none';
+    const canvas = document.getElementById('hist-grid');
+    canvas.style.display = 'block';
+    KANP.renderGrid(canvas, weekGrid);
+  }
+
+  // ---- expandable map: the whole map + altitude panel row goes fullscreen,
+  // so the altitude band stays in view and operable while expanded ----
+  let expanded = false;
+
+  function initExpand() {
+    const Ctl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const btn = L.DomUtil.create('button', 'map-expand-btn');
+        btn.textContent = '⛶';
+        btn.title = 'Expand map (Esc to exit)';
+        L.DomEvent.disableClickPropagation(btn);
+        btn.addEventListener('click', toggleExpand);
+        return btn;
+      },
+    });
+    map.addControl(new Ctl());
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && expanded) toggleExpand();
+    });
+  }
+
+  function toggleExpand() {
+    expanded = !expanded;
+    document.querySelector('.hist-map-row').classList.toggle('expanded', expanded);
+    document.body.style.overflow = expanded ? 'hidden' : '';
+    map.invalidateSize();
   }
 
   function initMap() {
@@ -169,6 +243,7 @@ const KANPHistory = (() => {
     L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
 
     KANP.addAirport(map);
+    initExpand();
 
     // keep NEXRAD current while the page sits open
     const wx = overlays['Weather (NEXRAD)'];
@@ -246,7 +321,8 @@ const KANPHistory = (() => {
     lastShown = shown;
     scheduleLee();               // heavy ops analysis + table, off the redraw path
 
-    const opsLabel = { lee: ' · KANP ops', arr: ' · arrivals', dep: ' · departures',
+    const opsLabel = { lee: ' · KANP ops', pattern: ' · closed pattern ops',
+                       arr: ' · arrivals', dep: ' · departures',
                        both: ' · arrivals + departures' }[arrDepMode()] || '';
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
@@ -307,7 +383,7 @@ const KANPHistory = (() => {
       (leeAc.length > 300 ? `showing first 300 of ${leeAc.length} aircraft · ` : '') +
       (leeAc.reduce((n, e) => n + e.unk, 0)
         ? 'some field contacts had no airborne context (coverage gaps) and count as 1 op each · ' : '') +
-      'touch-and-go = 2 ops (FAA counting); low passes and stop-and-gos are indistinguishable from touch-and-gos in ADS-B data';
+      'go-around / low approach = 2 ops (FAA counting); T&Gs are not permitted at KANP, so touch-and-look profiles count as go-arounds';
   }
 
   // 'all' unless the KANP-only toggle is on, in which case the sub-mode
@@ -328,14 +404,25 @@ const KANPHistory = (() => {
     if (mode === 'all') return data;
     // 'lee' keeps anything that touched the field — arrivals, departures AND
     // local pattern work, which the endpoint-based arr/dep classifier misses
-    // (a touch-and-go session both starts and ends at the field).
-    const tracks = data.tracks.filter(t => {
-      if (mode === 'lee') return KANP.fieldContact(t.points);
-      const c = KANP.classifyArrDep(t.points);
-      return mode === 'arr' ? c.arrival
-           : mode === 'dep' ? c.departure
-           : c.arrival || c.departure;   // 'both'
-    });
+    // (a go-around session both starts and ends at the field). 'pattern'
+    // keeps only aircraft flying closed pattern: at least one go-around
+    // detected by the operations detector.
+    let tracks;
+    if (mode === 'pattern') {
+      const contacts = data.tracks.filter(t => KANP.fieldContact(t.points));
+      const { ops } = KANPOps.analyze({ tracks: contacts });
+      const patternHexes = new Set(
+        ops.filter(o => o.kind === 'tng').map(o => o.hex));
+      tracks = contacts.filter(t => patternHexes.has(t.hex));
+    } else {
+      tracks = data.tracks.filter(t => {
+        if (mode === 'lee') return KANP.fieldContact(t.points);
+        const c = KANP.classifyArrDep(t.points);
+        return mode === 'arr' ? c.arrival
+             : mode === 'dep' ? c.departure
+             : c.arrival || c.departure;   // 'both'
+      });
+    }
     return {
       ...data,
       tracks,
@@ -543,11 +630,12 @@ const KANPHistory = (() => {
 
   function drawAltLegend() {
     const canvas = document.getElementById('alt-legend-bar');
-    const ctx = canvas.getContext('2d');
-    for (let x = 0; x < canvas.width; x++) {
-      const alt = (x / canvas.width) * 40000;
+    const W = 340, H = 10;
+    const ctx = KANP.setupCanvas(canvas, W, H);
+    for (let x = 0; x < W; x++) {
+      const alt = (x / W) * 40000;
       ctx.fillStyle = KANP.altColor(alt, false);
-      ctx.fillRect(x, 0, 1, canvas.height);
+      ctx.fillRect(x, 0, 1, H);
     }
   }
 

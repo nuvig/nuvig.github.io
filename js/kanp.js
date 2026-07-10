@@ -30,17 +30,28 @@ document.addEventListener('DOMContentLoaded', () => {
 // Tabs
 // ---------------------------------------------------------------------------
 function initTabs() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(btn.dataset.tab).classList.add('active');
-      // Leaflet needs a size refresh when its container becomes visible
-      if (btn.dataset.tab === 'tab-history') KANPHistory.onShow();
-      if (btn.dataset.tab === 'tab-live' && window._liveMap) window._liveMap.invalidateSize();
-    });
-  });
+  const activate = (btn, updateHash) => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (updateHash) {
+      // shareable / refresh-stable tab (replaceState: no history spam)
+      history.replaceState(null, '', '#' + btn.dataset.tab.replace('tab-', ''));
+    }
+    // Leaflet needs a size refresh when its container becomes visible
+    if (btn.dataset.tab === 'tab-history') KANPHistory.onShow();
+    if (btn.dataset.tab === 'tab-live' && window._liveMap) window._liveMap.invalidateSize();
+  };
+
+  document.querySelectorAll('.tab-btn').forEach(btn =>
+    btn.addEventListener('click', () => activate(btn, true)));
+
+  // restore tab from URL hash (#live / #history / #study); runs before the
+  // per-tab init steps, so their "am I the active tab?" checks see the result
+  const fromHash = document.querySelector(
+    `.tab-btn[data-tab="tab-${location.hash.slice(1)}"]`);
+  if (fromHash && !fromHash.classList.contains('active')) activate(fromHash, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +109,7 @@ KANP.sourceLabel = function (d) {
 
 KANP.apiFetch = async function (path, params) {
   const base = KANP.apiBase();
-  if (!base) throw new Error('No Pi API configured — set it under Data Source below');
+  if (!base) throw new Error('No Pi API configured');
   const url = new URL(base + path);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
@@ -108,30 +119,10 @@ KANP.apiFetch = async function (path, params) {
   return res.json();
 };
 
+// The Data Source panel is gone; the Pi API is still auto-detected (same
+// origin when served from the Pi) or set manually via
+// localStorage.setItem('kanp_api_base', url) in the console.
 function initApiSettings() {
-  const input = document.getElementById('api-base');
-  const status = document.getElementById('api-status');
-  input.value = localStorage.getItem(KANP.API_KEY) || '';
-  if (!input.value && KANP.apiBase()) input.placeholder = `auto: ${KANP.apiBase()}`;
-
-  document.getElementById('api-save').addEventListener('click', async () => {
-    const val = input.value.trim().replace(/\/+$/, '');
-    if (val) localStorage.setItem(KANP.API_KEY, val);
-    else localStorage.removeItem(KANP.API_KEY);
-    status.textContent = 'testing…';
-    try {
-      const s = await KANP.apiFetch('/api/status', {});
-      status.textContent = `✓ connected — ${Number(s.positions).toLocaleString()} positions stored`;
-      status.style.color = '#22c55e';
-      updateCollectorBadge(s);
-    } catch (e) {
-      status.textContent = `✗ ${e.message}`;
-      status.style.color = '#ef4444';
-    }
-  });
-
-  document.getElementById('clear-data-btn').addEventListener('click', clearHistory);
-
   // quiet auto-check on load
   if (KANP.apiBase()) {
     KANP.apiFetch('/api/status', {}).then(updateCollectorBadge).catch(() => {});
@@ -233,6 +224,20 @@ KANP.initAltSlider = function (bar) {
   };
   nMin.addEventListener('input', fromNumber);
   nMax.addEventListener('input', fromNumber);
+
+  // scroll wheel over the slider shifts the whole band up/down — "x-raying"
+  // the airspace one step per notch. Dispatching 'input' on the thumbs keeps
+  // the number inputs in sync and fires any live-reload listeners.
+  wrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    const step = +sMin.step * (e.deltaY < 0 ? 1 : -1);   // wheel up = higher
+    const lo = +sMin.value, hi = +sMax.value;
+    const shift = Math.max(-lo, Math.min(MAX - hi, step)); // stop at the edges
+    if (!shift) return;
+    sMin.value = lo + shift;
+    sMax.value = hi + shift;
+    sMax.dispatchEvent(new Event('input', { bubbles: true }));
+  }, { passive: false });
 
   fromNumber();   // initialise thumbs + fill from any preset number values
 };
@@ -411,15 +416,29 @@ KANP.simplifyTrack = function (pts, epsNm) {
 };
 
 // ---------------------------------------------------------------------------
+// Shared: size a chart canvas for the device pixel ratio so text and bars
+// stay crisp on HiDPI / scaled displays. Returns a ctx pre-scaled so all
+// drawing code keeps working in CSS-pixel coordinates.
+// ---------------------------------------------------------------------------
+KANP.setupCanvas = function (canvas, W, H) {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  return ctx;
+};
+
+// ---------------------------------------------------------------------------
 // Shared: simple canvas bar chart (Traffic Study + Operations sections)
 // ---------------------------------------------------------------------------
 KANP.drawBars = function (canvas, labels, values, opts = {}) {
   const W = canvas.parentElement.clientWidth || 620;
   const H = opts.height || 160;
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
+  const ctx = KANP.setupCanvas(canvas, W, H);
 
   // values: number[] (plain bars) or number[][] (stacked series per bar)
   const stacked = Array.isArray(values[0]);
@@ -505,10 +524,7 @@ KANP.altColor = function (alt, onGround) {
 KANP.renderGrid = function (canvas, grid) {
   const W = canvas.parentElement.clientWidth || 620;
   const H = 168;
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
+  const ctx = KANP.setupCanvas(canvas, W, H);
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const PAD_L = 38, PAD_T = 10, PAD_B = 26;
@@ -629,8 +645,9 @@ function initLive() {
 
   KANP.addAirport(liveMap);
 
+  // deliberately subtle: the heat is background texture, not the main event
   heatLayer = L.heatLayer([], {
-    radius: 22, blur: 28, maxZoom: 13,
+    radius: 14, blur: 18, maxZoom: 13, minOpacity: 0.05,
     gradient: { 0.1: '#0077b6', 0.4: '#00b4d8', 0.65: '#f0c040', 1.0: '#ef4444' },
   });
   try {
@@ -644,17 +661,29 @@ function initLive() {
   }
   aircraftLayer = L.layerGroup().addTo(liveMap);
 
-  const ro = new ResizeObserver(() => renderTemporalHeatmap(getObs()));
+  const ro = new ResizeObserver(() => renderTemporalGrid());
   ro.observe(document.getElementById('temporal-canvas').parentElement);
 
   renderFromStorage();
+  loadAllTimeGrid();
   // Poll fast only when the Pi API is answering — hammering the hourly
   // GitHub snapshots (or a dead network) every few seconds buys nothing.
   const poll = async () => {
     const source = await fetchNow();
+    if (document.hidden) { pollTimer = null; return; }  // resumes on visibilitychange
     pollTimer = setTimeout(poll, source === 'pi' ? KANP.PI_POLL_MS : KANP.POLL_MS);
   };
   poll();
+
+  // don't poll while the page sits in a background tab; catch up on return
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    } else if (!pollTimer) {
+      poll();
+    }
+  });
 }
 
 async function fetchNow() {
@@ -776,39 +805,59 @@ function renderLiveAircraft(ac) {
 function renderFromStorage() {
   const obs = getObs();
   const pts = [];
-  obs.forEach(o => o.ac.forEach(a => { if (a.lat && a.lon) pts.push([a.lat, a.lon, 0.6]); }));
+  obs.forEach(o => o.ac.forEach(a => { if (a.lat && a.lon) pts.push([a.lat, a.lon, 0.35]); }));
   if (heatLayer && liveMap && liveMap.hasLayer(heatLayer)) heatLayer.setLatLngs(pts);
-  renderTemporalHeatmap(obs);
-
-  const total = obs.reduce((n, o) => n + o.ac.length, 0);
-  document.getElementById('obs-label').textContent =
-    total ? `${total.toLocaleString()} observations this session` : '';
 }
 
-function renderTemporalHeatmap(obs) {
-  const canvas = document.getElementById('temporal-canvas');
-  const noHist = document.getElementById('no-history');
-  if (!obs.length) {
-    canvas.style.display = 'none';
-    noHist.style.display = 'block';
-    return;
+// ---------------------------------------------------------------------------
+// All-time hour × day-of-week grid: unique aircraft from the full collector
+// dataset (Pi database, or every published day snapshot — up to the snapshot
+// window; 60 days, not 62, because KANPStatic.datesInRange caps at 62 iterated
+// dates from `start`, so asking for 62 would push today past the cap). Day
+// files are big, so the computed grid is cached in localStorage and reused
+// for an hour (the snapshots update hourly anyway).
+// ---------------------------------------------------------------------------
+KANP.GRID_CACHE_KEY = 'kanp_alltime_grid_v1';
+let allTimeGrid = null;
+
+async function loadAllTimeGrid() {
+  const label = document.getElementById('obs-label');
+  try {
+    const cached = JSON.parse(localStorage.getItem(KANP.GRID_CACHE_KEY) || 'null');
+    if (cached && Date.now() - cached.at < 3_600_000) {
+      allTimeGrid = cached.grid;
+      label.textContent = cached.label;
+      renderTemporalGrid();
+      return;
+    }
+  } catch { /* bad cache — refetch */ }
+
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const s = await KANP.getStats({ start: now - 60 * 86_400, end: now });
+    allTimeGrid = s.grid_unique_aircraft;
+    const labelTxt =
+      `${Number(s.totals.aircraft).toLocaleString()} aircraft · ` +
+      `${Number(s.totals.samples).toLocaleString()} reports · ${KANP.sourceLabel(s)}`;
+    label.textContent = labelTxt;
+    try {
+      localStorage.setItem(KANP.GRID_CACHE_KEY,
+        JSON.stringify({ at: Date.now(), grid: allTimeGrid, label: labelTxt }));
+    } catch { /* storage full — fine, just uncached */ }
+    renderTemporalGrid();
+  } catch (e) {
+    document.getElementById('no-history').textContent =
+      'Could not load collected traffic data.';
+    console.warn('[KANP] all-time grid failed:', e.message);
   }
-  noHist.style.display = 'none';
-  canvas.style.display = 'block';
-
-  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
-  obs.forEach(o => {
-    const d = new Date(o.ts);
-    grid[(d.getDay() + 6) % 7][d.getHours()] += o.ac.length;
-  });
-  KANP.renderGrid(canvas, grid);
 }
 
-function clearHistory() {
-  if (!confirm('Delete flight history stored in this browser? (Pi database is not affected.)')) return;
-  localStorage.removeItem(KANP.OBS_KEY);
-  aircraftLayer.clearLayers();
-  renderFromStorage();
+function renderTemporalGrid() {
+  if (!allTimeGrid) return;
+  const canvas = document.getElementById('temporal-canvas');
+  document.getElementById('no-history').style.display = 'none';
+  canvas.style.display = 'block';
+  KANP.renderGrid(canvas, allTimeGrid);
 }
 
 function setStatus(color, text) {

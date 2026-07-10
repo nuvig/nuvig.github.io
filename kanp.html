@@ -201,6 +201,19 @@
     /* ---- History map + vertical altitude panel ---- */
     .hist-map-row { display: flex; gap: 10px; align-items: stretch; margin: 12px 0; }
     .hist-map-row #hist-map { flex: 1; min-width: 0; margin: 0; }
+    /* expanded (fullscreen) map row: the altitude panel rides along, so the
+       band selector stays in view and operable */
+    .hist-map-row.expanded {
+      position: fixed; inset: 0; z-index: 2000; margin: 0;
+      background: #0b0b0b; padding: 10px;
+    }
+    .hist-map-row.expanded #hist-map { border-radius: 6px; }
+    .map-expand-btn {
+      background: #1a1a1af0; color: #ccc; border: 1px solid #444;
+      border-radius: 4px; width: 34px; height: 34px; font-size: 17px;
+      cursor: pointer; line-height: 1;
+    }
+    .map-expand-btn:hover { background: #2a2a2a; color: #fff; }
     .alt-vpanel {
       flex: none; width: 96px;
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
@@ -387,12 +400,12 @@
 
     <div id="map"></div>
 
-    <div class="section-title">This browser session — hour of day × day of week</div>
+    <div class="section-title">All collected traffic — hour of day × day of week</div>
     <div class="card">
       <div id="no-history" class="empty-history">
-        No data yet this session. For 24/7 data, see the Traffic Study tab (needs the Pi collector).
+        Loading all-time activity…
       </div>
-      <canvas id="temporal-canvas" class="chart" style="height:168px"></canvas>
+      <canvas id="temporal-canvas" class="chart" style="height:168px;display:none"></canvas>
       <div class="heatmap-legend">
         <span>Less</span>
         <div class="legend-gradient"></div>
@@ -450,7 +463,8 @@
       <div class="filter-field" id="hist-kanp-mode-wrap" style="opacity:.4">
         <label>KANP ops</label>
         <select data-f="arrdep" id="hist-arrdep" disabled>
-          <option value="lee">in / out / pattern</option>
+          <option value="lee">all ops (in / out / pattern)</option>
+          <option value="pattern">closed pattern ops</option>
           <option value="arr">arrivals</option>
           <option value="dep">departures</option>
           <option value="both">arrivals + departures</option>
@@ -490,13 +504,23 @@
         <table class="ac-table" id="lee-table">
           <thead><tr>
             <th>Reg</th><th>Type</th><th>Callsigns</th>
-            <th>Arrivals</th><th>Departures</th><th>Touch-and-gos</th><th>Ops</th><th>Last seen</th>
+            <th>Arrivals</th><th>Departures</th><th>Go-arounds</th><th>Ops</th><th>Last seen</th>
           </tr></thead>
           <tbody></tbody>
         </table>
         <div id="lee-list-note" style="font-size:11px;color:#555;margin-top:8px"></div>
       </div>
     </details>
+
+    <div class="section-title">Past 7 days — hour of day × day of week</div>
+    <div class="card">
+      <div id="hist-grid-empty" class="empty-history">Loading past-week activity…</div>
+      <canvas id="hist-grid" class="chart" style="height:168px;display:none"></canvas>
+      <div class="heatmap-legend">
+        <span>Less</span><div class="legend-gradient"></div><span>More</span>
+        <span style="margin-left:auto" id="hist-grid-label"></span>
+      </div>
+    </div>
   </div>
 
   <!-- ======================= TRAFFIC STUDY TAB ======================= -->
@@ -573,9 +597,11 @@
       <button class="btn" id="ops-load" style="padding:4px 12px;font-size:12px">Analyze operations</button>
     </div>
     <div class="result-line" id="ops-result">
-      Detects arrivals, departures and touch-and-gos from track shapes near the field
-      (touch-and-go = 2 ops, FAA counting) and attributes each to RWY 12 or 30 with the
-      pattern side flown. Uses the filters above (altitude/ground filters are overridden).
+      Detects arrivals, departures and go-arounds from track shapes near the field
+      (touch-and-gos are not permitted at KANP, so a touch-and-look profile is a
+      go-around; go-around / low approach = 2 ops, FAA counting) and attributes each
+      to RWY 12 or 30 with the pattern side flown. Uses the filters above
+      (altitude/ground filters are overridden).
     </div>
 
     <div id="ops-out" style="display:none">
@@ -584,7 +610,7 @@
         <div class="stat-card"><div class="num" id="oc-perday">–</div><div class="lbl">ops / day (avg)</div></div>
         <div class="stat-card"><div class="num" id="oc-arr">–</div><div class="lbl">arrivals</div></div>
         <div class="stat-card"><div class="num" id="oc-dep">–</div><div class="lbl">departures</div></div>
-        <div class="stat-card"><div class="num" id="oc-tng">–</div><div class="lbl">touch-and-gos</div></div>
+        <div class="stat-card"><div class="num" id="oc-tng">–</div><div class="lbl">go-arounds</div></div>
         <div class="stat-card"><div class="num" id="oc-rwy">–</div><div class="lbl" id="oc-rwy-lbl">ops on RWY 30</div></div>
       </div>
 
@@ -597,7 +623,7 @@
             <span style="font-weight:400;color:#555;font-size:11px">
               · <span style="color:#4a9eff">■</span> arr
               <span style="color:#22c55e">■</span> dep
-              <span style="color:#f0c040">■</span> t&amp;g
+              <span style="color:#f0c040">■</span> g/a
               <span style="color:#666">■</span> unclassified</span>
           </div>
           <div class="card"><canvas id="ops-daily" class="chart" style="height:150px"></canvas></div>
@@ -612,7 +638,7 @@
       <div class="card" style="overflow-x:auto">
         <table class="ac-table" id="ops-top">
           <thead><tr>
-            <th>Reg</th><th>Type</th><th>Arrivals</th><th>Departures</th><th>Touch-and-gos</th><th>Total ops</th>
+            <th>Reg</th><th>Type</th><th>Arrivals</th><th>Departures</th><th>Go-arounds</th><th>Total ops</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -663,32 +689,6 @@
           <tbody></tbody>
         </table>
       </div>
-    </div>
-  </div>
-
-  <!-- ======================= SETTINGS ======================= -->
-  <div class="settings-panel">
-    <h3>Data Source</h3>
-    <div class="settings-row">
-      <input type="text" id="api-base" placeholder="Pi API URL, e.g. http://192.168.1.50:8787">
-      <button class="btn secondary" id="api-save">Save &amp; test</button>
-      <span id="api-status" style="font-size:12px;color:#666"></span>
-    </div>
-    <div class="settings-row" style="margin-top:10px">
-      <button id="clear-data-btn" class="btn danger">Clear browser history</button>
-    </div>
-    <div class="settings-hint">
-      Live tab: the most recently collected positions, refreshed every 60 s while the
-      page is open — the same dataset as below (near-real-time from the Pi on the home
-      network, up to an hour old from the GitHub snapshot), labelled with its age.
-      Session heat stays in your browser.<br>
-      History Map &amp; Traffic Study: one dataset, collected 24/7 by the Raspberry Pi
-      (<a href="https://github.com/nuvig/nuvig.github.io/tree/main/pi" target="_blank" rel="noopener">pi/README</a>)
-      and published hourly to GitHub, which the page reads over HTTPS from anywhere.
-      On the home network it reads the Pi directly for full resolution (auto-connects when
-      loaded from <code>http://raspberrypi.local:8787/</code>).<br>
-      Charts: FAA VFR Sectional &amp; Terminal Area (official FAA tile service) ·
-      Weather: NEXRAD via Iowa Environmental Mesonet.
     </div>
   </div>
 
