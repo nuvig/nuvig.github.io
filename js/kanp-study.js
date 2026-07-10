@@ -166,7 +166,8 @@ const KANPStudy = (() => {
     document.getElementById('study-grid-title').textContent =
       (gridMetric === 'samples' ? 'Position reports' : 'Unique aircraft') +
       ' — hour of day × day of week';
-    KANP.renderGrid(document.getElementById('study-grid'), grid);
+    KANP.renderGrid(document.getElementById('study-grid'), grid,
+      { unit: gridMetric === 'samples' ? 'position reports' : 'aircraft' });
   }
 
   function renderTypes(s) {

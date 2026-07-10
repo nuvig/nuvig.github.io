@@ -39,9 +39,13 @@ function initTabs() {
       // shareable / refresh-stable tab (replaceState: no history spam)
       history.replaceState(null, '', '#' + btn.dataset.tab.replace('tab-', ''));
     }
-    // Leaflet needs a size refresh when its container becomes visible
+    // A hidden panel has no layout box, so anything sized from its width was
+    // drawn at the fallback width. Re-measure now that the panel is visible.
     if (btn.dataset.tab === 'tab-history') KANPHistory.onShow();
-    if (btn.dataset.tab === 'tab-live' && window._liveMap) window._liveMap.invalidateSize();
+    if (btn.dataset.tab === 'tab-live') {
+      if (window._liveMap) window._liveMap.invalidateSize();
+      renderTemporalGrid();
+    }
   };
 
   document.querySelectorAll('.tab-btn').forEach(btn =>
@@ -420,6 +424,14 @@ KANP.simplifyTrack = function (pts, epsNm) {
 // stay crisp on HiDPI / scaled displays. Returns a ctx pre-scaled so all
 // drawing code keeps working in CSS-pixel coordinates.
 // ---------------------------------------------------------------------------
+// Usable width inside an element: clientWidth still counts padding, so a
+// canvas sized from it overflows the card it lives in.
+KANP.contentWidth = function (el) {
+  const cs = getComputedStyle(el);
+  const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  return w > 0 ? w : 620;
+};
+
 KANP.setupCanvas = function (canvas, W, H) {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.width = Math.round(W * dpr);
@@ -436,7 +448,7 @@ KANP.setupCanvas = function (canvas, W, H) {
 // Shared: simple canvas bar chart (Traffic Study + Operations sections)
 // ---------------------------------------------------------------------------
 KANP.drawBars = function (canvas, labels, values, opts = {}) {
-  const W = canvas.parentElement.clientWidth || 620;
+  const W = KANP.contentWidth(canvas.parentElement);
   const H = opts.height || 160;
   const ctx = KANP.setupCanvas(canvas, W, H);
 
@@ -519,10 +531,11 @@ KANP.altColor = function (alt, onGround) {
 };
 
 // ---------------------------------------------------------------------------
-// Shared: 7×24 heat grid renderer (used by Live session + Traffic Study)
+// Shared: 7×24 heat grid renderer (Live all-time, History week, Study, GA ops)
+// opts.unit names what a cell counts, for the hover tooltip ("aircraft", "ops").
 // ---------------------------------------------------------------------------
-KANP.renderGrid = function (canvas, grid) {
-  const W = canvas.parentElement.clientWidth || 620;
+KANP.renderGrid = function (canvas, grid, opts = {}) {
+  const W = KANP.contentWidth(canvas.parentElement);
   const H = 168;
   const ctx = KANP.setupCanvas(canvas, W, H);
 
@@ -531,6 +544,9 @@ KANP.renderGrid = function (canvas, grid) {
   const cellW = (W - PAD_L) / 24;
   const cellH = (H - PAD_T - PAD_B) / 7;
   const maxVal = Math.max(1, ...grid.flat());
+
+  attachGridHover(canvas, { grid, PAD_L, PAD_T, cellW, cellH,
+                            unit: opts.unit || 'aircraft' });
 
   for (let d = 0; d < 7; d++) {
     for (let h = 0; h < 24; h++) {
@@ -552,6 +568,57 @@ KANP.renderGrid = function (canvas, grid) {
     ctx.fillText(label, PAD_L + h * cellW + cellW / 2, PAD_T + 7 * cellH + 5);
   });
 };
+
+// Hover a heat-grid cell → floating tooltip with the day, hour and value.
+// The geometry is re-stashed on every render (the grid resizes with the card),
+// but the listeners are bound only once per canvas.
+const DAYS_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
+                   'Saturday', 'Sunday'];
+
+function gridTip() {
+  let el = document.getElementById('kanp-grid-tip');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'kanp-grid-tip';
+    el.className = 'grid-tip';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function attachGridHover(canvas, geom) {
+  canvas._grid = geom;
+  if (canvas._gridHoverBound) return;
+  canvas._gridHoverBound = true;
+  canvas.style.cursor = 'crosshair';
+
+  canvas.addEventListener('mousemove', e => {
+    const g = canvas._grid;
+    const h = Math.floor((e.offsetX - g.PAD_L) / g.cellW);
+    const d = Math.floor((e.offsetY - g.PAD_T) / g.cellH);
+    if (h < 0 || h > 23 || d < 0 || d > 6) return hideGridTip();
+
+    const v = g.grid[d][h];
+    const hr = n => n === 0 ? '12am' : n < 12 ? `${n}am` : n === 12 ? '12pm' : `${n - 12}pm`;
+    const tip = gridTip();
+    tip.innerHTML =
+      `<strong>${DAYS_FULL[d]} ${hr(h)}–${hr((h + 1) % 24)}</strong><br>` +
+      `${v.toLocaleString()} ${g.unit}`;
+    tip.style.display = 'block';
+    // keep the tooltip on-screen near the pointer
+    const r = tip.getBoundingClientRect();
+    const x = Math.min(e.clientX + 12, window.innerWidth - r.width - 6);
+    const y = Math.max(6, e.clientY - r.height - 10);
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
+  });
+  canvas.addEventListener('mouseleave', hideGridTip);
+}
+
+function hideGridTip() {
+  const el = document.getElementById('kanp-grid-tip');
+  if (el) el.style.display = 'none';
+}
 
 function heatColor(t) {
   if (t <= 0) return '#111';

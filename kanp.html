@@ -362,6 +362,15 @@
       font-size: 13px; color: #444;
     }
 
+    /* heat-grid hover tooltip */
+    .grid-tip {
+      position: fixed; display: none; z-index: 3000; pointer-events: none;
+      background: #1a1a1af5; border: 1px solid #444; border-radius: 6px;
+      padding: 6px 9px; font-size: 12px; color: #ddd; line-height: 1.45;
+      box-shadow: 0 3px 12px rgba(0,0,0,.55); white-space: nowrap;
+    }
+    .grid-tip strong { color: #fff; font-weight: 600; }
+
     .leaflet-container { font-family: inherit; }
     .leaflet-control-layers {
       background: #1a1a1af0; color: #ccc; border: 1px solid #444;
@@ -378,6 +387,7 @@
   <div class="tab-nav">
     <button class="tab-btn" data-tab="tab-live">Live</button>
     <button class="tab-btn active" data-tab="tab-history">History Map</button>
+    <button class="tab-btn" data-tab="tab-ga">GA ops</button>
     <button class="tab-btn" data-tab="tab-study">Traffic Study</button>
   </div>
 
@@ -517,6 +527,92 @@
       <div class="heatmap-legend">
         <span>Less</span><div class="legend-gradient"></div><span>More</span>
         <span style="margin-left:auto" id="hist-grid-label"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= GA OPS TAB ======================= -->
+  <div id="tab-ga" class="tab-panel">
+    <div class="filter-bar" id="ga-filters">
+      <div class="filter-field">
+        <label>Quick range</label>
+        <select data-f="quick">
+          <option value="">custom</option>
+          <option value="86400">last 24 h</option>
+          <option value="604800" selected>last 7 days</option>
+          <option value="2592000">last 30 days</option>
+        </select>
+      </div>
+      <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
+      <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
+      <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign" placeholder="e.g. N123"></div>
+      <div class="filter-field"><label>Hours (local)</label><input type="text" data-f="hours" placeholder="e.g. 7-19" style="width:70px"></div>
+      <div class="filter-field">
+        <label>Days</label>
+        <div class="dow-row" data-f="dow">
+          <button class="dow-btn on">M</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">W</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">F</button><button class="dow-btn on">S</button>
+          <button class="dow-btn on">S</button>
+        </div>
+      </div>
+      <button class="btn" id="ga-load">Run GA ops</button>
+    </div>
+    <div class="result-line" id="ga-result">
+      General-aviation operations at Lee Airport — light pistons, twins, turboprops,
+      business jets and helicopters, excluding airliners and military. Hit
+      <em>Run GA ops</em>.
+    </div>
+
+    <div id="ga-out" style="display:none">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="num" id="ga-total">–</div><div class="lbl">GA operations</div></div>
+        <div class="stat-card"><div class="num" id="ga-perday">–</div><div class="lbl">ops / day (avg)</div></div>
+        <div class="stat-card"><div class="num" id="ga-arr">–</div><div class="lbl">arrivals</div></div>
+        <div class="stat-card"><div class="num" id="ga-dep">–</div><div class="lbl">departures</div></div>
+        <div class="stat-card"><div class="num" id="ga-pattern">–</div><div class="lbl">pattern ops</div></div>
+        <div class="stat-card"><div class="num" id="ga-aircraft">–</div><div class="lbl">unique aircraft</div></div>
+      </div>
+
+      <div class="section-title">GA operations — hour of day × day of week
+        <span style="font-weight:400;color:#555;font-size:12px">· hover a block for detail</span>
+      </div>
+      <div class="card">
+        <canvas id="ga-grid" class="chart" style="height:168px"></canvas>
+        <div class="heatmap-legend">
+          <span>Less</span><div class="legend-gradient"></div><span>More</span>
+          <span style="margin-left:auto" id="ga-grid-label"></span>
+        </div>
+      </div>
+
+      <div class="section-title">Runway usage &amp; traffic pattern</div>
+      <div class="card" id="ga-rwy"></div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-title">GA ops per day
+            <span style="font-weight:400;color:#555;font-size:11px">
+              · <span style="color:#4a9eff">■</span> arr
+              <span style="color:#22c55e">■</span> dep
+              <span style="color:#f0c040">■</span> pattern
+              <span style="color:#666">■</span> unclassified</span>
+          </div>
+          <div class="card"><canvas id="ga-daily" class="chart" style="height:150px"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title">GA ops by hour of day</div>
+          <div class="card"><canvas id="ga-hourly" class="chart" style="height:150px"></canvas></div>
+        </div>
+      </div>
+
+      <div class="section-title">Busiest GA aircraft</div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="ga-top">
+          <thead><tr>
+            <th>Reg</th><th>Type</th><th>Arrivals</th><th>Departures</th><th>Pattern ops</th><th>Total ops</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -697,5 +793,6 @@
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js"></script>
+  <script src="js/kanp-ga.js"></script>
 </body>
 </html>
