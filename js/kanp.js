@@ -353,6 +353,7 @@ KANP.classifyArrDep = function (points) {
 KANP.RWY = {
   axisTrue: 107,            // landing direction on RWY 12, degrees true
   names: ['12', '30'],      // names[0] = axisTrue direction, names[1] = reciprocal
+  pattern: 'L',             // both ends are left traffic — no right pattern at KANP
 };
 
 // "At the field" gates shared by the operations detector (kanp-ops.js) and
@@ -647,10 +648,42 @@ KANP.gaOpsGrid = async function (start, end) {
 };
 
 // ---------------------------------------------------------------------------
-// Shared: a heat-grid card with an "all traffic" / "GA ops" toggle.
-// The all-traffic grid is supplied by the caller (each tab already fetches its
-// own stats); the GA grid is fetched lazily the first time it's selected.
+// Shared: unique aircraft that operated at KANP, as a 7×24 grid. Any aircraft
+// that touched the field counts — arrivals, departures and pattern work — and
+// each is counted once per hour cell it appears in.
 // ---------------------------------------------------------------------------
+KANP.kanpTrafficGrid = async function (start, end) {
+  const d = await KANP.getTracks({
+    start, end, ground: 'include',
+    max_dist: 4, max_alt: 3500, max_points: 400000,
+  });
+  const tracks = d.tracks.filter(t => KANP.fieldContact(t.points));
+  const sets = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => new Set()));
+  tracks.forEach(t => t.points.forEach(p => {
+    const dt = new Date(p[0] * 1000);
+    sets[(dt.getDay() + 6) % 7][dt.getHours()].add(t.hex);
+  }));
+  const grid = sets.map(row => row.map(s => s.size));
+  return {
+    grid,
+    label: `${tracks.length.toLocaleString()} aircraft at KANP · ${KANP.sourceLabel(d)}`,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Shared: a heat-grid card toggling between all traffic, all GA ops, and
+// KANP-only traffic. The all-traffic grid is supplied by the caller (each tab
+// already fetches its own stats); the other two are fetched lazily on first
+// selection and then cached.
+// ---------------------------------------------------------------------------
+KANP.HEAT_METRICS = {
+  all:  { unit: 'aircraft', titleKey: 'titleAll' },
+  ga:   { unit: 'GA ops',   titleKey: 'titleGa',   loading: 'Loading GA operations…',
+          fail: 'Could not load GA operations.',   load: KANP.gaOpsGrid },
+  kanp: { unit: 'aircraft', titleKey: 'titleKanp', loading: 'Loading KANP traffic…',
+          fail: 'Could not load KANP traffic.',    load: KANP.kanpTrafficGrid },
+};
+
 KANP.initHeatPanel = function (cfg) {
   const canvas = document.getElementById(cfg.canvasId);
   const empty = document.getElementById(cfg.emptyId);
@@ -659,38 +692,41 @@ KANP.initHeatPanel = function (cfg) {
   const toggle = canvas.closest('.tab-panel').querySelector('[data-heat-toggle]');
 
   let metric = 'all';
-  const data = { all: null, ga: null };
-  let gaPending = null;
+  const data = {};
+  const pending = {};
+  const titleFor = m => cfg[KANP.HEAT_METRICS[m].titleKey] + ' — hour of day × day of week';
 
   const paint = () => {
     const d = data[metric];
-    title.textContent = (metric === 'ga' ? cfg.titleGa : cfg.titleAll) +
-      ' — hour of day × day of week';
+    title.textContent = titleFor(metric);
     if (!d) return;
     empty.style.display = 'none';
     canvas.style.display = 'block';
     label.textContent = d.label;
-    KANP.renderGrid(canvas, d.grid, { unit: metric === 'ga' ? 'GA ops' : 'aircraft' });
+    KANP.renderGrid(canvas, d.grid, { unit: KANP.HEAT_METRICS[metric].unit });
   };
 
   const select = async btn => {
-    metric = btn.dataset.metric;
+    const m = metric = btn.dataset.metric;
     toggle.querySelectorAll('.mini-btn').forEach(b => b.classList.toggle('on', b === btn));
-    if (metric === 'ga' && !data.ga) {
+    const spec = KANP.HEAT_METRICS[m];
+
+    if (!data[m] && spec.load) {
       canvas.style.display = 'none';
       empty.style.display = 'block';
-      empty.textContent = 'Loading GA operations…';
-      title.textContent = cfg.titleGa + ' — hour of day × day of week';
+      empty.textContent = spec.loading;
+      title.textContent = titleFor(m);
       try {
         const { start, end } = cfg.range();
-        gaPending = gaPending || KANP.gaOpsGrid(start, end);
-        data.ga = await gaPending;
+        pending[m] = pending[m] || spec.load(start, end);
+        data[m] = await pending[m];
       } catch (e) {
-        gaPending = null;
-        empty.textContent = 'Could not load GA operations.';
-        console.warn('[KANP] GA ops grid failed:', e.message);
+        pending[m] = null;
+        if (metric === m) empty.textContent = spec.fail;
+        console.warn(`[KANP] ${m} grid failed:`, e.message);
         return;
       }
+      if (metric !== m) return;      // user toggled away while it loaded
     }
     paint();
   };
@@ -995,6 +1031,7 @@ async function loadAllTimeGrid() {
     canvasId: 'temporal-canvas', emptyId: 'no-history',
     labelId: 'obs-label', titleId: 'live-grid-title',
     titleAll: 'All collected traffic', titleGa: 'GA operations at KANP',
+    titleKanp: 'KANP traffic only',
     range: liveRange,
   });
 

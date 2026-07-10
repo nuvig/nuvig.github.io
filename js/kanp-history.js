@@ -190,6 +190,7 @@ const KANPHistory = (() => {
       canvasId: 'hist-grid', emptyId: 'hist-grid-empty',
       labelId: 'hist-grid-label', titleId: 'hist-grid-title',
       titleAll: 'Past 7 days', titleGa: 'Past 7 days, GA operations at KANP',
+      titleKanp: 'Past 7 days, KANP traffic only',
       range: weekRange,
     });
     try {

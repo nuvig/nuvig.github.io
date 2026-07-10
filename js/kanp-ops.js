@@ -1,8 +1,8 @@
 // KANP Flight Tracker — Runway operations analysis (Traffic Study tab)
 //
 // Detects individual operations (arrivals, departures, go-arounds) from
-// track geometry near the field, and attributes each to a runway end (12/30)
-// and, where possible, a pattern side (left/right traffic). Touch-and-gos
+// track geometry near the field and attributes each to a runway end (12/30).
+// Pattern side is not inferred: both KANP runways are left traffic. Touch-and-gos
 // are not permitted at KANP, so a touch-and-look profile ('tng' internally)
 // is reported as a go-around; FAA counting treats it as 2 operations either way.
 //
@@ -17,10 +17,7 @@
 // FAA counting: a touch-and-go is 2 operations (one landing + one takeoff).
 //
 // Runway end comes from the mean ground course through the segment vs the
-// runway axis (KANP.RWY.axisTrue). Pattern side comes from the mean signed
-// cross-track offset of pattern-altitude points around the segment: traffic
-// keeping left of the landing direction (downwind offset to the left) flies
-// a left-hand pattern.
+// runway axis (KANP.RWY.axisTrue).
 
 const KANPOps = (() => {
   // "At the field" gates are shared with the Lee-traffic filter — see
@@ -154,29 +151,13 @@ const KANPOps = (() => {
           rwy = diff >= 0 ? KANP.RWY.names[0] : KANP.RWY.names[1];
         }
 
-        // pattern side: signed cross-track of pattern-altitude points around
-        // this contact, relative to the landing direction of the active runway
-        let side = null;
-        if (rwy) {
-          const theta = (rwy === KANP.RWY.names[0]
-            ? KANP.RWY.axisTrue : KANP.RWY.axisTrue + 180) * Math.PI / 180;
-          const ux = Math.sin(theta), uy = Math.cos(theta);
-          let sum = 0, n = 0;
-          for (const p of pts) {
-            if (p[0] < t0 - 480 || p[0] > t1 + 480) continue;
-            if (p[5] === 1 || p[3] == null || p[3] < 300 || p[3] > 1800) continue;
-            const dist = KANP.distNm(p[1], p[2]);
-            if (dist < 0.6 || dist > 3.5) continue;
-            const xy = toXY(p[1], p[2]);
-            sum += ux * xy.y - uy * xy.x;   // + = left of landing direction
-            n++;
-          }
-          if (n >= 4 && Math.abs(sum / n) > 0.2) side = sum > 0 ? 'L' : 'R';
-        }
-
+        // Pattern side is not inferred: both KANP runways are left traffic
+        // (KANP.RWY.pattern). The old cross-track estimator reported a few
+        // percent "right traffic", which was noise from wide/straight-in
+        // approaches, not aircraft flying a right-hand pattern.
         ops.push({
           ts: t0, hex: t.hex, reg: t.reg, type: t.type,
-          military: t.military, kind, rwy, side,
+          military: t.military, kind, rwy,
         });
       }
     }
@@ -208,33 +189,21 @@ const KANPOps = (() => {
     setNum('oc-dep', counts.dep.toLocaleString());
     setNum('oc-tng', counts.tng.toLocaleString());
 
-    // runway usage + pattern side
+    // runway usage (both ends are left traffic — KANP.RWY.pattern)
     const w = { [KANP.RWY.names[0]]: 0, [KANP.RWY.names[1]]: 0 };
-    const sides = {};
-    KANP.RWY.names.forEach(r => { sides[r] = { L: 0, R: 0 }; });
-    ops.forEach(o => {
-      if (!o.rwy) return;
-      w[o.rwy] += opWeight(o);
-      if (o.side) sides[o.rwy][o.side]++;
-    });
+    ops.forEach(o => { if (o.rwy) w[o.rwy] += opWeight(o); });
     const wTotal = w[KANP.RWY.names[0]] + w[KANP.RWY.names[1]];
     const pct = r => wTotal ? Math.round(100 * w[r] / wTotal) : 0;
     setNum('oc-rwy', wTotal ? `${pct(KANP.RWY.names[1])}%` : '–');
     document.getElementById('oc-rwy-lbl').textContent =
       `ops on RWY ${KANP.RWY.names[1]}`;
 
-    const rwyHtml = KANP.RWY.names.map(r => {
-      const s = sides[r], ns = s.L + s.R;
-      const sideTxt = ns >= 3
-        ? ` · pattern: ${Math.round(100 * s.L / ns)}% left / ${Math.round(100 * s.R / ns)}% right traffic`
-        : '';
-      return `<div class="rwy-row">
+    const rwyHtml = KANP.RWY.names.map(r => `<div class="rwy-row">
         <span class="rwy-name">RWY ${r}</span>
         <span class="rwy-bar"><span style="width:${pct(r)}%"></span></span>
         <span class="rwy-pct">${pct(r)}%</span>
-        <span class="rwy-side">${sideTxt}</span>
-      </div>`;
-    }).join('');
+        <span class="rwy-side">· left traffic</span>
+      </div>`).join('');
     document.getElementById('ops-rwy').innerHTML = wTotal
       ? rwyHtml
       : '<div class="empty-history">no runway direction data in range</div>';
