@@ -620,15 +620,35 @@ function buildHours() {
   const g = state.grid;
   const now = Date.now() / 1000;
   const t = om.hourly.time;
-  let i0 = t.findIndex((s) => s >= now - 1800);
+  // first entry = the hour currently in progress
+  let i0 = t.findIndex((s) => s > now - 3600);
   if (i0 < 0) i0 = 0;
   const hours = [];
   const solarCache = {};
   const gv = (map, ms) => (g && map.has(ms) ? map.get(ms) : undefined);
+
+  // Anchor the forecast to the latest observation: the grid can run a few
+  // degrees off (e.g. +4°F on a bay-breeze afternoon), so blend the current
+  // obs-vs-forecast error into the next hours, decaying to pure forecast.
+  let tempBias = 0, dewBias = 0;
+  const ob = state.metars.KNAK;
+  if (ob && !ob.error && ob.tempC != null && ageMin(ob.time) <= 120) {
+    const obsHourMs = Math.floor(new Date(ob.time).getTime() / 3600000) * 3600000;
+    const fcT = gv(g && g.tempC, obsHourMs);
+    const fcD = gv(g && g.dewC, obsHourMs);
+    const clamp = (v) => Math.max(-3.5, Math.min(3.5, v)); // ±~6°F sanity cap
+    if (fcT != null) tempBias = clamp(ob.tempC - fcT);
+    if (fcD != null && ob.dewC != null) dewBias = clamp(ob.dewC - fcD);
+  }
+  const BIAS_HOURS = 8;
+
   for (let i = i0; i < Math.min(i0 + 24, t.length); i++) {
     const ms = t[i] * 1000;
-    const tempC = gv(g && g.tempC, ms) ?? om.hourly.temperature_2m[i];
-    const dewC = gv(g && g.dewC, ms) ?? om.hourly.dew_point_2m[i];
+    const decay = Math.max(0, 1 - (i - i0) / BIAS_HOURS);
+    let tempC = gv(g && g.tempC, ms) ?? om.hourly.temperature_2m[i];
+    let dewC = gv(g && g.dewC, ms) ?? om.hourly.dew_point_2m[i];
+    if (tempC != null) tempC += tempBias * decay;
+    if (dewC != null) dewC = Math.min(dewC + dewBias * decay, tempC ?? Infinity);
     // NWS ceiling: value null (or hour absent) = no ceiling forecast
     const ceilRaw = gv(g && g.ceil, ms);
     const pmsl = om.hourly.pressure_msl ? om.hourly.pressure_msl[i] : null;
@@ -1126,6 +1146,7 @@ async function loadAll() {
   renderConditions();
   renderAirports();
   updateRadarMarkers();
+  window.__wxState = state; // debug/inspection hook
   if (state.om) {
     state.fly = buildHours();
     renderFlyStrip(state.fly);
