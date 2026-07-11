@@ -14,6 +14,8 @@ Endpoints (all support CORS):
   GET /api/stats         traffic-study aggregates (hour/dow grid, histograms)
   GET /api/aircraft      distinct aircraft seen, with counts
   GET /api/export.csv    raw filtered positions as CSV
+  GET /api/site-traffic  website visitor stats (GitHub Pages traffic history
+                         accumulated by exporter.py)
 
 Common filter query params (tracks / stats / aircraft / export):
   start, end       unix epoch seconds (default: last 24 h)
@@ -41,6 +43,9 @@ from trackutil import simplify_track
 
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
 PORT = int(os.environ.get("KANP_PORT", "8787"))
+# Website visitor history written by exporter.py (see update_site_traffic)
+SITE_TRAFFIC_PATH = os.environ.get(
+    "KANP_SITE_TRAFFIC", os.path.join(os.path.dirname(DB_PATH), "site-traffic.json"))
 WEB_ROOT = os.environ.get(
     "KANP_WEB_ROOT",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
@@ -332,6 +337,38 @@ def q_aircraft(q):
     return {"start": start, "end": end, "aircraft": [dict(r) for r in rows]}
 
 
+def q_site_traffic():
+    """Visitor stats for the website, from the exporter's accumulated file.
+
+    "visitors" sums GitHub's per-day unique counts, so a person returning on
+    several days counts once per day — a daily-unique sum, not a true
+    all-window unique.
+    """
+    try:
+        with open(SITE_TRAFFIC_PATH) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"available": False,
+                "error": "no site-traffic data yet — exporter.py collects it hourly"}
+    views = data.get("views", {})
+    days = sorted(views)
+
+    def window(n):
+        sel = days[-n:] if n else days
+        return {"views": sum(views[d]["count"] for d in sel),
+                "visitors": sum(views[d]["uniques"] for d in sel)}
+
+    return {
+        "available": True,
+        "updated": data.get("updated"),
+        "days": [{"date": d, **views[d]} for d in days],
+        "last7": window(7),
+        "last30": window(30),
+        "total": window(0),
+        "popular_paths": data.get("paths", []),
+    }
+
+
 def q_status():
     out = {"db_path": DB_PATH}
     try:
@@ -410,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(q_stats(q))
             elif path == "/api/aircraft":
                 self.send_json(q_aircraft(q))
+            elif path == "/api/site-traffic":
+                self.send_json(q_site_traffic())
             elif path == "/api/export.csv":
                 self.send_response(200)
                 self.send_cors()

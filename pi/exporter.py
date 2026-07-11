@@ -26,14 +26,22 @@ amends and force-pushes, so the repo only ever stores the current snapshot.
 import datetime
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 from trackutil import simplify_track
 
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
 EXPORT_DIR = os.environ.get("KANP_EXPORT_DIR", "/var/lib/kanp/traffic-data")
+# Website visitor stats (GitHub Pages traffic), accumulated locally — GitHub's
+# API only keeps 14 days, so each hourly run merges the current window in.
+# Served by server.py at /api/site-traffic. Stays on the Pi; never published.
+SITE_TRAFFIC_PATH = os.environ.get(
+    "KANP_SITE_TRAFFIC", os.path.join(os.path.dirname(DB_PATH), "site-traffic.json"))
 # Track simplification tolerance (nm) — see trackutil.simplify_track. Fixes are
 # dropped only where they don't change a track's shape, so turns and pattern
 # work stay crisp (no corner-cutting) while straight cruise legs collapse to a
@@ -135,6 +143,65 @@ def export_day(db, day_str):
     }
 
 
+def update_site_traffic():
+    """Merge GitHub Pages visitor stats into the local history file.
+
+    Uses the PAT embedded in the export clone's remote URL. The traffic API
+    needs the token to have repository "Administration: read" permission — if
+    it only has Contents access GitHub answers 403, which is logged as a hint
+    and skipped (the snapshot export is unaffected).
+    """
+    url = git("config", "remote.origin.url", check=False).stdout.strip()
+    m = re.match(r"https://([^@/]+)@github\.com/([^/]+/[^/.]+)", url)
+    if not m:
+        log("site-traffic: no token in the export remote URL — skipping")
+        return
+    token, repo = m.group(1), m.group(2)
+    if ":" in token:                       # user:token@ form
+        token = token.split(":", 1)[1]
+
+    try:
+        with open(SITE_TRAFFIC_PATH) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        data = {"views": {}, "clones": {}, "paths": []}
+
+    def gh(path):
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/traffic/{path}",
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "kanp-exporter"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.load(r)
+
+    try:
+        for key in ("views", "clones"):
+            for row in gh(key).get(key, []):
+                data.setdefault(key, {})[row["timestamp"][:10]] = {
+                    "count": row["count"], "uniques": row["uniques"]}
+        data["paths"] = gh("popular/paths")
+        data["updated"] = int(datetime.datetime.now().timestamp())
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            log("site-traffic: 403 — give the exporter PAT 'Administration: "
+                "read' repository permission to read visitor stats")
+        else:
+            log(f"site-traffic: GitHub API error {e.code}")
+        return
+    except OSError as e:
+        log(f"site-traffic: {e}")
+        return
+
+    tmp = SITE_TRAFFIC_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, separators=(",", ":"))
+    os.replace(tmp, SITE_TRAFFIC_PATH)
+    week = sorted(data["views"])[-7:]
+    views = sum(data["views"][d]["count"] for d in week)
+    log(f"site-traffic: updated ({views} views over last {len(week)} day(s))")
+
+
 def main():
     if not os.path.isdir(os.path.join(EXPORT_DIR, ".git")):
         log(f"export dir {EXPORT_DIR} is not a git clone — skipping.\n"
@@ -193,6 +260,8 @@ def main():
             "days": days,
         }, f, separators=(",", ":"))
     db.close()
+
+    update_site_traffic()
 
     if not exported and not todo:
         log("nothing new to export")

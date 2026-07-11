@@ -127,10 +127,22 @@ KANP.apiFetch = async function (path, params) {
 // origin when served from the Pi) or set manually via
 // localStorage.setItem('kanp_api_base', url) in the console.
 function initApiSettings() {
-  // quiet auto-check on load
+  // quiet auto-checks on load (only when the Pi API is reachable)
   if (KANP.apiBase()) {
     KANP.apiFetch('/api/status', {}).then(updateCollectorBadge).catch(() => {});
+    KANP.apiFetch('/api/site-traffic', {}).then(updateSiteBadge).catch(() => {});
   }
+}
+
+// Website visitor stats (GitHub Pages traffic accumulated by the Pi exporter).
+// "visitors" is a sum of GitHub's daily uniques.
+function updateSiteBadge(t) {
+  if (!t || !t.available || !t.last7) return;
+  document.getElementById('site-text').textContent =
+    `${t.last7.views.toLocaleString()} views · ` +
+    `${t.last7.visitors.toLocaleString()} visitors (7d) · ` +
+    `${t.total.views.toLocaleString()} all-time`;
+  show('site-wrap');
 }
 
 function updateCollectorBadge(s) {
@@ -622,28 +634,17 @@ function hideGridTip() {
 }
 
 // ---------------------------------------------------------------------------
-// Shared: GA operations at the field as a 7×24 grid. Runs the same detector
-// the Traffic Study uses (kanp-ops.js) over GA traffic near the field, and
-// weights each op the FAA way (a pattern op — full-stop taxi-back or
-// go-around — counts as 2).
+// Shared: all GA traffic in the airspace as a 7×24 grid — unique GA aircraft
+// anywhere in the collection radius, NOT just operations at the field (a GA
+// aircraft transiting overhead at 2 a.m. counts). Same stats source as the
+// all-traffic grid, filtered to GA.
 // ---------------------------------------------------------------------------
-KANP.gaOpsGrid = async function (start, end) {
-  const d = await KANP.getTracks({
-    start, end, ga: 1, ground: 'include',
-    max_dist: 4, max_alt: 3500, max_points: 400000,
-  });
-  const { ops, totalOps, opWeight } = KANPOps.analyze(d);
-  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
-  ops.forEach(o => {
-    const dt = new Date(o.ts * 1000);
-    grid[(dt.getDay() + 6) % 7][dt.getHours()] += opWeight(o);
-  });
-  const aircraft = new Set(ops.map(o => o.hex)).size;
+KANP.gaTrafficGrid = async function (start, end) {
+  const s = await KANP.getStats({ start, end, ga: 1 });
   return {
-    grid,
-    label: totalOps
-      ? `${totalOps.toLocaleString()} GA ops · ${aircraft.toLocaleString()} aircraft · ${KANP.sourceLabel(d)}`
-      : `no GA operations detected · ${KANP.sourceLabel(d)}`,
+    grid: s.grid_unique_aircraft,
+    label: `${Number(s.totals.aircraft).toLocaleString()} GA aircraft · ` +
+      `${Number(s.totals.samples).toLocaleString()} reports · ${KANP.sourceLabel(s)}`,
   };
 };
 
@@ -677,11 +678,11 @@ KANP.kanpTrafficGrid = async function (start, end) {
 // selection and then cached.
 // ---------------------------------------------------------------------------
 KANP.HEAT_METRICS = {
-  all:  { unit: 'aircraft', titleKey: 'titleAll' },
-  ga:   { unit: 'GA ops',   titleKey: 'titleGa',   loading: 'Loading GA operations…',
-          fail: 'Could not load GA operations.',   load: KANP.gaOpsGrid },
-  kanp: { unit: 'aircraft', titleKey: 'titleKanp', loading: 'Loading KANP traffic…',
-          fail: 'Could not load KANP traffic.',    load: KANP.kanpTrafficGrid },
+  all:  { unit: 'aircraft',    titleKey: 'titleAll' },
+  ga:   { unit: 'GA aircraft', titleKey: 'titleGa',   loading: 'Loading GA traffic…',
+          fail: 'Could not load GA traffic.',        load: KANP.gaTrafficGrid },
+  kanp: { unit: 'aircraft',    titleKey: 'titleKanp', loading: 'Loading KANP traffic…',
+          fail: 'Could not load KANP traffic.',      load: KANP.kanpTrafficGrid },
 };
 
 KANP.initHeatPanel = function (cfg) {
@@ -1030,7 +1031,7 @@ async function loadAllTimeGrid() {
   livePanel = KANP.initHeatPanel({
     canvasId: 'temporal-canvas', emptyId: 'no-history',
     labelId: 'obs-label', titleId: 'live-grid-title',
-    titleAll: 'All collected traffic', titleGa: 'GA operations at KANP',
+    titleAll: 'All collected traffic', titleGa: 'All GA traffic',
     titleKanp: 'KANP traffic only',
     range: liveRange,
   });
