@@ -118,6 +118,7 @@
     .fly-block:hover, .fly-block.sel { border-color: #ccc; }
     .fly-block .hr { font-size: 10px; color: #111; font-weight: 700; opacity: .75; }
     .fly-block .sc { font-size: 11px; color: #111; font-weight: 700; }
+    .fly-block .tmp { font-size: 9px; color: #111; font-weight: 600; opacity: .65; margin-bottom: 3px; }
     .fly-block.night::after {
       content: ""; position: absolute; inset: 0; border-radius: 4px;
       background: rgba(10,10,30,0.45); pointer-events: none;
@@ -256,7 +257,7 @@
   </div>
   <div class="card">
     <div id="fly-strip"><span class="muted" style="font-size:13px">Loading forecast…</span></div>
-    <div id="fly-detail">Hover or tap an hour for details.</div>
+    <div id="fly-detail">Hover or tap an hour for details. Each block: hour · <b>flyability score (0–100, not a temperature)</b> · temp °F.</div>
     <div class="fly-legend">
       <span><i style="background:#22c55e"></i>Good</span>
       <span><i style="background:#a3d635"></i>Fair</span>

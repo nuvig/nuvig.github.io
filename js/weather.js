@@ -504,6 +504,7 @@ function renderFlyStrip(hours) {
     el.className = 'fly-block' + (h.night ? ' night' : '');
     el.style.background = color;
     el.innerHTML = `<span class="hr">${fmtHour(h.t)}</span><span class="sc">${h.score}</span>` +
+      `<span class="tmp">${round(h.tempF)}°</span>` +
       `<span class="catbar" style="background:${CAT_COLORS[h.cat]}"></span>`;
     const show = () => {
       document.querySelectorAll('.fly-block.sel').forEach((b) => b.classList.remove('sel'));
