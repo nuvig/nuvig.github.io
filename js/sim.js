@@ -105,11 +105,12 @@ function resetSimVars() {
   spawnBurst(cx, cy, 12);
 }
 
-// Fullscreen, devicePixelRatio-aware canvas
+// Fullscreen, devicePixelRatio-aware canvas.
+// Measure the element itself so mobile dvh sizing stays in sync.
 function sizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  viewW = window.innerWidth;
-  viewH = window.innerHeight;
+  viewW = canvas.clientWidth || window.innerWidth;
+  viewH = canvas.clientHeight || window.innerHeight;
   canvas.width = Math.round(viewW * dpr);
   canvas.height = Math.round(viewH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -414,6 +415,7 @@ function update() {
 }
 
 function showSim() {
+  document.body.classList.add("sim-open");
   canvas.style.display = "block";
   controls.style.display = "block";
   toggleBtn.innerText = "✕";
@@ -427,6 +429,7 @@ function showSim() {
 }
 
 function hideSim() {
+  document.body.classList.remove("sim-open");
   canvas.style.display = "none";
   controls.style.display = "none";
   toggleBtn.innerText = "▶";

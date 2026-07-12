@@ -6,22 +6,60 @@
   <title>Jesse Levine — Flight Instructor (CFI · CFII · MEI) | Annapolis, MD</title>
   <meta name="description" content="Flight instruction in Annapolis, Maryland: instrument (IFR) training, multi-engine transition, checkride preparation, and scenario-based safety training with a CFI/CFII/MEI.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="canonical" href="https://jesselevine.net/">
-  <link rel="stylesheet" href="css/main.css">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/">
+  <meta property="og:title" content="Jesse Levine — Flight Instructor (CFI · CFII · MEI) | Annapolis, MD">
+  <meta property="og:description" content="Flight instruction in Annapolis, Maryland: instrument (IFR) training, multi-engine transition, checkride preparation, and scenario-based safety training.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Jesse Levine — Flight Instructor | Annapolis, MD">
+  <meta name="twitter:description" content="IFR training, multi-engine transition, checkride prep and scenario-based safety training at Lee Airport (KANP), Annapolis MD.">
+  <meta name="twitter:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Person",
-    "name": "Jesse Levine",
-    "jobTitle": "Certified Flight Instructor (CFI, CFII, MEI)",
-    "email": "mailto:atjessel@gmail.com",
-    "url": "https://jesselevine.net/",
-    "address": {
-      "@type": "PostalAddress",
-      "addressLocality": "Annapolis",
-      "addressRegion": "MD",
-      "addressCountry": "US"
-    }
+    "@graph": [
+      {
+        "@type": "Person",
+        "@id": "https://jesselevine.net/#jesse",
+        "name": "Jesse Levine",
+        "jobTitle": "Certified Flight Instructor (CFI, CFII, MEI)",
+        "email": "mailto:atjessel@gmail.com",
+        "url": "https://jesselevine.net/",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Annapolis",
+          "addressRegion": "MD",
+          "addressCountry": "US"
+        }
+      },
+      {
+        "@type": "LocalBusiness",
+        "name": "Jesse Levine Flight Instruction",
+        "url": "https://jesselevine.net/",
+        "image": "https://jesselevine.net/assets/og.png",
+        "founder": { "@id": "https://jesselevine.net/#jesse" },
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Annapolis",
+          "addressRegion": "MD",
+          "addressCountry": "US"
+        },
+        "areaServed": "Annapolis, Maryland and the Chesapeake Bay region",
+        "makesOffer": [
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Instrument (IFR) flight training" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Multi-engine transition and training" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Checkride preparation and flight check coaching" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Safety, ADM and scenario-based training" } }
+        ]
+      }
+    ]
   }
   </script>
 </head>
@@ -47,19 +85,25 @@
     <a class="card tracker-link" href="/kanp.html">
       <h2>✈ KANP Flight Tracker</h2>
       <p>Live ADS-B traffic and historical traffic patterns around Lee Airport, Annapolis.</p>
+      <p class="teaser" id="tracker-teaser" hidden></p>
       <span class="go">Open the tracker →</span>
     </a>
 
     <a class="card tracker-link" href="/weather.html">
       <h2>🌤 KANP Weather Hub</h2>
       <p>Live winds, runway crosswind analysis, hourly forecasts, TAFs and radar for Lee Airport and nearby fields.</p>
+      <p class="teaser" id="weather-teaser" hidden></p>
       <span class="go">Open the weather hub →</span>
     </a>
 
     <div class="card">
       <h2>Contact</h2>
       <p>Interested in lessons? Get in touch for availability and rates.</p>
-      <a class="cta" href="mailto:atjessel@gmail.com">Email me</a>
+      <div class="contact-row">
+        <button class="cta" id="show-email" type="button">Email me</button>
+        <span class="email-addr" id="email-addr" hidden><a href="mailto:atjessel@gmail.com">atjessel@gmail.com</a></span>
+        <button class="copy-btn" id="copy-email" type="button" aria-label="Copy email address" hidden>Copy</button>
+      </div>
     </div>
   </main>
 
@@ -95,8 +139,8 @@
     <p class="hint">Drag balls to fling · tap space to burst · hold in Orbit/Repel to bend space · Spacebar = blast · Esc closes</p>
   </div>
   <canvas id="sim"></canvas>
-  <button id="sim-toggle-btn" title="Open Sim">▶</button>
+  <button id="sim-toggle-btn" title="Open Sim" aria-label="Open physics playground">▶</button>
 
-  <script src="js/sim.js"></script>
+  <script src="js/home.js?v=1"></script>
 </body>
 </html>

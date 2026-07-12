@@ -87,6 +87,9 @@ a {
 
 .cta {
   display: inline-block;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
   margin-top: 6px;
   padding: 8px 16px;
   background: var(--accent);
@@ -117,6 +120,45 @@ a {
   font-size: 0.9rem;
 }
 
+.teaser {
+  color: var(--green);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.contact-row .cta {
+  margin-top: 0;
+}
+
+.email-addr {
+  color: var(--muted);
+  font-size: 0.9rem;
+  user-select: all;
+}
+
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 footer {
   margin-top: 40px;
   font-size: 0.8rem;
@@ -138,10 +180,17 @@ footer a {
   inset: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh; /* track the mobile address bar; falls back to 100vh above */
   z-index: 1000;
   background: #04070f;
   cursor: crosshair;
   touch-action: none;
+  overscroll-behavior: none;
+}
+
+/* Lock page scroll while the sim overlay is open */
+body.sim-open {
+  overflow: hidden;
 }
 
 #sim-toggle-btn {
@@ -242,4 +291,30 @@ footer a {
   color: #7688a3;
   font-size: 11px;
   line-height: 1.5;
+}
+
+/* Compact controls on small screens: pin to the bottom, clear of the toggle */
+@media (max-width: 600px) {
+  #sim-controls {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    max-width: none;
+    padding: 10px 12px;
+    padding-right: 68px; /* keep clear of the toggle button */
+    font-size: 12px;
+  }
+
+  #sim-controls input[type="range"] {
+    width: 56px;
+  }
+
+  #sim-controls .hint {
+    display: none;
+  }
+
+  #sim-toggle-btn {
+    right: 12px;
+    bottom: 12px;
+  }
 }
