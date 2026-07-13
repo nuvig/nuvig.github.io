@@ -253,7 +253,17 @@
     .alt-band-track.dragging .alt-band { cursor: grabbing; }
     @media (max-width: 560px) {
       .alt-vpanel { width: 76px; }
-      .alt-band-track { width: 22px; }
+      /* wider on touch screens so the band edges are actually grabbable */
+      .alt-band-track { width: 36px; }
+    }
+    /* Inverted FAA chart tiles: dark chart, trails keep their contrast */
+    .inverted-tiles { filter: invert(1) hue-rotate(180deg); }
+    /* per-overlay opacity sliders inside the Leaflet layers control */
+    .leaflet-control-layers-overlays label { position: relative; }
+    input.layer-opacity {
+      display: block; width: 100%; margin: 1px 0 4px 24px;
+      max-width: 110px; height: 12px; accent-color: #4a9eff;
+      touch-action: none;
     }
     .btn {
       background: #1d3a5f;
