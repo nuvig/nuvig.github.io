@@ -783,6 +783,13 @@ KANP.overlayLayers = function () {
         attribution: 'FAA', opacity: 0.75,
         minNativeZoom: 8, maxNativeZoom: 12, maxZoom: 19,
       }),
+    // Same FAA tiles, color-inverted via CSS (.inverted-tiles) so the chart
+    // reads dark and the bright altitude-colored trails keep their contrast.
+    'VFR Sectional (inverted)': L.tileLayer(
+      'https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'FAA', opacity: 0.75, className: 'inverted-tiles',
+        minNativeZoom: 8, maxNativeZoom: 12, maxZoom: 19,
+      }),
     'VFR Terminal (TAC)': L.tileLayer(
       'https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Terminal/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'FAA', opacity: 0.8,
@@ -806,6 +813,30 @@ KANP.overlayLayers = function () {
         attribution: 'IEM NEXRAD', opacity: 0.55, maxZoom: 19,
       }),
   };
+};
+
+// Add an opacity slider under each overlay row inside a Leaflet layers
+// control. `overlays` must be the same object passed to L.control.layers —
+// the control renders its rows in insertion order, so the Nth row is the Nth
+// overlay. Any layer with a setOpacity method gets a slider (tile layers have
+// one; custom layers like the History tab's TrackCanvas provide their own).
+KANP.addOpacitySliders = function (control, overlays) {
+  const rows = control.getContainer()
+    .querySelectorAll('.leaflet-control-layers-overlays label');
+  Object.values(overlays).forEach((layer, i) => {
+    const row = rows[i];
+    if (!row || typeof layer.setOpacity !== 'function') return;
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = 0; slider.max = 100;
+    slider.value = Math.round(((layer.options && layer.options.opacity) ?? 1) * 100);
+    slider.className = 'layer-opacity';
+    slider.title = 'Layer opacity';
+    L.DomEvent.disableClickPropagation(slider);
+    L.DomEvent.on(slider, 'pointerdown touchstart mousedown', L.DomEvent.stopPropagation);
+    slider.addEventListener('input', () => layer.setOpacity(slider.value / 100));
+    row.appendChild(slider);
+  });
 };
 
 KANP.addAirport = function (map) {
@@ -842,7 +873,8 @@ function initLive() {
   const bases = KANP.baseLayers();
   const overlays = KANP.overlayLayers();
   bases['Dark'].addTo(liveMap);
-  L.control.layers(bases, overlays, { position: 'topright' }).addTo(liveMap);
+  const layersCtl = L.control.layers(bases, overlays, { position: 'topright' }).addTo(liveMap);
+  KANP.addOpacitySliders(layersCtl, overlays);
 
   KANP.addAirport(liveMap);
 

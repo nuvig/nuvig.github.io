@@ -48,8 +48,18 @@ const KANPHistory = (() => {
     const shadeBot = track.querySelector('.alt-shade.bot');
     const floorNum = document.getElementById('hist-floor-num');
     const ceilNum = document.getElementById('hist-ceil-num');
-    const HANDLE_PX = 12;      // grab tolerance around each band edge
+    const HANDLE_PX = 12;      // grab tolerance around each band edge (mouse)
+    const HANDLE_TOUCH_PX = 24; // fingers need a bigger target than a pointer
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    // Redraw the map while dragging, at most once per animation frame, so the
+    // band filter is live rather than waiting for pointer-up. Filtering is
+    // all client-side (see render()), so this stays smooth even on phones.
+    let raf = 0;
+    const renderLive = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; render(); });
+    };
 
     // altitude gradient scale (stretched by CSS)
     const scale = track.querySelector('canvas.alt-scale');
@@ -82,11 +92,12 @@ const KANPHistory = (() => {
       const r = track.getBoundingClientRect();
       const ceilY = r.top + (1 - altState.ceil / ALT_MAX) * r.height;
       const floorY = r.top + (1 - altState.floor / ALT_MAX) * r.height;
+      const grab = e.pointerType === 'touch' ? HANDLE_TOUCH_PX : HANDLE_PX;
       // nearest-edge wins inside the grab zones; the middle drags the band
       const mode =
-        Math.abs(e.clientY - ceilY) <= HANDLE_PX &&
+        Math.abs(e.clientY - ceilY) <= grab &&
           Math.abs(e.clientY - ceilY) <= Math.abs(e.clientY - floorY) ? 'ceil'
-        : Math.abs(e.clientY - floorY) <= HANDLE_PX ? 'floor'
+        : Math.abs(e.clientY - floorY) <= grab ? 'floor'
         : e.clientY > ceilY && e.clientY < floorY ? 'band'
         : e.clientY < ceilY ? 'ceil' : 'floor';   // click outside jumps that edge
       const startAlt = yToAlt(e.clientY);
@@ -104,6 +115,7 @@ const KANPHistory = (() => {
           altState.ceil = altState.floor + span;
         }
         layout();
+        renderLive();
       };
 
       track.setPointerCapture(e.pointerId);
@@ -115,7 +127,8 @@ const KANPHistory = (() => {
         track.removeEventListener('pointerup', up);
         track.removeEventListener('pointercancel', up);
         track.classList.remove('dragging');
-        render();                        // one redraw when the drag settles
+        cancelAnimationFrame(raf); raf = 0;
+        render();                        // final redraw at the settled position
       };
       track.addEventListener('pointermove', move);
       track.addEventListener('pointerup', up);
@@ -249,7 +262,8 @@ const KANPHistory = (() => {
 
     trackCanvas = new TrackCanvas().addTo(map);
     overlays['Tracks'] = trackCanvas;
-    L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
+    const layersCtl = L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
+    KANP.addOpacitySliders(layersCtl, overlays);
 
     KANP.addAirport(map);
     initExpand();
@@ -524,6 +538,15 @@ const KANPHistory = (() => {
       this._runs = [];
       this._style = { weight: 1.2, opacity: 0.45 };
       this._hit = [];
+      // user-set multiplier from the layers-control opacity slider; the
+      // density-scaled heatStyle opacity stays the baseline it multiplies.
+      this.options = { opacity: 1 };
+    },
+
+    setOpacity(v) {
+      this.options.opacity = v;
+      if (this._map) this._redraw();
+      return this;
     },
 
     setData(tracks, style) {
@@ -616,7 +639,7 @@ const KANPHistory = (() => {
       ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
       ctx.clearRect(0, 0, size.x, size.y);
       ctx.lineWidth = this._style.weight;
-      ctx.globalAlpha = this._style.opacity;
+      ctx.globalAlpha = Math.min(1, this._style.opacity * this.options.opacity);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
