@@ -2,15 +2,17 @@
 // All tabs read the Pi collector (pi/): its API on the home network, else the
 // hourly GitHub snapshots. Live = the most recently collected fix.
 
+// Site-specific values (coordinates, radius, runway) come from SITE
+// (js/site-config.js) — edit them there, not here.
 const KANP = {
-  LAT: 38.9422,
-  LON: -76.5684,
-  SEARCH_NM: 60,          // study/display radius around the field, nm
+  LAT: SITE.tracker.lat,
+  LON: SITE.tracker.lon,
+  SEARCH_NM: SITE.tracker.radiusNm,   // study/display radius around the field, nm
   POLL_MS: 60_000,        // snapshot mode: the GitHub data only changes hourly
   PI_POLL_MS: 3_000,      // Pi API mode: the collector samples every 3 s
   MAX_AGE_MS: 7 * 86_400_000,
-  OBS_KEY: 'kanp_obs',
-  API_KEY: 'kanp_api_base',
+  OBS_KEY: `${SITE.tracker.storagePrefix}_obs`,
+  API_KEY: `${SITE.tracker.storagePrefix}_api_base`,
 };
 
 // ---------------------------------------------------------------------------
@@ -333,7 +335,7 @@ KANP.isGA = function (t) {
 // departure; one that begins away and ends at the field is an arrival. Local
 // pattern work (both ends at the field) and overflights (neither) are neither.
 // Point tuple is [ts, lat, lon, alt, gs, on_ground], as returned by getTracks.
-KANP.FIELD = { NEAR_NM: 2.0, LOW_FT: 1500 };
+KANP.FIELD = SITE.tracker.fieldGates;
 
 KANP.distNm = function (lat, lon) {
   const R = 3440.065, r = Math.PI / 180;
@@ -357,22 +359,17 @@ KANP.classifyArrDep = function (points) {
 };
 
 // ---------------------------------------------------------------------------
-// Shared: runway geometry. KANP has a single strip, 12/30. The true axis was
-// fitted from ~2 weeks of collected ground/low-altitude ADS-B segments within
-// 1 nm of the field (principal course axis): 107° / 287° true, consistent
-// with the charted 120/300 magnetic minus ~11°W variation.
+// Shared: runway geometry — axis/names/pattern side are defined in
+// js/site-config.js (SITE.tracker.runway) with notes on how KANP's true
+// axis was fitted from collected ADS-B data.
 // ---------------------------------------------------------------------------
-KANP.RWY = {
-  axisTrue: 107,            // landing direction on RWY 12, degrees true
-  names: ['12', '30'],      // names[0] = axisTrue direction, names[1] = reciprocal
-  pattern: 'L',             // both ends are left traffic — no right pattern at KANP
-};
+KANP.RWY = SITE.tracker.runway;
 
 // "At the field" gates shared by the operations detector (kanp-ops.js) and
 // the Lee-traffic filter: tighter than the arrival/departure classifier above
 // because KANP pattern altitude (~1,000 ft MSL, ~1 nm out) must NOT count as
 // a field contact — only short final, the runway, and initial upwind do.
-KANP.OPS_GATES = { NEAR_NM: 0.8, LOW_FT: 600 };
+KANP.OPS_GATES = SITE.tracker.opsGates;
 
 // Did this track ever touch the field? True for arrivals, departures and
 // pattern work alike — the test the "Lee traffic" filter uses.

@@ -6,9 +6,9 @@
 // happens client-side here, mirroring the Pi API's semantics.
 
 const KANPStatic = (() => {
-  const DEFAULT_BASE =
-    'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2';
-  const base = () => localStorage.getItem('kanp_static_base') || DEFAULT_BASE;
+  const DEFAULT_BASE = SITE.tracker.snapshotBase;
+  const base = () =>
+    localStorage.getItem(`${SITE.tracker.storagePrefix}_static_base`) || DEFAULT_BASE;
   const MAX_DAYS = 62;
   // Day files arrive already shape-simplified by the exporter, so they're
   // returned as-is. Any "too much to draw" decision is made by the History tab

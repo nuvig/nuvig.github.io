@@ -50,8 +50,7 @@
   const el = document.getElementById('tracker-teaser');
   if (!el) return;
   try {
-    const res = await fetch(
-      'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2/summary.json',
+    const res = await fetch(`${SITE.tracker.snapshotBase}/summary.json`,
       { cache: 'no-cache' });
     if (!res.ok) return;
     const sum = await res.json();
@@ -66,15 +65,15 @@
   } catch { /* teaser is optional */ }
 })();
 
-// Weather: current wind + temp at KNAK (nearest sensor to KANP, ~3 NM NE).
-// Wind comes from the raw METAR text; aviationweather.gov has no CORS so
-// this must stay on api.weather.gov.
+// Weather: current wind + temp at the home field's obs station (for KANP
+// that's KNAK, the nearest sensor, ~3 NM NE). Wind comes from the raw METAR
+// text; aviationweather.gov has no CORS so this must stay on api.weather.gov.
 (async () => {
   const el = document.getElementById('weather-teaser');
   if (!el) return;
   try {
     const res = await fetch(
-      'https://api.weather.gov/stations/KNAK/observations/latest',
+      `https://api.weather.gov/stations/${SITE.airport.metarStation}/observations/latest`,
       { headers: { Accept: 'application/geo+json' } });
     if (!res.ok) return;
     const obs = (await res.json()).properties;
@@ -90,7 +89,7 @@
       parts.push(`${Math.round(obs.temperature.value * 9 / 5 + 32)}°F`);
     }
     if (!parts.length) return;
-    el.textContent = `● KNAK now: ${parts.join(' · ')}`;
+    el.textContent = `● ${SITE.airport.metarStation} now: ${parts.join(' · ')}`;
     el.hidden = false;
   } catch { /* teaser is optional */ }
 })();

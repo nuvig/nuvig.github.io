@@ -11,6 +11,8 @@ ExecStart=/usr/bin/python3 /opt/kanp/pi/server.py
 Restart=always
 RestartSec=10
 
+# Site config — see pi/site.env.example
+EnvironmentFile=-/etc/kanp/site.env
 #Environment=KANP_PORT=8787
 #Environment=KANP_WEB_ROOT=/opt/kanp
 

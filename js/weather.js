@@ -12,49 +12,16 @@
 
 /* ============================== config =================================== */
 
-const KANP = { lat: 38.9429, lon: -76.5684, elevFt: 34 };
-
-// Runway hdg = FAA true alignment. METAR + model winds are also true.
-const AIRPORTS = [
-  {
-    id: 'KANP', name: 'Lee · Annapolis', lat: 38.9429, lon: -76.5684, elevFt: 34,
-    metarStation: 'KNAK', obsNote: 'no on-field sensor — obs from KNAK (USNA, ~3 NM NE)',
-    runways: [{ ends: [{ name: '12', hdg: 108 }, { name: '30', hdg: 288 }], len: 2505, wid: 48 }],
-  },
-  {
-    id: 'KESN', name: 'Easton/Newnam Field', lat: 38.8042, lon: -76.0690, elevFt: 72,
-    metarStation: 'KESN',
-    runways: [
-      { ends: [{ name: '04', hdg: 31 }, { name: '22', hdg: 211 }], len: 5500, wid: 100 },
-      { ends: [{ name: '15', hdg: 138 }, { name: '33', hdg: 318 }], len: 4003, wid: 100 },
-    ],
-  },
-  {
-    id: 'KFME', name: 'Tipton · Fort Meade', lat: 39.0854, lon: -76.7594, elevFt: 148,
-    metarStation: 'KFME',
-    runways: [{ ends: [{ name: '10', hdg: 94 }, { name: '28', hdg: 274 }], len: 3000, wid: 75 }],
-  },
-  {
-    id: 'KCGE', name: 'Cambridge–Dorchester Rgnl', lat: 38.5393, lon: -76.0304, elevFt: 20,
-    metarStation: 'KCGE',
-    runways: [{ ends: [{ name: '16', hdg: 144 }, { name: '34', hdg: 324 }], len: 4477, wid: 75 }],
-  },
-  {
-    id: 'KMTN', name: 'Martin State · Baltimore', lat: 39.3254, lon: -76.4138, elevFt: 21,
-    metarStation: 'KMTN',
-    runways: [{ ends: [{ name: '15', hdg: 135 }, { name: '33', hdg: 315 }], len: 6997, wid: 180 }],
-  },
-];
-
-const TAF_STATIONS = [
-  { id: 'KMTN', label: 'Martin State' },
-  { id: 'KBWI', label: 'Baltimore/Washington Intl' },
-  { id: 'KDCA', label: 'Washington National' },
-];
+// Home airport, nearby fields, TAF stations, and timezone all come from
+// SITE (js/site-config.js) — edit them there. Runway hdg = FAA true
+// alignment; METAR + model winds are also true.
+const KANP = SITE.airport;   // home airport (historical name; any field works)
+const AIRPORTS = [SITE.airport, ...SITE.weather.nearbyAirports];
+const TAF_STATIONS = SITE.weather.tafStations;
 
 const NWS = 'https://api.weather.gov';
 const REFRESH_MS = 5 * 60 * 1000;
-const TZ = 'America/New_York';
+const TZ = SITE.weather.timeZone;
 
 /* =============================== state =================================== */
 
@@ -632,7 +599,7 @@ function buildHours() {
   // degrees off (e.g. +4°F on a bay-breeze afternoon), so blend the current
   // obs-vs-forecast error into the next hours, decaying to pure forecast.
   let tempBias = 0, dewBias = 0;
-  const ob = state.metars.KNAK;
+  const ob = state.metars[KANP.metarStation];
   if (ob && !ob.error && ob.tempC != null && ageMin(ob.time) <= 120) {
     const obsHourMs = Math.floor(new Date(ob.time).getTime() / 3600000) * 3600000;
     const fcT = gv(g && g.tempC, obsHourMs);
@@ -702,11 +669,11 @@ function renderHero() {
   // Fall back to model wind if the METAR is missing
   let wind = ok ? metar : null;
   let src = ok
-    ? `KNAK METAR, ${ageMin(metar.time)} min ago · directions °true`
+    ? `${KANP.metarStation} METAR, ${ageMin(metar.time)} min ago · directions °true`
     : null;
   if (!ok && cur) {
     wind = { windDir: round(cur.wind_direction_10m), windKt: round(cur.wind_speed_10m), gustKt: round(cur.wind_gusts_10m) };
-    src = 'KNAK unavailable — model wind (Open-Meteo) · °true';
+    src = `${KANP.metarStation} unavailable — model wind (Open-Meteo) · °true`;
   }
   $('hero-compass').innerHTML = compassSVG(AIRPORTS[0], wind, 300);
   $('hero-src-line').textContent = src || 'no wind data available';
@@ -736,10 +703,10 @@ function renderHero() {
 }
 
 function renderConditions() {
-  const m = state.metars.KNAK;
+  const m = state.metars[KANP.metarStation];
   const el = $('cond-body');
   if (!m || m.error) {
-    el.innerHTML = `<span class="apt-err">KNAK observation unavailable${m ? ` (${esc(m.error)})` : ''}.</span>`;
+    el.innerHTML = `<span class="apt-err">${KANP.metarStation} observation unavailable${m ? ` (${esc(m.error)})` : ''}.</span>`;
     return;
   }
   const ceil = ceilingFt(m);
@@ -752,7 +719,7 @@ function renderConditions() {
     const pa = KANP.elevFt + (29.92 - m.altInHg) * 1000;
     const isa = 15 - 1.98 * (KANP.elevFt / 1000);
     const da = round((pa + 118.8 * (m.tempC - isa)) / 50) * 50;
-    daHtml = `<div class="kv"><span class="k">Density altitude (KANP, ${KANP.elevFt} ft)</span>
+    daHtml = `<div class="kv"><span class="k">Density altitude (${KANP.id}, ${KANP.elevFt} ft)</span>
       <span class="v" style="color:${da > 3000 ? '#f59e0b' : '#ddd'}">${da.toLocaleString()} ft</span></div>`;
   }
   el.innerHTML = `
@@ -765,7 +732,7 @@ function renderConditions() {
     <div class="kv"><span class="k">Altimeter</span><span class="v">${m.altInHg != null ? m.altInHg.toFixed(2) + ' inHg' : '—'}</span></div>
     ${daHtml}
     <div class="apt-raw" style="margin-bottom:0">${esc(m.raw)}</div>
-    <div class="apt-meta">KNAK (USNA) · observed ${fmtTime(m.time)} · ${ageMin(m.time)} min ago</div>`;
+    <div class="apt-meta">${KANP.metarStation} · observed ${fmtTime(m.time)} · ${ageMin(m.time)} min ago</div>`;
 }
 
 function renderSun() {
@@ -786,7 +753,7 @@ function renderSun() {
     <div class="kv"><span class="k">Position lights required</span><span class="v">${f(s.sunset)} → ${f(s.sunrise)}</span></div>
     <div class="kv"><span class="k">Loggable night</span><span class="v">${f(s.dusk)} → ${f(s.dawn)}</span></div>
     <div class="kv"><span class="k">Night currency landings</span><span class="v">after ${f(nightCurrency)}</span></div>
-    <div class="apt-meta">${dayLeft} · times for KANP, ${now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' })}</div>`;
+    <div class="apt-meta">${dayLeft} · times for ${KANP.id}, ${now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' })}</div>`;
 }
 
 function renderAloft() {
@@ -1074,7 +1041,7 @@ function updateRadarMarkers() {
     if (m && !m.error) {
       const cat = flightCat(m.visSM, ceilingFt(m));
       mk.setStyle({ fillColor: CAT_COLORS[cat] });
-      mk.setTooltipContent(`<b>${apt.id}</b> ${cat}${apt.obsNote ? ' (obs KNAK)' : ''}<br>${esc(m.raw.slice(0, 60))}…`);
+      mk.setTooltipContent(`<b>${apt.id}</b> ${cat}${apt.metarStation !== apt.id ? ` (obs ${apt.metarStation})` : ''}<br>${esc(m.raw.slice(0, 60))}…`);
     }
   }
 }

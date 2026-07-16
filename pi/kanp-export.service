@@ -9,6 +9,8 @@ User=kanp
 Group=kanp
 ExecStart=/usr/bin/python3 /opt/kanp/pi/exporter.py
 
+# Site config — see pi/site.env.example
+EnvironmentFile=-/etc/kanp/site.env
 #Environment=KANP_EXPORT_DIR=/var/lib/kanp/traffic-data
 # Track simplification tolerance in nm: fixes are dropped only where they don't
 # change a track's shape (no corner-cutting). Lower = more fidelity/bigger files,
