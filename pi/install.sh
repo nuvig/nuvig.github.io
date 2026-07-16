@@ -33,6 +33,8 @@ cp /opt/kanp/pi/kanp-export.timer /etc/systemd/system/
 cp /opt/kanp/pi/kanp-atc.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer
+# enable --now is a no-op for already-running units — restart to pick up new code
+systemctl restart kanp-collector.service kanp-api.service
 
 # ATC recorder needs ffmpeg (and ideally whisper.cpp — see pi/README.md).
 # Only start it once ffmpeg exists so a fresh install doesn't crash-loop.
