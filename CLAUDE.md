@@ -7,11 +7,13 @@ Owner: Jesse, private pilot based at KANP (Lee Airport, Annapolis MD).
 ## Layout
 
 - `index.html` — personal site landing page
+- `js/site-config.js` — **all site-specific constants** (airport, coordinates, runway geometry, ops gates, nearby airports, TAF stations, snapshot URL, timezone) in one `SITE` global, loaded first on every page. Pi mirror: `pi/site.env.example` → `/etc/kanp/site.env` (read by the systemd units via `EnvironmentFile`). Edit these, not the consumers.
 - `kanp.html` — flight tracker (Live / History Map / Traffic Study tabs)
-  - `js/kanp.js` — shared utils + Live tab (poll every 5–60 s, trails, heatmap, localStorage). KANP = 38.9422, -76.5684, 60 nm radius
+  - `js/kanp.js` — shared utils + Live tab (poll every 5–60 s, trails, heatmap, localStorage). KANP = 38.9422, -76.5684, 60 nm radius (from `SITE`)
   - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD overlays
   - `js/kanp-study.js` — stats (hour×day grids, histograms); `js/kanp-ops.js` — ops detection (arrivals/departures/go-arounds by track geometry, runway 12/30)
   - `js/kanp-static.js` — GitHub-snapshot fallback data source (see Data flow)
+- `atc.html` + `js/atc.js` — ATC transcript viewer. Pi-only (no GitHub fallback): `pi/atc.py` records LiveATC feeds (ffmpeg RMS-squelch segmentation → WAV clips) and transcribes with whisper.cpp; `server.py` serves `/api/atc/*`. **LiveATC ToS forbids republishing — never export ATC audio/transcripts to the traffic-data branch or anywhere public.** Feeds configured in `site.env` (`KANP_ATC_FEEDS`), default: Potomac GRACO 124.55 / BELAY 125.525 / BWI Final.
 - `weather.html` + `js/weather.js` — weather hub (wind compass, flight-window scoring, crosswind analysis, TAFs, radar)
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only**
 - `scripts/` — legacy Node collector, superseded by `pi/`; don't extend it

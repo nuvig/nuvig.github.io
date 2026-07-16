@@ -1,0 +1,25 @@
+[Unit]
+Description=KANP ATC recorder (LiveATC streams -> clips + whisper transcripts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kanp
+Group=kanp
+ExecStart=/usr/bin/python3 /opt/kanp/pi/atc.py
+Restart=always
+RestartSec=15
+
+# Feeds, whisper paths, retention — see pi/site.env.example
+EnvironmentFile=-/etc/kanp/site.env
+
+# hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kanp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

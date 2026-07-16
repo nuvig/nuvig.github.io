@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATC Transcripts — Annapolis-area frequencies</title>
+  <meta name="description" content="Recorded and transcribed ATC transmissions from Potomac Approach frequencies around Lee Airport (KANP), Annapolis MD.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 900px; padding-bottom: 120px; }
+    a { color: #aaa; }
+    #back-link {
+      display: inline-block; margin-top: 16px; font-size: 14px;
+      text-decoration: none; color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      margin-bottom: 14px;
+    }
+    .controls select, .controls input[type=text] {
+      background: #1a1a1a; color: #ddd; border: 1px solid #333;
+      border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 14px;
+    }
+    .controls input[type=text] { flex: 1; min-width: 160px; }
+    .chip {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 14px;
+      color: #888; font-size: 13px; padding: 4px 12px; cursor: pointer;
+      font-family: inherit;
+    }
+    .chip.on { color: #fff; border-color: #4a9eff; }
+    .chip .freq { color: #666; margin-left: 4px; }
+    .chip.on .freq { color: #4a9eff; }
+
+    #status-line { color: #666; font-size: 13px; margin-bottom: 10px; }
+    #status-line.err { color: #d08770; }
+    #status-line a { cursor: pointer; text-decoration: underline; }
+
+    .tx {
+      display: flex; gap: 12px; padding: 9px 12px; border-radius: 8px;
+      border: 1px solid transparent; cursor: pointer; align-items: baseline;
+    }
+    .tx:hover { background: #161616; }
+    .tx.sel { background: #17222f; border-color: #2a4a6a; }
+    .tx .time { color: #888; font-size: 13px; white-space: nowrap; width: 68px; }
+    .tx .feed { font-size: 12px; white-space: nowrap; width: 130px; }
+    .tx .dur { color: #555; font-size: 12px; white-space: nowrap; width: 42px; text-align: right; }
+    .tx .text { flex: 1; font-size: 14px; color: #ccc; line-height: 1.45; }
+    .tx .text.empty { color: #555; font-style: italic; }
+
+    #player-bar {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: #141414ee; border-top: 1px solid #2a2a2a;
+      backdrop-filter: blur(6px); padding: 10px 16px;
+    }
+    #player-inner {
+      max-width: 900px; margin: 0 auto; display: flex; gap: 14px;
+      align-items: center; flex-wrap: wrap;
+    }
+    #player-inner audio { flex: 1; min-width: 240px; height: 36px; }
+    #now-playing { color: #888; font-size: 13px; }
+    #autoplay-label { color: #666; font-size: 13px; user-select: none; cursor: pointer; }
+    .keys { color: #444; font-size: 12px; }
+    kbd {
+      background: #222; border: 1px solid #3a3a3a; border-radius: 4px;
+      padding: 0 5px; font-size: 11px; color: #999;
+    }
+    @media (max-width: 640px) {
+      .tx .feed { display: none; }
+      .keys { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1>ATC Transcripts</h1>
+  <p class="subtitle">Potomac Approach frequencies around KANP, recorded from
+    LiveATC and transcribed on the Pi. Personal use — LAN only.</p>
+
+  <div class="controls">
+    <select id="day-select" title="Day"></select>
+    <span id="feed-chips"></span>
+    <input type="text" id="search" placeholder="filter — callsign, runway, anything&hellip;">
+  </div>
+  <div id="status-line">connecting to Pi&hellip;</div>
+  <div id="tx-list"></div>
+
+  <div id="player-bar">
+    <div id="player-inner">
+      <audio id="player" controls preload="none"></audio>
+      <span id="now-playing">nothing selected</span>
+      <label id="autoplay-label"><input type="checkbox" id="autoplay" checked>
+        auto-advance</label>
+      <span class="keys"><kbd>j</kbd>/<kbd>k</kbd> next/prev &nbsp;
+        <kbd>space</kbd> play/pause</span>
+    </div>
+  </div>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/atc.js"></script>
+</body>
+</html>

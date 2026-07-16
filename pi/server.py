@@ -16,6 +16,9 @@ Endpoints (all support CORS):
   GET /api/export.csv    raw filtered positions as CSV
   GET /api/site-traffic  website visitor stats (GitHub Pages traffic history
                          accumulated by exporter.py)
+  GET /api/atc/status    ATC recorder feeds + available days (atc.py)
+  GET /api/atc/log       transmissions for one day (?day=YYYY-MM-DD[&mount=])
+  GET /api/atc/clip      one audio clip (?f=mount/day/file.wav)
 
 Common filter query params (tracks / stats / aircraft / export):
   start, end       unix epoch seconds (default: last 24 h)
@@ -46,6 +49,8 @@ PORT = int(os.environ.get("KANP_PORT", "8787"))
 # Website visitor history written by exporter.py (see update_site_traffic)
 SITE_TRAFFIC_PATH = os.environ.get(
     "KANP_SITE_TRAFFIC", os.path.join(os.path.dirname(DB_PATH), "site-traffic.json"))
+# ATC transmission clips + transcripts written by atc.py
+ATC_DIR = os.environ.get("KANP_ATC_DIR", "/var/lib/kanp/atc")
 WEB_ROOT = os.environ.get(
     "KANP_WEB_ROOT",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
@@ -369,6 +374,56 @@ def q_site_traffic():
     }
 
 
+def q_atc_status():
+    """Configured feeds and the days that have transcripts."""
+    try:
+        with open(os.path.join(ATC_DIR, "feeds.json")) as f:
+            feeds = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"available": False,
+                "error": "no ATC data yet — is kanp-atc.service running?"}
+    days = set()
+    for feed in feeds:
+        mdir = os.path.join(ATC_DIR, feed["mount"])
+        if not os.path.isdir(mdir):
+            continue
+        for entry in os.listdir(mdir):
+            if entry.endswith(".jsonl"):
+                days.add(entry[:-6])
+    return {"available": True, "feeds": feeds, "days": sorted(days)}
+
+
+def q_atc_log(q):
+    """All transmissions for one local day, merged across feeds."""
+    day = q.get("day", "")
+    if len(day) != 10 or day[4] != "-" or day[7] != "-":
+        raise ValueError("day must be YYYY-MM-DD")
+    only = q.get("mount")
+    try:
+        with open(os.path.join(ATC_DIR, "feeds.json")) as f:
+            feeds = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        feeds = []
+    out = []
+    for feed in feeds:
+        if only and feed["mount"] != only:
+            continue
+        jsonl = os.path.join(ATC_DIR, feed["mount"], f"{day}.jsonl")
+        try:
+            with open(jsonl) as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    rec["mount"] = feed["mount"]
+                    out.append(rec)
+        except OSError:
+            continue
+    out.sort(key=lambda r: r.get("ts", 0))
+    return {"day": day, "count": len(out), "transmissions": out}
+
+
 def q_status():
     out = {"db_path": DB_PATH}
     try:
@@ -449,6 +504,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(q_aircraft(q))
             elif path == "/api/site-traffic":
                 self.send_json(q_site_traffic())
+            elif path == "/api/atc/status":
+                self.send_json(q_atc_status())
+            elif path == "/api/atc/log":
+                self.send_json(q_atc_log(q))
+            elif path == "/api/atc/clip":
+                self.serve_clip(q.get("f", ""))
             elif path == "/api/export.csv":
                 self.send_response(200)
                 self.send_cors()
@@ -474,6 +535,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(e)}, 500)
             except Exception:
                 pass
+
+    def serve_clip(self, rel):
+        full = os.path.abspath(os.path.join(ATC_DIR, rel))
+        if (not full.startswith(os.path.abspath(ATC_DIR) + os.sep)
+                or not full.endswith(".wav") or not os.path.isfile(full)):
+            self.send_json({"error": "not found"}, 404)
+            return
+        with open(full, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_cors()
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
 
     def serve_static(self, path):
         if path in ("/", ""):

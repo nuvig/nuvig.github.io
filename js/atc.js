@@ -1,0 +1,216 @@
+// ATC transcript viewer (atc.html). Talks only to the Pi API — the audio and
+// transcripts are LAN-only personal recordings (LiveATC ToS: no republishing),
+// so unlike the tracker there is no GitHub-snapshot fallback here.
+//
+// Pi API base: same localStorage key the tracker uses (kanp_api_base), same
+// same-origin autodetect when the page is served by the Pi itself.
+
+(function () {
+  'use strict';
+
+  const API_KEY = `${SITE.tracker.storagePrefix}_api_base`;
+
+  const els = {
+    day: document.getElementById('day-select'),
+    chips: document.getElementById('feed-chips'),
+    search: document.getElementById('search'),
+    status: document.getElementById('status-line'),
+    list: document.getElementById('tx-list'),
+    player: document.getElementById('player'),
+    now: document.getElementById('now-playing'),
+    autoplay: document.getElementById('autoplay'),
+  };
+
+  let feeds = [];              // [{mount,label,freq}]
+  let feedOn = {};             // mount -> bool
+  let all = [];                // transmissions for the loaded day
+  let shown = [];              // filtered view
+  let selIdx = -1;
+
+  function apiBase() {
+    const saved = localStorage.getItem(API_KEY);
+    if (saved && saved !== 'none') return saved.replace(/\/+$/, '');
+    if (location.protocol === 'http:' && location.port) return location.origin;
+    return null;
+  }
+
+  async function api(path, params) {
+    const base = apiBase();
+    if (!base) throw new Error('no Pi API configured');
+    const url = new URL(base + path);
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+    });
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    return res.json();
+  }
+
+  function setStatus(msg, isErr) {
+    els.status.textContent = '';
+    els.status.className = isErr ? 'err' : '';
+    if (typeof msg === 'string') els.status.textContent = msg;
+    else els.status.appendChild(msg);
+  }
+
+  function noApiMessage() {
+    const span = document.createElement('span');
+    span.append('Pi not reachable. This page needs the Pi API on your LAN ' +
+      '(recordings never leave the house). Set the API base: ');
+    const a = document.createElement('a');
+    a.textContent = 'enter Pi address';
+    a.onclick = () => {
+      const cur = localStorage.getItem(API_KEY) || 'http://raspberrypi.local:8787';
+      const v = prompt('Pi API base URL (http://<pi-ip>:8787)', cur);
+      if (v) { localStorage.setItem(API_KEY, v.trim()); init(); }
+    };
+    span.appendChild(a);
+    return span;
+  }
+
+  const feedByMount = m => feeds.find(f => f.mount === m) || { label: m, freq: '' };
+
+  // Deterministic per-feed hue so rows are scannable by frequency.
+  const FEED_COLORS = ['#4a9eff', '#a3be8c', '#d08770', '#b48ead', '#ebcb8b'];
+  const feedColor = m => FEED_COLORS[feeds.findIndex(f => f.mount === m) % FEED_COLORS.length];
+
+  function fmtTime(ts) {
+    return new Date(ts * 1000).toLocaleTimeString('en-US',
+      { hour12: false, timeZone: SITE.weather.timeZone });
+  }
+
+  function render() {
+    const q = els.search.value.trim().toLowerCase();
+    shown = all.filter(t => feedOn[t.mount] !== false &&
+      (!q || (t.text || '').toLowerCase().includes(q)));
+    els.list.textContent = '';
+    const frag = document.createDocumentFragment();
+    shown.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'tx';
+      row.dataset.i = i;
+
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = fmtTime(t.ts);
+
+      const feed = document.createElement('span');
+      feed.className = 'feed';
+      const f = feedByMount(t.mount);
+      feed.textContent = f.freq || f.label;
+      feed.style.color = feedColor(t.mount);
+
+      const dur = document.createElement('span');
+      dur.className = 'dur';
+      dur.textContent = `${Math.round(t.dur)}s`;
+
+      const text = document.createElement('span');
+      text.className = 'text' + (t.text ? '' : ' empty');
+      text.textContent = t.text || '(no transcript)';
+
+      row.append(time, feed, dur, text);
+      row.onclick = () => select(i, true);
+      frag.appendChild(row);
+    });
+    els.list.appendChild(frag);
+    selIdx = -1;
+    setStatus(`${shown.length} of ${all.length} transmissions` +
+      (q ? ` matching “${els.search.value.trim()}”` : ''));
+  }
+
+  function select(i, play) {
+    if (i < 0 || i >= shown.length) return;
+    const rows = els.list.children;
+    if (selIdx >= 0 && rows[selIdx]) rows[selIdx].classList.remove('sel');
+    selIdx = i;
+    rows[i].classList.add('sel');
+    rows[i].scrollIntoView({ block: 'nearest' });
+    const t = shown[i];
+    const f = feedByMount(t.mount);
+    els.now.textContent = `${fmtTime(t.ts)} · ${f.label}${f.freq ? ' ' + f.freq : ''}`;
+    if (play) {
+      els.player.src = `${apiBase()}/api/atc/clip?f=${encodeURIComponent(t.clip)}`;
+      els.player.play().catch(() => {});
+    }
+  }
+
+  els.player.addEventListener('ended', () => {
+    if (els.autoplay.checked && selIdx >= 0 && selIdx < shown.length - 1) {
+      select(selIdx + 1, true);
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'j') select(selIdx + 1, true);
+    else if (e.key === 'k') select(selIdx - 1, true);
+    else if (e.key === ' ') {
+      e.preventDefault();
+      if (els.player.src) els.player.paused ? els.player.play() : els.player.pause();
+      else select(0, true);
+    }
+  });
+
+  async function loadDay(day) {
+    setStatus('loading ' + day + '…');
+    try {
+      const d = await api('/api/atc/log', { day });
+      all = d.transmissions;
+      render();
+    } catch (e) {
+      setStatus('failed to load ' + day + ': ' + e.message, true);
+    }
+  }
+
+  function buildChips() {
+    els.chips.textContent = '';
+    feeds.forEach(f => {
+      const b = document.createElement('button');
+      b.className = 'chip' + (feedOn[f.mount] !== false ? ' on' : '');
+      b.append(f.label);
+      if (f.freq) {
+        const s = document.createElement('span');
+        s.className = 'freq';
+        s.textContent = f.freq;
+        b.appendChild(s);
+      }
+      b.onclick = () => {
+        feedOn[f.mount] = feedOn[f.mount] === false;
+        b.classList.toggle('on');
+        render();
+      };
+      els.chips.appendChild(b);
+    });
+  }
+
+  async function init() {
+    let status;
+    try {
+      status = await api('/api/atc/status');
+    } catch (e) {
+      setStatus(noApiMessage(), true);
+      return;
+    }
+    if (!status.available) {
+      setStatus(status.error || 'no ATC data yet', true);
+      return;
+    }
+    feeds = status.feeds;
+    buildChips();
+    els.day.textContent = '';
+    status.days.slice().reverse().forEach(d => {
+      const o = document.createElement('option');
+      o.value = o.textContent = d;
+      els.day.appendChild(o);
+    });
+    if (!status.days.length) {
+      setStatus('recorder is up, but no transmissions captured yet', true);
+      return;
+    }
+    els.day.onchange = () => loadDay(els.day.value);
+    els.search.oninput = render;
+    loadDay(els.day.value);
+  }
+
+  init();
+})();
