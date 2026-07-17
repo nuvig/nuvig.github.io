@@ -67,6 +67,22 @@ def spoken_callsigns(aircraft):
     return list(dict.fromkeys(out))  # dedupe, keep order
 
 
+def enable_cuda_dlls():
+    """Make the pip-installed NVIDIA runtime DLLs loadable on Windows.
+    (pip install nvidia-cublas-cu12 nvidia-cudnn-cu12)"""
+    import importlib
+    for mod in ("nvidia.cublas", "nvidia.cudnn"):
+        try:
+            m = importlib.import_module(mod)
+        except ImportError:
+            continue
+        for root in list(getattr(m, "__path__", [])):
+            d = os.path.join(root, "bin")
+            if os.path.isdir(d):
+                os.add_dll_directory(d)
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
 def load_vocab(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -111,6 +127,8 @@ def main():
     except ImportError:
         sys.exit("faster-whisper not installed — run: pip install faster-whisper")
 
+    if args.device == "cuda" and sys.platform == "win32":
+        enable_cuda_dlls()
     workers = args.workers or max(1, (os.cpu_count() or 4) // 4)
     print(f"loading {args.model} ({workers} worker(s)) …", flush=True)
     model = WhisperModel(args.model, device=args.device,

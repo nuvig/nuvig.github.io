@@ -81,8 +81,9 @@
 
   function render() {
     const q = els.search.value.trim().toLowerCase();
+    // newest transmission at the top
     shown = all.filter(t => feedOn[t.mount] !== false &&
-      (!q || (t.text || '').toLowerCase().includes(q)));
+      (!q || (t.text || '').toLowerCase().includes(q))).reverse();
     els.list.textContent = '';
     const frag = document.createDocumentFragment();
     shown.forEach((t, i) => {
@@ -135,9 +136,8 @@
   }
 
   els.player.addEventListener('ended', () => {
-    if (els.autoplay.checked && selIdx >= 0 && selIdx < shown.length - 1) {
-      select(selIdx + 1, true);
-    }
+    // auto-advance plays chronologically — upward, since newest is on top
+    if (els.autoplay.checked && selIdx > 0) select(selIdx - 1, true);
   });
 
   document.addEventListener('keydown', e => {
