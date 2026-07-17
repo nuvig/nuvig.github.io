@@ -92,13 +92,19 @@ def load_vocab(path):
         return []
 
 
-def api_json(url, payload=None):
+def api_json(url, payload=None, timeout=30, retries=1):
     req = urllib.request.Request(url)
     if payload is not None:
         req.data = json.dumps(payload).encode()
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as res:
-        return json.loads(res.read())
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as res:
+                return json.loads(res.read())
+        except OSError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(10 * (attempt + 1))
 
 
 def main():
@@ -202,11 +208,18 @@ def main():
                         sys.exit("too many failures — check the Pi API "
                                  "and try again")
         if updates:
-            res = api_json(f"{base}/api/atc/text", {"updates": updates})
-            done += res.get("stored", 0)
-            if res.get("missing"):
-                print(f"  {len(res['missing'])} clips vanished before storing",
-                      flush=True)
+            # A busy Pi can take a while to rewrite big day files — be
+            # patient and retry rather than throwing away the batch's work.
+            try:
+                res = api_json(f"{base}/api/atc/text", {"updates": updates},
+                               timeout=180, retries=3)
+                done += res.get("stored", 0)
+                if res.get("missing"):
+                    print(f"  {len(res['missing'])} clips vanished before "
+                          "storing", flush=True)
+            except OSError as e:
+                print(f"  store failed after retries ({e}) — batch will be "
+                      "retranscribed", flush=True)
 
     print(f"done: {done} transcribed, {errors} failed", flush=True)
 
