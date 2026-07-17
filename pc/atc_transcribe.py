@@ -82,6 +82,9 @@ def main():
             continue
 
         print(f"{batch['total']} clips pending", flush=True)
+        # Transcribe the whole batch, then store it in ONE POST — each store
+        # rewrites day files on the Pi's SD card, so per-clip posts thrash it.
+        updates = []
         for rec in pending:
             clip = rec["clip"]
             try:
@@ -93,15 +96,19 @@ def main():
                     wav, language="en", beam_size=5, vad_filter=False,
                     initial_prompt="Air traffic control radio communication.")
                 text = " ".join(s.text.strip() for s in segments).strip()
-                api_json(f"{base}/api/atc/text",
-                         {"clip": clip, "text": text or "[unreadable]"})
-                done += 1
+                updates.append({"clip": clip, "text": text or "[unreadable]"})
                 print(f"  {clip}  {rec.get('dur', '?')}s: {text[:100]}", flush=True)
             except Exception as e:
                 errors += 1
                 print(f"  {clip}: FAILED ({e})", flush=True)
                 if errors > 20 and errors > done:
                     sys.exit("too many failures — check the Pi API and try again")
+        if updates:
+            res = api_json(f"{base}/api/atc/text", {"updates": updates})
+            done += res.get("stored", 0)
+            if res.get("missing"):
+                print(f"  {len(res['missing'])} clips vanished before storing",
+                      flush=True)
 
     print(f"done: {done} transcribed, {errors} failed", flush=True)
 

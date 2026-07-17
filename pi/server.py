@@ -465,34 +465,45 @@ def q_atc_pending(q):
 
 
 def atc_store_text(body):
-    """Fill in the transcript for one clip (rewrites its day's jsonl)."""
-    clip = body.get("clip", "")
-    text = " ".join(str(body.get("text", "")).split())
-    parts = clip.split("/")
-    if len(parts) != 3 or ".." in clip:
-        raise ValueError("bad clip path")
-    mount, day, _ = parts
-    jsonl = os.path.join(ATC_DIR, mount, f"{day}.jsonl")
-    with open(jsonl, "r+") as f:
-        _locked(f)
-        recs = []
-        found = False
-        for line in f:
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("clip") == clip:
-                rec["text"] = text
-                found = True
-            recs.append(rec)
-        if not found:
-            raise ValueError("clip not found in log")
-        f.seek(0)
-        f.truncate()
-        for rec in recs:
-            f.write(json.dumps(rec) + "\n")
-    return {"ok": True, "clip": clip}
+    """Fill in transcripts. Accepts {clip, text} or {updates: [{clip, text},…]}.
+
+    Rewriting a day's jsonl is the expensive part (SD card), so updates are
+    grouped and each file is rewritten once per request — clients should
+    batch (see pc/atc_transcribe.py).
+    """
+    updates = body.get("updates") or [body]
+    by_file = {}
+    for u in updates:
+        clip = u.get("clip", "")
+        parts = clip.split("/")
+        if len(parts) != 3 or ".." in clip:
+            raise ValueError(f"bad clip path: {clip!r}")
+        mount, day, _ = parts
+        by_file.setdefault((mount, day), {})[clip] = \
+            " ".join(str(u.get("text", "")).split())
+
+    stored = 0
+    missing = []
+    for (mount, day), texts in by_file.items():
+        jsonl = os.path.join(ATC_DIR, mount, f"{day}.jsonl")
+        with open(jsonl, "r+") as f:
+            _locked(f)
+            recs = []
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("clip") in texts:
+                    rec["text"] = texts.pop(rec["clip"])
+                    stored += 1
+                recs.append(rec)
+            f.seek(0)
+            f.truncate()
+            for rec in recs:
+                f.write(json.dumps(rec) + "\n")
+        missing.extend(texts)
+    return {"ok": True, "stored": stored, "missing": missing}
 
 
 def q_status():
