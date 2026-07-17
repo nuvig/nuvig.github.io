@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bubbles</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body {
+      background: linear-gradient(#04070f, #0a1626 70%, #10243c);
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      color: #e5e5e5;
+      touch-action: manipulation;
+    }
+    /* Theme backdrops (canvas decor draws on top of these) */
+    body[data-theme="neon"]       { background: #030308; }
+    body[data-theme="underwater"] { background: linear-gradient(#02303a, #014a52 55%, #013b40); }
+    body[data-theme="sketch"]     { background: #f2ecdc; color: #2b2b2b; }
+    body[data-theme="space"]      { background: linear-gradient(#010109, #0a0a2a 80%, #14063a); }
+    body[data-theme="retro"]      { background: linear-gradient(#1a0533 55%, #3b0f5e 75%, #ff5e8a); }
+    #game { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; cursor: crosshair; }
+    #hud {
+      position: fixed; top: 10px; left: 14px; right: 14px;
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 15px; pointer-events: none; text-shadow: 0 1px 4px #000;
+      font-variant-numeric: tabular-nums;
+    }
+    body[data-theme="sketch"] #hud { text-shadow: none; }
+    #hud .best { color: #8fa3c0; font-size: 13px; }
+    body[data-theme="sketch"] #hud .best { color: #6b6250; }
+    #hud .lives { letter-spacing: 3px; }
+    #overlay {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      background: rgba(4, 7, 15, 0.78); color: #e5e5e5; text-align: center;
+      padding: 20px; overflow-y: auto;
+    }
+    #overlay h1 { margin: 0; font-size: 2rem; letter-spacing: -0.01em; }
+    #overlay p { margin: 0; color: #8fa3c0; max-width: 420px; line-height: 1.5; }
+    #overlay button.primary {
+      margin-top: 4px; padding: 10px 26px; font-size: 1.05rem; font-weight: 600;
+      background: #4a9eff; color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+    }
+    #overlay button.primary:hover { background: #3a8eef; }
+    #overlay .final { font-size: 1.2rem; color: #e5e5e5; }
+    #overlay[hidden] { display: none; }
+    .coins { color: #ffd75e; font-weight: 600; }
+    #shop {
+      margin-top: 10px; width: min(460px, 94vw);
+      background: rgba(12, 18, 32, 0.85); border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 14px; padding: 14px 16px; text-align: left;
+    }
+    #shop h2 { margin: 0 0 2px; font-size: 1.05rem; }
+    #shop h3 { margin: 12px 0 0; font-size: 0.9rem; color: #8fa3c0; text-transform: uppercase; letter-spacing: 0.06em; }
+    #shop .bank { font-size: 0.85rem; color: #8fa3c0; margin-bottom: 6px; }
+    .shop-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .shop-item .info { flex: 1; min-width: 0; }
+    .shop-item .name { font-size: 0.95rem; }
+    .shop-item .desc { font-size: 0.78rem; color: #8fa3c0; line-height: 1.4; }
+    .shop-item button {
+      background: rgba(255,255,255,0.08); color: #ffd75e;
+      border: 1px solid rgba(255,255,255,0.16); border-radius: 8px;
+      padding: 6px 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .shop-item button:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
+    .shop-item button:disabled { opacity: 0.45; cursor: default; }
+    .shop-item button.owned { color: #22c55e; }
+    .shop-item button.equip { color: #7db7ff; }
+    .shop-item button.equipped { color: #22c55e; border-color: #22c55e55; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <span>Score: <span id="score">0</span> <span id="combo"></span></span>
+    <span class="lives" id="lives"></span>
+    <span class="best">🫧 <span class="coins" id="hud-coins">0</span> · Best: <span id="best">0</span></span>
+  </div>
+  <div id="overlay">
+    <h1>Bubble Pop</h1>
+    <p id="overlay-msg">Pop bubbles before they float away. Small bubbles score more,
+      quick streaks build a combo. Every point you score becomes a coin to spend below.</p>
+    <p class="final" id="final" hidden></p>
+    <button id="start" class="primary">Play</button>
+    <div id="shop">
+      <h2>Shop</h2>
+      <div class="bank">Coins: <span class="coins" id="shop-coins">0</span> — earned from your final score each game</div>
+      <h3>Upgrades</h3>
+      <div id="shop-items"></div>
+      <h3>Themes</h3>
+      <div id="theme-items"></div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
+    const livesEl = document.getElementById('lives');
+    const bestEl = document.getElementById('best');
+    const hudCoinsEl = document.getElementById('hud-coins');
+    const shopCoinsEl = document.getElementById('shop-coins');
+    const shopItemsEl = document.getElementById('shop-items');
+    const themeItemsEl = document.getElementById('theme-items');
+    const overlay = document.getElementById('overlay');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const finalEl = document.getElementById('final');
+    const startBtn = document.getElementById('start');
+
+    // --- Persistent save: coins bank, upgrades, owned/equipped themes ------
+    const SAVE_KEY = 'bubbles_save';
+    let save = { coins: 0, best: 0, life: 0, finger: 0, gold: 0,
+                 themes: { classic: 1 }, theme: 'classic' };
+    try {
+      const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
+      Object.assign(save, s);
+      save.themes = Object.assign({ classic: 1 }, s.themes || {});
+      if (s.neon) save.themes.neon = 1; // migrate the old Neon Skin purchase
+    } catch {}
+    const oldBest = parseInt(localStorage.getItem('bubbles_best') || '0', 10);
+    if (oldBest > save.best) save.best = oldBest;
+    if (!save.themes[save.theme]) save.theme = 'classic';
+    function persist() { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
+
+    const SHOP = [
+      { key: 'life', name: 'Extra Life', max: 3, costs: [500, 1200, 2500],
+        desc: 'One more bubble can escape before game over.' },
+      { key: 'finger', name: 'Big Finger', max: 3, costs: [300, 700, 1500],
+        desc: 'Bigger tap radius — near misses still pop.' },
+      { key: 'gold', name: 'Golden Bubbles', max: 1, costs: [2000],
+        desc: 'Rare gold bubbles worth 3× points start appearing.' },
+    ];
+
+    // Each theme styles the page, picks bubble colors, and can draw canvas
+    // decor behind the bubbles. `style` selects the bubble renderer.
+    const THEMES = {
+      classic:    { name: 'Classic',    cost: 0,    desc: 'The original deep-sea blue.',
+                    style: 'glossy', hue: () => 190 + Math.random() * 80 },
+      neon:       { name: 'Neon',       cost: 800,  desc: 'Full-spectrum glow on black.',
+                    style: 'neon',   hue: () => Math.random() * 360 },
+      underwater: { name: 'Underwater', cost: 1000, desc: 'Sunbeams, seaweed and sea-glass bubbles.',
+                    style: 'glossy', hue: () => 150 + Math.random() * 60 },
+      sketch:     { name: 'Hand-drawn', cost: 1200, desc: 'Ink doodles on paper.',
+                    style: 'sketch', hue: () => 0 },
+      space:      { name: 'Deep Space', cost: 1500, desc: 'Pop planets in a starfield.',
+                    style: 'planet', hue: () => Math.random() * 360 },
+      retro:      { name: 'Synthwave',  cost: 1000, desc: 'Pink sun, cyan grid, 1986 forever.',
+                    style: 'neon',   hue: () => Math.random() < 0.5 ? 315 + Math.random() * 25 : 175 + Math.random() * 25 },
+    };
+    const theme = () => THEMES[save.theme] || THEMES.classic;
+    function applyTheme() {
+      document.body.dataset.theme = save.theme;
+      decor = null; // rebuild decor for the new theme
+    }
+
+    function renderShop() {
+      hudCoinsEl.textContent = save.coins.toLocaleString();
+      shopCoinsEl.textContent = save.coins.toLocaleString();
+      bestEl.textContent = save.best;
+
+      shopItemsEl.innerHTML = '';
+      for (const item of SHOP) {
+        const lvl = save[item.key];
+        const row = document.createElement('div');
+        row.className = 'shop-item';
+        const info = document.createElement('div');
+        info.className = 'info';
+        const lvlTag = item.max > 1 ? ` (${lvl}/${item.max})` : '';
+        info.innerHTML = `<div class="name">${item.name}${lvlTag}</div><div class="desc">${item.desc}</div>`;
+        const btn = document.createElement('button');
+        if (lvl >= item.max) {
+          btn.textContent = item.max > 1 ? 'Maxed ✓' : 'Owned ✓';
+          btn.className = 'owned';
+          btn.disabled = true;
+        } else {
+          const cost = item.costs[lvl];
+          btn.textContent = `🫧 ${cost.toLocaleString()}`;
+          btn.disabled = save.coins < cost;
+          btn.addEventListener('click', () => {
+            if (save.coins < cost) return;
+            save.coins -= cost;
+            save[item.key]++;
+            persist();
+            buySound();
+            renderShop();
+          });
+        }
+        row.append(info, btn);
+        shopItemsEl.appendChild(row);
+      }
+
+      themeItemsEl.innerHTML = '';
+      for (const [key, t] of Object.entries(THEMES)) {
+        const row = document.createElement('div');
+        row.className = 'shop-item';
+        const info = document.createElement('div');
+        info.className = 'info';
+        info.innerHTML = `<div class="name">${t.name}</div><div class="desc">${t.desc}</div>`;
+        const btn = document.createElement('button');
+        if (!save.themes[key]) {
+          btn.textContent = `🫧 ${t.cost.toLocaleString()}`;
+          btn.disabled = save.coins < t.cost;
+          btn.addEventListener('click', () => {
+            if (save.coins < t.cost) return;
+            save.coins -= t.cost;
+            save.themes[key] = 1;
+            save.theme = key;
+            persist();
+            buySound();
+            applyTheme();
+            renderShop();
+          });
+        } else if (save.theme === key) {
+          btn.textContent = 'Equipped ✓';
+          btn.className = 'equipped';
+          btn.disabled = true;
+        } else {
+          btn.textContent = 'Equip';
+          btn.className = 'equip';
+          btn.addEventListener('click', () => {
+            save.theme = key;
+            persist();
+            applyTheme();
+            renderShop();
+          });
+        }
+        row.append(info, btn);
+        themeItemsEl.appendChild(row);
+      }
+    }
+
+    // --- Game state ---------------------------------------------------------
+    let W = 0, H = 0;
+    let bubbles = [], pops = [];
+    let score = 0, combo = 0, comboAt = 0, lives = 5;
+    let running = false, spawnTimer = 0, elapsed = 0, animId = null, lastT = 0;
+    let decor = null; // per-theme background props, rebuilt on resize/theme
+
+    const maxLives = () => 5 + save.life;
+    const hitPad = () => 8 + save.finger * 6;
+
+    function size() {
+      const dpr = window.devicePixelRatio || 1;
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      decor = null;
+    }
+    window.addEventListener('resize', size);
+    size();
+
+    // --- Sound: WebAudio blips, no assets -----------------------------------
+    let audio = null;
+    function tone(f0, f1, dur, gain0) {
+      try {
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+        if (audio.state === 'suspended') audio.resume();
+        const t = audio.currentTime;
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f0, t);
+        osc.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
+        gain.gain.setValueAtTime(gain0, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(t); osc.stop(t + dur + 0.01);
+      } catch { /* no audio, game still plays */ }
+    }
+    function popSound(radius, golden) {
+      const f = (golden ? 1400 : 900) - radius * 10;
+      tone(f, f * 2.2, 0.12, 0.25);
+    }
+    function buySound() { tone(500, 1000, 0.18, 0.2); tone(750, 1500, 0.22, 0.12); }
+
+    function spawnBubble() {
+      const r = 14 + Math.random() * 30;
+      const golden = save.gold > 0 && Math.random() < 0.07;
+      bubbles.push({
+        x: r + Math.random() * (W - 2 * r),
+        y: H + r,
+        r,
+        golden,
+        speed: (0.6 + Math.random() * 0.8) * (1 + elapsed / 90) * (golden ? 1.35 : 1),
+        wobblePhase: Math.random() * Math.PI * 2,
+        wobbleAmp: 10 + Math.random() * 20,
+        hue: golden ? 48 : theme().hue(),
+        ring: Math.random() < 0.3,            // planets: has a ring
+        seed: Math.random() * 10,             // sketch: stable wobble
+      });
+    }
+
+    function popBubble(i) {
+      const b = bubbles[i];
+      bubbles.splice(i, 1);
+      const now = performance.now();
+      combo = now - comboAt < 900 ? combo + 1 : 1;
+      comboAt = now;
+      const pts = Math.max(1, Math.round(50 - b.r)) * combo * (b.golden ? 3 : 1);
+      score += pts;
+      pops.push({ x: b.x, y: b.y, r: b.r, hue: b.hue, life: 1, pts, golden: b.golden });
+      popSound(b.r, b.golden);
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      comboEl.textContent = combo > 1 ? `×${combo}` : '';
+      livesEl.textContent = '●'.repeat(lives) + '○'.repeat(maxLives() - lives);
+    }
+
+    function onPointerDown(e) {
+      if (!running) return;
+      const x = e.clientX, y = e.clientY;
+      for (let i = bubbles.length - 1; i >= 0; i--) {
+        const b = bubbles[i];
+        if (Math.hypot(x - b.x, y - b.y) <= b.r + hitPad()) { popBubble(i); return; }
+      }
+    }
+    canvas.addEventListener('pointerdown', onPointerDown);
+
+    // --- Theme decor: drawn behind bubbles each frame -----------------------
+    function buildDecor() {
+      const t = save.theme;
+      decor = { theme: t };
+      if (t === 'space' || t === 'neon') {
+        decor.stars = Array.from({ length: t === 'space' ? 140 : 50 }, () => ({
+          x: Math.random() * W, y: Math.random() * H,
+          s: Math.random() * 1.6 + 0.4, tw: Math.random() * Math.PI * 2,
+        }));
+      } else if (t === 'underwater') {
+        decor.weeds = Array.from({ length: Math.max(4, Math.round(W / 180)) }, (_, i) => ({
+          x: (i + 0.5) * (W / Math.max(4, Math.round(W / 180))) + (Math.random() * 60 - 30),
+          h: 60 + Math.random() * 110, sway: Math.random() * Math.PI * 2,
+        }));
+        decor.rays = Array.from({ length: 4 }, () => ({
+          x: Math.random() * W, w: 60 + Math.random() * 120, drift: Math.random() * Math.PI * 2,
+        }));
+      }
+    }
+
+    function drawDecor(now) {
+      if (!decor || decor.theme !== save.theme) buildDecor();
+      const t = decor.theme;
+      if (t === 'space' || t === 'neon') {
+        for (const s of decor.stars) {
+          const a = 0.35 + 0.35 * Math.sin(now / 900 + s.tw);
+          ctx.fillStyle = t === 'space' ? `rgba(255,255,255,${a})` : `rgba(150,200,255,${a * 0.5})`;
+          ctx.fillRect(s.x, s.y, s.s, s.s);
+        }
+      } else if (t === 'underwater') {
+        for (const r of decor.rays) {
+          const x = r.x + Math.sin(now / 4000 + r.drift) * 40;
+          const g = ctx.createLinearGradient(x, 0, x + r.w * 0.4, H);
+          g.addColorStop(0, 'rgba(220,255,240,0.10)');
+          g.addColorStop(1, 'rgba(220,255,240,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(x, 0); ctx.lineTo(x + r.w, 0);
+          ctx.lineTo(x + r.w * 1.8, H); ctx.lineTo(x + r.w * 0.8, H);
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.strokeStyle = 'rgba(20,120,90,0.55)';
+        ctx.lineWidth = 5; ctx.lineCap = 'round';
+        for (const w of decor.weeds) {
+          ctx.beginPath();
+          ctx.moveTo(w.x, H);
+          for (let s = 1; s <= 4; s++) {
+            const yy = H - (w.h * s) / 4;
+            const xx = w.x + Math.sin(now / 1100 + w.sway + s * 0.9) * (4 + s * 3);
+            ctx.lineTo(xx, yy);
+          }
+          ctx.stroke();
+        }
+      } else if (t === 'retro') {
+        // pink sun with scanline gaps
+        const sy = H * 0.42, sr = Math.min(W, H) * 0.16;
+        const sg = ctx.createLinearGradient(0, sy - sr, 0, sy + sr);
+        sg.addColorStop(0, '#ffd75e'); sg.addColorStop(1, '#ff2e88');
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(W / 2, sy, sr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(26,5,51,0.9)';
+        for (let i = 0; i < 5; i++) ctx.fillRect(W / 2 - sr, sy + sr * 0.15 + i * sr * 0.16, sr * 2, sr * (0.04 + i * 0.012));
+        // perspective grid floor
+        const horizon = H * 0.62;
+        ctx.strokeStyle = 'rgba(90,240,255,0.35)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 10; i++) {
+          const y = horizon + Math.pow(i / 10, 1.8) * (H - horizon);
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+        for (let i = -8; i <= 8; i++) {
+          ctx.beginPath();
+          ctx.moveTo(W / 2 + i * W * 0.06, horizon);
+          ctx.lineTo(W / 2 + i * W * 0.35, H);
+          ctx.stroke();
+        }
+      } else if (t === 'sketch') {
+        // faint notebook rules
+        ctx.strokeStyle = 'rgba(120,140,190,0.18)';
+        ctx.lineWidth = 1;
+        for (let y = 60; y < H; y += 34) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(220,120,120,0.25)';
+        ctx.beginPath(); ctx.moveTo(56, 0); ctx.lineTo(56, H); ctx.stroke();
+      }
+    }
+
+    // --- Bubble renderers per theme style ------------------------------------
+    function drawBubble(b) {
+      const style = b.golden ? 'glossy' : theme().style;
+      if (style === 'neon') return drawNeon(b);
+      if (style === 'sketch') return drawSketch(b);
+      if (style === 'planet') return drawPlanet(b);
+      drawGlossy(b);
+    }
+
+    function drawGlossy(b) {
+      const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, b.r * 0.1, b.x, b.y, b.r);
+      const sat = b.golden ? 100 : 90;
+      g.addColorStop(0, `hsla(${b.hue}, ${sat}%, 85%, 0.9)`);
+      g.addColorStop(0.7, `hsla(${b.hue}, ${sat}%, 60%, ${b.golden ? 0.55 : 0.35})`);
+      g.addColorStop(1, `hsla(${b.hue}, ${sat}%, 55%, 0.15)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `hsla(${b.hue}, ${sat}%, 75%, ${b.golden ? 1 : 0.7})`;
+      ctx.lineWidth = b.golden ? 2.5 : 1.5;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath(); ctx.arc(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.14, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function drawNeon(b) {
+      ctx.save();
+      ctx.shadowColor = `hsl(${b.hue}, 100%, 60%)`;
+      ctx.shadowBlur = b.r * 0.9;
+      ctx.strokeStyle = `hsla(${b.hue}, 100%, 65%, 0.95)`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `hsla(${b.hue}, 100%, 60%, 0.12)`;
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function drawSketch(b) {
+      // two slightly offset wobbly ink circles, like a quick doodle
+      ctx.strokeStyle = 'rgba(43,43,43,0.9)';
+      ctx.lineWidth = 1.8;
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.beginPath();
+        for (let a = 0; a <= Math.PI * 2 + 0.1; a += Math.PI / 14) {
+          const wob = 1 + Math.sin(a * 3 + b.seed + pass * 1.7) * 0.05;
+          const x = b.x + Math.cos(a) * b.r * wob + (pass ? 1.5 : 0);
+          const y = b.y + Math.sin(a) * b.r * wob - (pass ? 1 : 0);
+          a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // hatched glint
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 3; i++) {
+        const o = i * 3.5;
+        ctx.beginPath();
+        ctx.moveTo(b.x - b.r * 0.55 + o, b.y - b.r * 0.25);
+        ctx.lineTo(b.x - b.r * 0.25 + o, b.y - b.r * 0.55);
+        ctx.stroke();
+      }
+    }
+
+    function drawPlanet(b) {
+      const g = ctx.createRadialGradient(b.x - b.r * 0.4, b.y - b.r * 0.4, b.r * 0.15, b.x, b.y, b.r);
+      g.addColorStop(0, `hsl(${b.hue}, 60%, 68%)`);
+      g.addColorStop(0.7, `hsl(${b.hue}, 55%, 42%)`);
+      g.addColorStop(1, `hsl(${b.hue}, 60%, 22%)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      // day-side band
+      ctx.strokeStyle = `hsla(${(b.hue + 40) % 360}, 60%, 70%, 0.4)`;
+      ctx.lineWidth = b.r * 0.16;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.6, 0.4, 2.2); ctx.stroke();
+      if (b.ring) {
+        ctx.strokeStyle = `hsla(${(b.hue + 180) % 360}, 70%, 75%, 0.75)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y, b.r * 1.55, b.r * 0.45, -0.35, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function popTextColor(p, alpha) {
+      if (p.golden) return `rgba(255,215,94,${alpha})`;
+      if (save.theme === 'sketch') return `rgba(43,43,43,${alpha})`;
+      return `rgba(255,255,255,${alpha})`;
+    }
+
+    function update(t) {
+      const dt = Math.min((t - lastT) / 16.67, 3); // frames, capped
+      lastT = t;
+      elapsed += dt / 60;
+      ctx.clearRect(0, 0, W, H);
+      drawDecor(t);
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnBubble();
+        // spawn faster over time: ~1.1 s down to ~0.35 s
+        spawnTimer = Math.max(21, 66 - elapsed * 1.5) * (0.7 + Math.random() * 0.6);
+      }
+
+      for (let i = bubbles.length - 1; i >= 0; i--) {
+        const b = bubbles[i];
+        b.y -= b.speed * dt;
+        b.x += Math.sin(b.y / 40 + b.wobblePhase) * b.wobbleAmp * 0.02 * dt;
+        if (b.y + b.r < 0) {
+          bubbles.splice(i, 1);
+          if (!b.golden) { // escaped gold costs nothing — it's a bonus target
+            lives--;
+            combo = 0;
+            updateHud();
+            if (lives <= 0) { gameOver(); return; }
+          }
+          continue;
+        }
+        drawBubble(b);
+      }
+
+      // pop effects: expanding ring + points float
+      const ink = save.theme === 'sketch';
+      for (let i = pops.length - 1; i >= 0; i--) {
+        const p = pops[i];
+        p.life -= 0.045 * dt;
+        if (p.life <= 0) { pops.splice(i, 1); continue; }
+        ctx.strokeStyle = ink ? `rgba(43,43,43,${p.life})` : `hsla(${p.hue}, 90%, 75%, ${p.life})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * (2 - p.life), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = popTextColor(p, p.life);
+        ctx.font = ink ? 'italic 600 15px Segoe Print, Comic Sans MS, cursive'
+                       : '600 15px Segoe UI, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`+${p.pts}`, p.x, p.y - p.r - (1 - p.life) * 24);
+      }
+
+      animId = requestAnimationFrame(update);
+    }
+
+    function start() {
+      bubbles = []; pops = [];
+      score = 0; combo = 0; lives = maxLives(); elapsed = 0; spawnTimer = 0;
+      updateHud();
+      overlay.hidden = true;
+      running = true;
+      lastT = performance.now();
+      animId = requestAnimationFrame(update);
+    }
+
+    function gameOver() {
+      running = false;
+      if (animId) cancelAnimationFrame(animId);
+      save.coins += score;
+      if (score > save.best) {
+        save.best = score;
+        finalEl.textContent = `New best: ${score} 🎉 (+${score.toLocaleString()} coins)`;
+      } else {
+        finalEl.textContent = `Final score: ${score} (+${score.toLocaleString()} coins)`;
+      }
+      persist();
+      finalEl.hidden = false;
+      overlayMsg.textContent = 'Out of lives. Spend your coins, then go again?';
+      startBtn.textContent = 'Play again';
+      renderShop();
+      overlay.hidden = false;
+    }
+
+    startBtn.addEventListener('click', start);
+    applyTheme();
+    renderShop();
+  </script>
+</body>
+</html>
