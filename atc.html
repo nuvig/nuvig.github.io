@@ -63,7 +63,7 @@
     }
     #player-inner audio { flex: 1; min-width: 240px; height: 36px; }
     #now-playing { color: #888; font-size: 13px; }
-    #autoplay-label { color: #666; font-size: 13px; user-select: none; cursor: pointer; }
+    #player-inner label { color: #666; font-size: 13px; user-select: none; cursor: pointer; }
     .keys { color: #444; font-size: 12px; }
     kbd {
       background: #222; border: 1px solid #3a3a3a; border-radius: 4px;
@@ -93,7 +93,9 @@
     <div id="player-inner">
       <audio id="player" controls preload="none"></audio>
       <span id="now-playing">nothing selected</span>
-      <label id="autoplay-label"><input type="checkbox" id="autoplay" checked>
+      <label id="autoplay-label"><input type="checkbox" id="live" checked>
+        live</label>
+      <label id="autoplay-label2" class="autoplay-label"><input type="checkbox" id="autoplay" checked>
         auto-advance</label>
       <span class="keys"><kbd>j</kbd>/<kbd>k</kbd> next/prev &nbsp;
         <kbd>space</kbd> play/pause</span>

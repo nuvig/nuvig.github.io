@@ -191,9 +191,15 @@ def main():
             segments, _ = model.transcribe(
                 audio, language="en", beam_size=args.beam, vad_filter=False,
                 initial_prompt=prompt, hotwords=hotwords)
-            text = " ".join(s.text.strip() for s in segments).strip()
-            print(f"  {clip}  {rec.get('dur', '?')}s: {text[:100]}", flush=True)
-            return {"clip": clip, "text": text or "[unreadable]"}
+            # Drop hallucinated segments: whisper "hears" phrases in static.
+            # Low avg_logprob = the model was guessing; high no_speech_prob =
+            # it didn't think anyone was talking.
+            kept = [s.text.strip() for s in segments
+                    if s.avg_logprob > -1.0 and s.no_speech_prob < 0.6]
+            text = " ".join(kept).strip()
+            print(f"  {clip}  {rec.get('dur', '?')}s: "
+                  f"{text[:100] if text else '[noise]'}", flush=True)
+            return {"clip": clip, "text": text or "[noise]"}
 
         updates = []
         with ThreadPoolExecutor(max_workers=workers) as pool:

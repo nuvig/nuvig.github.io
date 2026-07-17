@@ -19,13 +19,18 @@
     player: document.getElementById('player'),
     now: document.getElementById('now-playing'),
     autoplay: document.getElementById('autoplay'),
+    live: document.getElementById('live'),
   };
 
   let feeds = [];              // [{mount,label,freq}]
   let feedOn = {};             // mount -> bool
   let all = [];                // transmissions for the loaded day
-  let shown = [];              // filtered view
+  let shown = [];              // filtered view, newest first
   let selIdx = -1;
+  let selClip = null;          // clip id of the selection (survives re-render)
+  let newestTs = 0;            // latest transmission we've seen this day
+  let latestDay = null;        // most recent day the Pi has (live-poll target)
+  const REFRESH_MS = 15000;
 
   function apiBase() {
     const saved = localStorage.getItem(API_KEY);
@@ -114,7 +119,10 @@
       frag.appendChild(row);
     });
     els.list.appendChild(frag);
-    selIdx = -1;
+    // restore the selection — indices shift when new rows land on top
+    selIdx = selClip ? shown.findIndex(t => t.clip === selClip) : -1;
+    if (selIdx >= 0) els.list.children[selIdx].classList.add('sel');
+    else selClip = null;
     setStatus(`${shown.length} of ${all.length} transmissions` +
       (q ? ` matching “${els.search.value.trim()}”` : ''));
   }
@@ -124,6 +132,7 @@
     const rows = els.list.children;
     if (selIdx >= 0 && rows[selIdx]) rows[selIdx].classList.remove('sel');
     selIdx = i;
+    selClip = shown[i].clip;
     rows[i].classList.add('sel');
     rows[i].scrollIntoView({ block: 'nearest' });
     const t = shown[i];
@@ -136,7 +145,8 @@
   }
 
   els.player.addEventListener('ended', () => {
-    // auto-advance plays chronologically — upward, since newest is on top
+    // auto-advance plays chronologically — upward, since newest is on top;
+    // reaching the top hands control back to live mode
     if (els.autoplay.checked && selIdx > 0) select(selIdx - 1, true);
   });
 
@@ -153,12 +163,40 @@
 
   async function loadDay(day) {
     setStatus('loading ' + day + '…');
+    selClip = null;
     try {
       const d = await api('/api/atc/log', { day });
       all = d.transmissions;
+      newestTs = all.length ? all[all.length - 1].ts : 0;
       render();
     } catch (e) {
       setStatus('failed to load ' + day + ': ' + e.message, true);
+    }
+  }
+
+  // Live mode: poll today's log; new transmissions land on top and play as
+  // they arrive — but never interrupt, and never while the user is working
+  // back through older rows (they rejoin the live edge via auto-advance).
+  async function refresh() {
+    // no document.hidden check — live mode should keep playing new
+    // transmissions while the tab is in the background (scanner style)
+    if (!els.live.checked || els.day.value !== latestDay) return;
+    let d;
+    try {
+      d = await api('/api/atc/log', { day: latestDay });
+    } catch (e) { return; }
+    if (d.transmissions.length === all.length) return;
+    all = d.transmissions;
+    render();
+    const fresh = all.filter(t => t.ts > newestTs);
+    if (!fresh.length) return;
+    newestTs = Math.max(newestTs, ...fresh.map(t => t.ts));
+    // idle (nothing playing) -> start with the oldest new arrival that
+    // passes the filters; the 'ended' handler walks upward through the rest
+    if (els.player.paused || els.player.ended || !els.player.src) {
+      const visible = shown.filter(t => fresh.includes(t));
+      const i = shown.indexOf(visible[visible.length - 1]);
+      if (i >= 0) select(i, true);
     }
   }
 
@@ -207,9 +245,11 @@
       setStatus('recorder is up, but no transmissions captured yet', true);
       return;
     }
+    latestDay = status.days[status.days.length - 1];
     els.day.onchange = () => loadDay(els.day.value);
     els.search.oninput = render;
     loadDay(els.day.value);
+    setInterval(refresh, REFRESH_MS);
   }
 
   init();
