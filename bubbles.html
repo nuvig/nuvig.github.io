@@ -14,13 +14,14 @@
       font-family: 'Segoe UI', system-ui, Arial, sans-serif;
       color: #e5e5e5;
       touch-action: manipulation;
+      transition: background 0.6s;
     }
-    /* Theme backdrops (canvas decor draws on top of these) */
-    body[data-theme="neon"]       { background: #030308; }
+    /* Stage backdrops (canvas decor draws on top of these) */
     body[data-theme="underwater"] { background: linear-gradient(#02303a, #014a52 55%, #013b40); }
     body[data-theme="sketch"]     { background: #f2ecdc; color: #2b2b2b; }
-    body[data-theme="space"]      { background: linear-gradient(#010109, #0a0a2a 80%, #14063a); }
     body[data-theme="retro"]      { background: linear-gradient(#1a0533 55%, #3b0f5e 75%, #ff5e8a); }
+    body[data-theme="neon"]       { background: #030308; }
+    body[data-theme="space"]      { background: linear-gradient(#010109, #0a0a2a 80%, #14063a); }
     #game { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; cursor: crosshair; }
     #hud {
       position: fixed; top: 10px; left: 14px; right: 14px;
@@ -32,6 +33,69 @@
     #hud .best { color: #8fa3c0; font-size: 13px; }
     body[data-theme="sketch"] #hud .best { color: #6b6250; }
     #hud .lives { letter-spacing: 3px; }
+
+    /* --- Stage thermometer + multiplier ---------------------------------- */
+    #meter {
+      position: fixed; left: 12px; right: 12px; bottom: 12px;
+      display: flex; align-items: center; gap: 10px;
+      pointer-events: none;
+    }
+    #meter .thermo {
+      position: relative; flex: 1; height: 22px;
+      background: rgba(10, 16, 30, 0.72);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 11px;
+      overflow: hidden;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    body[data-theme="sketch"] #meter .thermo {
+      background: rgba(255,252,240,0.75); border-color: #2b2b2b66;
+    }
+    #meter .fill {
+      position: absolute; inset: 0 auto 0 0; width: 0%;
+      background: linear-gradient(90deg, #2a6df5, #4a9eff 60%, #7dd0ff);
+      border-radius: 11px;
+      transition: width 0.25s ease-out, background 0.6s;
+    }
+    #meter .bulb {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 22px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #7dd0ff, #2a6df5);
+      transition: background 0.6s;
+    }
+    #meter .label {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+      color: #fff; text-shadow: 0 1px 3px #000c;
+      white-space: nowrap;
+    }
+    body[data-theme="sketch"] #meter .label { color: #2b2b2b; text-shadow: none; }
+    #multi {
+      min-width: 52px; text-align: center;
+      padding: 4px 10px; border-radius: 11px;
+      background: rgba(10, 16, 30, 0.72);
+      border: 1px solid rgba(255,255,255,0.22);
+      font-size: 15px; font-weight: 700; color: #8fa3c0;
+      font-variant-numeric: tabular-nums;
+      transition: transform 0.12s, color 0.2s, border-color 0.2s;
+    }
+    #multi.hot { transform: scale(1.18); }
+    body[data-theme="sketch"] #multi { background: rgba(255,252,240,0.75); border-color: #2b2b2b66; }
+
+    /* Stage-up banner */
+    #stage-banner {
+      position: fixed; top: 22%; left: 0; right: 0;
+      text-align: center; pointer-events: none;
+      font-size: 1.9rem; font-weight: 700; letter-spacing: 0.04em;
+      text-shadow: 0 2px 12px #000;
+      opacity: 0; transform: translateY(10px);
+      transition: opacity 0.4s, transform 0.4s;
+    }
+    body[data-theme="sketch"] #stage-banner { text-shadow: none; }
+    #stage-banner.show { opacity: 1; transform: translateY(0); }
+
     #overlay {
       position: fixed; inset: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 12px;
@@ -39,7 +103,7 @@
       padding: 20px; overflow-y: auto;
     }
     #overlay h1 { margin: 0; font-size: 2rem; letter-spacing: -0.01em; }
-    #overlay p { margin: 0; color: #8fa3c0; max-width: 420px; line-height: 1.5; }
+    #overlay p { margin: 0; color: #8fa3c0; max-width: 440px; line-height: 1.5; }
     #overlay button.primary {
       margin-top: 4px; padding: 10px 26px; font-size: 1.05rem; font-weight: 600;
       background: #4a9eff; color: #fff; border: 0; border-radius: 8px; cursor: pointer;
@@ -48,13 +112,21 @@
     #overlay .final { font-size: 1.2rem; color: #e5e5e5; }
     #overlay[hidden] { display: none; }
     .coins { color: #ffd75e; font-weight: 600; }
+    #stages-list {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+      font-size: 0.8rem; color: #8fa3c0; max-width: 460px;
+    }
+    #stages-list span {
+      border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;
+      padding: 3px 10px; white-space: nowrap;
+    }
+    #stages-list span.reached { color: #22c55e; border-color: #22c55e66; }
     #shop {
       margin-top: 10px; width: min(460px, 94vw);
       background: rgba(12, 18, 32, 0.85); border: 1px solid rgba(255,255,255,0.14);
       border-radius: 14px; padding: 14px 16px; text-align: left;
     }
     #shop h2 { margin: 0 0 2px; font-size: 1.05rem; }
-    #shop h3 { margin: 12px 0 0; font-size: 0.9rem; color: #8fa3c0; text-transform: uppercase; letter-spacing: 0.06em; }
     #shop .bank { font-size: 0.85rem; color: #8fa3c0; margin-bottom: 6px; }
     .shop-item {
       display: flex; align-items: center; gap: 10px;
@@ -72,30 +144,36 @@
     .shop-item button:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
     .shop-item button:disabled { opacity: 0.45; cursor: default; }
     .shop-item button.owned { color: #22c55e; }
-    .shop-item button.equip { color: #7db7ff; }
-    .shop-item button.equipped { color: #22c55e; border-color: #22c55e55; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
   <div id="hud">
-    <span>Score: <span id="score">0</span> <span id="combo"></span></span>
+    <span>Score: <span id="score">0</span></span>
     <span class="lives" id="lives"></span>
     <span class="best">🫧 <span class="coins" id="hud-coins">0</span> · Best: <span id="best">0</span></span>
   </div>
+  <div id="meter" hidden>
+    <div class="thermo">
+      <div class="fill" id="meter-fill"></div>
+      <div class="bulb" id="meter-bulb"></div>
+      <div class="label" id="meter-label"></div>
+    </div>
+    <div id="multi">×1</div>
+  </div>
+  <div id="stage-banner"></div>
   <div id="overlay">
     <h1>Bubble Pop</h1>
-    <p id="overlay-msg">Pop bubbles before they float away. Small bubbles score more,
-      quick streaks build a combo. Every point you score becomes a coin to spend below.</p>
+    <p id="overlay-msg">Pop bubbles before they float away — small ones score more, quick
+      streaks build your multiplier. Fill the thermometer to reach the next stage: every
+      stage is a new world, and a faster one. Points become coins for the shop.</p>
     <p class="final" id="final" hidden></p>
+    <div id="stages-list"></div>
     <button id="start" class="primary">Play</button>
     <div id="shop">
       <h2>Shop</h2>
       <div class="bank">Coins: <span class="coins" id="shop-coins">0</span> — earned from your final score each game</div>
-      <h3>Upgrades</h3>
       <div id="shop-items"></div>
-      <h3>Themes</h3>
-      <div id="theme-items"></div>
     </div>
   </div>
 
@@ -104,31 +182,32 @@
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
-    const comboEl = document.getElementById('combo');
     const livesEl = document.getElementById('lives');
     const bestEl = document.getElementById('best');
     const hudCoinsEl = document.getElementById('hud-coins');
     const shopCoinsEl = document.getElementById('shop-coins');
     const shopItemsEl = document.getElementById('shop-items');
-    const themeItemsEl = document.getElementById('theme-items');
+    const stagesListEl = document.getElementById('stages-list');
+    const meterEl = document.getElementById('meter');
+    const meterFill = document.getElementById('meter-fill');
+    const meterBulb = document.getElementById('meter-bulb');
+    const meterLabel = document.getElementById('meter-label');
+    const multiEl = document.getElementById('multi');
+    const bannerEl = document.getElementById('stage-banner');
     const overlay = document.getElementById('overlay');
     const overlayMsg = document.getElementById('overlay-msg');
     const finalEl = document.getElementById('final');
     const startBtn = document.getElementById('start');
 
-    // --- Persistent save: coins bank, upgrades, owned/equipped themes ------
+    // --- Persistent save: coins bank + upgrades (themes are earned in-run) --
     const SAVE_KEY = 'bubbles_save';
-    let save = { coins: 0, best: 0, life: 0, finger: 0, gold: 0,
-                 themes: { classic: 1 }, theme: 'classic' };
+    let save = { coins: 0, best: 0, bestStage: 0, life: 0, finger: 0, gold: 0 };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
-      Object.assign(save, s);
-      save.themes = Object.assign({ classic: 1 }, s.themes || {});
-      if (s.neon) save.themes.neon = 1; // migrate the old Neon Skin purchase
+      for (const k of Object.keys(save)) if (typeof s[k] === 'number') save[k] = s[k];
     } catch {}
     const oldBest = parseInt(localStorage.getItem('bubbles_best') || '0', 10);
     if (oldBest > save.best) save.best = oldBest;
-    if (!save.themes[save.theme]) save.theme = 'classic';
     function persist() { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
 
     const SHOP = [
@@ -140,33 +219,102 @@
         desc: 'Rare gold bubbles worth 3× points start appearing.' },
     ];
 
-    // Each theme styles the page, picks bubble colors, and can draw canvas
-    // decor behind the bubbles. `style` selects the bubble renderer.
-    const THEMES = {
-      classic:    { name: 'Classic',    cost: 0,    desc: 'The original deep-sea blue.',
-                    style: 'glossy', hue: () => 190 + Math.random() * 80 },
-      neon:       { name: 'Neon',       cost: 800,  desc: 'Full-spectrum glow on black.',
-                    style: 'neon',   hue: () => Math.random() * 360 },
-      underwater: { name: 'Underwater', cost: 1000, desc: 'Sunbeams, seaweed and sea-glass bubbles.',
-                    style: 'glossy', hue: () => 150 + Math.random() * 60 },
-      sketch:     { name: 'Hand-drawn', cost: 1200, desc: 'Ink doodles on paper.',
-                    style: 'sketch', hue: () => 0 },
-      space:      { name: 'Deep Space', cost: 1500, desc: 'Pop planets in a starfield.',
-                    style: 'planet', hue: () => Math.random() * 360 },
-      retro:      { name: 'Synthwave',  cost: 1000, desc: 'Pink sun, cyan grid, 1986 forever.',
-                    style: 'neon',   hue: () => Math.random() < 0.5 ? 315 + Math.random() * 25 : 175 + Math.random() * 25 },
-    };
-    const theme = () => THEMES[save.theme] || THEMES.classic;
-    function applyTheme() {
-      document.body.dataset.theme = save.theme;
-      decor = null; // rebuild decor for the new theme
+    // --- Stages: each is a theme + difficulty step. `goal` is the total score
+    // that ends the stage; the thermometer fills across the current bracket.
+    const STAGES = [
+      { key: 'classic',    name: 'The Shallows',  goal: 400,      speed: 1.0,  spawn: 1.0,
+        style: 'glossy', hue: () => 190 + Math.random() * 80,
+        bar: ['#2a6df5', '#7dd0ff'] },
+      { key: 'underwater', name: 'The Reef',      goal: 1200,     speed: 1.15, spawn: 0.9,
+        style: 'glossy', hue: () => 150 + Math.random() * 60,
+        bar: ['#0e7a6c', '#3ee6c4'] },
+      { key: 'sketch',     name: 'The Notebook',  goal: 3000,     speed: 1.3,  spawn: 0.8,
+        style: 'sketch', hue: () => 0,
+        bar: ['#6b6250', '#2b2b2b'] },
+      { key: 'retro',      name: 'The Grid',      goal: 6000,     speed: 1.5,  spawn: 0.7,
+        style: 'neon',   hue: () => Math.random() < 0.5 ? 315 + Math.random() * 25 : 175 + Math.random() * 25,
+        bar: ['#ff2e88', '#5af0ff'] },
+      { key: 'neon',       name: 'The Afterglow', goal: 10000,    speed: 1.75, spawn: 0.6,
+        style: 'neon',   hue: () => Math.random() * 360,
+        bar: ['#a34aff', '#4aff9e'] },
+      { key: 'space',      name: 'Deep Space',    goal: Infinity, speed: 2.0,  spawn: 0.5,
+        style: 'planet', hue: () => Math.random() * 360,
+        bar: ['#ffd75e', '#ff7a3c'] },
+    ];
+    let stage = 0;
+    const cur = () => STAGES[stage];
+
+    function applyStage() {
+      document.body.dataset.theme = cur().key;
+      const [c0, c1] = cur().bar;
+      meterFill.style.background = `linear-gradient(90deg, ${c0}, ${c1})`;
+      meterBulb.style.background = `radial-gradient(circle at 35% 35%, ${c1}, ${c0})`;
+      decor = null;
+      updateMeter();
+    }
+
+    let bannerTimer = null;
+    function showBanner(text) {
+      bannerEl.textContent = text;
+      bannerEl.classList.add('show');
+      clearTimeout(bannerTimer);
+      bannerTimer = setTimeout(() => bannerEl.classList.remove('show'), 1800);
+    }
+
+    function stageUpSound() { tone(600, 1200, 0.25, 0.22); tone(900, 1800, 0.35, 0.14); }
+
+    function checkStage() {
+      while (score >= cur().goal && stage < STAGES.length - 1) {
+        stage++;
+        applyStage();
+        stageUpSound();
+        showBanner(`Stage ${stage + 1} — ${cur().name}`);
+      }
+      if (stage > save.bestStage) { save.bestStage = stage; persist(); }
+    }
+
+    function updateMeter() {
+      const prev = stage === 0 ? 0 : STAGES[stage - 1].goal;
+      const goal = cur().goal;
+      if (goal === Infinity) {
+        meterFill.style.width = '100%';
+        meterLabel.textContent = `Stage ${stage + 1} · ${cur().name} — ${score.toLocaleString()} pts · endless`;
+      } else {
+        const frac = Math.min(1, Math.max(0, (score - prev) / (goal - prev)));
+        meterFill.style.width = `${(frac * 100).toFixed(1)}%`;
+        meterLabel.textContent = `Stage ${stage + 1} · ${cur().name} — ${score.toLocaleString()} / ${goal.toLocaleString()}`;
+      }
+    }
+
+    let lastCombo = 1;
+    function updateMulti() {
+      multiEl.textContent = `×${Math.max(combo, 1)}`;
+      // heat: gray → warm as the multiplier climbs
+      const heat = Math.min(combo, 12) / 12;
+      multiEl.style.color = combo > 1 ? `hsl(${45 - heat * 45}, 100%, ${65 - heat * 8}%)` : '';
+      multiEl.style.borderColor = combo > 1 ? `hsla(${45 - heat * 45}, 100%, 60%, 0.6)` : '';
+      if (combo > lastCombo) {
+        multiEl.classList.add('hot');
+        setTimeout(() => multiEl.classList.remove('hot'), 130);
+      }
+      lastCombo = combo;
+    }
+
+    function renderStagesList() {
+      stagesListEl.innerHTML = '';
+      STAGES.forEach((s, i) => {
+        const chip = document.createElement('span');
+        chip.textContent = `${i + 1}. ${s.name}`;
+        if (i <= save.bestStage && (save.best > 0 || save.bestStage > 0)) chip.className = 'reached';
+        stagesListEl.appendChild(chip);
+      });
     }
 
     function renderShop() {
       hudCoinsEl.textContent = save.coins.toLocaleString();
       shopCoinsEl.textContent = save.coins.toLocaleString();
       bestEl.textContent = save.best;
-
+      renderStagesList();
       shopItemsEl.innerHTML = '';
       for (const item of SHOP) {
         const lvl = save[item.key];
@@ -197,45 +345,6 @@
         row.append(info, btn);
         shopItemsEl.appendChild(row);
       }
-
-      themeItemsEl.innerHTML = '';
-      for (const [key, t] of Object.entries(THEMES)) {
-        const row = document.createElement('div');
-        row.className = 'shop-item';
-        const info = document.createElement('div');
-        info.className = 'info';
-        info.innerHTML = `<div class="name">${t.name}</div><div class="desc">${t.desc}</div>`;
-        const btn = document.createElement('button');
-        if (!save.themes[key]) {
-          btn.textContent = `🫧 ${t.cost.toLocaleString()}`;
-          btn.disabled = save.coins < t.cost;
-          btn.addEventListener('click', () => {
-            if (save.coins < t.cost) return;
-            save.coins -= t.cost;
-            save.themes[key] = 1;
-            save.theme = key;
-            persist();
-            buySound();
-            applyTheme();
-            renderShop();
-          });
-        } else if (save.theme === key) {
-          btn.textContent = 'Equipped ✓';
-          btn.className = 'equipped';
-          btn.disabled = true;
-        } else {
-          btn.textContent = 'Equip';
-          btn.className = 'equip';
-          btn.addEventListener('click', () => {
-            save.theme = key;
-            persist();
-            applyTheme();
-            renderShop();
-          });
-        }
-        row.append(info, btn);
-        themeItemsEl.appendChild(row);
-      }
     }
 
     // --- Game state ---------------------------------------------------------
@@ -243,7 +352,7 @@
     let bubbles = [], pops = [];
     let score = 0, combo = 0, comboAt = 0, lives = 5;
     let running = false, spawnTimer = 0, elapsed = 0, animId = null, lastT = 0;
-    let decor = null; // per-theme background props, rebuilt on resize/theme
+    let decor = null; // per-stage background props, rebuilt on resize/stage
 
     const maxLives = () => 5 + save.life;
     const hitPad = () => 8 + save.finger * 6;
@@ -291,12 +400,13 @@
         y: H + r,
         r,
         golden,
-        speed: (0.6 + Math.random() * 0.8) * (1 + elapsed / 90) * (golden ? 1.35 : 1),
+        speed: (0.6 + Math.random() * 0.8) * cur().speed * (1 + elapsed / 240) * (golden ? 1.35 : 1),
         wobblePhase: Math.random() * Math.PI * 2,
         wobbleAmp: 10 + Math.random() * 20,
-        hue: golden ? 48 : theme().hue(),
-        ring: Math.random() < 0.3,            // planets: has a ring
-        seed: Math.random() * 10,             // sketch: stable wobble
+        hue: golden ? 48 : cur().hue(),
+        style: golden ? 'glossy' : cur().style, // bubbles keep their birth style
+        ring: Math.random() < 0.3,              // planets: has a ring
+        seed: Math.random() * 10,               // sketch: stable wobble
       });
     }
 
@@ -310,13 +420,15 @@
       score += pts;
       pops.push({ x: b.x, y: b.y, r: b.r, hue: b.hue, life: 1, pts, golden: b.golden });
       popSound(b.r, b.golden);
+      checkStage();
       updateHud();
     }
 
     function updateHud() {
       scoreEl.textContent = score;
-      comboEl.textContent = combo > 1 ? `×${combo}` : '';
       livesEl.textContent = '●'.repeat(lives) + '○'.repeat(maxLives() - lives);
+      updateMeter();
+      updateMulti();
     }
 
     function onPointerDown(e) {
@@ -329,9 +441,9 @@
     }
     canvas.addEventListener('pointerdown', onPointerDown);
 
-    // --- Theme decor: drawn behind bubbles each frame -----------------------
+    // --- Stage decor: drawn behind bubbles each frame ------------------------
     function buildDecor() {
-      const t = save.theme;
+      const t = cur().key;
       decor = { theme: t };
       if (t === 'space' || t === 'neon') {
         decor.stars = Array.from({ length: t === 'space' ? 140 : 50 }, () => ({
@@ -350,7 +462,7 @@
     }
 
     function drawDecor(now) {
-      if (!decor || decor.theme !== save.theme) buildDecor();
+      if (!decor || decor.theme !== cur().key) buildDecor();
       const t = decor.theme;
       if (t === 'space' || t === 'neon') {
         for (const s of decor.stars) {
@@ -417,12 +529,11 @@
       }
     }
 
-    // --- Bubble renderers per theme style ------------------------------------
+    // --- Bubble renderers per stage style -------------------------------------
     function drawBubble(b) {
-      const style = b.golden ? 'glossy' : theme().style;
-      if (style === 'neon') return drawNeon(b);
-      if (style === 'sketch') return drawSketch(b);
-      if (style === 'planet') return drawPlanet(b);
+      if (b.style === 'neon') return drawNeon(b);
+      if (b.style === 'sketch') return drawSketch(b);
+      if (b.style === 'planet') return drawPlanet(b);
       drawGlossy(b);
     }
 
@@ -502,7 +613,7 @@
 
     function popTextColor(p, alpha) {
       if (p.golden) return `rgba(255,215,94,${alpha})`;
-      if (save.theme === 'sketch') return `rgba(43,43,43,${alpha})`;
+      if (cur().key === 'sketch') return `rgba(43,43,43,${alpha})`;
       return `rgba(255,255,255,${alpha})`;
     }
 
@@ -516,8 +627,8 @@
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         spawnBubble();
-        // spawn faster over time: ~1.1 s down to ~0.35 s
-        spawnTimer = Math.max(21, 66 - elapsed * 1.5) * (0.7 + Math.random() * 0.6);
+        // base cadence ~1.1 s, scaled down per stage and slowly within a run
+        spawnTimer = Math.max(18, 66 * cur().spawn - elapsed * 0.5) * (0.7 + Math.random() * 0.6);
       }
 
       for (let i = bubbles.length - 1; i >= 0; i--) {
@@ -538,7 +649,7 @@
       }
 
       // pop effects: expanding ring + points float
-      const ink = save.theme === 'sketch';
+      const ink = cur().key === 'sketch';
       for (let i = pops.length - 1; i >= 0; i--) {
         const p = pops[i];
         p.life -= 0.045 * dt;
@@ -561,8 +672,11 @@
     function start() {
       bubbles = []; pops = [];
       score = 0; combo = 0; lives = maxLives(); elapsed = 0; spawnTimer = 0;
+      stage = 0;
+      applyStage();
       updateHud();
       overlay.hidden = true;
+      meterEl.hidden = false;
       running = true;
       lastT = performance.now();
       animId = requestAnimationFrame(update);
@@ -571,12 +685,14 @@
     function gameOver() {
       running = false;
       if (animId) cancelAnimationFrame(animId);
+      meterEl.hidden = true;
       save.coins += score;
+      const stageNote = ` · reached Stage ${stage + 1} (${cur().name})`;
       if (score > save.best) {
         save.best = score;
-        finalEl.textContent = `New best: ${score} 🎉 (+${score.toLocaleString()} coins)`;
+        finalEl.textContent = `New best: ${score} 🎉${stageNote} (+${score.toLocaleString()} coins)`;
       } else {
-        finalEl.textContent = `Final score: ${score} (+${score.toLocaleString()} coins)`;
+        finalEl.textContent = `Final score: ${score}${stageNote} (+${score.toLocaleString()} coins)`;
       }
       persist();
       finalEl.hidden = false;
@@ -587,7 +703,7 @@
     }
 
     startBtn.addEventListener('click', start);
-    applyTheme();
+    document.body.dataset.theme = 'classic';
     renderShop();
   </script>
 </body>
