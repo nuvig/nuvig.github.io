@@ -41,7 +41,7 @@ ATC_DIR = os.environ.get("KANP_ATC_DIR", "/var/lib/kanp/atc")
 FEEDS_RAW = os.environ.get(
     "KANP_ATC_FEEDS",
     "kbwi_es_app_124550|Potomac Approach GRACO|124.550;"
-    "kbwi_es_app_125525|Potomac Approach BELAY|125.525;"
+    "kbwi_es_twr|Baltimore Tower|119.400;"
     "kbwi_es_final|Potomac BWI Final|119.0/119.7",
 )
 STREAM_BASE = os.environ.get("KANP_ATC_STREAM_BASE", "https://d.liveatc.net")

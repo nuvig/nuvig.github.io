@@ -24,6 +24,7 @@ Options:
 
 import argparse
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
@@ -92,6 +93,11 @@ def main():
     ap.add_argument("--device", default="cpu",
                     help="cpu (default) or cuda — cuda needs the NVIDIA "
                          "cuBLAS/cuDNN 12 libraries installed")
+    ap.add_argument("--workers", type=int, default=0,
+                    help="parallel transcriptions (default: cpu_count/4, "
+                         "each worker uses ~4 threads)")
+    ap.add_argument("--beam", type=int, default=3,
+                    help="beam size — 1 is fastest, 5 most accurate")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--vocab", default=os.path.join(os.path.dirname(__file__),
                                                     "atc_vocab.txt"),
@@ -105,9 +111,11 @@ def main():
     except ImportError:
         sys.exit("faster-whisper not installed — run: pip install faster-whisper")
 
-    print(f"loading {args.model} …", flush=True)
+    workers = args.workers or max(1, (os.cpu_count() or 4) // 4)
+    print(f"loading {args.model} ({workers} worker(s)) …", flush=True)
     model = WhisperModel(args.model, device=args.device,
-                         compute_type="int8" if args.device == "cpu" else "auto")
+                         compute_type="int8" if args.device == "cpu" else "auto",
+                         cpu_threads=4, num_workers=workers)
     print(f"polling {base} for untranscribed clips", flush=True)
 
     done = errors = 0
@@ -150,25 +158,31 @@ def main():
         hotwords = " ".join(vocab + callsigns[:25]) or None
         # Transcribe the whole batch, then store it in ONE POST — each store
         # rewrites day files on the Pi's SD card, so per-clip posts thrash it.
-        updates = []
-        for rec in pending:
+        def do_one(rec):
             clip = rec["clip"]
-            try:
-                with urllib.request.urlopen(
-                        f"{base}/api/atc/clip?f={urllib.parse.quote(clip)}",
-                        timeout=60) as res:
-                    wav = io.BytesIO(res.read())
-                segments, _ = model.transcribe(
-                    wav, language="en", beam_size=5, vad_filter=False,
-                    initial_prompt=prompt, hotwords=hotwords)
-                text = " ".join(s.text.strip() for s in segments).strip()
-                updates.append({"clip": clip, "text": text or "[unreadable]"})
-                print(f"  {clip}  {rec.get('dur', '?')}s: {text[:100]}", flush=True)
-            except Exception as e:
-                errors += 1
-                print(f"  {clip}: FAILED ({e})", flush=True)
-                if errors > 20 and errors > done:
-                    sys.exit("too many failures — check the Pi API and try again")
+            with urllib.request.urlopen(
+                    f"{base}/api/atc/clip?f={urllib.parse.quote(clip)}",
+                    timeout=60) as res:
+                audio = io.BytesIO(res.read())
+            segments, _ = model.transcribe(
+                audio, language="en", beam_size=args.beam, vad_filter=False,
+                initial_prompt=prompt, hotwords=hotwords)
+            text = " ".join(s.text.strip() for s in segments).strip()
+            print(f"  {clip}  {rec.get('dur', '?')}s: {text[:100]}", flush=True)
+            return {"clip": clip, "text": text or "[unreadable]"}
+
+        updates = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(do_one, r): r for r in pending}
+            for fut in as_completed(futures):
+                try:
+                    updates.append(fut.result())
+                except Exception as e:
+                    errors += 1
+                    print(f"  {futures[fut]['clip']}: FAILED ({e})", flush=True)
+                    if errors > 20 and errors > done:
+                        sys.exit("too many failures — check the Pi API "
+                                 "and try again")
         if updates:
             res = api_json(f"{base}/api/atc/text", {"updates": updates})
             done += res.get("stored", 0)
