@@ -635,15 +635,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def serve_clip(self, rel):
         full = os.path.abspath(os.path.join(ATC_DIR, rel))
+        ext = os.path.splitext(full)[1]
         if (not full.startswith(os.path.abspath(ATC_DIR) + os.sep)
-                or not full.endswith(".wav") or not os.path.isfile(full)):
+                or ext not in (".wav", ".mp3") or not os.path.isfile(full)):
             self.send_json({"error": "not found"}, 404)
             return
         with open(full, "rb") as f:
             body = f.read()
         self.send_response(200)
         self.send_cors()
-        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Type",
+                         "audio/mpeg" if ext == ".mp3" else "audio/wav")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=86400")
         self.end_headers()

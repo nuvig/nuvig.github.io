@@ -90,13 +90,25 @@ def rms(block):
     return int(math.sqrt(sum(s * s for s in samples) / n))
 
 
-def write_wav(path, pcm):
+def write_clip(path, pcm):
+    """Encode raw PCM to MP3 via ffmpeg (~25x smaller than WAV for voice).
+    Falls back to WAV if the encode fails so audio is never lost."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes(pcm)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+             "-f", "s16le", "-ar", str(RATE), "-ac", "1", "-i", "-",
+             "-b:a", "24k", path],
+            input=pcm, check=True, timeout=60)
+        return path
+    except (subprocess.SubprocessError, OSError):
+        wav_path = path[:-4] + ".wav"
+        with wave.open(wav_path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(pcm)
+        return wav_path
 
 
 # --- transcription worker (one queue, whisper runs serialized) --------------
@@ -184,9 +196,9 @@ def capture_feed(feed, stop):
                 return
             day = datetime.fromtimestamp(rec_start).strftime("%Y-%m-%d")
             name = datetime.fromtimestamp(rec_start).strftime("%H-%M-%S.%f")[:-4]
-            wav_path = os.path.join(ATC_DIR, mount, day, name + ".wav")
-            write_wav(wav_path, pcm)
-            tx_queue.put((mount, rec_start, dur, wav_path))
+            clip_path = os.path.join(ATC_DIR, mount, day, name + ".mp3")
+            clip_path = write_clip(clip_path, pcm)
+            tx_queue.put((mount, rec_start, dur, clip_path))
 
         while not stop.is_set():
             block = proc.stdout.read(BLOCK_BYTES)
