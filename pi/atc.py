@@ -142,6 +142,12 @@ def transcriber_loop():
         jsonl = os.path.join(ATC_DIR, mount, f"{day}.jsonl")
         os.makedirs(os.path.dirname(jsonl), exist_ok=True)
         with open(jsonl, "a") as f:
+            # flock against server.py's POST /api/atc/text rewrite
+            try:
+                import fcntl
+                fcntl.flock(f, fcntl.LOCK_EX)
+            except ImportError:
+                pass
             f.write(json.dumps(rec) + "\n")
         backlog = tx_queue.qsize()
         log(f"[{mount}] {datetime.fromtimestamp(ts):%H:%M:%S} "

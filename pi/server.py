@@ -19,6 +19,9 @@ Endpoints (all support CORS):
   GET /api/atc/status    ATC recorder feeds + available days (atc.py)
   GET /api/atc/log       transmissions for one day (?day=YYYY-MM-DD[&mount=])
   GET /api/atc/clip      one audio clip (?f=mount/day/file.wav)
+  GET /api/atc/pending   oldest clips still lacking a transcript
+  POST /api/atc/text     store a transcript {clip, text} (PC-side whisper —
+                         see pc/atc_transcribe.py)
 
 Common filter query params (tracks / stats / aircraft / export):
   start, end       unix epoch seconds (default: last 24 h)
@@ -424,6 +427,74 @@ def q_atc_log(q):
     return {"day": day, "count": len(out), "transmissions": out}
 
 
+def _locked(f):
+    """flock a jsonl file handle (no-op on platforms without fcntl)."""
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_EX)
+    except ImportError:
+        pass
+
+
+def q_atc_pending(q):
+    """Oldest clips whose transcript is still empty, across all feeds/days."""
+    limit = min(int(q.get("limit", 25)), 200)
+    try:
+        with open(os.path.join(ATC_DIR, "feeds.json")) as f:
+            feeds = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"pending": [], "total": 0}
+    out = []
+    for feed in feeds:
+        mdir = os.path.join(ATC_DIR, feed["mount"])
+        if not os.path.isdir(mdir):
+            continue
+        for entry in sorted(os.listdir(mdir)):
+            if not entry.endswith(".jsonl"):
+                continue
+            with open(os.path.join(mdir, entry)) as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not rec.get("text"):
+                        out.append(rec)
+    out.sort(key=lambda r: r.get("ts", 0))
+    return {"pending": out[:limit], "total": len(out)}
+
+
+def atc_store_text(body):
+    """Fill in the transcript for one clip (rewrites its day's jsonl)."""
+    clip = body.get("clip", "")
+    text = " ".join(str(body.get("text", "")).split())
+    parts = clip.split("/")
+    if len(parts) != 3 or ".." in clip:
+        raise ValueError("bad clip path")
+    mount, day, _ = parts
+    jsonl = os.path.join(ATC_DIR, mount, f"{day}.jsonl")
+    with open(jsonl, "r+") as f:
+        _locked(f)
+        recs = []
+        found = False
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("clip") == clip:
+                rec["text"] = text
+                found = True
+            recs.append(rec)
+        if not found:
+            raise ValueError("clip not found in log")
+        f.seek(0)
+        f.truncate()
+        for rec in recs:
+            f.write(json.dumps(rec) + "\n")
+    return {"ok": True, "clip": clip}
+
+
 def q_status():
     out = {"db_path": DB_PATH}
     try:
@@ -482,6 +553,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):
+        if urllib.parse.urlparse(self.path).path != "/api/atc/text":
+            self.send_json({"error": "unknown endpoint"}, 404)
+            return
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(min(n, 1_000_000)))
+            self.send_json(atc_store_text(body))
+        except (ValueError, OSError, json.JSONDecodeError) as e:
+            self.send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_cors()
@@ -510,6 +594,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(q_atc_log(q))
             elif path == "/api/atc/clip":
                 self.serve_clip(q.get("f", ""))
+            elif path == "/api/atc/pending":
+                self.send_json(q_atc_pending(q))
             elif path == "/api/export.csv":
                 self.send_response(200)
                 self.send_cors()

@@ -11,6 +11,12 @@ ExecStart=/usr/bin/python3 /opt/kanp/pi/atc.py
 Restart=always
 RestartSec=15
 
+# Transcription is optional on the Pi (a 32-bit Pi can't keep up — see
+# pc/atc_transcribe.py). If whisper does run here, keep it from ever
+# starving the collector/API.
+Nice=15
+CPUWeight=20
+
 # Feeds, whisper paths, retention — see pi/site.env.example
 EnvironmentFile=-/etc/kanp/site.env
 
