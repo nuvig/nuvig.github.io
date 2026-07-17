@@ -33,6 +33,47 @@ import urllib.request
 
 POLL_SECONDS = 30
 
+# ICAO airline code -> radio telephony callsign, for biasing whisper toward
+# what's actually said on frequency ("Southwest twenty-two eleven", never
+# "SWA2211"). Common traffic in Potomac/BWI airspace.
+TELEPHONY = {
+    "SWA": "Southwest", "AAL": "American", "DAL": "Delta", "UAL": "United",
+    "JBU": "JetBlue", "NKS": "Spirit", "FFT": "Frontier", "ASA": "Alaska",
+    "FDX": "FedEx", "UPS": "UPS", "GTI": "Giant", "ABX": "Abex",
+    "RPA": "Brickyard", "EDV": "Endeavor", "SKW": "SkyWest", "ENY": "Envoy",
+    "PDT": "Piedmont", "JIA": "Blue Streak", "AWI": "Wisconsin",
+    "MXY": "Moxy", "SCX": "Sun Country", "VXP": "Avelo", "EJA": "ExecJet",
+    "LXJ": "Flexjet", "JTL": "Jet Linx", "XOJ": "Exojet", "DPJ": "Red Star",
+}
+
+DIGIT_WORDS = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+               "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "niner"}
+
+
+def spoken_callsigns(aircraft):
+    """Airline flights -> telephony + flight number; GA N-numbers as-is."""
+    out = []
+    for ac in aircraft:
+        for cs in (ac.get("callsigns") or "").split(","):
+            cs = cs.strip()
+            if not cs:
+                continue
+            tel = TELEPHONY.get(cs[:3])
+            if tel and cs[3:].isdigit():
+                out.append(f"{tel} {cs[3:].lstrip('0')}")
+            elif cs.startswith("N"):
+                out.append(cs)  # e.g. N734JL — biases the letter/digit string
+    return list(dict.fromkeys(out))  # dedupe, keep order
+
+
+def load_vocab(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [ln.strip() for ln in f
+                    if ln.strip() and not ln.lstrip().startswith("#")]
+    except OSError:
+        return []
+
 
 def api_json(url, payload=None):
     req = urllib.request.Request(url)
@@ -52,7 +93,11 @@ def main():
                     help="cpu (default) or cuda — cuda needs the NVIDIA "
                          "cuBLAS/cuDNN 12 libraries installed")
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--vocab", default=os.path.join(os.path.dirname(__file__),
+                                                    "atc_vocab.txt"),
+                    help="local fixes/SIDs/STARs/airports, one per line")
     args = ap.parse_args()
+    vocab = load_vocab(args.vocab)
     base = args.api.rstrip("/")
 
     try:
@@ -82,6 +127,27 @@ def main():
             continue
 
         print(f"{batch['total']} clips pending", flush=True)
+
+        # Live callsign cross-reference: who was actually flying nearby while
+        # this batch was recorded? (tracker DB via /api/aircraft)
+        callsigns = []
+        try:
+            t0 = min(r["ts"] for r in pending) - 600
+            t1 = max(r["ts"] for r in pending) + 600
+            acs = api_json(f"{base}/api/aircraft?start={int(t0)}&end={int(t1)}")
+            callsigns = spoken_callsigns(acs.get("aircraft", []))
+        except (OSError, ValueError) as e:
+            print(f"  (callsign lookup failed: {e})", flush=True)
+
+        # Whisper biasing: a phraseology-styled prompt plus local terms and
+        # the callsigns known to be airborne. Prompt budget is ~224 tokens,
+        # so callsigns are capped.
+        prompt = ("Air traffic control radio. Potomac Approach, Baltimore. "
+                  "Cleared ILS runway one zero left, squawk four five two one, "
+                  "descend and maintain three thousand, contact tower. "
+                  + " ".join(vocab) + ". Aircraft on frequency: "
+                  + ", ".join(callsigns[:25]) + ".")
+        hotwords = " ".join(vocab + callsigns[:25]) or None
         # Transcribe the whole batch, then store it in ONE POST — each store
         # rewrites day files on the Pi's SD card, so per-clip posts thrash it.
         updates = []
@@ -94,7 +160,7 @@ def main():
                     wav = io.BytesIO(res.read())
                 segments, _ = model.transcribe(
                     wav, language="en", beam_size=5, vad_filter=False,
-                    initial_prompt="Air traffic control radio communication.")
+                    initial_prompt=prompt, hotwords=hotwords)
                 text = " ".join(s.text.strip() for s in segments).strip()
                 updates.append({"clip": clip, "text": text or "[unreadable]"})
                 print(f"  {clip}  {rec.get('dur', '?')}s: {text[:100]}", flush=True)

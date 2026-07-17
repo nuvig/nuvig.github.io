@@ -1,0 +1,44 @@
+# Local aviation vocabulary for whisper biasing (pc/atc_transcribe.py).
+# One term per line, '#' comments. Keep it tight — whisper's prompt window
+# is ~224 tokens and the live callsigns share it; prefer terms actually
+# heard on GRACO/BELAY/BWI Final.
+#
+# TODO(Jesse): paste in the current BWI SID/STAR fix names from the charts
+# (skyvector or the FAA d-TPP) — I've only seeded the ones I'm sure of.
+
+# Facilities / sectors
+Potomac Approach
+Baltimore Approach
+Potomac Departure
+GRACO
+BELAY
+BUFFR
+
+# Airports and places
+Baltimore
+BWI
+Annapolis
+Lee Airport
+Tipton
+Martin State
+Easton
+Kent Island
+Bay Bridge
+Sandy Point
+Fort Meade
+
+# Navaids / fixes (confirm against current charts)
+Nottingham
+Baltimore VOR
+TERPZ
+RAVNN
+ANTRM
+
+# Phraseology that gets garbled
+squawk
+ident
+localizer
+glideslope
+wilco
+unable
+niner
