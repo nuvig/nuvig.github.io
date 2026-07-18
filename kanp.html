@@ -680,6 +680,49 @@
       </div>
     </div>
 
+    <!-- ---- climb-out comparison ---- -->
+    <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      Climb-out comparison
+      <input type="text" id="climb-reg" value="N3037E" placeholder="highlight reg"
+             style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                    padding:4px 7px;font-size:12px;width:90px;font-family:inherit">
+      <button class="btn" id="climb-load" style="padding:4px 12px;font-size:12px">Analyze climbs</button>
+    </div>
+    <div class="result-line" id="climb-result">
+      Extracts every departure's initial climb and plots altitude gained vs distance
+      from liftoff — compare one aircraft's climb gradient on a hot, high-density-altitude
+      day against other days and other aircraft. Uses the date/day/hour filters above.
+      Altitudes are ADS-B pressure altitude; the dashed lines are reference gradients.
+    </div>
+
+    <div id="climb-out" style="display:none">
+      <div class="card">
+        <canvas id="climb-chart" class="chart" style="height:320px"></canvas>
+        <div style="font-size:12px;color:#888;margin-top:8px" id="climb-summary"></div>
+      </div>
+      <div class="section-title">Ranking by aircraft <span style="font-weight:400;color:#555;font-size:12px">· best median climb gradient first · click a row to highlight that aircraft on the chart</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="climb-rank">
+          <thead><tr>
+            <th>#</th><th>Reg</th><th>Type</th><th>Climbs</th>
+            <th>Median (ft/nm)</th><th>Best</th><th>Worst</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Departures <span style="font-weight:400;color:#555;font-size:12px">· hover a row to highlight its curve · gradient measured to 500 ft above liftoff</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="climb-table">
+          <thead><tr>
+            <th>Time</th><th>Reg</th><th>Type</th><th>RWY</th>
+            <th>Gradient (ft/nm)</th><th>nm to 500 ft</th><th>Avg GS (kt)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="study-charts" style="display:none">
       <div class="section-title" style="display:flex;align-items:center;gap:12px">
         <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
@@ -735,5 +778,6 @@
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js"></script>
+  <script src="js/kanp-climb.js"></script>
 </body>
 </html>
