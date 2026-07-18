@@ -36,6 +36,7 @@ const SITE = {
       axisTrue: 107,
       names: ['12', '30'],    // names[0] = axisTrue direction, names[1] = reciprocal
       pattern: 'L',           // traffic-pattern side (both ends) — assume, don't infer
+      papiDeg: 4.25,          // PAPI glidepath angle, both ends (steep — obstacles)
     },
 
     // Local rule: at KANP touch-and-gos are not permitted, so a

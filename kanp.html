@@ -723,6 +723,41 @@
       </div>
     </div>
 
+    <!-- ---- straight-in comparison ---- -->
+    <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      Straight-in comparison
+      <select id="final-rwy"
+              style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                     padding:4px 7px;font-size:12px;font-family:inherit">
+        <option value="30" selected>RWY 30</option>
+        <option value="12">RWY 12</option>
+      </select>
+      <button class="btn" id="final-load" style="padding:4px 12px;font-size:12px">Analyze finals</button>
+    </div>
+    <div class="result-line" id="final-result">
+      Ranks straight-in arrivals by how precisely they tracked the extended
+      centerline: only approaches established beyond pattern distance qualify;
+      best = smallest average lateral offset over the last 3 nm. Top panel:
+      vertical profile vs the PAPI reference glidepath; bottom: lateral offset.
+      Uses the date/day/hour filters above.
+    </div>
+
+    <div id="final-out" style="display:none">
+      <div class="card">
+        <canvas id="final-chart" class="chart" style="height:544px"></canvas>
+      </div>
+      <div class="section-title">Straight-in ranking <span style="font-weight:400;color:#555;font-size:12px">· hover a row to highlight its approach · offset averaged over 0.5–3 nm final</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="final-table">
+          <thead><tr>
+            <th>#</th><th>Time</th><th>Reg</th><th>Type</th>
+            <th>Avg offset (ft)</th><th>Established (nm)</th><th>Glidepath</th><th>vs PAPI (ft)</th><th>Avg GS (kt)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="study-charts" style="display:none">
       <div class="section-title" style="display:flex;align-items:center;gap:12px">
         <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
@@ -779,5 +814,6 @@
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js"></script>
   <script src="js/kanp-climb.js"></script>
+  <script src="js/kanp-final.js"></script>
 </body>
 </html>
