@@ -97,7 +97,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       'IFR Enroute High': L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/IFR_High/MapServer/tile/{z}/{y}/{x}',
         { attribution: 'FAA', opacity: 0.85, maxNativeZoom: 10, maxZoom: 16 }),
     };
-    base['Dark'].addTo(map);
+    base['Satellite'].addTo(map);
     L.control.layers(base, over, { collapsed: true }).addTo(map);
     overlay = L.layerGroup().addTo(map);
     arrowLayer = L.layerGroup().addTo(map);
@@ -1167,7 +1167,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
 
     const fromHash = await loadHash();
     if (!fromHash) {
-      const home = 'KDEN';
+      const home = 'KBWI';
       $('apt-search').value = home;
       await loadAirport(home, true);
     }
