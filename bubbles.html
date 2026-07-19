@@ -34,6 +34,16 @@
     body[data-theme="sketch"] #hud .best { color: #6b6250; }
     #hud .lives { letter-spacing: 3px; }
 
+    /* Active effects readout (shield charges, freeze/star timers) */
+    #fx {
+      position: fixed; top: 36px; left: 14px;
+      display: flex; gap: 10px; pointer-events: none;
+      font-size: 14px; text-shadow: 0 1px 4px #000;
+      font-variant-numeric: tabular-nums;
+    }
+    body[data-theme="sketch"] #fx { text-shadow: none; }
+    #fx span { opacity: 0.95; }
+
     /* --- Stage thermometer + multiplier ---------------------------------- */
     #meter {
       position: fixed; left: 12px; right: 12px; bottom: 12px;
@@ -153,6 +163,7 @@
     <span class="lives" id="lives"></span>
     <span class="best">🫧 <span class="coins" id="hud-coins">0</span> · Best: <span id="best">0</span></span>
   </div>
+  <div id="fx"></div>
   <div id="meter" hidden>
     <div class="thermo">
       <div class="fill" id="meter-fill"></div>
@@ -166,10 +177,13 @@
     <h1>Bubble Pop</h1>
     <p id="overlay-msg">Pop bubbles before they float away — small ones score more, quick
       streaks build your multiplier. Fill the thermometer to reach the next stage: every
-      stage is a new world, and a faster one. Points become coins for the shop.</p>
+      stage is a new world, and a faster one. Watch for special bubbles — 💣 clears the
+      screen, ❄️ slows time, 🛡️ shields you from escapes, ⭐ doubles points. Points
+      become coins for the shop.</p>
     <p class="final" id="final" hidden></p>
     <div id="stages-list"></div>
     <button id="start" class="primary">Play</button>
+    <button id="continue" class="primary" hidden style="background:#22c55e"></button>
     <div id="shop">
       <h2>Shop</h2>
       <div class="bank">Coins: <span class="coins" id="shop-coins">0</span> — earned from your final score each game</div>
@@ -198,10 +212,12 @@
     const overlayMsg = document.getElementById('overlay-msg');
     const finalEl = document.getElementById('final');
     const startBtn = document.getElementById('start');
+    const continueBtn = document.getElementById('continue');
+    const fxEl = document.getElementById('fx');
 
     // --- Persistent save: coins bank + upgrades (themes are earned in-run) --
     const SAVE_KEY = 'bubbles_save';
-    let save = { coins: 0, best: 0, bestStage: 0, life: 0, finger: 0, gold: 0 };
+    let save = { coins: 0, best: 0, bestStage: 0, life: 0, finger: 0, gold: 0, armor: 0, turret: 0 };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
       for (const k of Object.keys(save)) if (typeof s[k] === 'number') save[k] = s[k];
@@ -217,31 +233,37 @@
         desc: 'Bigger tap radius — near misses still pop.' },
       { key: 'gold', name: 'Golden Bubbles', max: 1, costs: [2000],
         desc: 'Rare gold bubbles worth 3× points start appearing.' },
+      { key: 'armor', name: 'Bubble Shield', max: 2, costs: [800, 2000],
+        desc: 'Start each run with shield charges — a shield absorbs an escaped bubble instead of costing a life. 🛡 bubbles in-game recharge it.' },
+      { key: 'turret', name: 'Auto-Popper', max: 2, costs: [1500, 3500],
+        desc: 'A helper that automatically pops the highest bubble every few seconds. Level 2 fires faster.' },
     ];
 
-    // --- Stages: each is a theme + difficulty step. `goal` is the total score
-    // that ends the stage; the thermometer fills across the current bracket.
+    // --- Stages: each is a theme + difficulty step. `need` is the points you
+    // must score *within* the stage to advance; the thermometer fills 0 → need
+    // and resets each stage. (Progression used to key off cumulative score,
+    // which let one big combo pop skip whole stages — per-stage quotas fix that.)
     const STAGES = [
-      { key: 'classic',    name: 'The Shallows',  goal: 400,      speed: 1.0,  spawn: 1.0,
+      { key: 'classic',    name: 'The Shallows',  need: 400,      speed: 1.0,  spawn: 1.0,
         style: 'glossy', hue: () => 190 + Math.random() * 80,
         bar: ['#2a6df5', '#7dd0ff'] },
-      { key: 'underwater', name: 'The Reef',      goal: 1200,     speed: 1.15, spawn: 0.9,
+      { key: 'underwater', name: 'The Reef',      need: 800,      speed: 1.15, spawn: 0.9,
         style: 'glossy', hue: () => 150 + Math.random() * 60,
         bar: ['#0e7a6c', '#3ee6c4'] },
-      { key: 'sketch',     name: 'The Notebook',  goal: 3000,     speed: 1.3,  spawn: 0.8,
+      { key: 'sketch',     name: 'The Notebook',  need: 1600,     speed: 1.3,  spawn: 0.8,
         style: 'sketch', hue: () => 0,
         bar: ['#6b6250', '#2b2b2b'] },
-      { key: 'retro',      name: 'The Grid',      goal: 6000,     speed: 1.5,  spawn: 0.7,
+      { key: 'retro',      name: 'The Grid',      need: 2800,     speed: 1.5,  spawn: 0.7,
         style: 'neon',   hue: () => Math.random() < 0.5 ? 315 + Math.random() * 25 : 175 + Math.random() * 25,
         bar: ['#ff2e88', '#5af0ff'] },
-      { key: 'neon',       name: 'The Afterglow', goal: 10000,    speed: 1.75, spawn: 0.6,
+      { key: 'neon',       name: 'The Afterglow', need: 4200,     speed: 1.75, spawn: 0.6,
         style: 'neon',   hue: () => Math.random() * 360,
         bar: ['#a34aff', '#4aff9e'] },
-      { key: 'space',      name: 'Deep Space',    goal: Infinity, speed: 2.0,  spawn: 0.5,
+      { key: 'space',      name: 'Deep Space',    need: Infinity, speed: 2.0,  spawn: 0.5,
         style: 'planet', hue: () => Math.random() * 360,
         bar: ['#ffd75e', '#ff7a3c'] },
     ];
-    let stage = 0;
+    let stage = 0, stageProgress = 0;
     const cur = () => STAGES[stage];
 
     function applyStage() {
@@ -264,8 +286,12 @@
     function stageUpSound() { tone(600, 1200, 0.25, 0.22); tone(900, 1800, 0.35, 0.14); }
 
     function checkStage() {
-      while (score >= cur().goal && stage < STAGES.length - 1) {
+      // One stage-up max per pop: excess progress is discarded so a monster
+      // combo can't skip worlds. Also reward the stage-up with a shield charge.
+      if (stageProgress >= cur().need && stage < STAGES.length - 1) {
         stage++;
+        stageProgress = 0;
+        shieldCharges = Math.min(shieldCharges + 1, maxShields());
         applyStage();
         stageUpSound();
         showBanner(`Stage ${stage + 1} — ${cur().name}`);
@@ -274,15 +300,14 @@
     }
 
     function updateMeter() {
-      const prev = stage === 0 ? 0 : STAGES[stage - 1].goal;
-      const goal = cur().goal;
-      if (goal === Infinity) {
+      const need = cur().need;
+      if (need === Infinity) {
         meterFill.style.width = '100%';
         meterLabel.textContent = `Stage ${stage + 1} · ${cur().name} — ${score.toLocaleString()} pts · endless`;
       } else {
-        const frac = Math.min(1, Math.max(0, (score - prev) / (goal - prev)));
+        const frac = Math.min(1, Math.max(0, stageProgress / need));
         meterFill.style.width = `${(frac * 100).toFixed(1)}%`;
-        meterLabel.textContent = `Stage ${stage + 1} · ${cur().name} — ${score.toLocaleString()} / ${goal.toLocaleString()}`;
+        meterLabel.textContent = `Stage ${stage + 1} · ${cur().name} — ${stageProgress.toLocaleString()} / ${need.toLocaleString()}`;
       }
     }
 
@@ -354,8 +379,18 @@
     let running = false, spawnTimer = 0, elapsed = 0, animId = null, lastT = 0;
     let decor = null; // per-stage background props, rebuilt on resize/stage
 
+    // Powerup / defense state (reset each run)
+    let shieldCharges = 0;      // absorbs escaped bubbles instead of losing lives
+    let freezeUntil = 0;        // ❄ everything drifts at quarter speed
+    let starUntil = 0;          // ★ double points
+    let turretTimer = 0;        // auto-popper cooldown (frames)
+
     const maxLives = () => 5 + save.life;
     const hitPad = () => 8 + save.finger * 6;
+    const maxShields = () => 3 + save.armor;
+    const turretRate = () => save.turret === 2 ? 240 : 360; // frames between shots
+    const frozen = () => performance.now() < freezeUntil;
+    const starred = () => performance.now() < starUntil;
 
     function size() {
       const dpr = window.devicePixelRatio || 1;
@@ -392,22 +427,55 @@
     }
     function buySound() { tone(500, 1000, 0.18, 0.2); tone(750, 1500, 0.22, 0.12); }
 
+    // Special bubble kinds: powerups ride up among the normal bubbles.
+    // Letting one escape never costs a life — they're bonus targets.
+    const SPECIALS = [
+      { kind: 'bomb',   icon: '💣', hue: 10,  chance: 0.025 }, // pops everything on screen
+      { kind: 'freeze', icon: '❄️', hue: 200, chance: 0.030 }, // slow-motion for 5 s
+      { kind: 'shield', icon: '🛡️', hue: 130, chance: 0.030 }, // +1 shield charge
+      { kind: 'star',   icon: '⭐', hue: 48,  chance: 0.030 }, // double points for 8 s
+    ];
+
+    function rollKind() {
+      if (stage === 0 && elapsed < 15) return 'normal'; // let new players learn the basics first
+      let roll = Math.random();
+      for (const s of SPECIALS) {
+        if (s.kind === 'shield' && shieldCharges >= maxShields()) continue;
+        if (roll < s.chance) return s.kind;
+        roll -= s.chance;
+      }
+      if (save.gold > 0 && roll < 0.07) return 'gold';
+      return 'normal';
+    }
+
     function spawnBubble() {
-      const r = 14 + Math.random() * 30;
-      const golden = save.gold > 0 && Math.random() < 0.07;
+      const kind = rollKind();
+      const spec = SPECIALS.find(s => s.kind === kind);
+      const r = spec ? 22 + Math.random() * 10 : 14 + Math.random() * 30;
+      const golden = kind === 'gold';
       bubbles.push({
         x: r + Math.random() * (W - 2 * r),
         y: H + r,
         r,
+        kind,
         golden,
+        icon: spec ? spec.icon : null,
         speed: (0.6 + Math.random() * 0.8) * cur().speed * (1 + elapsed / 240) * (golden ? 1.35 : 1),
         wobblePhase: Math.random() * Math.PI * 2,
         wobbleAmp: 10 + Math.random() * 20,
-        hue: golden ? 48 : cur().hue(),
-        style: golden ? 'glossy' : cur().style, // bubbles keep their birth style
+        hue: golden ? 48 : spec ? spec.hue : cur().hue(),
+        style: (golden || spec) ? 'glossy' : cur().style, // bubbles keep their birth style
         ring: Math.random() < 0.3,              // planets: has a ring
         seed: Math.random() * 10,               // sketch: stable wobble
       });
+    }
+
+    function award(b, comboMult) {
+      const pts = Math.max(1, Math.round(50 - b.r)) * comboMult * (b.golden ? 3 : 1) * (starred() ? 2 : 1);
+      score += pts;
+      stageProgress += pts;
+      pops.push({ x: b.x, y: b.y, r: b.r, hue: b.hue, life: 1, pts, golden: b.golden });
+      return pts;
     }
 
     function popBubble(i) {
@@ -416,10 +484,35 @@
       const now = performance.now();
       combo = now - comboAt < 900 ? combo + 1 : 1;
       comboAt = now;
-      const pts = Math.max(1, Math.round(50 - b.r)) * combo * (b.golden ? 3 : 1);
-      score += pts;
-      pops.push({ x: b.x, y: b.y, r: b.r, hue: b.hue, life: 1, pts, golden: b.golden });
-      popSound(b.r, b.golden);
+
+      if (b.kind === 'bomb') {
+        // detonate: everything on screen pops at the current combo
+        tone(120, 40, 0.35, 0.3); tone(300, 900, 0.2, 0.2);
+        pops.push({ x: b.x, y: b.y, r: b.r * 2.2, hue: 10, life: 1, pts: 0, golden: false });
+        for (const other of bubbles) award(other, combo);
+        bubbles = [];
+      } else {
+        if (b.kind === 'freeze') { freezeUntil = performance.now() + 5000; tone(1600, 400, 0.4, 0.2); showBanner('❄️ Slow-mo!'); }
+        else if (b.kind === 'shield') { shieldCharges = Math.min(shieldCharges + 1, maxShields()); tone(400, 800, 0.25, 0.2); }
+        else if (b.kind === 'star') { starUntil = performance.now() + 8000; tone(800, 2400, 0.3, 0.2); showBanner('⭐ Double points!'); }
+        award(b, combo);
+        popSound(b.r, b.golden || !!b.icon);
+      }
+      checkStage();
+      updateHud();
+    }
+
+    // Auto-Popper defense: quietly pops the bubble nearest the top edge.
+    // It scores at ×1 and doesn't touch the combo — your fingers earn streaks.
+    function turretFire() {
+      if (!bubbles.length) return;
+      let hi = 0;
+      for (let i = 1; i < bubbles.length; i++) if (bubbles[i].y < bubbles[hi].y) hi = i;
+      const b = bubbles[hi];
+      if (b.kind === 'bomb') return; // never auto-detonates a bomb
+      bubbles.splice(hi, 1);
+      award(b, 1);
+      popSound(b.r, false);
       checkStage();
       updateHud();
     }
@@ -429,6 +522,16 @@
       livesEl.textContent = '●'.repeat(lives) + '○'.repeat(maxLives() - lives);
       updateMeter();
       updateMulti();
+      updateFx();
+    }
+
+    function updateFx() {
+      const now = performance.now();
+      const parts = [];
+      if (shieldCharges > 0) parts.push(`🛡️×${shieldCharges}`);
+      if (frozen()) parts.push(`❄️ ${Math.ceil((freezeUntil - now) / 1000)}s`);
+      if (starred()) parts.push(`⭐ ${Math.ceil((starUntil - now) / 1000)}s`);
+      fxEl.innerHTML = parts.map(p => `<span>${p}</span>`).join('');
     }
 
     function onPointerDown(e) {
@@ -531,10 +634,17 @@
 
     // --- Bubble renderers per stage style -------------------------------------
     function drawBubble(b) {
-      if (b.style === 'neon') return drawNeon(b);
-      if (b.style === 'sketch') return drawSketch(b);
-      if (b.style === 'planet') return drawPlanet(b);
-      drawGlossy(b);
+      if (b.style === 'neon') drawNeon(b);
+      else if (b.style === 'sketch') drawSketch(b);
+      else if (b.style === 'planet') drawPlanet(b);
+      else drawGlossy(b);
+      if (b.icon) {
+        ctx.font = `${Math.round(b.r * 1.1)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.icon, b.x, b.y + b.r * 0.05);
+        ctx.textBaseline = 'alphabetic';
+      }
     }
 
     function drawGlossy(b) {
@@ -624,29 +734,43 @@
       ctx.clearRect(0, 0, W, H);
       drawDecor(t);
 
-      spawnTimer -= dt;
+      const slow = frozen() ? 0.25 : 1;
+      spawnTimer -= dt * slow;
       if (spawnTimer <= 0) {
         spawnBubble();
         // base cadence ~1.1 s, scaled down per stage and slowly within a run
         spawnTimer = Math.max(18, 66 * cur().spawn - elapsed * 0.5) * (0.7 + Math.random() * 0.6);
       }
 
+      if (save.turret > 0) {
+        turretTimer -= dt;
+        if (turretTimer <= 0) { turretFire(); turretTimer = turretRate(); }
+        if (!running) return; // turretFire can't end the game, but stay safe
+      }
+
       for (let i = bubbles.length - 1; i >= 0; i--) {
         const b = bubbles[i];
-        b.y -= b.speed * dt;
-        b.x += Math.sin(b.y / 40 + b.wobblePhase) * b.wobbleAmp * 0.02 * dt;
+        b.y -= b.speed * dt * slow;
+        b.x += Math.sin(b.y / 40 + b.wobblePhase) * b.wobbleAmp * 0.02 * dt * slow;
         if (b.y + b.r < 0) {
           bubbles.splice(i, 1);
-          if (!b.golden) { // escaped gold costs nothing — it's a bonus target
-            lives--;
-            combo = 0;
+          // escaped specials/gold cost nothing — they're bonus targets
+          if (b.kind === 'normal') {
+            if (shieldCharges > 0) {
+              shieldCharges--;
+              tone(300, 150, 0.2, 0.18);
+            } else {
+              lives--;
+              combo = 0;
+              if (lives <= 0) { updateHud(); gameOver(); return; }
+            }
             updateHud();
-            if (lives <= 0) { gameOver(); return; }
           }
           continue;
         }
         drawBubble(b);
       }
+      if (frozen() || starred()) updateFx(); // live countdown
 
       // pop effects: expanding ring + points float
       const ink = cur().key === 'sketch';
@@ -663,16 +787,17 @@
         ctx.font = ink ? 'italic 600 15px Segoe Print, Comic Sans MS, cursive'
                        : '600 15px Segoe UI, system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`+${p.pts}`, p.x, p.y - p.r - (1 - p.life) * 24);
+        if (p.pts > 0) ctx.fillText(`+${p.pts}`, p.x, p.y - p.r - (1 - p.life) * 24);
       }
 
       animId = requestAnimationFrame(update);
     }
 
-    function start() {
+    function start(atStage = 0) {
       bubbles = []; pops = [];
       score = 0; combo = 0; lives = maxLives(); elapsed = 0; spawnTimer = 0;
-      stage = 0;
+      stage = atStage; stageProgress = 0;
+      shieldCharges = save.armor; freezeUntil = 0; starUntil = 0; turretTimer = 0;
       applyStage();
       updateHud();
       overlay.hidden = true;
@@ -686,6 +811,7 @@
       running = false;
       if (animId) cancelAnimationFrame(animId);
       meterEl.hidden = true;
+      fxEl.innerHTML = '';
       save.coins += score;
       const stageNote = ` · reached Stage ${stage + 1} (${cur().name})`;
       if (score > save.best) {
@@ -699,12 +825,27 @@
       overlayMsg.textContent = 'Out of lives. Spend your coins, then go again?';
       startBtn.textContent = 'Play again';
       renderShop();
+      refreshContinue();
       overlay.hidden = false;
     }
 
-    startBtn.addEventListener('click', start);
+    // Checkpoint start: once you've reached a stage, you can begin runs there.
+    // Score starts at 0 either way — checkpoints skip the grind, not the scoring.
+    function refreshContinue() {
+      if (save.bestStage > 0) {
+        const s = Math.min(save.bestStage, STAGES.length - 1);
+        continueBtn.textContent = `Start at Stage ${s + 1} — ${STAGES[s].name}`;
+        continueBtn.hidden = false;
+      } else {
+        continueBtn.hidden = true;
+      }
+    }
+
+    startBtn.addEventListener('click', () => start(0));
+    continueBtn.addEventListener('click', () => start(Math.min(save.bestStage, STAGES.length - 1)));
     document.body.dataset.theme = 'classic';
     renderShop();
+    refreshContinue();
   </script>
 </body>
 </html>
