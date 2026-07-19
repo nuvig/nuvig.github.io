@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Air Lab — density altitude, airspeeds &amp; the atmosphere</title>
-  <meta name="description" content="Interactive aviation atmosphere lab: density altitude, pressure altitude, true airspeed, ground speed, and air-parcel simulations.">
+  <meta name="description" content="Interactive aviation atmosphere lab: density altitude, pressure altitude, ram pressure, true airspeed, ground speed, and air-parcel simulations.">
   <link rel="canonical" href="https://jesselevine.net/airlab.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -18,9 +18,41 @@
       text-decoration: none; color: #666;
     }
     #back-link:hover { color: #ccc; }
-    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+    .subtitle { color: #666; margin: 4px 0 14px; font-size: 14px; }
     .subtitle a { color: #4a9eff; text-decoration: none; }
     .subtitle a:hover { text-decoration: underline; }
+
+    /* ---- molecule background layer ---- */
+    #mol-bg {
+      position: fixed; inset: 0; width: 100vw; height: 100vh;
+      z-index: -1; pointer-events: none;
+    }
+    #mol-hud {
+      position: fixed; left: 16px; bottom: 12px; z-index: 5;
+      font-size: 11px; line-height: 1.6; color: #5a6472;
+      pointer-events: none; text-shadow: 0 1px 3px #000;
+      font-variant-numeric: tabular-nums;
+    }
+    #mol-hud b { color: #8a94a4; font-weight: 600; }
+    /* the HUD lives in the viewport's left gutter — hide it when the layout
+       leaves no gutter to live in */
+    @media (max-width: 1279px) { #mol-hud { display: none; } }
+    @media (prefers-reduced-motion: reduce) { #mol-bg, #mol-hud { display: none; } }
+
+    /* ---- flow map ---- */
+    .flow-map {
+      display: flex; gap: 7px; align-items: center; flex-wrap: wrap;
+      font-size: 12px; margin: 0 0 6px; color: #555;
+    }
+    .flow-map a {
+      color: #8ab8e8; text-decoration: none; background: #161d26;
+      border: 1px solid #2a3a4d; padding: 3px 11px; border-radius: 99px;
+      white-space: nowrap;
+    }
+    .flow-map a:hover { border-color: #4a9eff; color: #cfe6ff; }
+    .flow-map a b { color: #4a9eff; font-weight: 700; }
+    .flow-map .arr { color: #3d434c; }
+    .flow-lede { font-size: 12.5px; color: #777; margin: 6px 0 10px; max-width: 880px; line-height: 1.6; }
 
     .section-title {
       font-size: 16px; font-weight: 600; color: #ddd;
@@ -116,11 +148,17 @@
     .tbl tr:last-child td { border-bottom: none; }
     .tbl tr.hl td { color: #fff; background: #20293a; }
 
-    footer.sources { margin-top: 34px; font-size: 11px; color: #555; line-height: 1.7; }
+    footer.sources { margin-top: 34px; margin-bottom: 52px; font-size: 11px; color: #555; line-height: 1.7; }
     footer.sources a { color: #666; }
   </style>
 </head>
 <body>
+  <canvas id="mol-bg" aria-hidden="true"></canvas>
+  <div id="mol-hud" aria-hidden="true">
+    <div id="mol-hud-line"><b>background air</b> · —</div>
+    <div>dot speed = temperature · dot count = density · <span style="color:#5b9dd9">blue dots</span> = water vapor</div>
+  </div>
+
   <a href="/weather.html" id="back-link">← KANP Weather Hub</a>
 
   <h1>Air Lab</h1>
@@ -130,12 +168,27 @@
     <a href="/weather.html">weather hub →</a>
   </p>
 
+  <div class="flow-map">
+    <a href="#sec-atmo"><b>1</b> air is molecules</a><span class="arr">→</span>
+    <a href="#sec-da"><b>2</b> heat &amp; altitude thin it</a><span class="arr">→</span>
+    <a href="#sec-pitot"><b>3</b> instruments feel it</a><span class="arr">→</span>
+    <a href="#sec-speeds"><b>4</b> IAS → TAS → GS</a><span class="arr">→</span>
+    <a href="#sec-parcel"><b>5</b> the air itself moves</a>
+  </div>
+  <p class="flow-lede">
+    One idea runs through this whole page: <b style="color:#bbb">everything your airplane does starts with how many
+    air molecules it can grab per second</b>. The dots floating behind this page are those molecules — they thin out,
+    speed up, and moisten as you scroll and as you move the sliders, always matching the panel you're looking at.
+  </p>
+
   <!-- ================= 1. ATMOSPHERE COLUMN ================= -->
+  <section id="sec-atmo">
   <div class="section-title"><span class="num">1</span> The atmosphere, top to bottom</div>
   <p class="section-lede">
     Air gets <b>thinner, colder and lighter</b> as you climb. Drag up and down the column (or use the
     altitude slider) and watch pressure, temperature and density fall together — then warm or cool the
-    day and see the whole column change. Every other panel on this page is a consequence of these three curves.
+    day and see the whole column change. Watch the background dots thin out as you climb: every other
+    panel on this page is a consequence of these three curves.
   </p>
   <div class="col-canvas-side">
     <div class="card">
@@ -183,13 +236,16 @@
       agreed reference so that altimeters, performance charts and controllers all speak the same language.</p>
     </div>
   </details>
+  </section>
 
   <!-- ================= 2. PRESSURE & DENSITY ALTITUDE ================= -->
+  <section id="sec-da">
   <div class="section-title"><span class="num">2</span> Pressure altitude &amp; density altitude</div>
   <p class="section-lede">
-    Set the field conditions and watch the airplane's <b>effective altitude</b> move. Pressure altitude is what
-    the altimeter reads on 29.92; density altitude is where the airplane <b>performs</b> like it is —
-    the number that stretches your takeoff roll on a July afternoon.
+    Panel 1 showed that climbing <b>and</b> heat both steal molecules — this panel turns that into the two
+    numbers pilots plan with. Set the field conditions and watch the airplane's <b>effective altitude</b> move:
+    pressure altitude is what the altimeter reads on 29.92; density altitude is where the airplane
+    <b>performs</b> like it is — the number that stretches your takeoff roll on a July afternoon.
   </p>
   <div class="col-canvas-side">
     <div class="card">
@@ -242,20 +298,148 @@
       <div class="formula">DA ≈ PA + 120 × (OAT °C − ISA temp °C)</div>
       <p>This lab computes both exactly (NWS formulas, including the humidity term via vapor pressure —
       muggy air is <b>less</b> dense than dry air, because H₂O molecules are lighter than N₂/O₂, so a humid
-      day quietly adds a few hundred feet more).</p>
+      day quietly adds a few hundred feet more. Watch the blue dots multiply behind the page as you raise
+      the dewpoint: each one displaced a heavier dry-air molecule).</p>
       <p>Why the performance numbers move so fast: takeoff distance suffers <b>twice</b> — the engine makes less
       power in thin air, and the wing needs a higher <b>true</b> speed for the same indicated liftoff speed.
       The classic planning rule: expect roughly +15 % ground roll and −7½ % climb rate per 1,000 ft of DA.</p>
     </div>
   </details>
+  </section>
 
-  <!-- ================= 3. PARCEL OF AIR ================= -->
-  <div class="section-title"><span class="num">3</span> A parcel of air</div>
+  <!-- ================= 3. RAM PRESSURE / PITOT ================= -->
+  <section id="sec-pitot">
+  <div class="section-title"><span class="num">3</span> Ram pressure — what the airspeed indicator actually feels</div>
   <p class="section-lede">
-    Grab a bubble of surface air and release it aloft. Rising air <b>expands and cools at a fixed rate</b>
-    (3 °C / 1,000 ft while dry). Whether it keeps rising — building cumulus and turbulence — or sinks back
-    depends on how fast the air <b>around</b> it cools with height. Drag the parcel, or heat it like a sun-baked
-    field, and watch stability play out.
+    Here's the missing link between thin air and your instruments. The pitot tube doesn't measure speed —
+    it <b>catches molecules</b> and measures how hard they pile up: ram (dynamic) pressure, ½ρV².
+    Fly faster and each molecule hits harder; fly higher and there are fewer of them to hit. The gauge
+    can't tell the difference — <b>that's not a flaw, it's the design</b>, because the wing can't tell
+    the difference either.
+  </p>
+  <div class="col-canvas-side">
+    <div class="card">
+      <canvas id="pitot-canvas" class="lab" style="height:300px; cursor:default"></canvas>
+      <div class="canvas-note">Molecules stream past at your true airspeed and pile up in the pitot tube's mouth. The needle answers only one question: how hard is the pile-up?</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Flight condition</h3>
+        <div class="ctl-row"><label for="pit-tas">True airspeed</label>
+          <input type="range" id="pit-tas" min="40" max="200" step="1" value="105">
+          <span class="val" id="pit-tas-val"></span></div>
+        <div class="ctl-row"><label for="pit-alt">Density altitude</label>
+          <input type="range" id="pit-alt" min="0" max="20000" step="250" value="0">
+          <span class="val" id="pit-alt-val"></span></div>
+        <div class="ctl-row" style="gap:8px">
+          <button class="btn" id="pit-climb">Climb 10,000 ft, hold the needle</button>
+          <button class="btn secondary" id="pit-sl">Back to sea level</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>What the systems see</h3>
+        <div class="kv"><span class="k">Air density here</span><span class="v" id="pit-sigma">—</span></div>
+        <div class="kv"><span class="k">Ram pressure (½ρV²)</span><span class="v" id="pit-q">—</span></div>
+        <div class="kv"><span class="k">The gauge reads</span><span class="v" id="pit-ias">—</span></div>
+        <div class="kv"><span class="k">You're actually doing</span><span class="v" id="pit-tas-ro">—</span></div>
+        <div class="canvas-note" id="pit-note"></div>
+      </div>
+    </div>
+  </div>
+  <details class="explain">
+    <summary>Why flying "indicated" is a feature, and where performance goes</summary>
+    <div class="body">
+      <p>Every aerodynamic force on the airplane — lift, drag, control feel, the stall — scales with the same
+      quantity the pitot tube measures:</p>
+      <div class="formula">q = ½ ρ V²   →   lift = q · S · C<sub>L</sub> — the wing and the gauge read the same book</div>
+      <p>So when the gauge reads 63 kt on final, the wing is making exactly the lift it makes at 63 kt at sea
+      level — even though at a high-DA airport your <b>true</b> speed (and ground speed, and tire speed, and
+      runway consumed) is much higher. Rotate, approach, and stall speeds are flown <b>indicated</b> at any
+      altitude for exactly this reason.</p>
+      <p><b>Engine performance lives here too.</b> A normally aspirated engine is its own molecule-catcher:
+      the intake stroke pulls in a fixed <i>volume</i>, and thin air puts fewer oxygen molecules in that volume —
+      roughly 3 % power lost per 1,000 ft of density altitude. Fewer molecules over the wing <i>and</i> fewer
+      in the cylinders is why the panel-2 takeoff numbers deteriorate twice as fast as intuition expects.
+      (A turbocharger is simply a machine for putting the missing molecules back.)</p>
+      <p>Try the "climb and hold the needle" button: the needle stays put while true airspeed grows —
+      you get free speed with altitude. The price appears in panel 4.</p>
+    </div>
+  </details>
+  </section>
+
+  <!-- ================= 4. AIRSPEEDS ================= -->
+  <section id="sec-speeds">
+  <div class="section-title"><span class="num">4</span> Indicated → true → ground speed</div>
+  <p class="section-lede">
+    Now chain it together. Panel 3 showed the gauge under-reads in thin air — so <b>true airspeed</b> grows
+    with altitude for the same indicated. Then the wind, which the airplane can't feel at all, decides what
+    the <b>ground</b> sees. Left: how TAS grows with altitude. Right: the wind triangle — drag on the compass
+    to steer the wind.
+  </p>
+  <div class="two-col">
+    <div class="card">
+      <h3>True airspeed vs altitude</h3>
+      <canvas id="tas-canvas" class="lab" style="height:300px"></canvas>
+      <div class="ctl-row" style="margin-top:8px"><label for="tas-ias" style="min-width:110px">Indicated airspeed</label>
+        <input type="range" id="tas-ias" min="60" max="180" step="1" value="105">
+        <span class="val" id="tas-ias-val"></span></div>
+      <div class="ctl-row"><label for="tas-alt" style="min-width:110px">Cruise altitude</label>
+        <input type="range" id="tas-alt" min="0" max="17500" step="500" value="5500">
+        <span class="val" id="tas-alt-val"></span></div>
+      <div class="ctl-row"><label for="tas-isadev" style="min-width:110px">Temp vs ISA</label>
+        <input type="range" id="tas-isadev" min="-20" max="30" step="1" value="0">
+        <span class="val" id="tas-isadev-val"></span></div>
+      <div class="canvas-note" id="tas-note"></div>
+    </div>
+    <div class="card">
+      <h3>Wind triangle → ground speed</h3>
+      <canvas id="wind-canvas" class="lab" style="height:300px"></canvas>
+      <div class="ctl-row" style="margin-top:8px"><label for="wt-crs" style="min-width:110px">Desired course</label>
+        <input type="range" id="wt-crs" min="0" max="359" step="1" value="287">
+        <span class="val" id="wt-crs-val"></span></div>
+      <div class="ctl-row"><label for="wt-wdir" style="min-width:110px">Wind from</label>
+        <input type="range" id="wt-wdir" min="0" max="359" step="5" value="230">
+        <span class="val" id="wt-wdir-val"></span></div>
+      <div class="ctl-row"><label for="wt-wspd" style="min-width:110px">Wind speed</label>
+        <input type="range" id="wt-wspd" min="0" max="60" step="1" value="18">
+        <span class="val" id="wt-wspd-val"></span></div>
+      <div class="canvas-note" id="wt-note"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>The whole chain, this trip</h3>
+    <div id="chain-body" style="overflow-x:auto"></div>
+  </div>
+  <details class="explain">
+    <summary>IAS, CAS, TAS, GS — who measures what</summary>
+    <div class="body">
+      <p><b>Indicated (IAS)</b>: the ram pressure from panel 3, dressed up in knots. It's the speed the
+      <b>wing</b> cares about: stall, rotation and approach speeds stay honest at any altitude, which is exactly
+      why we fly them indicated.</p>
+      <p><b>True (TAS)</b>: your actual speed through the air mass. Thin air → fewer molecules → the same true
+      speed makes less pressure, so the indicator under-reads. Recover it with the density ratio σ:</p>
+      <div class="formula">TAS = IAS / √σ   ·   rule of thumb: TAS ≈ IAS + 2 % per 1,000 ft of density altitude</div>
+      <p>(Strictly the correction applies to <i>calibrated</i> airspeed; below ~200 kt CAS ≈ IAS and
+      compressibility is negligible, so this lab treats them as equal.)</p>
+      <p><b>Ground speed (GS)</b>: TAS plus the wind vector. The air mass is a conveyor belt — you fly at TAS
+      <i>within</i> it while it carries you wherever it's going. Crab into the wind (the wind-correction angle)
+      to make the track match the course; whatever component of wind remains along the course adds to or
+      steals from GS. Headwind on final is why landing distance charts and fuel-time planning both start
+      from the wind.</p>
+    </div>
+  </details>
+  </section>
+
+  <!-- ================= 5. PARCEL OF AIR ================= -->
+  <section id="sec-parcel">
+  <div class="section-title"><span class="num">5</span> A parcel of air — when the air itself moves</div>
+  <p class="section-lede">
+    So far the air sat still while you flew through it. But the same density physics makes the air move
+    on its own: warm a bubble of surface air and it's lighter than its surroundings — <b>the atmosphere flies
+    it</b> exactly like a wing flies you. Rising air expands and cools at a fixed rate (3 °C / 1,000 ft while
+    dry); whether it keeps climbing — building cumulus and turbulence — or sinks back depends on how fast the
+    air <b>around</b> it cools with height. Drag the parcel, or heat it like a sun-baked field, and watch
+    stability play out.
   </p>
   <div class="col-canvas-side">
     <div class="card">
@@ -309,72 +493,14 @@
       combination). In between, stability is <b>conditional</b> on reaching saturation.</p>
     </div>
   </details>
-
-  <!-- ================= 4. AIRSPEEDS ================= -->
-  <div class="section-title"><span class="num">4</span> Indicated → true → ground speed</div>
-  <p class="section-lede">
-    The airspeed indicator only counts <b>molecules hitting the pitot tube</b> — so in thin air it under-reads
-    your real speed through the air mass (true airspeed), and the wind then decides what the ground sees
-    (ground speed). Left: how TAS grows with altitude. Right: the wind triangle — drag the wind arrow.
-  </p>
-  <div class="two-col">
-    <div class="card">
-      <h3>True airspeed vs altitude</h3>
-      <canvas id="tas-canvas" class="lab" style="height:300px"></canvas>
-      <div class="ctl-row" style="margin-top:8px"><label for="tas-ias" style="min-width:110px">Indicated airspeed</label>
-        <input type="range" id="tas-ias" min="60" max="180" step="1" value="105">
-        <span class="val" id="tas-ias-val"></span></div>
-      <div class="ctl-row"><label for="tas-alt" style="min-width:110px">Cruise altitude</label>
-        <input type="range" id="tas-alt" min="0" max="17500" step="500" value="5500">
-        <span class="val" id="tas-alt-val"></span></div>
-      <div class="ctl-row"><label for="tas-isadev" style="min-width:110px">Temp vs ISA</label>
-        <input type="range" id="tas-isadev" min="-20" max="30" step="1" value="0">
-        <span class="val" id="tas-isadev-val"></span></div>
-      <div class="canvas-note" id="tas-note"></div>
-    </div>
-    <div class="card">
-      <h3>Wind triangle → ground speed</h3>
-      <canvas id="wind-canvas" class="lab" style="height:300px"></canvas>
-      <div class="ctl-row" style="margin-top:8px"><label for="wt-crs" style="min-width:110px">Desired course</label>
-        <input type="range" id="wt-crs" min="0" max="359" step="1" value="287">
-        <span class="val" id="wt-crs-val"></span></div>
-      <div class="ctl-row"><label for="wt-wdir" style="min-width:110px">Wind from</label>
-        <input type="range" id="wt-wdir" min="0" max="359" step="5" value="230">
-        <span class="val" id="wt-wdir-val"></span></div>
-      <div class="ctl-row"><label for="wt-wspd" style="min-width:110px">Wind speed</label>
-        <input type="range" id="wt-wspd" min="0" max="60" step="1" value="18">
-        <span class="val" id="wt-wspd-val"></span></div>
-      <div class="canvas-note" id="wt-note"></div>
-    </div>
-  </div>
-  <div class="card" style="margin-top:14px">
-    <h3>The whole chain, this trip</h3>
-    <div id="chain-body" style="overflow-x:auto"></div>
-  </div>
-  <details class="explain">
-    <summary>IAS, CAS, TAS, GS — who measures what</summary>
-    <div class="body">
-      <p><b>Indicated (IAS)</b>: what the pitot-static system feels — dynamic pressure, ½ρV². It's the speed the
-      <b>wing</b> cares about: stall, rotation and approach speeds stay honest at any altitude, which is exactly
-      why we fly them indicated.</p>
-      <p><b>True (TAS)</b>: your actual speed through the air mass. Thin air → fewer molecules → the same true
-      speed makes less pressure, so the indicator under-reads. Recover it with the density ratio σ:</p>
-      <div class="formula">TAS = IAS / √σ   ·   rule of thumb: TAS ≈ IAS + 2 % per 1,000 ft of density altitude</div>
-      <p>(Strictly the correction applies to <i>calibrated</i> airspeed; below ~200 kt CAS ≈ IAS and
-      compressibility is negligible, so this lab treats them as equal.)</p>
-      <p><b>Ground speed (GS)</b>: TAS plus the wind vector. The air mass is a conveyor belt — you fly at TAS
-      <i>within</i> it while it carries you wherever it's going. Crab into the wind (the wind-correction angle)
-      to make the track match the course; whatever component of wind remains along the course adds to or
-      steals from GS. Headwind on final is why landing distance charts and fuel-time planning both start
-      from the wind.</p>
-    </div>
-  </details>
+  </section>
 
   <footer class="sources">
     Educational simulations — never a substitute for the POH, performance charts, or an official briefing.
     Formulas: ICAO/ISA standard atmosphere; NWS density-altitude method (vapor pressure per Tetens);
     lapse rates &amp; rules of thumb per FAA <i>Pilot's Handbook of Aeronautical Knowledge</i> and
     <i>Aviation Weather</i> (AC 00-6B). Live weather: NWS API (KNAK, USNA — KANP has no on-field sensor).
+    Background dots are illustrative: count tracks density, jiggle tracks temperature, blue tracks humidity.
   </footer>
 
   <script src="js/site-config.js"></script>

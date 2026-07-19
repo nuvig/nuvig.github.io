@@ -567,9 +567,8 @@ function updateParcelReadouts() {
   $('pc-note').textContent = st.note;
 }
 
-function parcelFrame(tMs) {
-  const dtReal = pc.lastT ? Math.min(0.05, (tMs - pc.lastT) / 1000) : 0.016;
-  pc.lastT = tMs;
+// one step of the parcel sim — driven by the shared animation loop
+function parcelTick(dtReal) {
   if (!pc.dragging) {
     const dt = dtReal * 7;                    // sim runs faster than real time
     const dT = pcParcelT(pc.alt) - pcEnvT(pc.alt);
@@ -581,7 +580,6 @@ function parcelFrame(tMs) {
   }
   drawParcel();
   updateParcelReadouts();
-  requestAnimationFrame(parcelFrame);
 }
 
 function initParcel() {
@@ -604,7 +602,195 @@ function initParcel() {
     pc.alt = clamp((1 - (py - T) / (r.height - T - B)) * pc.TOP, 0, pc.TOP);
     pc.vel = 0;
   }, () => { pc.dragging = false; });
-  requestAnimationFrame(parcelFrame);
+  drawParcel();            // first paint even if the section starts off-screen
+  updateParcelReadouts();
+}
+
+/* ========================================================================
+   3½. RAM PRESSURE — the pitot tube
+   ======================================================================== */
+
+const pit = { tas: 105, alt: 0, parts: [] };
+
+function pitSigma() { return sigmaAtDa(pit.alt); }
+function pitIas() { return pit.tas * Math.sqrt(pitSigma()); }
+function pitQpsf() {  // dynamic pressure in lb/ft²
+  const v = pit.tas * 0.514444;                    // m/s
+  return 0.5 * ISA.RHO0 * pitSigma() * v * v * 0.020885;
+}
+
+// geometry helpers shared by draw + tick (CSS px, from the live rect)
+function pitGeom(cv) {
+  const r = cv.getBoundingClientRect();
+  const W = r.width, H = r.height;
+  return {
+    W, H,
+    mouthX: W - 175, mouthY: H * 0.34, mouthH: 30,   // tube opening
+    chamberW: 60,
+    gaugeX: W - 92, gaugeY: H - 76, gaugeR: 54,
+  };
+}
+
+function pitotTick(dt) {
+  const cv = $('pitot-canvas');
+  const g = pitGeom(cv);
+  const sigma = pitSigma();
+  const N = Math.round(clamp(g.W * g.H / 1600, 50, 170) * sigma);
+  const spd = 36 + pit.tas * 1.7;                   // stream speed, px/s
+
+  // maintain population
+  while (pit.parts.length < N) {
+    pit.parts.push({ x: Math.random() * g.W, y: Math.random() * g.H, mode: 'free', ttl: 0, j: Math.random() });
+  }
+  if (pit.parts.length > N) pit.parts.length = N;
+
+  if (!REDUCED) {
+    for (const p of pit.parts) {
+      if (p.mode === 'cap') {
+        // trapped in the chamber: fast jitter inside the stagnation region
+        p.ttl -= dt;
+        p.x += (Math.random() - 0.5) * 260 * dt;
+        p.y += (Math.random() - 0.5) * 260 * dt;
+        p.x = clamp(p.x, g.mouthX + 4, g.mouthX + g.chamberW - 4);
+        p.y = clamp(p.y, g.mouthY - g.mouthH / 2 + 4, g.mouthY + g.mouthH / 2 - 4);
+        if (p.ttl <= 0) { p.mode = 'free'; p.x = -5; p.y = Math.random() * g.H; }
+        continue;
+      }
+      p.x += spd * dt * (0.85 + p.j * 0.3);
+      p.y += (Math.random() - 0.5) * 30 * dt;
+      // capture into the tube mouth
+      if (p.x >= g.mouthX && p.x < g.mouthX + 10 && Math.abs(p.y - g.mouthY) < g.mouthH / 2 - 2) {
+        p.mode = 'cap'; p.ttl = 0.5 + Math.random() * 0.9;
+      } else if (p.x >= g.mouthX - 2 && p.x <= g.mouthX + g.chamberW + 8 &&
+                 Math.abs(p.y - g.mouthY) < g.mouthH / 2 + 6) {
+        // deflect around the tube body
+        p.y += (p.y > g.mouthY ? 1 : -1) * 90 * dt;
+      }
+      if (p.x > g.W + 4) { p.x = -4; p.y = Math.random() * g.H; }
+    }
+  }
+  drawPitot();
+}
+
+function drawPitot() {
+  const cv = $('pitot-canvas');
+  const { ctx, W, H } = prepCanvas(cv);
+  const g = pitGeom(cv);
+  const sigma = pitSigma(), ias = pitIas(), q = pitQpsf();
+
+  // relative-wind cue
+  ctx.fillStyle = '#565f6b'; ctx.textAlign = 'left';
+  ctx.fillText('relative wind (your TAS) →', 10, 16);
+
+  // free-stream molecules as speed streaks; captured ones as bright dots
+  const streak = 2.5 + pit.tas * 0.055;
+  ctx.strokeStyle = 'rgba(170,180,195,0.6)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const p of pit.parts) {
+    if (p.mode === 'cap') continue;
+    ctx.moveTo(p.x - streak, p.y);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke(); ctx.lineCap = 'butt';
+  ctx.fillStyle = 'rgba(160,205,255,0.9)';
+  for (const p of pit.parts) {
+    if (p.mode !== 'cap') continue;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.1, 0, 7); ctx.fill();
+  }
+
+  // stagnation-pressure glow, brightness ∝ ram pressure
+  const qNorm = clamp(q / 60, 0, 1);   // 60 psf ≈ 133 kt IAS
+  ctx.fillStyle = `rgba(74,158,255,${0.10 + qNorm * 0.38})`;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(g.mouthX, g.mouthY - g.mouthH / 2, g.chamberW, g.mouthH, 4);
+  else ctx.rect(g.mouthX, g.mouthY - g.mouthH / 2, g.chamberW, g.mouthH);
+  ctx.fill();
+
+  // tube body: chamber walls + closed back, mouth open to the left
+  ctx.strokeStyle = '#7a828e'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(g.mouthX, g.mouthY - g.mouthH / 2);
+  ctx.lineTo(g.mouthX + g.chamberW, g.mouthY - g.mouthH / 2);
+  ctx.lineTo(g.mouthX + g.chamberW, g.mouthY + g.mouthH / 2);
+  ctx.lineTo(g.mouthX, g.mouthY + g.mouthH / 2);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#9aa3b0'; ctx.textAlign = 'left';
+  ctx.fillText('pitot tube', g.mouthX + 2, g.mouthY - g.mouthH / 2 - 8);
+
+  // pressure line from chamber down to the gauge
+  ctx.strokeStyle = '#4a5563'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(g.mouthX + g.chamberW, g.mouthY);
+  ctx.lineTo(g.mouthX + g.chamberW + 26, g.mouthY);
+  ctx.lineTo(g.gaugeX, g.gaugeY - g.gaugeR - 6);
+  ctx.stroke();
+
+  // the airspeed indicator
+  ctx.beginPath(); ctx.arc(g.gaugeX, g.gaugeY, g.gaugeR, 0, 7);
+  ctx.fillStyle = '#141414'; ctx.fill();
+  ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 2; ctx.stroke();
+  const A0 = 0.75 * Math.PI, A1 = 2.25 * Math.PI;   // dial arc, 40 → 200 kt
+  const ang = (kt) => A0 + clamp((kt - 40) / 160, 0, 1) * (A1 - A0);
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5;
+  for (let kt = 40; kt <= 200; kt += 20) {
+    const a = ang(kt);
+    ctx.beginPath();
+    ctx.moveTo(g.gaugeX + Math.cos(a) * (g.gaugeR - 4), g.gaugeY + Math.sin(a) * (g.gaugeR - 4));
+    ctx.lineTo(g.gaugeX + Math.cos(a) * (g.gaugeR - 11), g.gaugeY + Math.sin(a) * (g.gaugeR - 11));
+    ctx.stroke();
+    if (kt % 40 === 0) {
+      ctx.fillStyle = '#777'; ctx.textAlign = 'center';
+      ctx.fillText(kt, g.gaugeX + Math.cos(a) * (g.gaugeR - 21), g.gaugeY + Math.sin(a) * (g.gaugeR - 21) + 3);
+    }
+  }
+  const na = ang(ias);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(g.gaugeX - Math.cos(na) * 9, g.gaugeY - Math.sin(na) * 9);
+  ctx.lineTo(g.gaugeX + Math.cos(na) * (g.gaugeR - 14), g.gaugeY + Math.sin(na) * (g.gaugeR - 14));
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(g.gaugeX, g.gaugeY, 3.5, 0, 7);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.fillStyle = '#8ab8e8'; ctx.textAlign = 'center';
+  ctx.font = 'bold 11px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(Math.round(ias) + ' kt', g.gaugeX, g.gaugeY + g.gaugeR + 14);
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#666';
+  ctx.fillText('IAS', g.gaugeX, g.gaugeY + 22);
+
+  // condition strip, bottom-left
+  ctx.fillStyle = '#666'; ctx.textAlign = 'left';
+  ctx.fillText(`TAS ${Math.round(pit.tas)} kt · air density ${Math.round(sigma * 100)} % · ram pressure ${q.toFixed(1)} lb/ft²`, 10, H - 10);
+}
+
+function updatePitot() {
+  const sigma = pitSigma(), ias = pitIas();
+  $('pit-sigma').innerHTML = `<b>${Math.round(sigma * 100)} %</b> of sea level`;
+  $('pit-q').innerHTML = `<b>${pitQpsf().toFixed(1)}</b> lb/ft²`;
+  $('pit-ias').innerHTML = `<b>${Math.round(ias)} kt</b> indicated`;
+  $('pit-tas-ro').innerHTML = `<b>${Math.round(pit.tas)} kt</b> true`;
+  $('pit-note').textContent = pit.alt < 250
+    ? 'At sea level the gauge tells the whole truth: IAS = TAS. Climb and watch them split.'
+    : `Up at ${fmt0(pit.alt)} ft the pile-up in the tube is exactly what ${Math.round(ias)} kt makes at sea level — so that's what the needle says, while you truly move at ${Math.round(pit.tas)} kt. The wing is equally fooled, which is why V-speeds are flown indicated.`;
+}
+
+function initPitot() {
+  const tasEl = bindSlider('pit-tas', (v) => `${v} <span class="u">kt TAS</span>`, (v) => { pit.tas = v; updatePitot(); });
+  const altEl = bindSlider('pit-alt', (v) => `${fmt0(v)} <span class="u">ft</span>`, (v) => { pit.alt = v; updatePitot(); });
+  const setBoth = (alt, tas) => {
+    altEl.value = alt; tasEl.value = clamp(Math.round(tas), 40, 200);
+    altEl.dispatchEvent(new Event('input'));
+    tasEl.dispatchEvent(new Event('input'));
+  };
+  // both presets hold the needle steady so the IAS/TAS split is the one thing that moves
+  $('pit-climb').addEventListener('click', () => {
+    const ias = pitIas();
+    setBoth(10000, ias / Math.sqrt(sigmaAtDa(10000)));
+  });
+  $('pit-sl').addEventListener('click', () => setBoth(0, pitIas()));
+  updatePitot();
+  pitotTick(0.016);   // first paint even if the section starts off-screen
 }
 
 /* ========================================================================
@@ -834,6 +1020,187 @@ function initSpeeds() {
   updateSpeeds();
 }
 
+/* ========================================================================
+   MOLECULE BACKGROUND — the page-wide dot field.
+   Dot count tracks density, jiggle speed tracks temperature, blue dots are
+   water vapor, and drift follows the active section's airflow. Whichever
+   section is nearest the viewport's focus line drives the state.
+   ======================================================================== */
+
+const bg = {
+  cv: null, ctx: null, W: 0, H: 0, dpr: 1,
+  dots: [],
+  cur: { sigma: 1, tempC: 15, hum: 0.2, wx: 0, wy: 0 },
+  label: '', hudT: 0,
+};
+
+// registered sections: { el, getState() -> {sigma, tempC, hum, wx, wy, label} }
+const SECTIONS = [];
+function regSection(id, getState) {
+  const el = document.getElementById(id);
+  if (el) SECTIONS.push({ el, getState });
+}
+function activeSection() {
+  const focus = window.innerHeight * 0.42;
+  let best = SECTIONS[0], bd = Infinity;
+  for (const s of SECTIONS) {
+    const r = s.el.getBoundingClientRect();
+    if (r.top <= focus && r.bottom >= focus) return s;
+    const d = Math.min(Math.abs(r.top - focus), Math.abs(r.bottom - focus));
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+
+function bgResize() {
+  bg.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  bg.W = window.innerWidth; bg.H = window.innerHeight;
+  bg.cv.width = bg.W * bg.dpr; bg.cv.height = bg.H * bg.dpr;
+  bg.ctx.setTransform(bg.dpr, 0, 0, bg.dpr, 0, 0);
+}
+
+// exaggerated but monotonic: molecular jiggle speed in px/s from temperature
+function bgJiggle(tempC) { return clamp(6 + (tempC + 60) * 0.55, 4, 80); }
+
+function bgSpawnDot(vap) {
+  return {
+    x: Math.random() * bg.W, y: Math.random() * bg.H,
+    th: Math.random() * 7, sp0: 0.6 + Math.random() * 0.8,
+    vap, a: 0,
+  };
+}
+
+function bgTick(dt, st) {
+  const c = bg.cur;
+  const k = Math.min(1, dt * 2.2);            // smooth approach to the target
+  c.sigma += (st.sigma - c.sigma) * k;
+  c.tempC += (st.tempC - c.tempC) * k;
+  c.hum += (st.hum - c.hum) * k;
+  c.wx += (st.wx - c.wx) * k;
+  c.wy += (st.wy - c.wy) * k;
+
+  // population follows density
+  const target = Math.round(clamp(bg.W * bg.H / 9000, 60, 340) * clamp(c.sigma, 0.03, 1.15));
+  if (bg.dots.length < target) {
+    for (let i = 0; i < 4 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
+  } else if (bg.dots.length > target) {
+    bg.dots.splice(0, Math.min(3, bg.dots.length - target));
+  }
+
+  // vapor fraction follows humidity (flip a dot or two per frame toward target)
+  const wantVap = Math.round(bg.dots.length * clamp(c.hum, 0, 1) * 0.45);
+  let haveVap = 0;
+  for (const d of bg.dots) if (d.vap) haveVap++;
+  if (haveVap !== wantVap && bg.dots.length) {
+    const flipTo = haveVap < wantVap;
+    for (let i = 0; i < 2; i++) {
+      const d = bg.dots[(Math.random() * bg.dots.length) | 0];
+      if (d.vap !== flipTo) { d.vap = flipTo; break; }
+    }
+  }
+
+  const sp = bgJiggle(c.tempC);
+  const ctx = bg.ctx;
+  ctx.clearRect(0, 0, bg.W, bg.H);
+  for (const d of bg.dots) {
+    d.a = Math.min(1, d.a + dt * 1.5);
+    d.th += (Math.random() - 0.5) * 3 * dt;
+    d.x += (Math.cos(d.th) * sp * d.sp0 + c.wx) * dt;
+    d.y += (Math.sin(d.th) * sp * d.sp0 + c.wy) * dt;
+    if (d.x < -8) d.x = bg.W + 8; else if (d.x > bg.W + 8) d.x = -8;
+    if (d.y < -8) d.y = bg.H + 8; else if (d.y > bg.H + 8) d.y = -8;
+    ctx.beginPath();
+    if (d.vap) {
+      ctx.fillStyle = `rgba(91,157,217,${0.5 * d.a})`;
+      ctx.arc(d.x, d.y, 2.2, 0, 7);
+    } else {
+      ctx.fillStyle = `rgba(168,178,192,${0.34 * d.a})`;
+      ctx.arc(d.x, d.y, 1.6, 0, 7);
+    }
+    ctx.fill();
+  }
+
+  // HUD, a few times a second
+  bg.hudT -= dt;
+  if (bg.hudT <= 0) {
+    bg.hudT = 0.25;
+    const el = $('mol-hud-line');
+    if (el) el.innerHTML = `<b>background air</b> · ${st.label} · ` +
+      `${Math.round(c.sigma * 100)} % density · ${Math.round(c.tempC)} °C · RH ${Math.round(clamp(c.hum, 0, 1) * 100)} %`;
+  }
+}
+
+/* ----- per-section states for the background field ----- */
+
+function relHumidity(tC, dC) {
+  return clamp(vaporPresHpa(Math.min(dC, tC)) / vaporPresHpa(tC), 0, 1);
+}
+
+function registerBgSections() {
+  regSection('sec-atmo', () => ({
+    sigma: colRho(col.alt) / ISA.RHO0,
+    tempC: colTempC(col.alt),
+    hum: 0.22, wx: 0, wy: 0,
+    label: `the column at ${fmt0(col.alt)} ft`,
+  }));
+  regSection('sec-da', () => {
+    const r = daCompute();
+    return {
+      sigma: r.sigma, tempC: r.tC,
+      hum: relHumidity(r.tC, r.dC), wx: 0, wy: 0,
+      label: `on the ramp — DA ${fmt0(r.daFt)} ft`,
+    };
+  });
+  regSection('sec-pitot', () => ({
+    sigma: pitSigma(), tempC: isaTempC(pit.alt),
+    hum: 0.15,
+    wx: 26 + pit.tas * 0.85, wy: 0,          // stream matches the pitot canvas
+    label: `relative wind at ${fmt0(pit.alt)} ft`,
+  }));
+  regSection('sec-speeds', () => {
+    const toDir = rad(spd.wdir + 180);        // dots drift downwind
+    return {
+      sigma: sigmaAtDa(spd.alt + 118.8 * spd.isaDev),
+      tempC: isaTempC(spd.alt) + spd.isaDev,
+      hum: 0.2,
+      wx: Math.sin(toDir) * spd.wspd * 2.4,
+      wy: -Math.cos(toDir) * spd.wspd * 2.4,
+      label: `cruise at ${fmt0(spd.alt)} ft · wind ${String(spd.wdir).padStart(3, '0')}@${spd.wspd}`,
+    };
+  });
+  regSection('sec-parcel', () => {
+    const lcl = pcLclFt();
+    const surfRH = relHumidity(pc.Ts + pc.heat, pc.Td);
+    return {
+      sigma: sigmaAtDa(pc.alt),
+      tempC: pcParcelT(pc.alt),
+      hum: Math.min(1, surfRH + (1 - surfRH) * (lcl > 0 ? pc.alt / lcl : 1)),
+      wx: 0,
+      wy: clamp(-pc.vel * 0.03, -45, 45),     // dots rise and sink with the parcel
+      label: `inside the parcel at ${fmt0(pc.alt)} ft`,
+    };
+  });
+}
+
+/* ============================ shared animation =========================== */
+
+const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function nearViewport(el) {
+  const r = el.getBoundingClientRect();
+  return r.bottom > -60 && r.top < window.innerHeight + 60;
+}
+
+let lastFrameT = 0;
+function masterFrame(t) {
+  const dt = lastFrameT ? Math.min(0.05, (t - lastFrameT) / 1000) : 0.016;
+  lastFrameT = t;
+  if (!REDUCED && bg.ctx) bgTick(dt, activeSection().getState());
+  if (nearViewport($('parcel-canvas'))) parcelTick(dt);
+  if (nearViewport($('pitot-canvas'))) pitotTick(dt);
+  requestAnimationFrame(masterFrame);
+}
+
 /* ================================= init ================================== */
 
 function initAirLab() {
@@ -842,13 +1209,25 @@ function initAirLab() {
   $('da-elev').value = SITE.airport.elevFt;
   initColumn();
   initDa();
-  initParcel();
+  initPitot();
   initSpeeds();
+  initParcel();
+
+  bg.cv = $('mol-bg');
+  if (bg.cv && !REDUCED) {
+    bg.ctx = bg.cv.getContext('2d');
+    bgResize();
+  }
+  registerBgSections();
+  requestAnimationFrame(masterFrame);
 
   let resizeT;
   window.addEventListener('resize', () => {
     clearTimeout(resizeT);
-    resizeT = setTimeout(() => { updateColumn(); drawDaChart(); drawTasChart(); drawWindTriangle(); }, 120);
+    resizeT = setTimeout(() => {
+      if (bg.ctx) bgResize();
+      updateColumn(); drawDaChart(); drawTasChart(); drawWindTriangle();
+    }, 120);
   });
 }
 
