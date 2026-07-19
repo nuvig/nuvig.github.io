@@ -80,6 +80,35 @@ const KANPClimb = (() => {
 
   // ---- profile extraction ----
   function extract(d) {
+    // ADS-B altitude is pressure altitude, so the field itself "reads"
+    // several hundred ft high or low depending on the day's altimeter
+    // setting. Estimate the field's pressure altitude per hour from every
+    // aircraft's on-ground reports near the field; it baselines flights
+    // whose own ground fixes were never received.
+    const hourAlts = new Map();
+    for (const t of d.tracks) {
+      for (const p of t.points) {
+        if (p[5] === 1 && p[3] != null && KANP.distNm(p[1], p[2]) <= NEAR_NM) {
+          const h = Math.floor(p[0] / 3600);
+          if (!hourAlts.has(h)) hourAlts.set(h, []);
+          hourAlts.get(h).push(p[3]);
+        }
+      }
+    }
+    const hourBase = new Map();
+    for (const [h, v] of hourAlts) {
+      v.sort((a, b) => a - b);
+      hourBase.set(h, v[Math.floor(v.length / 2)]);
+    }
+    const fieldPressureAlt = ts => {
+      const h = Math.floor(ts / 3600);
+      for (let dh = 0; dh <= 6; dh++) {           // nearest hour with data
+        if (hourBase.has(h - dh)) return hourBase.get(h - dh);
+        if (hourBase.has(h + dh)) return hourBase.get(h + dh);
+      }
+      return null;
+    };
+
     const profiles = [];
     for (const t of d.tracks) {
       const pts = t.points;
@@ -105,19 +134,39 @@ const KANPClimb = (() => {
         }
         if (!nextAir) continue;
 
-        // liftoff reference altitude: lowest reported alt in the field contact
+        // liftoff reference altitude: this aircraft's own on-ground reports
+        // in the field contact, else the hourly field pressure-altitude
+        // estimate, else the lowest reported alt in the contact
         let base = null;
+        const gAlts = [];
         for (let k = s.i0; k <= s.i1; k++) {
-          if (pts[k][3] != null && (base == null || pts[k][3] < base)) base = pts[k][3];
+          if (pts[k][5] === 1 && pts[k][3] != null) gAlts.push(pts[k][3]);
+        }
+        if (gAlts.length) {
+          gAlts.sort((a, b) => a - b);
+          base = gAlts[Math.floor(gAlts.length / 2)];
+        } else {
+          base = fieldPressureAlt(pts[s.i0][0]);
+        }
+        if (base == null) {
+          for (let k = s.i0; k <= s.i1; k++) {
+            if (pts[k][3] != null && (base == null || pts[k][3] < base)) base = pts[k][3];
+          }
         }
         if (base == null) base = SITE.airport.elevFt;
 
-        // follow the climb from the last at-field point
+        // follow the climb from the liftoff point: the last on-ground fix in
+        // the contact if one was received, else the last at-field point —
+        // this also anchors the distance origin at the actual liftoff
+        let start = s.i1;
+        for (let k = s.i1; k >= s.i0; k--) {
+          if (pts[k][5] === 1) { start = k; break; }
+        }
         const prof = [];
         let dist = 0, maxGain = 0, gsSum = 0, gsN = 0;
-        for (let k = s.i1; k < pts.length; k++) {
+        for (let k = start; k < pts.length; k++) {
           const p = pts[k];
-          if (k > s.i1) {
+          if (k > start) {
             if (p[0] - pts[k - 1][0] > CLIMB_GAP_S) break;
             dist += hav(pts[k - 1], p);
           }
@@ -434,5 +483,6 @@ const KANPClimb = (() => {
       : date;
   }
 
-  return {};
+  // exposed for console inspection (e.g. checking baseline behaviour)
+  return { profiles: () => last && last.profiles };
 })();
