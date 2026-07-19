@@ -494,8 +494,110 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   // ---------------------------------------------------------------- 3D view
   const v3 = {
     on: false, yaw: -0.6, pitch: 0.75, dist: 80, target: [0, 0, 0],
-    exag: 15, colorByAlt: true, ref: null, dpr: 1,
+    exag: 15, colorByAlt: true, showMap: true, ref: null, dpr: 1,
   };
+
+  // ---- dark basemap stitched onto the ground plane -------------------------
+  const ground = { key: null, cv: null, z: 4, ox: 0, oy: 0, ready: false, cosRef: 1 };
+  let raf3 = 0;
+  function scheduleDraw() {
+    if (raf3) return;
+    raf3 = requestAnimationFrame(() => { raf3 = 0; if (v3.on) draw3d(); });
+  }
+  function mercPx(lat, lon, z) {
+    const n = 256 * Math.pow(2, z);
+    const s = Math.sin(Math.max(-85, Math.min(85, lat)) * D2R);
+    return [(lon + 180) / 360 * n,
+            (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n];
+  }
+  function ensureGround() {
+    if (!scene || !v3.showMap) return;
+    const ref = scene.ref, ext = scene.ext;
+    const key = ref[0].toFixed(2) + ',' + ref[1].toFixed(2) + ',' + ext;
+    if (ground.key === key) return;
+    ground.key = key; ground.ready = false;
+    const cosR = Math.max(0.2, Math.cos(ref[0] * D2R));
+    ground.cosRef = cosR;
+    const pad = 1.8;                                 // cover well past the paths
+    const degLon = 2 * ext * pad / (60 * cosR);
+    const latN = ref[0] + ext * pad / 60, latS = ref[0] - ext * pad / 60;
+    const lonW = ref[1] - degLon / 2, lonE = ref[1] + degLon / 2;
+    let z = Math.max(3, Math.min(11, Math.floor(Math.log2(6 * 360 / degLon))));
+    let tx0, tx1, ty0, ty1;
+    for (;;) {
+      const a = mercPx(latN, lonW, z), b = mercPx(latS, lonE, z);
+      tx0 = Math.floor(a[0] / 256); ty0 = Math.floor(a[1] / 256);
+      tx1 = Math.floor(b[0] / 256); ty1 = Math.floor(b[1] / 256);
+      if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 49 || z <= 3) break;
+      z--;
+    }
+    const cv = document.createElement('canvas');
+    cv.width = (tx1 - tx0 + 1) * 256; cv.height = (ty1 - ty0 + 1) * 256;
+    const ctx = cv.getContext('2d');
+    ground.cv = cv; ground.z = z; ground.ox = tx0 * 256; ground.oy = ty0 * 256;
+    for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        if (ground.key !== key) return;              // superseded by a rebuild
+        ctx.drawImage(im, (tx - tx0) * 256, (ty - ty0) * 256);
+        ground.ready = true;
+        scheduleDraw();
+      };
+      im.src = `https://${'abcd'[(tx + ty) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png`;
+    }
+  }
+  function groundPx(wx, wy) {
+    const lat = scene.ref[0] + wy / 60;
+    const lon = scene.ref[1] + wx / (60 * ground.cosRef);
+    const p = mercPx(lat, lon, ground.z);
+    return [p[0] - ground.ox, p[1] - ground.oy];
+  }
+  // The ground is a plane, so each screen scanline maps affinely onto the
+  // basemap ("mode-7"): invert the projection at z=0 per row and blit strips.
+  function drawGround(g, W, H, cam) {
+    const { cp, sp, cy, sy, f, dist, tz } = cam;
+    const rowG = ys => {
+      const c = (H * 0.52 - ys) / f;
+      const den = sp - c * cp;
+      if (den < 1e-4) return null;                   // above the horizon
+      const y1 = (tz * (cp + c * sp) + c * dist) / den;
+      const depth = y1 * cp + tz * sp + dist;
+      if (depth < 0.5) return null;
+      const end = sx => {
+        const x1 = (sx - W / 2) * depth / f;
+        return [x1 * cy + y1 * sy + v3.target[0], -x1 * sy + y1 * cy + v3.target[1]];
+      };
+      return { a: end(0), b: end(W), depth };
+    };
+    const S = 3;
+    const horizon = cp > 1e-4 ? H * 0.52 - f * sp / cp : -1e9;
+    for (let ys = Math.max(0, Math.ceil(horizon) + 2); ys < H; ys += S) {
+      const r0 = rowG(ys), r1 = rowG(ys + S);
+      if (!r0 || !r1) continue;
+      const alpha = Math.min(0.95, Math.max(0, 1.35 - r0.depth / (dist * 7)));
+      if (alpha < 0.03) continue;
+      const [x0, y0] = groundPx(r0.a[0], r0.a[1]);
+      const [x1, y1] = groundPx(r0.b[0], r0.b[1]);
+      const [x2, y2] = groundPx(r1.a[0], r1.a[1]);
+      const den = x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1);
+      if (Math.abs(den) < 1e-9) continue;
+      // affine basemap->screen from 3 point pairs
+      const A = (0 * (y1 - y2) + W * (y2 - y0) + 0 * (y0 - y1)) / den;
+      const B = (ys * (y1 - y2) + ys * (y2 - y0) + (ys + S) * (y0 - y1)) / den;
+      const C = (0 * (x2 - x1) + W * (x0 - x2) + 0 * (x1 - x0)) / den;
+      const D = (ys * (x2 - x1) + ys * (x0 - x2) + (ys + S) * (x1 - x0)) / den;
+      const E = 0 - A * x0 - C * y0;
+      const F = ys - B * x0 - D * y0;
+      g.save();
+      g.beginPath(); g.rect(0, ys, W, S + 0.4); g.clip();
+      g.globalAlpha = alpha;
+      g.transform(A, B, C, D, E, F);
+      g.drawImage(ground.cv, 0, 0);
+      g.restore();
+    }
+    g.globalAlpha = 1;
+  }
 
   function altColor(alt, lo, hi) {
     const t = Math.max(0, Math.min(1, (alt - lo) / Math.max(1, hi - lo)));
@@ -544,13 +646,18 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
         rws.push([x, y, doc.elev || 0]);
       }
     }
-    return { paths, fixes: f3, ref, lo, hi, rws };
+    let ext = 20;
+    for (const p of paths) for (const q of p.pts)
+      ext = Math.max(ext, Math.abs(q[0]), Math.abs(q[1]));
+    ext = Math.ceil(ext / 10) * 10;
+    return { paths, fixes: f3, ref, lo, hi, rws, ext };
   }
 
   let scene = null;
   function render3d() {
     if (!v3.on) return;
     scene = gather3d();
+    if (scene) ensureGround();
     draw3d();
   }
 
@@ -588,24 +695,27 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     const f = H * 1.35;
     const zScale = v3.exag;
 
+    // camera sits above the plane at z = target.z + dist*sin(pitch), looking down
     const proj = (x, y, zft) => {
       const z = ftToNm(zft) * zScale;
       let dx = x - v3.target[0], dy = y - v3.target[1], dz = z - v3.target[2];
       const x1 = dx * cy - dy * sy;
       const y1 = dx * sy + dy * cy;
-      const depth = y1 * cp + dz * sp + v3.dist;
-      const vert = dz * cp - y1 * sp;
+      const depth = y1 * cp - dz * sp + v3.dist;
+      const vert = y1 * sp + dz * cp;
       if (depth < 0.5) return null;
       const s = f / depth;
       return [W / 2 + x1 * s, H * 0.52 - vert * s, depth];
     };
 
-    // ground grid every 10 nm
-    let ext = 20;
-    for (const p of scene.paths) for (const q of p.pts)
-      ext = Math.max(ext, Math.abs(q[0]), Math.abs(q[1]));
-    ext = Math.ceil(ext / 10) * 10;
-    g.strokeStyle = 'rgba(70,90,110,0.25)'; g.lineWidth = 1;
+    if (v3.showMap && ground.ready)
+      drawGround(g, W, H, { cp, sp, cy, sy, f, dist: v3.dist, tz: v3.target[2] });
+
+    // ground grid every 10 nm (fainter when the basemap is underneath)
+    const ext = scene.ext;
+    const mapOn = v3.showMap && ground.ready;
+    g.strokeStyle = mapOn ? 'rgba(120,150,180,0.12)' : 'rgba(70,90,110,0.25)';
+    g.lineWidth = 1;
     for (let a = -ext; a <= ext; a += 10) {
       strokePath(g, [[a, -ext, 0], [a, ext, 0]], proj);
       strokePath(g, [[-ext, a, 0], [ext, a, 0]], proj);
@@ -718,12 +828,14 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       if (drag.pan) {
         const s = v3.dist / (cv.clientHeight * 1.35);
         const cy = Math.cos(v3.yaw), sy = Math.sin(v3.yaw);
+        const sp = Math.max(0.3, Math.sin(v3.pitch));
         // move target in the ground plane, screen-relative
-        v3.target[0] -= (dx * cy + dy * -sy * Math.cos(v3.pitch)) * s;
-        v3.target[1] -= (-dx * sy + dy * -cy * Math.cos(v3.pitch)) * s;
+        const x1 = -dx * s, y1 = dy * s / sp;
+        v3.target[0] += x1 * cy + y1 * sy;
+        v3.target[1] += -x1 * sy + y1 * cy;
       } else {
         v3.yaw += dx * 0.006;
-        v3.pitch = Math.max(0.05, Math.min(1.5, v3.pitch + dy * 0.006));
+        v3.pitch = Math.max(0.15, Math.min(1.55, v3.pitch + dy * 0.006));
       }
       draw3d();
     });
@@ -739,6 +851,12 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       draw3d();
     });
     $('c3d-reset').addEventListener('click', () => { fit3d(); draw3d(); });
+    $('c3d-map').addEventListener('click', e => {
+      v3.showMap = !v3.showMap;
+      e.target.classList.toggle('on', v3.showMap);
+      if (v3.showMap) ensureGround();
+      draw3d();
+    });
     $('c3d-color').addEventListener('click', e => {
       v3.colorByAlt = !v3.colorByAlt;
       e.target.textContent = 'Color: ' + (v3.colorByAlt ? 'altitude' : 'procedure');
@@ -954,7 +1072,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     const sel = h.get('sel');
     if (sel) {
       for (const part of sel.split(',')) {
-        const m = part.match(/^([A-Z0-9]+)\.(.+)\.([\d_]+)$/);
+        const m = part.match(/^([A-Z0-9]+)\.(.+?)\.([\d_]+)$/);
         if (!m) continue;
         await loadAirport(m[1], false);
         if (!state.docs.has(m[1])) continue;
