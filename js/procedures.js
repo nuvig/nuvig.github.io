@@ -250,6 +250,18 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
 
     assignAltitudes(segs, doc, proc);
 
+    // fixes without their own constraint sit on the interpolated ribbon,
+    // not on the ground: take the altitude of the nearest path vertex
+    for (const fx of fixes) {
+      if (fx.alt != null) continue;
+      let best = Infinity, alt = null;
+      for (const s of segs) for (const p of s.pts) {
+        const d = (p[0] - fx.lat) ** 2 + (p[1] - fx.lon) ** 2;
+        if (d < best) { best = d; alt = p[2]; }
+      }
+      if (alt != null && best < 1e-4) fx.alt = Math.round(alt);
+    }
+
     // hold racetracks (drawn after altitudes so we know the hold height)
     for (const fx of fixes) {
       if (!fx.hold || fx.hold.crs == null) continue;
@@ -296,14 +308,35 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       cum.push(cum[i - 1] + distNm(verts[i - 1], verts[i]));
     const known = [];
     verts.forEach((v, i) => { if (v[2] != null) known.push(i); });
-    if (!known.length) { verts.forEach(v => v[2] = doc.elev || 0); return; }
+    if (!known.length) {
+      // no coded altitudes anywhere (e.g. non-RNAV STARs with only "expect"
+      // altitudes on the chart): sketch a plausible climb/descent profile
+      const elev = doc.elev || 0, end = cum[cum.length - 1];
+      verts.forEach((v, i) => {
+        if (proc.type === 'SID')
+          v[2] = Math.min(elev + 15000, elev + cum[i] * 350);
+        else if (proc.type === 'STAR')
+          v[2] = Math.min(elev + 19000, elev + 4000 + (end - cum[i]) * 300);
+        else v[2] = elev;
+      });
+      return;
+    }
     for (let i = 0; i < verts.length; i++) {
       if (verts[i][2] != null) continue;
       let a = null, b = null;
       for (const k of known) { if (k < i) a = k; else { b = k; break; } }
-      if (a == null) verts[i][2] = verts[known[0]][2];
-      else if (b == null) verts[i][2] = verts[a][2];
-      else {
+      if (a == null) {
+        // unconstrained lead-in: STARs descend into their first constraint,
+        // so extrapolate a ~300 ft/nm descent backwards; others stay flat
+        const k0 = known[0], base = verts[k0][2];
+        verts[i][2] = proc.type === 'STAR'
+          ? Math.min(base + 15000, base + (cum[k0] - cum[i]) * 300) : base;
+      } else if (b == null) {
+        // unconstrained tail: SIDs keep climbing (~350 ft/nm); others flat
+        const base = verts[a][2];
+        verts[i][2] = proc.type === 'SID'
+          ? Math.min(base + 15000, base + (cum[i] - cum[a]) * 350) : base;
+      } else {
         const t = (cum[i] - cum[a]) / Math.max(1e-6, cum[b] - cum[a]);
         verts[i][2] = verts[a][2] + t * (verts[b][2] - verts[a][2]);
       }
@@ -1134,7 +1167,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
 
     const fromHash = await loadHash();
     if (!fromHash) {
-      const home = (window.SITE && SITE.ICAO) || 'KANP';
+      const home = 'KDEN';
       $('apt-search').value = home;
       await loadAirport(home, true);
     }
