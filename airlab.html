@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Lab — density altitude, airspeeds &amp; the atmosphere</title>
+  <meta name="description" content="Interactive aviation atmosphere lab: density altitude, pressure altitude, true airspeed, ground speed, and air-parcel simulations.">
+  <!-- Development preview — remove noindex (and link from index.html) when published -->
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    a { color: #aaa; }
+    #back-link {
+      display: inline-block; margin-top: 16px; font-size: 14px;
+      text-decoration: none; color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .dev-banner {
+      border: 1px dashed #6b5520; background: #221c0c; border-radius: 8px;
+      padding: 7px 12px; font-size: 12px; color: #d9b44a; margin-bottom: 18px;
+    }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd;
+      margin: 34px 0 4px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .num {
+      color: #4a9eff; font-variant-numeric: tabular-nums; font-weight: 700;
+    }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 850px; line-height: 1.6; }
+    .section-lede b { color: #bbb; }
+
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin: 0;
+    }
+    .card h3 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .muted { color: #888; }
+    .faint { color: #555; }
+    .num-mono { font-variant-numeric: tabular-nums; }
+
+    /* ---- control rows ---- */
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 138px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 86px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+    .btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 5px 14px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #26497a; }
+    .btn.secondary { background: #333; border-color: #444; color: #ddd; }
+    .btn.secondary:hover { background: #444; }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    /* ---- layout grids ---- */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .col-canvas-side { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: 14px; align-items: start; }
+    @media (max-width: 820px) {
+      .two-col, .col-canvas-side { grid-template-columns: 1fr; }
+    }
+
+    /* ---- readouts ---- */
+    .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #222; }
+    .kv:last-child { border-bottom: none; }
+    .kv .k { color: #777; }
+    .kv .v { color: #ddd; text-align: right; font-variant-numeric: tabular-nums; }
+    .kv .v b { color: #fff; }
+    .big-pair { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 10px; }
+    .big-pair .item .lbl { font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: .05em; }
+    .big-pair .item .num { font-size: 27px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+    .big-pair .item .num .u { font-size: 13px; color: #777; font-weight: 400; }
+    .big-pair .item .num.warn { color: #f59e0b; }
+    .big-pair .item .num.bad { color: #ef4444; }
+
+    canvas.lab { display: block; width: 100%; touch-action: none; cursor: crosshair; border-radius: 6px; }
+    .canvas-note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
+
+    /* ---- explainer blocks ---- */
+    details.explain {
+      margin-top: 12px; border: 1px solid #2a2a2a; border-radius: 8px;
+      background: #161616; font-size: 13px; color: #999; line-height: 1.65;
+    }
+    details.explain summary {
+      cursor: pointer; padding: 9px 14px; color: #8ab8e8; font-weight: 600;
+      font-size: 12.5px; list-style: none;
+    }
+    details.explain summary::before { content: "▸ "; color: #4a9eff; }
+    details.explain[open] summary::before { content: "▾ "; }
+    details.explain .body { padding: 0 16px 12px; max-width: 900px; }
+    details.explain .body p { margin: 7px 0; }
+    details.explain b { color: #ccc; }
+    details.explain .formula {
+      font-family: Consolas, Menlo, monospace; font-size: 12px; color: #7fa8d0;
+      background: #101418; border: 1px solid #22303f; border-radius: 5px;
+      padding: 6px 10px; margin: 8px 0; overflow-x: auto; white-space: nowrap;
+    }
+
+    .stab-chip {
+      display: inline-block; padding: 1px 10px; border-radius: 4px;
+      font-size: 12px; font-weight: 700; color: #111;
+    }
+
+    table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; color: #bbb; }
+    .tbl th, .tbl td { text-align: right; padding: 4px 8px; border-bottom: 1px solid #2a2a2a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tbl th:first-child, .tbl td:first-child { text-align: left; }
+    .tbl th { color: #666; font-weight: 500; font-size: 11px; }
+    .tbl tr:last-child td { border-bottom: none; }
+    .tbl tr.hl td { color: #fff; background: #20293a; }
+
+    footer.sources { margin-top: 34px; font-size: 11px; color: #555; line-height: 1.7; }
+    footer.sources a { color: #666; }
+  </style>
+</head>
+<body>
+  <a href="/weather.html" id="back-link">← KANP Weather Hub</a>
+
+  <h1>Air Lab</h1>
+  <p class="subtitle">
+    How the atmosphere flies your airplane — density altitude, airspeeds &amp; parcels of air ·
+    interactive simulations, tuned for KANP
+  </p>
+
+  <div class="dev-banner">
+    ⚠ Development preview — this page is not linked from the site yet and is marked
+    <code>noindex</code>. Educational only, never for flight planning.
+  </div>
+
+  <!-- ================= 1. ATMOSPHERE COLUMN ================= -->
+  <div class="section-title"><span class="num">1</span> The atmosphere, top to bottom</div>
+  <p class="section-lede">
+    Air gets <b>thinner, colder and lighter</b> as you climb. Drag up and down the column (or use the
+    altitude slider) and watch pressure, temperature and density fall together — then warm or cool the
+    day and see the whole column change. Every other panel on this page is a consequence of these three curves.
+  </p>
+  <div class="col-canvas-side">
+    <div class="card">
+      <canvas id="col-canvas" class="lab" style="height:430px"></canvas>
+      <div class="canvas-note">Drag anywhere on the chart to move your altitude. Solid lines = your day · faint dashed = ISA standard day.</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Controls</h3>
+        <div class="ctl-row"><label for="col-alt">Your altitude</label>
+          <input type="range" id="col-alt" min="0" max="40000" step="100" value="5500">
+          <span class="val" id="col-alt-val"></span></div>
+        <div class="ctl-row"><label for="col-temp">Sea-level temp</label>
+          <input type="range" id="col-temp" min="-20" max="45" step="1" value="15">
+          <span class="val" id="col-temp-val"></span></div>
+        <div class="ctl-row"><label for="col-qnh">Altimeter setting</label>
+          <input type="range" id="col-qnh" min="28.60" max="31.00" step="0.01" value="29.92">
+          <span class="val" id="col-qnh-val"></span></div>
+        <div class="ctl-row" style="gap:8px">
+          <button class="btn secondary" id="col-isa">Reset to ISA standard day</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>At <span id="col-ro-alt" class="num-mono" style="color:#fff">—</span></h3>
+        <div class="kv"><span class="k">Pressure</span><span class="v" id="col-ro-p">—</span></div>
+        <div class="kv"><span class="k">Temperature</span><span class="v" id="col-ro-t">—</span></div>
+        <div class="kv"><span class="k">Air density</span><span class="v" id="col-ro-rho">—</span></div>
+        <div class="kv"><span class="k">Density vs sea level</span><span class="v" id="col-ro-sigma">—</span></div>
+        <div class="kv"><span class="k">Air molecules in each ft³ of wing</span><span class="v" id="col-ro-mol">—</span></div>
+        <div class="canvas-note" id="col-ro-note"></div>
+      </div>
+    </div>
+  </div>
+  <details class="explain">
+    <summary>Why pressure, temperature and density all matter to a wing</summary>
+    <div class="body">
+      <p>Lift and engine power both come from <b>how many air molecules</b> you can grab per second —
+      that's density (ρ). Pressure pushes molecules together; temperature pushes them apart. The ideal gas
+      law ties the three together:</p>
+      <div class="formula">ρ = P / (R · T) — density = pressure ÷ (gas constant × absolute temperature)</div>
+      <p>Climb and pressure drops → fewer molecules. Heat the air and it expands → fewer molecules again.
+      A <b>hot day is a form of altitude</b>: the wing can't tell whether the air is thin because you climbed
+      or because it's 95 °F on the ramp — that equivalence is exactly what density altitude measures in panel 2.</p>
+      <p>The ISA "standard day" (29.92 inHg and 15 °C at sea level, cooling 1.98 °C per 1,000 ft) is just an
+      agreed reference so that altimeters, performance charts and controllers all speak the same language.</p>
+    </div>
+  </details>
+
+  <!-- ================= 2. PRESSURE & DENSITY ALTITUDE ================= -->
+  <div class="section-title"><span class="num">2</span> Pressure altitude &amp; density altitude</div>
+  <p class="section-lede">
+    Set the field conditions and watch the airplane's <b>effective altitude</b> move. Pressure altitude is what
+    the altimeter reads on 29.92; density altitude is where the airplane <b>performs</b> like it is —
+    the number that stretches your takeoff roll on a July afternoon.
+  </p>
+  <div class="col-canvas-side">
+    <div class="card">
+      <canvas id="da-canvas" class="lab" style="height:390px"></canvas>
+      <div class="canvas-note">Each curve is a field elevation; your airport is the marked line. Drag on the chart to change temperature. Amber zone: DA above 3,000 ft — think before you load full fuel and two friends.</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Field conditions</h3>
+        <div class="ctl-row"><label for="da-elev">Field elevation</label>
+          <input type="range" id="da-elev" min="0" max="9000" step="1" value="34">
+          <span class="val" id="da-elev-val"></span></div>
+        <div class="ctl-row"><label for="da-temp">Temperature</label>
+          <input type="range" id="da-temp" min="-10" max="115" step="1" value="59">
+          <span class="val" id="da-temp-val"></span></div>
+        <div class="ctl-row"><label for="da-dew">Dewpoint</label>
+          <input type="range" id="da-dew" min="-20" max="85" step="1" value="41">
+          <span class="val" id="da-dew-val"></span></div>
+        <div class="ctl-row"><label for="da-qnh">Altimeter setting</label>
+          <input type="range" id="da-qnh" min="28.60" max="31.00" step="0.01" value="29.92">
+          <span class="val" id="da-qnh-val"></span></div>
+        <div class="ctl-row" style="gap:8px">
+          <button class="btn" id="da-metar">Load live KNAK weather</button>
+          <button class="btn secondary" id="da-kanp">KANP standard day</button>
+        </div>
+        <div class="canvas-note" id="da-metar-note"></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Result</h3>
+        <div class="big-pair">
+          <div class="item"><div class="lbl">Pressure altitude</div><div class="num" id="da-pa">—</div></div>
+          <div class="item"><div class="lbl">Density altitude</div><div class="num" id="da-da">—</div></div>
+        </div>
+        <div class="kv"><span class="k">ISA temperature here</span><span class="v" id="da-isa-t">—</span></div>
+        <div class="kv"><span class="k">You are ISA</span><span class="v" id="da-isa-dev">—</span></div>
+        <div class="kv"><span class="k">Humidity adds</span><span class="v" id="da-hum">—</span></div>
+        <div class="kv"><span class="k">Takeoff ground roll*</span><span class="v" id="da-roll">—</span></div>
+        <div class="kv"><span class="k">Rate of climb*</span><span class="v" id="da-climb">—</span></div>
+        <div class="canvas-note">*Rule-of-thumb trends vs sea-level ISA for a normally aspirated piston single — always use your POH.</div>
+      </div>
+    </div>
+  </div>
+  <details class="explain">
+    <summary>The chain: field elevation → pressure altitude → density altitude</summary>
+    <div class="body">
+      <p><b>Pressure altitude</b> corrects the field for the day's pressure: set 29.92 and the altimeter shows it.
+      Roughly ±1,000 ft per inch of mercury away from standard:</p>
+      <div class="formula">PA ≈ field elevation + (29.92 − altimeter setting) × 1,000 ft</div>
+      <p><b>Density altitude</b> then corrects PA for non-standard temperature — about 120 ft per °C away from ISA:</p>
+      <div class="formula">DA ≈ PA + 120 × (OAT °C − ISA temp °C)</div>
+      <p>This lab computes both exactly (NWS formulas, including the humidity term via vapor pressure —
+      muggy air is <b>less</b> dense than dry air, because H₂O molecules are lighter than N₂/O₂, so a humid
+      day quietly adds a few hundred feet more).</p>
+      <p>Why the performance numbers move so fast: takeoff distance suffers <b>twice</b> — the engine makes less
+      power in thin air, and the wing needs a higher <b>true</b> speed for the same indicated liftoff speed.
+      The classic planning rule: expect roughly +15 % ground roll and −7½ % climb rate per 1,000 ft of DA.</p>
+    </div>
+  </details>
+
+  <!-- ================= 3. PARCEL OF AIR ================= -->
+  <div class="section-title"><span class="num">3</span> A parcel of air</div>
+  <p class="section-lede">
+    Grab a bubble of surface air and release it aloft. Rising air <b>expands and cools at a fixed rate</b>
+    (3 °C / 1,000 ft while dry). Whether it keeps rising — building cumulus and turbulence — or sinks back
+    depends on how fast the air <b>around</b> it cools with height. Drag the parcel, or heat it like a sun-baked
+    field, and watch stability play out.
+  </p>
+  <div class="col-canvas-side">
+    <div class="card">
+      <canvas id="parcel-canvas" class="lab" style="height:430px"></canvas>
+      <div class="canvas-note">Drag the parcel to any altitude, then let go. Solid line = surrounding air (environment) · dashed = the parcel's own temperature as it rises. Cloud forms where they saturate (LCL).</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Air mass</h3>
+        <div class="ctl-row"><label for="pc-temp">Surface temp</label>
+          <input type="range" id="pc-temp" min="0" max="40" step="1" value="27">
+          <span class="val" id="pc-temp-val"></span></div>
+        <div class="ctl-row"><label for="pc-dew">Surface dewpoint</label>
+          <input type="range" id="pc-dew" min="-10" max="30" step="1" value="16">
+          <span class="val" id="pc-dew-val"></span></div>
+        <div class="ctl-row"><label for="pc-elr">Environment cools at</label>
+          <input type="range" id="pc-elr" min="0" max="4.5" step="0.1" value="2.0">
+          <span class="val" id="pc-elr-val"></span></div>
+        <div class="ctl-row" style="gap:8px">
+          <button class="btn" id="pc-heat">☀ Heat parcel +2 °C</button>
+          <button class="btn secondary" id="pc-reset">Reset</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>This air mass is</h3>
+        <div style="margin:2px 0 10px"><span class="stab-chip" id="pc-stab">—</span></div>
+        <div class="kv"><span class="k">Cloud base (LCL)</span><span class="v" id="pc-lcl">—</span></div>
+        <div class="kv"><span class="k">Parcel now at</span><span class="v" id="pc-alt">—</span></div>
+        <div class="kv"><span class="k">Parcel temp / surroundings</span><span class="v" id="pc-temps">—</span></div>
+        <div class="kv"><span class="k">Buoyancy</span><span class="v" id="pc-buoy">—</span></div>
+        <div class="canvas-note" id="pc-note"></div>
+      </div>
+    </div>
+  </div>
+  <details class="explain">
+    <summary>Lapse rates, the LCL, and why afternoon bumps happen</summary>
+    <div class="body">
+      <p>A rising parcel doesn't mix with its surroundings — it just expands as pressure drops, and expanding
+      gas cools: the <b>dry adiabatic lapse rate</b>, 3 °C per 1,000 ft. Its dewpoint falls much more slowly,
+      so temperature and dewpoint converge at about 2.5 °C per 1,000 ft. Where they meet, water condenses —
+      that altitude is the <b>lifting condensation level</b>, the flat cumulus cloud base you can estimate
+      from the ground:</p>
+      <div class="formula">cloud base (ft AGL) ≈ (temp °C − dewpoint °C) × 400  ·  or (spread °F) × 222</div>
+      <p>Once condensing, latent heat is released and the parcel cools more slowly (~1.8 °C / 1,000 ft moist) —
+      which is how storms feed themselves.</p>
+      <p><b>Stability is a race of lapse rates.</b> If the environment cools <i>faster</i> with height than the
+      parcel does, a lifted parcel finds itself warmer than its surroundings — lighter — and it accelerates
+      upward: <b>unstable</b> (thermals, cumulus, an afternoon of bumps at pattern altitude). If the environment
+      cools slowly — or warms with height, an <b>inversion</b> — the lifted parcel is colder and heavier and
+      sinks home: <b>stable</b> (smooth air, but haze and poor visibility trapped below, a very Chesapeake-summer
+      combination). In between, stability is <b>conditional</b> on reaching saturation.</p>
+    </div>
+  </details>
+
+  <!-- ================= 4. AIRSPEEDS ================= -->
+  <div class="section-title"><span class="num">4</span> Indicated → true → ground speed</div>
+  <p class="section-lede">
+    The airspeed indicator only counts <b>molecules hitting the pitot tube</b> — so in thin air it under-reads
+    your real speed through the air mass (true airspeed), and the wind then decides what the ground sees
+    (ground speed). Left: how TAS grows with altitude. Right: the wind triangle — drag the wind arrow.
+  </p>
+  <div class="two-col">
+    <div class="card">
+      <h3>True airspeed vs altitude</h3>
+      <canvas id="tas-canvas" class="lab" style="height:300px"></canvas>
+      <div class="ctl-row" style="margin-top:8px"><label for="tas-ias" style="min-width:110px">Indicated airspeed</label>
+        <input type="range" id="tas-ias" min="60" max="180" step="1" value="105">
+        <span class="val" id="tas-ias-val"></span></div>
+      <div class="ctl-row"><label for="tas-alt" style="min-width:110px">Cruise altitude</label>
+        <input type="range" id="tas-alt" min="0" max="17500" step="500" value="5500">
+        <span class="val" id="tas-alt-val"></span></div>
+      <div class="ctl-row"><label for="tas-isadev" style="min-width:110px">Temp vs ISA</label>
+        <input type="range" id="tas-isadev" min="-20" max="30" step="1" value="0">
+        <span class="val" id="tas-isadev-val"></span></div>
+      <div class="canvas-note" id="tas-note"></div>
+    </div>
+    <div class="card">
+      <h3>Wind triangle → ground speed</h3>
+      <canvas id="wind-canvas" class="lab" style="height:300px"></canvas>
+      <div class="ctl-row" style="margin-top:8px"><label for="wt-crs" style="min-width:110px">Desired course</label>
+        <input type="range" id="wt-crs" min="0" max="359" step="1" value="287">
+        <span class="val" id="wt-crs-val"></span></div>
+      <div class="ctl-row"><label for="wt-wdir" style="min-width:110px">Wind from</label>
+        <input type="range" id="wt-wdir" min="0" max="359" step="5" value="230">
+        <span class="val" id="wt-wdir-val"></span></div>
+      <div class="ctl-row"><label for="wt-wspd" style="min-width:110px">Wind speed</label>
+        <input type="range" id="wt-wspd" min="0" max="60" step="1" value="18">
+        <span class="val" id="wt-wspd-val"></span></div>
+      <div class="canvas-note" id="wt-note"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>The whole chain, this trip</h3>
+    <div id="chain-body" style="overflow-x:auto"></div>
+  </div>
+  <details class="explain">
+    <summary>IAS, CAS, TAS, GS — who measures what</summary>
+    <div class="body">
+      <p><b>Indicated (IAS)</b>: what the pitot-static system feels — dynamic pressure, ½ρV². It's the speed the
+      <b>wing</b> cares about: stall, rotation and approach speeds stay honest at any altitude, which is exactly
+      why we fly them indicated.</p>
+      <p><b>True (TAS)</b>: your actual speed through the air mass. Thin air → fewer molecules → the same true
+      speed makes less pressure, so the indicator under-reads. Recover it with the density ratio σ:</p>
+      <div class="formula">TAS = IAS / √σ   ·   rule of thumb: TAS ≈ IAS + 2 % per 1,000 ft of density altitude</div>
+      <p>(Strictly the correction applies to <i>calibrated</i> airspeed; below ~200 kt CAS ≈ IAS and
+      compressibility is negligible, so this lab treats them as equal.)</p>
+      <p><b>Ground speed (GS)</b>: TAS plus the wind vector. The air mass is a conveyor belt — you fly at TAS
+      <i>within</i> it while it carries you wherever it's going. Crab into the wind (the wind-correction angle)
+      to make the track match the course; whatever component of wind remains along the course adds to or
+      steals from GS. Headwind on final is why landing distance charts and fuel-time planning both start
+      from the wind.</p>
+    </div>
+  </details>
+
+  <footer class="sources">
+    Educational simulations — never a substitute for the POH, performance charts, or an official briefing.
+    Formulas: ICAO/ISA standard atmosphere; NWS density-altitude method (vapor pressure per Tetens);
+    lapse rates &amp; rules of thumb per FAA <i>Pilot's Handbook of Aeronautical Knowledge</i> and
+    <i>Aviation Weather</i> (AC 00-6B). Live weather: NWS API (KNAK, USNA — KANP has no on-field sensor).
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/airlab.js"></script>
+</body>
+</html>
