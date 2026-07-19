@@ -179,7 +179,44 @@
     One idea runs through this whole page: <b style="color:#bbb">everything your airplane does starts with how many
     air molecules it can grab per second</b>. The dots floating behind this page are those molecules — they thin out,
     speed up, and moisten as you scroll and as you move the sliders, always matching the panel you're looking at.
+    Start by grabbing a parcel yourself:
   </p>
+
+  <!-- ================= 0. PLAYGROUND ================= -->
+  <section id="sec-play">
+  <div class="card">
+    <h3>Playground — this is the air behind the page</h3>
+    <div class="two-col" style="gap:20px">
+      <div>
+        <div class="ctl-row"><label for="play-temp">Temperature</label>
+          <input type="range" id="play-temp" min="-20" max="45" step="1" value="15">
+          <span class="val" id="play-temp-val"></span></div>
+        <div class="ctl-row"><label for="play-dew">Dewpoint</label>
+          <input type="range" id="play-dew" min="-25" max="45" step="1" value="5">
+          <span class="val" id="play-dew-val"></span></div>
+        <div class="ctl-row"><label for="play-pres">Pressure</label>
+          <input type="range" id="play-pres" min="550" max="1050" step="5" value="1013">
+          <span class="val" id="play-pres-val"></span></div>
+        <div class="ctl-row" style="gap:8px">
+          <button class="btn secondary" id="play-std">Standard sea-level air</button>
+          <button class="btn secondary" id="play-july">KANP July afternoon</button>
+        </div>
+      </div>
+      <div>
+        <div class="kv"><span class="k">Molecules per volume (density)</span><span class="v" id="play-sigma">—</span></div>
+        <div class="kv"><span class="k">Relative humidity</span><span class="v" id="play-rh">—</span></div>
+        <div class="kv"><span class="k">The wing thinks it's at</span><span class="v" id="play-da">—</span></div>
+        <div class="canvas-note" id="play-note" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+  <p class="canvas-note" style="margin:8px 2px 0">
+    Watch the page background as you drag: <b style="color:#999">heat</b> the parcel and the dots speed up <i>and</i>
+    thin out (warm air expands) · <b style="color:#999">squeeze</b> it with pressure and they crowd together ·
+    raise the <b style="color:#999">dewpoint</b> and blue vapor replaces heavier dry air — push it to the temperature
+    and the vapor condenses into cloud.
+  </p>
+  </section>
 
   <!-- ================= 1. ATMOSPHERE COLUMN ================= -->
   <section id="sec-atmo">
