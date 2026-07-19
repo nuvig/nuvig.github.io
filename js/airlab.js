@@ -1021,6 +1021,54 @@ function initSpeeds() {
 }
 
 /* ========================================================================
+   0. PLAYGROUND — direct hands on the background parcel.
+   Temperature, dewpoint and pressure sliders drive the molecule field
+   with the honest gas physics: ρ = P/(R·T), vapor via Tetens.
+   ======================================================================== */
+
+const play = { tC: 15, dC: 5, pres: 1013 };
+
+function playState() {
+  const dC = Math.min(play.dC, play.tC);          // dewpoint can't exceed temp
+  const e = vaporPresHpa(dC);
+  const rho = airDensity(play.pres, play.tC, e);
+  return { dC, rho, sigma: rho / ISA.RHO0, rh: relHumidity(play.tC, dC) };
+}
+
+function updatePlay() {
+  const s = playState();
+  const daFt = densityAltFt(s.rho);
+  $('play-sigma').innerHTML = `<b>${Math.round(s.sigma * 100)} %</b> of standard sea level`;
+  $('play-rh').innerHTML = s.rh >= 0.99
+    ? `<b style="color:#8ab8e8">100 % — saturated</b>`
+    : `<b>${Math.round(s.rh * 100)} %</b>`;
+  $('play-da').innerHTML = `<b>DA ${fmt0(daFt)} ft</b>`;
+  const bits = [];
+  if (s.rh >= 0.99) bits.push('The vapor is condensing — this is the inside of a cloud, and exactly what happens at the LCL in panel 5.');
+  else if (play.tC >= 30) bits.push('Hot: the dots race around and spread out — fewer molecules in every cubic foot of wing.');
+  else if (play.tC <= -5) bits.push('Cold: slow, tightly packed molecules — the airplane loves this.');
+  if (play.pres <= 850) bits.push('Low pressure is altitude in disguise: this is the squeeze the parcel loses as it climbs.');
+  if (!bits.length) bits.push('An honest parcel: density comes straight from ρ = P / (R·T), vapor from the dewpoint.');
+  $('play-note').textContent = bits.join(' ');
+}
+
+function initPlay() {
+  bindSlider('play-temp', (v) => `${v} <span class="u">°C</span> · ${Math.round(cToF(v))} <span class="u">°F</span>`,
+    (v) => { play.tC = v; updatePlay(); });
+  bindSlider('play-dew', (v) => `${v} <span class="u">°C</span> · ${Math.round(cToF(v))} <span class="u">°F</span>`,
+    (v) => { play.dC = v; updatePlay(); });
+  bindSlider('play-pres', (v) => `${fmt0(v)} <span class="u">hPa</span> · ${(v / 33.8639).toFixed(2)} <span class="u">inHg</span>`,
+    (v) => { play.pres = v; updatePlay(); });
+  const setAll = (t, d, p) => {
+    $('play-temp').value = t; $('play-dew').value = d; $('play-pres').value = p;
+    for (const id of ['play-temp', 'play-dew', 'play-pres']) $(id).dispatchEvent(new Event('input'));
+  };
+  $('play-std').addEventListener('click', () => setAll(15, 5, 1013));
+  $('play-july').addEventListener('click', () => setAll(33, 24, 1013));
+  updatePlay();
+}
+
+/* ========================================================================
    MOLECULE BACKGROUND — the page-wide dot field.
    Dot count tracks density, jiggle speed tracks temperature, blue dots are
    water vapor, and drift follows the active section's airflow. Whichever
@@ -1100,24 +1148,40 @@ function bgTick(dt, st) {
   }
 
   const sp = bgJiggle(c.tempC);
+  // condensation kicks in as RH approaches 100 %: vapor dots swell into
+  // droplets, slow down (droplets are heavy), and a faint fog washes the page
+  const cond = clamp((clamp(c.hum, 0, 1) - 0.85) / 0.15, 0, 1);
   const ctx = bg.ctx;
   ctx.clearRect(0, 0, bg.W, bg.H);
+  if (cond > 0) {
+    ctx.fillStyle = `rgba(175,185,200,${cond * 0.05})`;
+    ctx.fillRect(0, 0, bg.W, bg.H);
+  }
   for (const d of bg.dots) {
     d.a = Math.min(1, d.a + dt * 1.5);
     d.th += (Math.random() - 0.5) * 3 * dt;
-    d.x += (Math.cos(d.th) * sp * d.sp0 + c.wx) * dt;
-    d.y += (Math.sin(d.th) * sp * d.sp0 + c.wy) * dt;
+    const mySp = sp * d.sp0 * (d.vap ? 1 - cond * 0.6 : 1);
+    d.x += (Math.cos(d.th) * mySp + c.wx) * dt;
+    d.y += (Math.sin(d.th) * mySp + c.wy) * dt;
     if (d.x < -8) d.x = bg.W + 8; else if (d.x > bg.W + 8) d.x = -8;
     if (d.y < -8) d.y = bg.H + 8; else if (d.y > bg.H + 8) d.y = -8;
-    ctx.beginPath();
     if (d.vap) {
-      ctx.fillStyle = `rgba(91,157,217,${0.5 * d.a})`;
-      ctx.arc(d.x, d.y, 2.2, 0, 7);
+      if (cond > 0) {   // soft droplet halo
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(150,190,230,${0.16 * cond * d.a})`;
+        ctx.arc(d.x, d.y, 2.2 + cond * 4.5, 0, 7);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(91,157,217,${(0.5 + cond * 0.3) * d.a})`;
+      ctx.arc(d.x, d.y, 2.2 + cond * 1.6, 0, 7);
+      ctx.fill();
     } else {
+      ctx.beginPath();
       ctx.fillStyle = `rgba(168,178,192,${0.34 * d.a})`;
       ctx.arc(d.x, d.y, 1.6, 0, 7);
+      ctx.fill();
     }
-    ctx.fill();
   }
 
   // HUD, a few times a second
@@ -1137,6 +1201,13 @@ function relHumidity(tC, dC) {
 }
 
 function registerBgSections() {
+  regSection('sec-play', () => {
+    const s = playState();
+    return {
+      sigma: s.sigma, tempC: play.tC, hum: s.rh, wx: 0, wy: 0,
+      label: 'your playground parcel',
+    };
+  });
   regSection('sec-atmo', () => ({
     sigma: colRho(col.alt) / ISA.RHO0,
     tempC: colTempC(col.alt),
@@ -1207,6 +1278,7 @@ function initAirLab() {
   // localize defaults to the configured home airport
   da.elev = SITE.airport.elevFt;
   $('da-elev').value = SITE.airport.elevFt;
+  initPlay();
   initColumn();
   initDa();
   initPitot();
