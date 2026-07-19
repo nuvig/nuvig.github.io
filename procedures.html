@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Procedure Explorer — SIDs, STARs &amp; Approaches in 3D</title>
+  <meta name="description" content="Overlay any US SID, STAR or instrument approach on a sectional chart, explore transitions, and see altitudes in 3D. Built from the FAA CIFP.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/procedures.html">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1500px; padding-bottom: 40px; }
+    a { color: #aaa; }
+    #back-link { display:inline-block; margin-top:16px; font-size:14px; text-decoration:none; color:#666; }
+    #back-link:hover { color:#ccc; }
+    header h1 { margin-bottom: 0; }
+    .subtitle { color:#666; margin:4px 0 14px; font-size:14px; }
+    .subtitle .cycle { color:#4a9eff; }
+
+    /* layout: sidebar + map column */
+    #explorer { display:flex; gap:14px; align-items:stretch; }
+    #sidebar {
+      width: 300px; flex-shrink: 0;
+      background:#141414; border:1px solid #333; border-radius:8px;
+      display:flex; flex-direction:column; overflow:hidden;
+      max-height: 1020px;
+    }
+    #main-col { flex:1; min-width:0; display:flex; flex-direction:column; }
+
+    /* airport search */
+    #search-box { padding:10px; border-bottom:1px solid #2a2a2a; position:relative; }
+    #apt-search {
+      width:100%; box-sizing:border-box; background:#0d0d0d; color:#eee;
+      border:1px solid #383838; border-radius:6px; padding:8px 10px;
+      font-size:14px; font-family:inherit; outline:none;
+    }
+    #apt-search:focus { border-color:#4a9eff; }
+    #search-results {
+      position:absolute; left:10px; right:10px; top:52px; z-index:1300;
+      background:#181818; border:1px solid #444; border-radius:6px;
+      max-height:300px; overflow-y:auto; display:none;
+      box-shadow:0 8px 24px rgba(0,0,0,.6);
+    }
+    #search-results div { padding:7px 10px; font-size:13px; color:#bbb; cursor:pointer; }
+    #search-results div:hover, #search-results div.hl { background:#26364a; color:#fff; }
+    #search-results .cnt { color:#666; font-size:11px; float:right; }
+
+    #apt-title { padding:10px 12px 6px; font-size:15px; font-weight:600; color:#ddd; }
+    #apt-title small { color:#666; font-weight:400; }
+
+    /* procedure tree */
+    #proc-tree { overflow-y:auto; flex:1; padding:4px 6px 12px; }
+    .grp-head {
+      font-size:11px; letter-spacing:.08em; color:#7a7a7a; text-transform:uppercase;
+      margin:12px 6px 4px; font-weight:600;
+    }
+    .proc-row { border-radius:6px; margin:1px 0; }
+    .proc-head {
+      display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer;
+      border-radius:6px; font-size:13.5px; color:#ccc; user-select:none;
+    }
+    .proc-head:hover { background:#1e1e1e; }
+    .proc-head .dot { width:10px; height:10px; border-radius:3px; background:#333; flex-shrink:0; border:1px solid #555; }
+    .proc-head.on .dot { border-color:transparent; }
+    .proc-head .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .proc-head .nm small { color:#666; }
+    .proc-head .exp { color:#555; font-size:11px; transition:transform .15s; }
+    .proc-row.open .exp { transform:rotate(90deg); }
+    .trans-list { display:none; padding:2px 0 6px 22px; }
+    .proc-row.open .trans-list { display:block; }
+    .tkind { font-size:10.5px; color:#5f6b78; text-transform:uppercase; letter-spacing:.06em; margin:5px 0 2px; }
+    .trans-item { display:flex; align-items:center; gap:7px; font-size:12.5px; color:#aaa;
+      padding:3px 6px; border-radius:5px; cursor:pointer; user-select:none; }
+    .trans-item:hover { background:#1e1e1e; }
+    .trans-item input { accent-color:#4a9eff; margin:0; }
+    #tree-empty { color:#555; font-size:13px; padding:18px 12px; line-height:1.5; }
+
+    /* toolbar above map */
+    #toolbar {
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      background:#1a1a1a; border:1px solid #333; border-radius:8px;
+      padding:7px 10px; font-size:13px; color:#999; margin-bottom:10px;
+    }
+    #toolbar .tb-btn {
+      background:#222; color:#bbb; border:1px solid #3a3a3a; border-radius:6px;
+      padding:5px 11px; font-size:12.5px; cursor:pointer; font-family:inherit;
+    }
+    #toolbar .tb-btn:hover { border-color:#4a9eff; color:#fff; }
+    #toolbar .tb-btn.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
+    #toolbar .spacer { flex:1; }
+    #toolbar label { display:flex; gap:5px; align-items:center; cursor:pointer; }
+    #toolbar input[type=checkbox] { accent-color:#4a9eff; }
+
+    /* selection chips */
+    #chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:0; }
+    .chip {
+      display:flex; align-items:center; gap:6px; background:#1a1a1a; border:1px solid #333;
+      border-radius:14px; padding:3px 9px 3px 7px; font-size:12px; color:#bbb;
+    }
+    .chip .sw { width:9px; height:9px; border-radius:50%; }
+    .chip .x { cursor:pointer; color:#666; font-size:13px; line-height:1; }
+    .chip .x:hover { color:#ef4444; }
+
+    #proc-map {
+      height: 640px; border-radius:8px; border:1px solid #333; background:#0b0b0b;
+    }
+    .inverted-tiles { filter: invert(1) hue-rotate(180deg) brightness(1.05) contrast(0.95); }
+
+    /* fix labels on the map */
+    .fix-label {
+      background:rgba(10,12,16,.82); border:1px solid #3c4a5a; border-radius:4px;
+      color:#dfe7f0; font-size:10.5px; line-height:1.25; padding:1px 4px;
+      white-space:nowrap; pointer-events:none; font-family:inherit;
+      box-shadow:0 1px 4px rgba(0,0,0,.5);
+    }
+    .fix-label .alts { color:#8fd0ff; }
+    .fix-label .spd { color:#f0b45a; }
+    .arrow-ic { pointer-events:none; }
+
+    /* 3D panel */
+    #panel3d { display:none; margin-top:10px; }
+    #panel3d.on { display:block; }
+    #c3d-wrap { position:relative; border:1px solid #333; border-radius:8px; overflow:hidden; background:#0a0c10; }
+    #c3d { display:block; width:100%; height:480px; cursor:grab; touch-action:none; }
+    #c3d:active { cursor:grabbing; }
+    #c3d-controls {
+      position:absolute; top:8px; left:10px; z-index:5; display:flex; gap:10px; align-items:center;
+      background:rgba(16,18,22,.85); border:1px solid #333; border-radius:8px;
+      padding:6px 10px; font-size:12px; color:#999;
+    }
+    #c3d-controls label { display:flex; align-items:center; gap:6px; }
+    #c3d-controls input[type=range] { width:90px; accent-color:#4a9eff; }
+    #c3d-controls .tb-btn {
+      background:#222; color:#bbb; border:1px solid #3a3a3a; border-radius:6px;
+      padding:3px 9px; font-size:11.5px; cursor:pointer; font-family:inherit;
+    }
+    #c3d-controls .tb-btn.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
+    #c3d-hint { position:absolute; bottom:6px; left:10px; color:#556; font-size:11px; z-index:5; }
+    #c3d-legend { position:absolute; top:8px; right:10px; z-index:5; text-align:right;
+      background:rgba(16,18,22,.85); border:1px solid #333; border-radius:8px; padding:6px 10px; }
+    #c3d-legend canvas { display:block; }
+    #c3d-legend .lab { color:#889; font-size:10.5px; }
+
+    #howto { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
+      padding:12px 16px; font-size:13px; color:#888; line-height:1.55; }
+    #howto b { color:#bbb; }
+
+    @media (max-width: 900px) {
+      #explorer { flex-direction:column; }
+      #sidebar { width:auto; max-height:340px; }
+      #proc-map { height:440px; }
+      #c3d { height:360px; }
+    }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <header>
+    <h1>Procedure Explorer</h1>
+    <p class="subtitle">Overlay any US SID, STAR or instrument approach on the chart and see its altitudes in 3D
+      &middot; FAA CIFP cycle effective <span class="cycle" id="cycle-date">…</span></p>
+  </header>
+
+  <div id="explorer">
+    <div id="sidebar">
+      <div id="search-box">
+        <input id="apt-search" type="text" placeholder="Search airport — KBWI, KANP, name…"
+               autocomplete="off" spellcheck="false">
+        <div id="search-results"></div>
+      </div>
+      <div id="apt-title"></div>
+      <div id="proc-tree"><div id="tree-empty">Pick an airport to list its SIDs, STARs and approaches.<br><br>
+        Click a procedure to overlay all of it; expand it to toggle individual transitions and see how the flows join up.</div></div>
+    </div>
+
+    <div id="main-col">
+      <div id="toolbar">
+        <button class="tb-btn" id="btn-3d">3D view</button>
+        <button class="tb-btn" id="btn-flow">Flow animation</button>
+        <label><input type="checkbox" id="chk-labels" checked> Fix labels</label>
+        <label><input type="checkbox" id="chk-missed" checked> Missed approach</label>
+        <span class="spacer"></span>
+        <span id="sel-count"></span>
+        <button class="tb-btn" id="btn-clear">Clear all</button>
+      </div>
+      <div id="chips"></div>
+      <div id="proc-map"></div>
+
+      <div id="panel3d">
+        <div id="c3d-wrap">
+          <canvas id="c3d"></canvas>
+          <div id="c3d-controls">
+            <label>Vert &times;<span id="exag-val">15</span>
+              <input type="range" id="exag" min="3" max="40" step="1" value="15"></label>
+            <button class="tb-btn on" id="c3d-color">Color: altitude</button>
+            <button class="tb-btn" id="c3d-reset">Reset view</button>
+          </div>
+          <div id="c3d-legend"><canvas id="c3d-scale" width="120" height="10"></canvas>
+            <div class="lab" id="c3d-scale-lab"></div></div>
+          <div id="c3d-hint">drag orbit &middot; shift-drag / right-drag pan &middot; wheel zoom</div>
+        </div>
+      </div>
+
+      <div id="howto">
+        <b>Reading the overlay:</b> line direction arrows show the direction of flight.
+        <b>Enroute transitions</b> draw thin, the <b>common route</b> thick, and <b>runway transitions / finals</b> medium —
+        select a whole STAR to watch its enroute feeds funnel into the common route and fan back out to each runway.
+        Altitude windows at a fix read like the chart: <b>&ge;</b> at-or-above, <b>&le;</b> at-or-below, a range is a window, <b>@</b> mandatory.
+        Dashed grey legs are heading/vector segments (drawn to an estimated length); dashed red is the missed approach.
+        In the 3D view the ribbon height is altitude (vertical scale exaggerated; posts drop to the ground track).
+        Data: FAA CIFP, for situational awareness only — <b>not for navigation</b>.
+      </div>
+    </div>
+  </div>
+
+  <footer><p>© Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p></footer>
+
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/procedures.js?v=1"></script>
+</body>
+</html>
