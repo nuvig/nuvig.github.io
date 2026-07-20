@@ -794,7 +794,156 @@ function initPitot() {
 }
 
 /* ========================================================================
-   4. IAS → TAS → GS
+   4. FOUR FORCES — animated lift / weight / thrust / drag diagram.
+   Concept-trainer numbers (172-ish): rated 180 hp, MTOW 2,550 lb,
+   Vs0 48 kt IAS at gross. Arrows are qualitative; readouts are the rules
+   of thumb made visible.
+   ======================================================================== */
+
+const forces = { da: 0, ias: 105, wt: 2300, parts: [], propPh: 0 };
+
+function forcesCalc() {
+  const sigma = sigmaAtDa(forces.da);
+  const tas = forces.ias / Math.sqrt(sigma);
+  const pwrFrac = clamp((sigma - 0.117) / 0.883, 0.05, 1);
+  const stallIas = 48 * Math.sqrt(forces.wt / 2550);
+  // drag relative to the 105 kt / 2,300 lb / sea-level reference: parasite
+  // scales with IAS², induced with weight² / IAS² (same at any altitude for
+  // a given IAS — that's the point)
+  const dragRel = 0.8 * Math.pow(forces.ias / 105, 2) +
+                  0.2 * Math.pow(forces.wt / 2300, 2) * Math.pow(105 / forces.ias, 2);
+  // thrust available ∝ power/TAS, and the prop's grip thins with the air
+  const thrustRel = pwrFrac / (tas / 105);
+  return { sigma, tas, pwrFrac, stallIas, dragRel, thrustRel };
+}
+
+function forcesTick(dt) {
+  const cv = $('forces-canvas');
+  const r = cv.getBoundingClientRect();
+  const W = r.width, H = r.height;
+  const c = forcesCalc();
+  const cx = W * 0.46, cy = H * 0.48;
+  const noseX = cx - 78, tailX = cx + 78;
+
+  // molecule stream: density-scaled population, TAS-scaled speed
+  const N = Math.round(clamp(W * H / 2400, 40, 130) * c.sigma);
+  while (forces.parts.length < N) {
+    forces.parts.push({ x: Math.random() * W, y: Math.random() * H, vy: 0, j: Math.random() });
+  }
+  if (forces.parts.length > N) forces.parts.length = N;
+  const spd = 30 + c.tas * 1.5;
+  if (!REDUCED) {
+    forces.propPh += dt * (6 + c.pwrFrac * 30);
+    for (const p of forces.parts) {
+      let v = spd * (0.85 + p.j * 0.3);
+      // propwash: the tube of air behind the prop moves faster
+      if (p.x > noseX - 6 && Math.abs(p.y - cy) < 20) v *= 1.35 + c.pwrFrac * 0.5;
+      // downwash: air that has passed the wing gets thrown downward
+      if (p.x > cx && p.x < cx + 150 && Math.abs(p.y - cy) < 34 && p.y > cy - 30) {
+        p.vy += (34 + forces.wt / 60) * dt;
+      } else {
+        p.vy *= Math.max(0, 1 - 3 * dt);
+      }
+      p.x += v * dt;
+      p.y += p.vy * dt;
+      if (p.x > W + 4) { p.x = -4; p.y = Math.random() * H; p.vy = 0; }
+      if (p.y > H + 4) { p.y = -4; }
+    }
+  }
+  drawForces(c, cx, cy, noseX, tailX);
+}
+
+function drawForces(c, cx, cy, noseX, tailX) {
+  const cv = $('forces-canvas');
+  const { ctx, W, H } = prepCanvas(cv);
+
+  ctx.fillStyle = '#565f6b'; ctx.textAlign = 'left';
+  ctx.fillText('relative wind →', 10, 16);
+
+  // molecules (streaks, like the pitot panel)
+  const streak = 2 + c.tas * 0.04;
+  ctx.strokeStyle = 'rgba(170,180,195,0.5)'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const p of forces.parts) {
+    ctx.moveTo(p.x - streak, p.y - p.vy * 0.03);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke(); ctx.lineCap = 'butt';
+
+  // the airplane, nose left: fuselage, wing chord, stabilizer, prop disc
+  ctx.fillStyle = '#c8ccd2';
+  ctx.beginPath(); ctx.ellipse(cx, cy, 80, 11, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#aeb4bc';
+  ctx.beginPath(); ctx.ellipse(cx + 4, cy - 2, 26, 5, -0.06, 0, 7); ctx.fill();   // wing chord
+  ctx.beginPath();
+  ctx.moveTo(tailX - 14, cy - 2); ctx.lineTo(tailX + 4, cy - 24); ctx.lineTo(tailX + 8, cy - 2);
+  ctx.closePath(); ctx.fill();                                                     // fin
+  const ph = Math.sin(forces.propPh * 4) * (1 - 0.4);
+  ctx.strokeStyle = 'rgba(200,210,220,0.55)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(noseX - 4, cy - 26 * ph); ctx.lineTo(noseX - 4, cy + 26 * ph); ctx.stroke();
+  ctx.strokeStyle = 'rgba(200,210,220,0.16)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(noseX - 4, cy - 26); ctx.lineTo(noseX - 4, cy + 26); ctx.stroke();
+
+  // force arrows
+  const arrow = (x, y, dx, dy, color, label, lx, ly) => {
+    const x2 = x + dx, y2 = y + dy;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+    const a = Math.atan2(dy, dx);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 10 * Math.cos(a - 0.42), y2 - 10 * Math.sin(a - 0.42));
+    ctx.lineTo(x2 - 10 * Math.cos(a + 0.42), y2 - 10 * Math.sin(a + 0.42));
+    ctx.closePath(); ctx.fill();
+    ctx.font = 'bold 11px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText(label, lx, ly);
+    ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  };
+  const wLen = 30 + (forces.wt / 2550) * 55;                 // weight sets the scale
+  const tLen = clamp(22 + c.thrustRel * 42, 14, 92);
+  const dLen = clamp(22 + c.dragRel * 42, 14, 92);
+  arrow(cx + 4, cy - 14, 0, -wLen, '#4a9eff', 'LIFT (= weight)', cx + 4, cy - wLen - 22);
+  arrow(cx, cy + 12, 0, wLen, '#c8ccd2', 'WEIGHT', cx, cy + wLen + 26);
+  arrow(noseX - 10, cy, -tLen, 0, '#22c55e', 'THRUST', noseX - tLen / 2 - 8, cy - 10);
+  arrow(tailX + 10, cy, dLen, 0, '#ef4444', 'DRAG', tailX + dLen / 2 + 10, cy - 10);
+
+  // when thrust available can't match drag, say so — that IS the lesson
+  if (tLen < dLen * 0.88) {
+    ctx.fillStyle = '#f59e0b'; ctx.textAlign = 'center';
+    ctx.fillText('thrust can no longer match drag at this IAS —', cx, cy + wLen + 44);
+    ctx.fillText('up here the airplane cruises slower (or descends)', cx, cy + wLen + 57);
+  }
+
+  ctx.fillStyle = '#666'; ctx.textAlign = 'left';
+  ctx.fillText(`IAS ${forces.ias} kt · TAS ${Math.round(c.tas)} kt · air density ${Math.round(c.sigma * 100)} % · ${fmt0(forces.wt)} lb`, 10, H - 10);
+}
+
+function updateForces() {
+  const c = forcesCalc();
+  $('f-tas').innerHTML = `<b>${Math.round(c.tas)} kt</b> (gauge says ${forces.ias})`;
+  $('f-pwr').innerHTML = `<b>${Math.round(c.pwrFrac * 100)} %</b> of rated`;
+  $('f-prop').innerHTML = `<b>${Math.round(c.sigma * 100)} %</b> of sea-level grip`;
+  $('f-drag').innerHTML = `<b>same ½ρV²</b> as ${forces.ias} kt at sea level`;
+  $('f-stall').innerHTML = `<b>${Math.round(c.stallIas)} kt</b> indicated — at any altitude`;
+  const margin = forces.ias - c.stallIas;
+  $('f-note').textContent =
+    forces.da >= 7000
+      ? `Up here thrust is cut twice — ${Math.round((1 - c.pwrFrac) * 100)} % less engine power and ${Math.round((1 - c.sigma) * 100)} % fewer molecules per blade — while weight hasn't budged. That asymmetry is the density-altitude problem.`
+      : margin < 15
+        ? `Only ${Math.round(margin)} kt above the stall: slow and heavy is where induced drag is greediest — short final and liftoff live here.`
+        : `Thick air: full grip for the prop, full bite for the wing. Load and speed changes move the arrows more than altitude does down low.`;
+}
+
+function initForces() {
+  bindSlider('f-da', (v) => `${fmt0(v)} <span class="u">ft</span>`, (v) => { forces.da = v; updateForces(); });
+  bindSlider('f-ias', (v) => `${v} <span class="u">kt</span>`, (v) => { forces.ias = v; updateForces(); });
+  bindSlider('f-wt', (v) => `${fmt0(v)} <span class="u">lb</span>`, (v) => { forces.wt = v; updateForces(); });
+  updateForces();
+  forcesTick(0.016);   // first paint even if the section starts off-screen
+}
+
+/* ========================================================================
+   5. IAS → TAS → GS
    ======================================================================== */
 
 const spd = { ias: 105, alt: 5500, isaDev: 0, crs: 287, wdir: 230, wspd: 18 };
@@ -944,10 +1093,87 @@ function drawWindTriangle() {
   ctx.restore();
 }
 
+/* ----- cruise performance vs density altitude (concept trainer) -----
+   180 hp × 0.85 prop efficiency; power required = parasite (AσV³) +
+   induced (B/(σV)); cruise at 75 % of rated until the engine can no
+   longer give 75 %, then whatever full throttle has left. */
+const CRZ = { PMAX: 153, A: 7.43e-5, BW: 2196 };
+
+function cruiseTasAt(daFt) {
+  const s = sigmaAtDa(daFt);
+  const P = Math.min(0.75 * CRZ.PMAX, CRZ.PMAX * clamp((s - 0.117) / 0.883, 0, 1));
+  let lo = 40, hi = 170;
+  for (let i = 0; i < 40; i++) {
+    const V = (lo + hi) / 2;
+    (CRZ.A * s * V * V * V + CRZ.BW / (s * V) > P) ? hi = V : lo = V;
+  }
+  return (lo + hi) / 2;
+}
+
+function cruiseDaNow() { return clamp(spd.alt + 118.8 * spd.isaDev, 0, 14000); }
+
+function drawCruiseChart() {
+  const cv = $('cruise-canvas');
+  const { ctx, W, H } = prepCanvas(cv);
+  const L = 40, R = 12, T = 14, B = 26;
+  const DTOP = 14000;
+  const pts = [];
+  for (let da = 0; da <= DTOP; da += 250) pts.push([da, cruiseTasAt(da)]);
+  const vLo = Math.floor(Math.min(...pts.map((p) => p[1])) / 5) * 5 - 2;
+  const vHi = Math.ceil(Math.max(...pts.map((p) => p[1])) / 5) * 5 + 3;
+  const x = (da) => L + da / DTOP * (W - L - R);
+  const y = (v) => T + (1 - (v - vLo) / (vHi - vLo)) * (H - T - B);
+
+  for (let v = vLo + 2; v <= vHi; v += 5) gridH(ctx, y(v), L, W, R, v + '');
+  ctx.fillStyle = '#555'; ctx.textAlign = 'center';
+  for (let da = 0; da <= DTOP; da += 2000) ctx.fillText((da / 1000) + 'k', x(da), H - 8);
+  ctx.fillText('density altitude (ft)', (L + W - R) / 2, H + 2 - 26 + 22);
+  ctx.save(); ctx.translate(11, (T + H - B) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('cruise TAS (kt)', 0, 0); ctx.restore();
+
+  // the hump: where 75 % stops being available
+  let bend = DTOP;
+  for (let da = 0; da <= DTOP; da += 100) {
+    if (CRZ.PMAX * clamp((sigmaAtDa(da) - 0.117) / 0.883, 0, 1) < 0.75 * CRZ.PMAX) { bend = da; break; }
+  }
+  ctx.strokeStyle = '#3a3a3a'; ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.moveTo(x(bend), y(vLo)); ctx.lineTo(x(bend), T); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#666'; ctx.textAlign = 'left';
+  ctx.fillText('◂ 75 % still available', x(bend) + 4, T + 8);
+  ctx.fillText('engine fading ▸', x(bend) + 4, T + 20);
+
+  ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  pts.forEach(([da, v], i) => { i ? ctx.lineTo(x(da), y(v)) : ctx.moveTo(x(da), y(v)); });
+  ctx.stroke();
+
+  const daNow = cruiseDaNow(), vNow = cruiseTasAt(daNow);
+  ctx.beginPath(); ctx.arc(x(daNow), y(vNow), 5.5, 0, 7);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.textAlign = x(daNow) > W - 110 ? 'right' : 'left';
+  ctx.fillText(`your cruise · ${Math.round(vNow)} kt`, x(daNow) + (x(daNow) > W - 110 ? -10 : 9), y(vNow) - 8);
+}
+
+function updateCruise() {
+  drawCruiseChart();
+  const daNow = cruiseDaNow(), vNow = cruiseTasAt(daNow);
+  const vIsa = cruiseTasAt(clamp(spd.alt, 0, 14000));
+  const el = $('cruise-note');
+  const diff = vNow - vIsa;
+  el.innerHTML = `At ${fmt0(spd.alt)} ft on an ISA${spd.isaDev >= 0 ? '+' : ''}${spd.isaDev} day the trainer cruises about ` +
+    `<b style="color:#ddd">${Math.round(vNow)} kt true</b>` +
+    (Math.abs(diff) >= 1
+      ? ` — ${Math.abs(Math.round(diff))} kt ${diff < 0 ? 'slower' : 'faster'} than a standard day, from temperature alone. Humidity quietly shaves a knot more on muggy days.`
+      : `. Warm the day with the ISA slider and watch the marker slide along the curve.`);
+}
+
 function updateSpeeds() {
   const sol = windSolve();
   drawTasChart();
   drawWindTriangle();
+  updateCruise();
 
   const rot = spd.ias * (1 + 0.02 * spd.alt / 1000);
   $('tas-note').textContent =
@@ -1026,7 +1252,17 @@ function initSpeeds() {
    with the honest gas physics: ρ = P/(R·T), vapor via Tetens.
    ======================================================================== */
 
-const play = { tC: 15, dC: 5, pres: 1013 };
+// The playground exposes every density lever: temp, dewpoint, RH, pressure.
+// Dewpoint and RH are two views of the same moisture, so one of them is
+// "held" as temperature moves and the other follows.
+const play = { tC: 15, dC: 5, pres: 1013, hold: 'dew' };
+
+// inverse Tetens: dewpoint that gives relative humidity rh at temperature tC
+function dewFromRh(tC, rh) {
+  const e = Math.max(1e-4, rh * vaporPresHpa(tC));
+  const L = Math.log10(e / 6.1078);
+  return clamp(237.3 * L / (7.5 - L), -25, tC);
+}
 
 function playState() {
   const dC = Math.min(play.dC, play.tC);          // dewpoint can't exceed temp
@@ -1035,16 +1271,23 @@ function playState() {
   return { dC, rho, sigma: rho / ISA.RHO0, rh: relHumidity(play.tC, dC) };
 }
 
-function updatePlay() {
+// push state into every slider + label + readout (no input events, no loops)
+function playRefresh() {
   const s = playState();
+  const set = (id, v, html) => { $(id).value = v; $(id + '-val').innerHTML = html; };
+  set('play-temp', play.tC, `${play.tC} <span class="u">°C</span> · ${Math.round(cToF(play.tC))} <span class="u">°F</span>`);
+  set('play-dew', s.dC, `${Math.round(s.dC)} <span class="u">°C</span> · ${Math.round(cToF(s.dC))} <span class="u">°F</span>`);
+  set('play-rh', Math.round(s.rh * 100), `${Math.round(s.rh * 100)} <span class="u">%</span>`);
+  set('play-pres', play.pres, `${fmt0(play.pres)} <span class="u">hPa</span> · ${(play.pres / 33.8639).toFixed(2)} <span class="u">inHg</span>`);
+
   const daFt = densityAltFt(s.rho);
   $('play-sigma').innerHTML = `<b>${Math.round(s.sigma * 100)} %</b> of standard sea level`;
-  $('play-rh').innerHTML = s.rh >= 0.99
+  $('play-rh-ro').innerHTML = s.rh >= 0.99
     ? `<b style="color:#8ab8e8">100 % — saturated</b>`
     : `<b>${Math.round(s.rh * 100)} %</b>`;
   $('play-da').innerHTML = `<b>DA ${fmt0(daFt)} ft</b>`;
   const bits = [];
-  if (s.rh >= 0.99) bits.push('The vapor is condensing — this is the inside of a cloud, and exactly what happens at the LCL in panel 5.');
+  if (s.rh >= 0.99) bits.push('The vapor is condensing — this is the inside of a cloud, and exactly what happens at the LCL in panel 6.');
   else if (play.tC >= 30) bits.push('Hot: the dots race around and spread out — fewer molecules in every cubic foot of wing.');
   else if (play.tC <= -5) bits.push('Cold: slow, tightly packed molecules — the airplane loves this.');
   if (play.pres <= 850) bits.push('Low pressure is altitude in disguise: this is the squeeze the parcel loses as it climbs.');
@@ -1053,19 +1296,32 @@ function updatePlay() {
 }
 
 function initPlay() {
-  bindSlider('play-temp', (v) => `${v} <span class="u">°C</span> · ${Math.round(cToF(v))} <span class="u">°F</span>`,
-    (v) => { play.tC = v; updatePlay(); });
-  bindSlider('play-dew', (v) => `${v} <span class="u">°C</span> · ${Math.round(cToF(v))} <span class="u">°F</span>`,
-    (v) => { play.dC = v; updatePlay(); });
-  bindSlider('play-pres', (v) => `${fmt0(v)} <span class="u">hPa</span> · ${(v / 33.8639).toFixed(2)} <span class="u">inHg</span>`,
-    (v) => { play.pres = v; updatePlay(); });
-  const setAll = (t, d, p) => {
-    $('play-temp').value = t; $('play-dew').value = d; $('play-pres').value = p;
-    for (const id of ['play-temp', 'play-dew', 'play-pres']) $(id).dispatchEvent(new Event('input'));
-  };
+  $('play-temp').addEventListener('input', (e) => {
+    const rhBefore = playState().rh;
+    play.tC = parseFloat(e.target.value);
+    if (play.hold === 'rh') play.dC = dewFromRh(play.tC, rhBefore);
+    else play.dC = Math.min(play.dC, play.tC);
+    playRefresh();
+  });
+  $('play-dew').addEventListener('input', (e) => {
+    play.dC = Math.min(parseFloat(e.target.value), play.tC);
+    playRefresh();
+  });
+  $('play-rh').addEventListener('input', (e) => {
+    play.dC = dewFromRh(play.tC, parseFloat(e.target.value) / 100);
+    playRefresh();
+  });
+  $('play-pres').addEventListener('input', (e) => {
+    play.pres = parseFloat(e.target.value);
+    playRefresh();
+  });
+  for (const r of document.querySelectorAll('input[name="play-hold"]')) {
+    r.addEventListener('change', () => { play.hold = r.value; });
+  }
+  const setAll = (t, d, p) => { play.tC = t; play.dC = d; play.pres = p; playRefresh(); };
   $('play-std').addEventListener('click', () => setAll(15, 5, 1013));
   $('play-july').addEventListener('click', () => setAll(33, 24, 1013));
-  updatePlay();
+  playRefresh();
 }
 
 /* ========================================================================
@@ -1228,6 +1484,15 @@ function registerBgSections() {
     wx: 26 + pit.tas * 0.85, wy: 0,          // stream matches the pitot canvas
     label: `relative wind at ${fmt0(pit.alt)} ft`,
   }));
+  regSection('sec-forces', () => {
+    const c = forcesCalc();
+    return {
+      sigma: c.sigma, tempC: isaTempC(forces.da),
+      hum: 0.18,
+      wx: 24 + c.tas * 0.8, wy: 0,             // stream matches the diagram
+      label: `in flight at ${fmt0(forces.da)} ft DA`,
+    };
+  });
   regSection('sec-speeds', () => {
     const toDir = rad(spd.wdir + 180);        // dots drift downwind
     return {
@@ -1269,6 +1534,7 @@ function masterFrame(t) {
   if (!REDUCED && bg.ctx) bgTick(dt, activeSection().getState());
   if (nearViewport($('parcel-canvas'))) parcelTick(dt);
   if (nearViewport($('pitot-canvas'))) pitotTick(dt);
+  if (nearViewport($('forces-canvas'))) forcesTick(dt);
   requestAnimationFrame(masterFrame);
 }
 
@@ -1282,6 +1548,7 @@ function initAirLab() {
   initColumn();
   initDa();
   initPitot();
+  initForces();
   initSpeeds();
   initParcel();
 
@@ -1298,7 +1565,7 @@ function initAirLab() {
     clearTimeout(resizeT);
     resizeT = setTimeout(() => {
       if (bg.ctx) bgResize();
-      updateColumn(); drawDaChart(); drawTasChart(); drawWindTriangle();
+      updateColumn(); drawDaChart(); drawTasChart(); drawWindTriangle(); drawCruiseChart();
     }, 120);
   });
 }
