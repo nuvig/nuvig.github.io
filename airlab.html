@@ -89,7 +89,21 @@
       border-color: #2a3f57;
       box-shadow: 0 0 28px rgba(74, 158, 255, 0.10), inset 0 0 46px rgba(74, 158, 255, 0.03);
     }
-    #play-temp { accent-color: #ef6a4a; }
+    /* temperature slider: the track itself is the cold-to-hot gradient */
+    #play-temp {
+      -webkit-appearance: none; appearance: none;
+      height: 5px; border-radius: 3px;
+      background: linear-gradient(90deg, #4a9eff 0%, #9db4c8 45%, #f0a05a 70%, #ef4a3a 100%);
+    }
+    #play-temp::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #eee; border: 2px solid #888; cursor: pointer;
+    }
+    #play-temp::-moz-range-thumb {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #eee; border: 2px solid #888; cursor: pointer;
+    }
     #play-pres { accent-color: #4a9eff; }
     .lbl-temp { color: #ef8a6a !important; }
     .lbl-pres { color: #6aaef5 !important; }
@@ -646,6 +660,6 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/airlab.js?v=7"></script>
+  <script src="js/airlab.js?v=8"></script>
 </body>
 </html>

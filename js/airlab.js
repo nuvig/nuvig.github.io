@@ -1476,10 +1476,9 @@ function bgResize() {
 function bgJiggle(tempC) { return clamp(6 + (tempC + 60) * 0.55, 4, 80); }
 
 function bgSpawnDot(vap) {
-  const z = 0.3 + Math.random() * 0.7;   // depth: far dots dim/small/slow, near dots bright/big/fast
   return {
     x: Math.random() * bg.W, y: Math.random() * bg.H,
-    th: Math.random() * 7, sp0: 0.45 + z * 0.9, z,
+    th: Math.random() * 7, sp0: 0.6 + Math.random() * 0.8,
     vap, a: 0,
   };
 }
@@ -1493,14 +1492,13 @@ function bgTick(dt, st) {
   c.wx += (st.wx - c.wx) * k;
   c.wy += (st.wy - c.wy) * k;
 
-  // population follows density — exaggerated (but monotonic) so the thin/thick
-  // difference reads at a glance: σ 0.8 keeps only ~54 % of the dots
-  const emph = Math.pow(clamp(c.sigma, 0.03, 1.2), 2.8);
-  const target = Math.round(clamp(bg.W * bg.H / 4000, 120, 840) * emph);
+  // population follows density LINEARLY — faithful to the real proportions:
+  // 85 % density really is only 15 % fewer dots (the HUD gives the number)
+  const target = Math.round(clamp(bg.W * bg.H / 9000, 60, 340) * clamp(c.sigma, 0.03, 1.15));
   if (bg.dots.length < target) {
-    for (let i = 0; i < 8 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
+    for (let i = 0; i < 4 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
   } else if (bg.dots.length > target) {
-    bg.dots.splice(0, Math.min(6, bg.dots.length - target));
+    bg.dots.splice(0, Math.min(3, bg.dots.length - target));
   }
 
   // vapor fraction follows humidity (flip a dot or two per frame toward target)
@@ -1533,22 +1531,21 @@ function bgTick(dt, st) {
     d.y += (Math.sin(d.th) * mySp + c.wy) * dt;
     if (d.x < -8) d.x = bg.W + 8; else if (d.x > bg.W + 8) d.x = -8;
     if (d.y < -8) d.y = bg.H + 8; else if (d.y > bg.H + 8) d.y = -8;
-    const z = d.z || 0.6;
     if (d.vap) {
       if (cond > 0) {   // soft droplet halo
         ctx.beginPath();
-        ctx.fillStyle = `rgba(150,190,230,${0.16 * cond * d.a * z})`;
-        ctx.arc(d.x, d.y, (2.2 + cond * 4.5) * (0.7 + z * 0.6), 0, 7);
+        ctx.fillStyle = `rgba(150,190,230,${0.16 * cond * d.a})`;
+        ctx.arc(d.x, d.y, 2.2 + cond * 4.5, 0, 7);
         ctx.fill();
       }
       ctx.beginPath();
-      ctx.fillStyle = `rgba(101,167,227,${(0.35 + z * 0.45 + cond * 0.25) * d.a})`;
-      ctx.arc(d.x, d.y, (2.0 + cond * 1.6) * (0.65 + z * 0.65), 0, 7);
+      ctx.fillStyle = `rgba(91,157,217,${(0.5 + cond * 0.3) * d.a})`;
+      ctx.arc(d.x, d.y, 2.2 + cond * 1.6, 0, 7);
       ctx.fill();
     } else {
       ctx.beginPath();
-      ctx.fillStyle = `rgba(178,188,202,${(0.22 + z * 0.42) * d.a})`;
-      ctx.arc(d.x, d.y, 1.1 + z * 1.2, 0, 7);
+      ctx.fillStyle = `rgba(168,178,192,${0.34 * d.a})`;
+      ctx.arc(d.x, d.y, 1.6, 0, 7);
       ctx.fill();
     }
   }
