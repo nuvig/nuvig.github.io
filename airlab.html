@@ -201,8 +201,8 @@
         <div class="ctl-row"><label for="play-rh">Relative humidity</label>
           <input type="range" id="play-rh" min="1" max="100" step="1" value="51">
           <span class="val" id="play-rh-val"></span></div>
-        <div class="ctl-row"><label for="play-pres">Pressure</label>
-          <input type="range" id="play-pres" min="550" max="1050" step="5" value="1013">
+        <div class="ctl-row"><label for="play-pres">Altimeter setting</label>
+          <input type="range" id="play-pres" min="28" max="31" step="0.01" value="29.92">
           <span class="val" id="play-pres-val"></span></div>
         <div class="ctl-row hold-row">
           <label>As temperature moves, dewpoint holds and RH follows</label>
@@ -418,15 +418,17 @@
   <section id="sec-forces">
   <div class="section-title"><span class="num">4</span> Four forces — where the molecules push</div>
   <p class="section-lede">
-    The same ram pressure that works the gauge is what actually flies the airplane. The <b>wing</b> throws
-    passing molecules down (lift); the <b>propeller</b> — just a wing spun sideways — throws them back (thrust).
-    Against them: <b>weight</b>, the one force density can't touch, and <b>drag</b>, the toll the molecules charge
-    for passage. Thin the air and watch which arrows shrink — and which don't.
+    The same ram pressure that works the gauge is what actually flies the airplane. The <b>airfoil</b> bends the
+    stream — upwash ahead, downwash behind — and the reaction is lift; the <b>propeller</b> — just a wing spun
+    sideways — throws molecules back for thrust, and its blast weakens as the air thins. The nose rides at the
+    <b>angle of attack</b> the lift equation demands: slow down or load up and watch it rise toward the 16°
+    critical angle where the flow lets go. Against all of it: <b>weight</b>, the one force density can't touch,
+    and <b>drag</b>, the toll the molecules charge for passage.
   </p>
   <div class="col-canvas-side">
     <div class="card">
       <canvas id="forces-canvas" class="lab" style="height:330px; cursor:default"></canvas>
-      <div class="canvas-note">Level, unaccelerated flight: lift matches weight, thrust matches drag. Arrow lengths are conceptual — watch how they respond, not their exact size.</div>
+      <div class="canvas-note">Level flight: lift matches weight, thrust is set to match drag — the dashed green <b>reserve</b> is full-throttle thrust beyond that, and it's your climb rate. The nose rides at the angle of attack the lift equation demands (exaggerated); slow below stall speed and watch the flow let go. Bottom-left: the pressure gauge falls away as you climb.</div>
     </div>
     <div>
       <div class="card">
@@ -435,7 +437,7 @@
           <input type="range" id="f-da" min="0" max="15000" step="250" value="0">
           <span class="val" id="f-da-val"></span></div>
         <div class="ctl-row"><label for="f-ias">Indicated airspeed</label>
-          <input type="range" id="f-ias" min="55" max="140" step="1" value="105">
+          <input type="range" id="f-ias" min="40" max="140" step="1" value="105">
           <span class="val" id="f-ias-val"></span></div>
         <div class="ctl-row"><label for="f-wt">Weight</label>
           <input type="range" id="f-wt" min="1600" max="2550" step="10" value="2300">
@@ -444,9 +446,10 @@
       <div class="card" style="margin-top:14px">
         <h3>The forces respond</h3>
         <div class="kv"><span class="k">True airspeed for this IAS</span><span class="v" id="f-tas">—</span></div>
+        <div class="kv"><span class="k">Angle of attack</span><span class="v" id="f-aoa">—</span></div>
         <div class="kv"><span class="k">Engine power available</span><span class="v" id="f-pwr">—</span></div>
         <div class="kv"><span class="k">Molecules through the prop</span><span class="v" id="f-prop">—</span></div>
-        <div class="kv"><span class="k">Drag at this IAS</span><span class="v" id="f-drag">—</span></div>
+        <div class="kv"><span class="k">Climb rate in reserve</span><span class="v" id="f-climb">—</span></div>
         <div class="kv"><span class="k">Stall speed at this weight</span><span class="v" id="f-stall">—</span></div>
         <div class="canvas-note" id="f-note"></div>
       </div>
@@ -629,6 +632,6 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/airlab.js?v=5"></script>
+  <script src="js/airlab.js?v=6"></script>
 </body>
 </html>

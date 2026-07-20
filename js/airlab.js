@@ -807,14 +807,26 @@ function forcesCalc() {
   const tas = forces.ias / Math.sqrt(sigma);
   const pwrFrac = clamp((sigma - 0.117) / 0.883, 0.05, 1);
   const stallIas = 48 * Math.sqrt(forces.wt / 2550);
+  // angle of attack from the lift equation: CL ∝ W / IAS², calibrated so the
+  // critical angle (~16°) lands exactly at Vs for the current weight
+  const aoa = 16 * (forces.wt / 2550) * Math.pow(48 / forces.ias, 2);
+  const stalled = aoa >= 15.8;
   // drag relative to the 105 kt / 2,300 lb / sea-level reference: parasite
   // scales with IAS², induced with weight² / IAS² (same at any altitude for
   // a given IAS — that's the point)
   const dragRel = 0.8 * Math.pow(forces.ias / 105, 2) +
                   0.2 * Math.pow(forces.wt / 2300, 2) * Math.pow(105 / forces.ias, 2);
-  // thrust available ∝ power/TAS, and the prop's grip thins with the air
+  // power required vs power available, both as fractions of rated. Holding
+  // 105 kt IAS level at sea level takes ~58 % of rated power (max level speed
+  // ≈ 126 kt IAS ⇒ (105/126)³), so drag·TAS is scaled by that — NOT by 100 %,
+  // which would ground the airplane at density altitudes it happily cruises.
+  const pwrReq = 0.58 * dragRel * (tas / 105);
+  const excess = pwrFrac - pwrReq;
+  // rate of climb from excess power (33,000 ft·lb/min per hp, prop efficiency
+  // folded into the 0.55)
+  const roc = excess * 180 * 33000 / forces.wt * 0.55;
   const thrustRel = pwrFrac / (tas / 105);
-  return { sigma, tas, pwrFrac, stallIas, dragRel, thrustRel };
+  return { sigma, tas, pwrFrac, stallIas, aoa, stalled, dragRel, thrustRel, pwrReq, excess, roc };
 }
 
 function forcesTick(dt) {
@@ -825,22 +837,33 @@ function forcesTick(dt) {
   const cx = W * 0.46, cy = H * 0.48;
   const noseX = cx - 78, tailX = cx + 78;
 
-  // molecule stream: density-scaled population, TAS-scaled speed
-  const N = Math.round(clamp(W * H / 2400, 40, 130) * c.sigma);
+  // molecule stream: density-scaled population (exaggerated like the page
+  // background), TAS-scaled speed
+  const N = Math.round(clamp(W * H / 2200, 40, 150) * Math.pow(c.sigma, 2.2));
   while (forces.parts.length < N) {
     forces.parts.push({ x: Math.random() * W, y: Math.random() * H, vy: 0, j: Math.random() });
   }
   if (forces.parts.length > N) forces.parts.length = N;
   const spd = 30 + c.tas * 1.5;
   if (!REDUCED) {
-    forces.propPh += dt * (6 + c.pwrFrac * 30);
+    forces.propPh += dt * (6 + c.pwrFrac * c.sigma * 34);
+    const dwn = (14 + c.aoa * 16) * c.sigma;      // downwash ∝ AoA — the wing working
     for (const p of forces.parts) {
       let v = spd * (0.85 + p.j * 0.3);
-      // propwash: the tube of air behind the prop moves faster
-      if (p.x > noseX - 6 && Math.abs(p.y - cy) < 20) v *= 1.35 + c.pwrFrac * 0.5;
-      // downwash: air that has passed the wing gets thrown downward
-      if (p.x > cx && p.x < cx + 150 && Math.abs(p.y - cy) < 34 && p.y > cy - 30) {
-        p.vy += (34 + forces.wt / 60) * dt;
+      // propwash: the tube of air behind the prop moves faster — but only as
+      // hard as power × density lets it (thin air = weak blast)
+      if (p.x > noseX - 6 && Math.abs(p.y - cy) < 20) {
+        v *= 1.25 + c.pwrFrac * c.sigma * 0.9;
+        p.vy += Math.sin(forces.propPh * 2 + p.j * 7) * 14 * dt;   // spiral wash
+      }
+      if (c.stalled && p.x > cx - 10 && p.x < cx + 170 && p.y > cy - 44 && p.y < cy + 30) {
+        // separated flow: the air tumbles instead of following the wing
+        p.vy += (Math.random() - 0.55) * 260 * dt;
+        v *= 0.45;
+      } else if (p.x > cx - 90 && p.x < cx - 20 && Math.abs(p.y - cy) < 40) {
+        p.vy -= c.aoa * 7 * dt;                    // upwash ahead of the wing
+      } else if (p.x > cx && p.x < cx + 170 && p.y > cy - 40 && p.y < cy + 34) {
+        p.vy += dwn * dt;                          // downwash behind it
       } else {
         p.vy *= Math.max(0, 1 - 3 * dt);
       }
@@ -848,6 +871,7 @@ function forcesTick(dt) {
       p.y += p.vy * dt;
       if (p.x > W + 4) { p.x = -4; p.y = Math.random() * H; p.vy = 0; }
       if (p.y > H + 4) { p.y = -4; }
+      if (p.y < -4) { p.y = H + 4; }
     }
   }
   drawForces(c, cx, cy, noseX, tailX);
@@ -870,19 +894,52 @@ function drawForces(c, cx, cy, noseX, tailX) {
   }
   ctx.stroke(); ctx.lineCap = 'butt';
 
-  // the airplane, nose left: fuselage, wing chord, stabilizer, prop disc
+  // the airplane, nose left, pitched by angle of attack (exaggerated 2.2×
+  // so the nose visibly rises as you slow down or load up)
+  const aoaRad = rad(Math.min(c.aoa, 18) * 2.2);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(aoaRad);          // facing left, +rotation pitches the nose up
+
   ctx.fillStyle = '#c8ccd2';
-  ctx.beginPath(); ctx.ellipse(cx, cy, 80, 11, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#aeb4bc';
-  ctx.beginPath(); ctx.ellipse(cx + 4, cy - 2, 26, 5, -0.06, 0, 7); ctx.fill();   // wing chord
+  ctx.beginPath(); ctx.ellipse(0, 0, 80, 11, 0, 0, 7); ctx.fill();          // fuselage
   ctx.beginPath();
-  ctx.moveTo(tailX - 14, cy - 2); ctx.lineTo(tailX + 4, cy - 24); ctx.lineTo(tailX + 8, cy - 2);
-  ctx.closePath(); ctx.fill();                                                     // fin
-  const ph = Math.sin(forces.propPh * 4) * (1 - 0.4);
-  ctx.strokeStyle = 'rgba(200,210,220,0.55)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(noseX - 4, cy - 26 * ph); ctx.lineTo(noseX - 4, cy + 26 * ph); ctx.stroke();
+  ctx.moveTo(tailX - cx - 14, -2); ctx.lineTo(tailX - cx + 4, -24); ctx.lineTo(tailX - cx + 8, -2);
+  ctx.closePath(); ctx.fillStyle = '#aeb4bc'; ctx.fill();                    // fin
+
+  // a real cambered airfoil, not a stick: flat-ish bottom, curved top
+  ctx.beginPath();
+  ctx.moveTo(-30, -4);
+  ctx.bezierCurveTo(-22, -16, 8, -16, 32, -5);       // upper surface
+  ctx.bezierCurveTo(18, -1, -14, 0, -30, -4);        // lower surface
+  ctx.closePath();
+  ctx.fillStyle = c.stalled ? '#d98a8a' : '#e3e7ec'; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+  // chord line, extended forward so the AoA arc has something to hang on
+  ctx.strokeStyle = 'rgba(255,220,120,0.85)'; ctx.lineWidth = 1.2;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(-72, -4); ctx.lineTo(32, -5); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // propeller: spinning blade + translucent disc — its "bite" fades with density
+  const ph = Math.sin(forces.propPh * 4) * 0.6;
+  const nx = noseX - cx - 4;
+  ctx.fillStyle = `rgba(140,190,255,${0.05 + c.pwrFrac * c.sigma * 0.10})`;
+  ctx.beginPath(); ctx.ellipse(nx, 0, 5, 27, 0, 0, 7); ctx.fill();          // prop disc
+  ctx.strokeStyle = 'rgba(200,210,220,0.6)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(nx, -26 * ph); ctx.lineTo(nx, 26 * ph); ctx.stroke();
   ctx.strokeStyle = 'rgba(200,210,220,0.16)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(noseX - 4, cy - 26); ctx.lineTo(noseX - 4, cy + 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(nx, -26); ctx.lineTo(nx, 26); ctx.stroke();
+  ctx.restore();
+
+  // AoA arc between the (level) relative wind and the pitched chord line
+  ctx.strokeStyle = 'rgba(255,220,120,0.5)'; ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(cx - 118, cy); ctx.lineTo(cx - 40, cy); ctx.stroke();  // relative wind line
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(cx, cy, 62, Math.PI - aoaRad, Math.PI); ctx.stroke();
+  ctx.fillStyle = '#e8c96a'; ctx.textAlign = 'left';
+  ctx.fillText(`AoA ${c.aoa.toFixed(1)}°${c.stalled ? ' — STALL' : ''}`, cx - 118, cy + 16);
 
   // force arrows
   const arrow = (x, y, dx, dy, color, label, lx, ly) => {
@@ -899,20 +956,61 @@ function drawForces(c, cx, cy, noseX, tailX) {
     ctx.textAlign = 'center'; ctx.fillText(label, lx, ly);
     ctx.font = '10px "Segoe UI", system-ui, sans-serif';
   };
-  const wLen = 30 + (forces.wt / 2550) * 55;                 // weight sets the scale
-  const tLen = clamp(22 + c.thrustRel * 42, 14, 92);
-  const dLen = clamp(22 + c.dragRel * 42, 14, 92);
-  arrow(cx + 4, cy - 14, 0, -wLen, '#4a9eff', 'LIFT (= weight)', cx + 4, cy - wLen - 22);
-  arrow(cx, cy + 12, 0, wLen, '#c8ccd2', 'WEIGHT', cx, cy + wLen + 26);
-  arrow(noseX - 10, cy, -tLen, 0, '#22c55e', 'THRUST', noseX - tLen / 2 - 8, cy - 10);
+  // exaggerated arrows: nonlinear gain so the differences shout
+  const emphArrow = (v) => Math.pow(Math.max(v, 0), 1.5);
+  const wLen = 26 + (forces.wt / 2550) * 74;                 // weight sets the scale
+  const dLen = clamp(16 + emphArrow(c.dragRel) * 58, 12, 120);
+  // thrust available at full throttle, in the same units as dragRel (the
+  // 0.58 is the sea-level power fraction that 105 kt level flight costs)
+  const availRel = c.pwrFrac / (c.tas / 105) / 0.58;
+  const availLen = clamp(16 + emphArrow(availRel) * 58, 12, 130);
+  const usedLen = Math.min(dLen, availLen);                  // level flight: thrust set = drag
+
+  if (c.stalled) {
+    // the wing has let go: lift arrow broken and crooked, weight wins
+    arrow(cx + 4, cy - 14, -10, -wLen * 0.4, '#4a9eff', 'LIFT (broken)', cx + 4, cy - wLen * 0.4 - 24);
+    arrow(cx, cy + 12, 0, wLen * 1.1, '#c8ccd2', 'WEIGHT', cx, cy + wLen * 1.1 + 26);
+  } else {
+    arrow(cx + 4, cy - 14, 0, -wLen, '#4a9eff', 'LIFT (= weight)', cx + 4, cy - wLen - 22);
+    arrow(cx, cy + 12, 0, wLen, '#c8ccd2', 'WEIGHT', cx, cy + wLen + 26);
+  }
+  arrow(noseX - 10, cy, -usedLen, 0, '#22c55e', 'THRUST', noseX - usedLen / 2 - 8, cy - 12);
+  // full-throttle reserve beyond what level flight needs — the climb budget
+  if (availLen > usedLen + 3) {
+    ctx.strokeStyle = 'rgba(34,197,94,0.35)'; ctx.lineWidth = 3; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(noseX - 10 - usedLen, cy); ctx.lineTo(noseX - 10 - availLen, cy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(34,197,94,0.7)'; ctx.textAlign = 'center';
+    ctx.fillText('reserve', noseX - availLen - 8, cy + 14);
+  }
   arrow(tailX + 10, cy, dLen, 0, '#ef4444', 'DRAG', tailX + dLen / 2 + 10, cy - 10);
 
-  // when thrust available can't match drag, say so — that IS the lesson
-  if (tLen < dLen * 0.88) {
-    ctx.fillStyle = '#f59e0b'; ctx.textAlign = 'center';
-    ctx.fillText('thrust can no longer match drag at this IAS —', cx, cy + wLen + 44);
-    ctx.fillText('up here the airplane cruises slower (or descends)', cx, cy + wLen + 57);
+  // the verdict line: climb budget, level, or out of power
+  ctx.textAlign = 'center';
+  if (c.stalled) {
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText('past the critical angle — the flow has separated and lift collapsed', cx, H - 30);
+  } else if (c.excess < 0) {
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillText(`full throttle can't hold ${forces.ias} kt IAS level up here —`, cx, H - 42);
+    ctx.fillText('accept a lower IAS (the TAS is still respectable) or descend', cx, H - 29);
+  } else {
+    ctx.fillStyle = '#22c55e';
+    ctx.fillText(`full-throttle climb available: ~${fmt0(Math.round(c.roc / 10) * 10)} fpm`, cx, H - 30);
   }
+
+  // bottom-left: the air the airplane is actually sitting in — pressure
+  // falls away beneath it as the DA slider climbs
+  const pHere = isaPresHpa(forces.da);
+  const bx = 14, bw = 10, bh = 74, by = H - 24;
+  ctx.strokeStyle = 'rgba(160,170,185,0.5)'; ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by - bh, bw, bh);
+  const fillH = bh * clamp(pHere / 1013.25, 0, 1);
+  ctx.fillStyle = 'rgba(74,158,255,0.45)';
+  ctx.fillRect(bx, by - fillH, bw, fillH);
+  ctx.fillStyle = '#8b95a3'; ctx.textAlign = 'left';
+  ctx.fillText(`outside air: ${fmt0(pHere)} hPa · ${(pHere / 33.8639).toFixed(2)} inHg`, bx + bw + 8, by - bh + 10);
+  ctx.fillText(`${Math.round((1 - pHere / 1013.25) * 100)} % of the atmosphere is below you`, bx + bw + 8, by - bh + 24);
 
   ctx.fillStyle = '#666'; ctx.textAlign = 'left';
   ctx.fillText(`IAS ${forces.ias} kt · TAS ${Math.round(c.tas)} kt · air density ${Math.round(c.sigma * 100)} % · ${fmt0(forces.wt)} lb`, 10, H - 10);
@@ -921,17 +1019,28 @@ function drawForces(c, cx, cy, noseX, tailX) {
 function updateForces() {
   const c = forcesCalc();
   $('f-tas').innerHTML = `<b>${Math.round(c.tas)} kt</b> (gauge says ${forces.ias})`;
+  $('f-aoa').innerHTML = c.stalled
+    ? `<b style="color:#ef4444">${c.aoa.toFixed(1)}° — stalled</b> (critical ≈ 16°)`
+    : `<b>${c.aoa.toFixed(1)}°</b> (critical ≈ 16°)`;
   $('f-pwr').innerHTML = `<b>${Math.round(c.pwrFrac * 100)} %</b> of rated`;
   $('f-prop').innerHTML = `<b>${Math.round(c.sigma * 100)} %</b> of sea-level grip`;
-  $('f-drag').innerHTML = `<b>same ½ρV²</b> as ${forces.ias} kt at sea level`;
+  $('f-climb').innerHTML = c.stalled
+    ? `<b style="color:#ef4444">—</b> the wing isn't flying`
+    : c.excess >= 0
+      ? `<b style="color:#22c55e">~${fmt0(Math.round(c.roc / 10) * 10)} fpm</b> at full throttle`
+      : `<b style="color:#f59e0b">none</b> — can't hold this IAS level`;
   $('f-stall').innerHTML = `<b>${Math.round(c.stallIas)} kt</b> indicated — at any altitude`;
   const margin = forces.ias - c.stallIas;
   $('f-note').textContent =
-    forces.da >= 7000
-      ? `Up here thrust is cut twice — ${Math.round((1 - c.pwrFrac) * 100)} % less engine power and ${Math.round((1 - c.sigma) * 100)} % fewer molecules per blade — while weight hasn't budged. That asymmetry is the density-altitude problem.`
-      : margin < 15
-        ? `Only ${Math.round(margin)} kt above the stall: slow and heavy is where induced drag is greediest — short final and liftoff live here.`
-        : `Thick air: full grip for the prop, full bite for the wing. Load and speed changes move the arrows more than altitude does down low.`;
+    c.stalled
+      ? `Past the critical angle of attack the smooth flow lets go of the wing — the exact same break at any altitude, always at ${Math.round(c.stallIas)} kt indicated for this weight. Lower the nose (trade altitude for IAS) and it flies again.`
+      : c.excess < 0
+        ? `The engine is making ${Math.round(c.pwrFrac * 100)} % power but holding ${forces.ias} kt IAS up here costs more than that. This isn't a wall — ease the IAS back a few knots and the airplane cruises happily; the TAS you keep is still ${Math.round(c.tas * 0.95)}+ kt.`
+        : forces.da >= 7000
+          ? `Up here thrust is cut twice — ${Math.round((1 - c.pwrFrac) * 100)} % less engine power and ${Math.round((1 - c.sigma) * 100)} % fewer molecules per blade — while weight hasn't budged. The climb reserve shrinking toward zero is the density-altitude problem.`
+          : margin < 15
+            ? `Only ${Math.round(margin)} kt above the stall: watch the nose ride high — high AoA is where induced drag is greediest, exactly where short final and liftoff live.`
+            : `Thick air: full grip for the prop, full bite for the wing, a fat green climb reserve. Load and speed changes move the arrows more than altitude does down low.`;
 }
 
 function initForces() {
@@ -1252,10 +1361,12 @@ function initSpeeds() {
    with the honest gas physics: ρ = P/(R·T), vapor via Tetens.
    ======================================================================== */
 
-// The playground exposes every density lever: temp, dewpoint, RH, pressure.
-// Dewpoint and RH are two views of the same moisture; dewpoint (the actual
-// water content) is held as temperature moves, and RH follows.
-const play = { tC: 15, dC: 5, pres: 1013 };
+// The playground is SURFACE conditions — what the AWOS hands you before
+// takeoff — so pressure is an altimeter setting in the real-world 28–31 inHg
+// band, not a free-atmosphere level. Dewpoint and RH are two views of the
+// same moisture; dewpoint (the actual water content) is held as temperature
+// moves, and RH follows. play.pres is in inHg.
+const play = { tC: 15, dC: 5, pres: 29.92 };
 
 // inverse Tetens: dewpoint that gives relative humidity rh at temperature tC
 function dewFromRh(tC, rh) {
@@ -1267,8 +1378,9 @@ function dewFromRh(tC, rh) {
 function playState() {
   const dC = Math.min(play.dC, play.tC);          // dewpoint can't exceed temp
   const e = vaporPresHpa(dC);
-  const rho = airDensity(play.pres, play.tC, e);
-  return { dC, rho, sigma: rho / ISA.RHO0, rh: relHumidity(play.tC, dC) };
+  const pHpa = play.pres * 33.8639;               // inHg → hPa
+  const rho = airDensity(pHpa, play.tC, e);
+  return { dC, pHpa, rho, sigma: rho / ISA.RHO0, rh: relHumidity(play.tC, dC) };
 }
 
 // push state into every slider + label + readout (no input events, no loops)
@@ -1278,7 +1390,7 @@ function playRefresh() {
   set('play-temp', play.tC, `${play.tC} <span class="u">°C</span> · ${Math.round(cToF(play.tC))} <span class="u">°F</span>`);
   set('play-dew', s.dC, `${Math.round(s.dC)} <span class="u">°C</span> · ${Math.round(cToF(s.dC))} <span class="u">°F</span>`);
   set('play-rh', Math.round(s.rh * 100), `${Math.round(s.rh * 100)} <span class="u">%</span>`);
-  set('play-pres', play.pres, `${fmt0(play.pres)} <span class="u">hPa</span> · ${(play.pres / 33.8639).toFixed(2)} <span class="u">inHg</span>`);
+  set('play-pres', play.pres, `${play.pres.toFixed(2)} <span class="u">inHg</span> · ${fmt0(s.pHpa)} <span class="u">hPa</span>`);
 
   const daFt = densityAltFt(s.rho);
   $('play-sigma').innerHTML = `<b>${Math.round(s.sigma * 100)} %</b> of standard sea level`;
@@ -1290,7 +1402,7 @@ function playRefresh() {
   if (s.rh >= 0.99) bits.push('The vapor is condensing — this is the inside of a cloud, and exactly what happens at the LCL in panel 6.');
   else if (play.tC >= 30) bits.push('Hot: the dots race around and spread out — fewer molecules in every cubic foot of wing.');
   else if (play.tC <= -5) bits.push('Cold: slow, tightly packed molecules — the airplane loves this.');
-  if (play.pres <= 850) bits.push('Low pressure is altitude in disguise: this is the squeeze the parcel loses as it climbs.');
+  if (play.pres <= 28.6) bits.push('A deep low: the altimeter setting alone has added hundreds of feet of pressure altitude before the day even warms up.');
   if (!bits.length) bits.push('An honest parcel: density comes straight from ρ = P / (R·T), vapor from the dewpoint.');
   $('play-note').textContent = bits.join(' ');
 }
@@ -1314,8 +1426,8 @@ function initPlay() {
     playRefresh();
   });
   const setAll = (t, d, p) => { play.tC = t; play.dC = d; play.pres = p; playRefresh(); };
-  $('play-std').addEventListener('click', () => setAll(15, 5, 1013));
-  $('play-july').addEventListener('click', () => setAll(33, 24, 1013));
+  $('play-std').addEventListener('click', () => setAll(15, 5, 29.92));
+  $('play-july').addEventListener('click', () => setAll(33, 24, 29.85));
   playRefresh();
 }
 
