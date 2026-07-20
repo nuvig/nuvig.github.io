@@ -1,144 +1,234 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KANP CTAF 122.9 — Live Monitor</title>
-<style>
-  :root{
-    --bg:#0b1220; --panel:#131c2e; --panel2:#0f1726; --text:#e8eef7;
-    --muted:#8ea2bd; --accent:#3fa9f5; --accent2:#1e6fd0; --live:#38d39f; --err:#ff5c72;
-    --border:#233149;
-  }
-  @media (prefers-color-scheme: light){
-    :root{ --bg:#eef2f8; --panel:#ffffff; --panel2:#f3f6fb; --text:#12233c;
-      --muted:#5a6b85; --accent:#1e6fd0; --accent2:#155bb0; --live:#12a874; --err:#d63a52;
-      --border:#dbe3ef; }
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{
-    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:radial-gradient(1200px 600px at 50% -10%, rgba(63,169,245,.12), transparent 60%), var(--bg);
-    color:var(--text); display:flex; align-items:center; justify-content:center; padding:24px;
-  }
-  .card{
-    width:100%; max-width:460px; background:linear-gradient(180deg,var(--panel),var(--panel2));
-    border:1px solid var(--border); border-radius:18px; padding:28px 26px 24px;
-    box-shadow:0 20px 60px rgba(0,0,0,.35);
-  }
-  .top{display:flex; align-items:center; gap:12px; margin-bottom:6px}
-  .badge{
-    display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600;
-    letter-spacing:.04em; text-transform:uppercase; color:var(--muted);
-    border:1px solid var(--border); border-radius:999px; padding:5px 11px;
-  }
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);transition:.3s}
-  .dot.live{background:var(--live); box-shadow:0 0 0 0 rgba(56,211,159,.6); animation:pulse 1.8s infinite}
-  .dot.err{background:var(--err)}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(56,211,159,.5)}70%{box-shadow:0 0 0 10px rgba(56,211,159,0)}100%{box-shadow:0 0 0 0 rgba(56,211,159,0)}}
-  h1{font-size:26px; margin:14px 0 2px; letter-spacing:-.01em}
-  .sub{color:var(--muted); font-size:14px; margin:0 0 20px}
-  .freq{font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent)}
-  .player{display:flex; align-items:center; gap:16px; margin:6px 0 18px}
-  .play{
-    flex:0 0 auto; width:64px;height:64px;border-radius:50%; border:none; cursor:pointer;
-    background:linear-gradient(180deg,var(--accent),var(--accent2)); color:#fff;
-    display:grid; place-items:center; box-shadow:0 8px 22px rgba(30,111,208,.45); transition:.15s;
-  }
-  .play:hover{transform:translateY(-1px)} .play:active{transform:translateY(0)}
-  .play svg{width:26px;height:26px;fill:#fff}
-  .meta{min-width:0}
-  .status{font-size:14px; font-weight:600}
-  .hint{font-size:12.5px; color:var(--muted); margin-top:2px}
-  audio{display:none}
-  .foot{border-top:1px solid var(--border); margin-top:18px; padding-top:14px; font-size:12px; color:var(--muted)}
-  .foot b{color:var(--text)}
-  a{color:var(--accent); text-decoration:none} a:hover{text-decoration:underline}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KANP CTAF 122.9 — Live Transmissions</title>
+  <meta name="description" content="Live and recorded transmissions on the KANP (Lee Airport, Annapolis MD) CTAF, 122.9 MHz, received on a local SDR.">
+  <style>
+    :root{
+      --bg:#0f0f10; --panel:#161616; --panel2:#1a1a1a; --line:#282828;
+      --text:#d8d8d8; --muted:#888; --dim:#555; --accent:#4a9eff; --live:#ff5c5c;
+      --sel-bg:#17222f; --sel-bd:#2a4a6a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:var(--bg); color:var(--text);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      max-width:900px; margin:0 auto; padding:22px 18px 130px;
+    }
+    a{color:#aaa;text-decoration:none} a:hover{color:#ccc}
+    #back-link{display:inline-block;font-size:14px;color:#666;margin-bottom:14px}
+    #back-link:hover{color:#ccc}
+    h1{font-size:24px;margin:0 0 2px;letter-spacing:-.01em}
+    h1 .freq{color:var(--accent)}
+    .subtitle{color:#666;font-size:14px;margin:2px 0 18px}
+
+    .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+    .btn{
+      background:var(--panel);border:1px solid var(--line);border-radius:8px;
+      color:var(--text);font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;
+      display:inline-flex;align-items:center;gap:8px;
+    }
+    .btn:hover{border-color:#3a3a3a;background:var(--panel2)}
+    .btn.live-on{border-color:var(--live);color:#fff}
+    .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+    .btn.live-on .dot{background:var(--live);animation:pulse 1.6s infinite}
+    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,92,92,.5)}70%{box-shadow:0 0 0 8px rgba(255,92,92,0)}100%{box-shadow:0 0 0 0 rgba(255,92,92,0)}}
+    #status{color:#666;font-size:13px;margin-bottom:10px}
+    #status.err{color:#d08770}
+
+    .daydiv{color:#555;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
+      margin:16px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+    .tx{
+      display:flex;gap:14px;padding:10px 12px;border-radius:8px;cursor:pointer;
+      border:1px solid transparent;align-items:baseline;
+    }
+    .tx:hover{background:#161616}
+    .tx.sel{background:var(--sel-bg);border-color:var(--sel-bd)}
+    .tx .play{color:var(--muted);width:16px;flex:0 0 auto}
+    .tx.sel .play{color:var(--accent)}
+    .tx .time{color:#bbb;font-size:14px;white-space:nowrap;width:78px;font-variant-numeric:tabular-nums}
+    .tx .ago{color:#666;font-size:13px;flex:1}
+    .tx .dur{color:#555;font-size:12px;white-space:nowrap;text-align:right}
+    .tx.new{animation:flash 1.2s ease-out}
+    @keyframes flash{from{background:#1d2a1d}to{background:transparent}}
+    .empty{color:#555;font-style:italic;padding:20px 4px}
+
+    #player-bar{
+      position:fixed;left:0;right:0;bottom:0;background:#141414f2;
+      border-top:1px solid #2a2a2a;backdrop-filter:blur(6px);padding:10px 16px;
+    }
+    #player-inner{max-width:900px;margin:0 auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+    #player-inner audio{flex:1;min-width:240px;height:38px}
+    #nowplaying{color:#888;font-size:13px;white-space:nowrap}
+    #player-inner label{color:#777;font-size:13px;user-select:none;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
+    .keys{color:#444;font-size:12px}
+    kbd{background:#222;border:1px solid #3a3a3a;border-radius:4px;padding:0 5px;font-size:11px;color:#999}
+    @media (max-width:640px){ .tx .ago{display:none} .keys{display:none} }
+  </style>
 </head>
 <body>
-  <main class="card">
-    <div class="top">
-      <span class="badge"><span id="dot" class="dot"></span><span id="badgeText">Offline</span></span>
-    </div>
-    <h1>KANP CTAF <span class="freq">122.9</span></h1>
-    <p class="sub">Lee Airport · Annapolis, MD — Common Traffic Advisory Frequency (AM)</p>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1>KANP CTAF <span class="freq">122.9</span></h1>
+  <p class="subtitle">Lee Airport · Annapolis, MD — live transmissions received on a local SDR.
+    Unofficial monitor, not for operational use.</p>
 
-    <div class="player">
-      <button id="btn" class="play" aria-label="Play">
-        <svg id="icoPlay" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        <svg id="icoStop" viewBox="0 0 24 24" style="display:none"><path d="M6 6h12v12H6z"/></svg>
-      </button>
-      <div class="meta">
-        <div class="status" id="status">Tap play to listen</div>
-        <div class="hint" id="hint">Live audio can be silent between transmissions.</div>
-      </div>
-    </div>
+  <div class="bar">
+    <button id="live-btn" class="btn"><span class="dot"></span><span id="live-label">Listen live</span></button>
+    <span id="status">connecting&hellip;</span>
+  </div>
 
-    <audio id="audio" preload="none"></audio>
+  <div id="list"><div class="empty">Loading transmissions&hellip;</div></div>
 
-    <div class="foot">
-      Unofficial live receiver monitor. <b>Not for operational or navigational use.</b>
-      Audio may lag real time by a few seconds.
+  <div id="player-bar">
+    <div id="player-inner">
+      <audio id="player" controls preload="none"></audio>
+      <span id="nowplaying">nothing selected</span>
+      <label><input type="checkbox" id="follow" checked> auto-play new</label>
+      <label><input type="checkbox" id="advance" checked> auto-advance</label>
+      <span class="keys"><kbd>j</kbd>/<kbd>k</kbd> older/newer &nbsp;<kbd>space</kbd> play/pause</span>
     </div>
-  </main>
+  </div>
 
 <script>
-  // ==== Stream URL — set this to your Tailscale Funnel (or other HTTPS) address ====
-  const STREAM_URL = "https://jalpine.taila8f067.ts.net/kanp.mp3";
-  // ================================================================================
+  // ===== config =====
+  const HOST = "https://jalpine.taila8f067.ts.net";
+  const BASE = HOST + "/ctaf";        // clip server (index.json + clips/)
+  const LIVE = HOST + "/kanp.mp3";    // continuous live stream
+  const POLL_MS = 8000;
 
-  const audio  = document.getElementById('audio');
-  const btn     = document.getElementById('btn');
-  const icoPlay = document.getElementById('icoPlay');
-  const icoStop = document.getElementById('icoStop');
-  const dot     = document.getElementById('dot');
-  const badge   = document.getElementById('badgeText');
-  const statusEl= document.getElementById('status');
-  const hintEl  = document.getElementById('hint');
+  const $ = s => document.querySelector(s);
+  const listEl = $("#list"), statusEl = $("#status"), player = $("#player");
+  const nowEl = $("#nowplaying"), liveBtn = $("#live-btn"), liveLabel = $("#live-label");
+  const followCb = $("#follow"), advanceCb = $("#advance");
 
-  let playing = false;
-  let reconnectTimer = null;
+  let clips = [];          // newest-first
+  let selTs = null;        // ts of selected clip
+  let maxTs = 0;           // newest ts seen (for "new" detection)
+  let liveMode = false;    // continuous stream playing
+  const live = new Audio();
+  live.preload = "none";
 
-  function setState(mode, msg){
-    dot.className = 'dot' + (mode==='live' ? ' live' : mode==='err' ? ' err' : '');
-    badge.textContent = mode==='live' ? 'Live' : mode==='err' ? 'Error' : mode==='buffering' ? 'Buffering' : 'Offline';
-    if(msg) statusEl.textContent = msg;
+  const pad = n => String(n).padStart(2, "0");
+  function fmtTime(ts){
+    const d = new Date(ts*1000);
+    return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
   }
-  function showPlay(isPlaying){
-    icoPlay.style.display = isPlaying ? 'none' : '';
-    icoStop.style.display = isPlaying ? '' : 'none';
-    btn.setAttribute('aria-label', isPlaying ? 'Stop' : 'Play');
+  function fmtAgo(ts){
+    const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+    if (s < 60) return s+"s ago";
+    if (s < 3600) return Math.floor(s/60)+"m ago";
+    if (s < 86400) return Math.floor(s/3600)+"h ago";
+    return Math.floor(s/86400)+"d ago";
   }
-
-  function start(){
-    playing = true; showPlay(true);
-    setState('buffering','Connecting…');
-    // cache-bust so a reconnect doesn't replay a stale buffer
-    audio.src = STREAM_URL + (STREAM_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
-    audio.load();
-    audio.play().catch(err => { setState('err','Autoplay blocked — tap again'); });
-  }
-  function stop(){
-    playing = false; showPlay(false);
-    clearTimeout(reconnectTimer);
-    audio.pause(); audio.removeAttribute('src'); audio.load();
-    setState('off','Stopped');
-  }
-  function scheduleReconnect(){
-    if(!playing) return;
-    setState('err','Reconnecting…');
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(start, 3000);
+  function dayLabel(ts){
+    const d = new Date(ts*1000), now = new Date();
+    const ymd = x => x.getFullYear()+"-"+pad(x.getMonth()+1)+"-"+pad(x.getDate());
+    const y = new Date(now); y.setDate(now.getDate()-1);
+    if (ymd(d) === ymd(now)) return "Today";
+    if (ymd(d) === ymd(y)) return "Yesterday";
+    return d.toLocaleDateString(undefined, {weekday:"long", month:"short", day:"numeric"});
   }
 
-  btn.addEventListener('click', () => playing ? stop() : start());
-  audio.addEventListener('playing', () => setState('live','On air'));
-  audio.addEventListener('waiting', () => setState('buffering','Buffering…'));
-  audio.addEventListener('stalled', scheduleReconnect);
-  audio.addEventListener('error',   scheduleReconnect);
-  audio.addEventListener('ended',   scheduleReconnect);
+  function render(){
+    if (!clips.length){
+      listEl.innerHTML = '<div class="empty">No transmissions recorded yet. This updates automatically when someone keys up on 122.9.</div>';
+      return;
+    }
+    let html = "", lastDay = "";
+    for (const c of clips){
+      const dl = dayLabel(c.ts);
+      if (dl !== lastDay){ html += '<div class="daydiv">'+dl+'</div>'; lastDay = dl; }
+      const sel = c.ts === selTs ? " sel" : "";
+      const isNew = c.ts > 0 && c._new ? " new" : "";
+      html += '<div class="tx'+sel+isNew+'" data-ts="'+c.ts+'">'
+            +   '<span class="play">&#9654;</span>'
+            +   '<span class="time">'+fmtTime(c.ts)+'</span>'
+            +   '<span class="ago">'+fmtAgo(c.ts)+'</span>'
+            +   '<span class="dur">'+c.dur.toFixed(1)+'s</span>'
+            + '</div>';
+    }
+    listEl.innerHTML = html;
+    listEl.querySelectorAll(".tx").forEach(el =>
+      el.addEventListener("click", () => selectByTs(parseFloat(el.dataset.ts), true)));
+  }
+
+  function selectByTs(ts, play){
+    const c = clips.find(x => x.ts === ts);
+    if (!c) return;
+    selTs = ts;
+    if (liveMode) stopLive();
+    render();
+    const row = listEl.querySelector('.tx[data-ts="'+ts+'"]');
+    if (row) row.scrollIntoView({block:"nearest"});
+    nowEl.textContent = fmtTime(ts) + " · " + c.dur.toFixed(1) + "s";
+    player.src = BASE + "/" + c.clip;
+    if (play) player.play().catch(()=>{});
+  }
+
+  function step(dir){ // dir +1 = older (down), -1 = newer (up)
+    if (!clips.length) return;
+    let i = clips.findIndex(x => x.ts === selTs);
+    if (i === -1) i = 0; else i += dir;
+    if (i < 0) i = 0;
+    if (i >= clips.length) i = clips.length - 1;
+    selectByTs(clips[i].ts, true);
+  }
+
+  player.addEventListener("ended", () => { if (advanceCb.checked) step(-1); }); // advance to newer
+
+  // ----- live continuous stream -----
+  function startLive(){
+    liveMode = true; selTs = null; render();
+    player.pause();
+    liveBtn.classList.add("live-on"); liveLabel.textContent = "Live · stop";
+    nowEl.textContent = "live stream";
+    live.src = LIVE + "?t=" + Date.now();
+    live.play().catch(()=>{ liveLabel.textContent = "tap to allow audio"; });
+  }
+  function stopLive(){
+    liveMode = false; live.pause(); live.removeAttribute("src");
+    liveBtn.classList.remove("live-on"); liveLabel.textContent = "Listen live";
+  }
+  liveBtn.addEventListener("click", () => liveMode ? stopLive() : startLive());
+
+  // ----- data polling -----
+  async function poll(){
+    try{
+      const r = await fetch(BASE + "/index.json?t=" + Date.now());
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      const incoming = (data.clips || []).slice().sort((a,b) => b.ts - a.ts);
+      const prevMax = maxTs;
+      for (const c of incoming){ c._new = c.ts > prevMax; if (c.ts > maxTs) maxTs = c.ts; }
+      const firstLoad = clips.length === 0;
+      clips = incoming;
+      render();
+      statusEl.classList.remove("err");
+      statusEl.textContent = clips.length + " transmission" + (clips.length===1?"":"s")
+        + " · updated " + fmtTime(data.updated || Date.now()/1000);
+      // auto-play newest new clip if following (and not already listening live)
+      if (!firstLoad && followCb.checked && !liveMode){
+        const newest = incoming[0];
+        if (newest && newest._new) selectByTs(newest.ts, true);
+      }
+    }catch(e){
+      statusEl.classList.add("err");
+      statusEl.textContent = "recorder offline — the receiver PC may be off ("+e.message+")";
+    }
+  }
+
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "j"){ e.preventDefault(); step(1); }
+    else if (e.key === "k"){ e.preventDefault(); step(-1); }
+    else if (e.key === " "){ e.preventDefault(); player.paused ? player.play().catch(()=>{}) : player.pause(); }
+  });
+
+  poll();
+  setInterval(poll, POLL_MS);
+  setInterval(() => { if (clips.length) render(); }, 30000); // refresh "ago" labels
 </script>
 </body>
 </html>
