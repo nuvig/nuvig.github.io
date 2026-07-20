@@ -1253,9 +1253,9 @@ function initSpeeds() {
    ======================================================================== */
 
 // The playground exposes every density lever: temp, dewpoint, RH, pressure.
-// Dewpoint and RH are two views of the same moisture, so one of them is
-// "held" as temperature moves and the other follows.
-const play = { tC: 15, dC: 5, pres: 1013, hold: 'dew' };
+// Dewpoint and RH are two views of the same moisture; dewpoint (the actual
+// water content) is held as temperature moves, and RH follows.
+const play = { tC: 15, dC: 5, pres: 1013 };
 
 // inverse Tetens: dewpoint that gives relative humidity rh at temperature tC
 function dewFromRh(tC, rh) {
@@ -1297,10 +1297,8 @@ function playRefresh() {
 
 function initPlay() {
   $('play-temp').addEventListener('input', (e) => {
-    const rhBefore = playState().rh;
     play.tC = parseFloat(e.target.value);
-    if (play.hold === 'rh') play.dC = dewFromRh(play.tC, rhBefore);
-    else play.dC = Math.min(play.dC, play.tC);
+    play.dC = Math.min(play.dC, play.tC);
     playRefresh();
   });
   $('play-dew').addEventListener('input', (e) => {
@@ -1315,9 +1313,6 @@ function initPlay() {
     play.pres = parseFloat(e.target.value);
     playRefresh();
   });
-  for (const r of document.querySelectorAll('input[name="play-hold"]')) {
-    r.addEventListener('change', () => { play.hold = r.value; });
-  }
   const setAll = (t, d, p) => { play.tC = t; play.dC = d; play.pres = p; playRefresh(); };
   $('play-std').addEventListener('click', () => setAll(15, 5, 1013));
   $('play-july').addEventListener('click', () => setAll(33, 24, 1013));
@@ -1383,8 +1378,10 @@ function bgTick(dt, st) {
   c.wx += (st.wx - c.wx) * k;
   c.wy += (st.wy - c.wy) * k;
 
-  // population follows density
-  const target = Math.round(clamp(bg.W * bg.H / 9000, 60, 340) * clamp(c.sigma, 0.03, 1.15));
+  // population follows density — exaggerated (but monotonic) so the thin/thick
+  // difference reads at a glance: σ 0.8 keeps only ~54 % of the dots
+  const emph = Math.pow(clamp(c.sigma, 0.03, 1.2), 2.8);
+  const target = Math.round(clamp(bg.W * bg.H / 8000, 60, 420) * emph);
   if (bg.dots.length < target) {
     for (let i = 0; i < 4 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
   } else if (bg.dots.length > target) {
