@@ -1399,12 +1399,14 @@ function playRefresh() {
     : `<b>${Math.round(s.rh * 100)} %</b>`;
   $('play-da').innerHTML = `<b>DA ${fmt0(daFt)} ft</b>`;
   const bits = [];
-  if (s.rh >= 0.99) bits.push('The vapor is condensing — this is the inside of a cloud, and exactly what happens at the LCL in panel 6.');
-  else if (play.tC >= 30) bits.push('Hot: the dots race around and spread out — fewer molecules in every cubic foot of wing.');
-  else if (play.tC <= -5) bits.push('Cold: slow, tightly packed molecules — the airplane loves this.');
-  if (play.pres <= 28.6) bits.push('A deep low: the altimeter setting alone has added hundreds of feet of pressure altitude before the day even warms up.');
-  if (!bits.length) bits.push('An honest parcel: density comes straight from ρ = P / (R·T), vapor from the dewpoint.');
-  $('play-note').textContent = bits.join(' ');
+  if (s.rh >= 0.99) bits.push('<b>The vapor is condensing</b> — this is the inside of a cloud, and exactly what happens at the LCL in panel 6.');
+  else if (play.tC >= 30) bits.push('<b>Hot air:</b> the dots race around and spread out — fewer molecules in every cubic foot of wing, so the airplane performs like it\'s already at altitude.');
+  else if (play.tC <= -5) bits.push('<b>Cold air:</b> slow, tightly packed molecules — the airplane loves this. Best climb rates of the year happen on mornings like this one.');
+  if (play.pres <= 28.6) bits.push('<b>A deep low:</b> the altimeter setting alone has added hundreds of feet of pressure altitude before the day even warms up.');
+  else if (play.pres >= 30.4) bits.push('<b>A strong high:</b> extra squeeze packs bonus molecules into the parcel — the field sits below its charted elevation, pressure-wise.');
+  if (s.rh >= 0.6 && s.rh < 0.99 && play.tC >= 24) bits.push('<b>Muggy:</b> light water-vapor molecules are displacing heavier dry air — an invisible density tax on a day that already feels bad.');
+  if (!bits.length) bits.push('<b>A textbook day.</b> Every reading here comes from the same two dials: <b>pressure</b> packs molecules in, <b>temperature</b> spreads them out, and their ratio <i>is</i> the density the wing feels. Moisture only fine-tunes it.');
+  $('play-note').innerHTML = bits.join(' ');
 }
 
 function initPlay() {
@@ -1474,9 +1476,10 @@ function bgResize() {
 function bgJiggle(tempC) { return clamp(6 + (tempC + 60) * 0.55, 4, 80); }
 
 function bgSpawnDot(vap) {
+  const z = 0.3 + Math.random() * 0.7;   // depth: far dots dim/small/slow, near dots bright/big/fast
   return {
     x: Math.random() * bg.W, y: Math.random() * bg.H,
-    th: Math.random() * 7, sp0: 0.6 + Math.random() * 0.8,
+    th: Math.random() * 7, sp0: 0.45 + z * 0.9, z,
     vap, a: 0,
   };
 }
@@ -1493,11 +1496,11 @@ function bgTick(dt, st) {
   // population follows density — exaggerated (but monotonic) so the thin/thick
   // difference reads at a glance: σ 0.8 keeps only ~54 % of the dots
   const emph = Math.pow(clamp(c.sigma, 0.03, 1.2), 2.8);
-  const target = Math.round(clamp(bg.W * bg.H / 8000, 60, 420) * emph);
+  const target = Math.round(clamp(bg.W * bg.H / 4000, 120, 840) * emph);
   if (bg.dots.length < target) {
-    for (let i = 0; i < 4 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
+    for (let i = 0; i < 8 && bg.dots.length < target; i++) bg.dots.push(bgSpawnDot(Math.random() < c.hum * 0.45));
   } else if (bg.dots.length > target) {
-    bg.dots.splice(0, Math.min(3, bg.dots.length - target));
+    bg.dots.splice(0, Math.min(6, bg.dots.length - target));
   }
 
   // vapor fraction follows humidity (flip a dot or two per frame toward target)
@@ -1530,21 +1533,22 @@ function bgTick(dt, st) {
     d.y += (Math.sin(d.th) * mySp + c.wy) * dt;
     if (d.x < -8) d.x = bg.W + 8; else if (d.x > bg.W + 8) d.x = -8;
     if (d.y < -8) d.y = bg.H + 8; else if (d.y > bg.H + 8) d.y = -8;
+    const z = d.z || 0.6;
     if (d.vap) {
       if (cond > 0) {   // soft droplet halo
         ctx.beginPath();
-        ctx.fillStyle = `rgba(150,190,230,${0.16 * cond * d.a})`;
-        ctx.arc(d.x, d.y, 2.2 + cond * 4.5, 0, 7);
+        ctx.fillStyle = `rgba(150,190,230,${0.16 * cond * d.a * z})`;
+        ctx.arc(d.x, d.y, (2.2 + cond * 4.5) * (0.7 + z * 0.6), 0, 7);
         ctx.fill();
       }
       ctx.beginPath();
-      ctx.fillStyle = `rgba(91,157,217,${(0.5 + cond * 0.3) * d.a})`;
-      ctx.arc(d.x, d.y, 2.2 + cond * 1.6, 0, 7);
+      ctx.fillStyle = `rgba(101,167,227,${(0.35 + z * 0.45 + cond * 0.25) * d.a})`;
+      ctx.arc(d.x, d.y, (2.0 + cond * 1.6) * (0.65 + z * 0.65), 0, 7);
       ctx.fill();
     } else {
       ctx.beginPath();
-      ctx.fillStyle = `rgba(168,178,192,${0.34 * d.a})`;
-      ctx.arc(d.x, d.y, 1.6, 0, 7);
+      ctx.fillStyle = `rgba(178,188,202,${(0.22 + z * 0.42) * d.a})`;
+      ctx.arc(d.x, d.y, 1.1 + z * 1.2, 0, 7);
       ctx.fill();
     }
   }

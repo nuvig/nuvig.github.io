@@ -84,6 +84,20 @@
     .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 86px; text-align: right; font-weight: 600; }
     .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
     .hold-row { font-size: 12px; color: #888; }
+    /* playground: color-coded levers + a soft glow to lift the card */
+    #sec-play .card {
+      border-color: #2a3f57;
+      box-shadow: 0 0 28px rgba(74, 158, 255, 0.10), inset 0 0 46px rgba(74, 158, 255, 0.03);
+    }
+    #play-temp { accent-color: #ef6a4a; }
+    #play-pres { accent-color: #4a9eff; }
+    .lbl-temp { color: #ef8a6a !important; }
+    .lbl-pres { color: #6aaef5 !important; }
+    .play-note {
+      font-size: 13px; line-height: 1.65; color: #a7b0bc;
+      border-left: 2px solid #2a3a4d; padding: 2px 0 2px 12px; margin-top: 10px;
+    }
+    .play-note b { color: #d6dde6; }
     .hold-row label.radio { min-width: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #aaa; }
     .hold-row input[type="radio"] { accent-color: #4a9eff; margin: 0; }
     .btn {
@@ -192,7 +206,10 @@
     <h3>Playground — this is the air behind the page</h3>
     <div class="two-col" style="gap:20px">
       <div>
-        <div class="ctl-row"><label for="play-temp">Temperature</label>
+        <div class="ctl-row"><label for="play-pres" class="lbl-pres">Altimeter setting</label>
+          <input type="range" id="play-pres" min="28" max="31" step="0.01" value="29.92">
+          <span class="val" id="play-pres-val"></span></div>
+        <div class="ctl-row"><label for="play-temp" class="lbl-temp">Temperature</label>
           <input type="range" id="play-temp" min="-20" max="45" step="1" value="15">
           <span class="val" id="play-temp-val"></span></div>
         <div class="ctl-row"><label for="play-dew">Dewpoint</label>
@@ -201,9 +218,6 @@
         <div class="ctl-row"><label for="play-rh">Relative humidity</label>
           <input type="range" id="play-rh" min="1" max="100" step="1" value="51">
           <span class="val" id="play-rh-val"></span></div>
-        <div class="ctl-row"><label for="play-pres">Altimeter setting</label>
-          <input type="range" id="play-pres" min="28" max="31" step="0.01" value="29.92">
-          <span class="val" id="play-pres-val"></span></div>
         <div class="ctl-row hold-row">
           <label>As temperature moves, dewpoint holds and RH follows</label>
         </div>
@@ -216,7 +230,7 @@
         <div class="kv"><span class="k">Molecules per volume (density)</span><span class="v" id="play-sigma">—</span></div>
         <div class="kv"><span class="k">Relative humidity</span><span class="v" id="play-rh-ro">—</span></div>
         <div class="kv"><span class="k">The wing thinks it's at</span><span class="v" id="play-da">—</span></div>
-        <div class="canvas-note" id="play-note" style="margin-top:8px"></div>
+        <div class="play-note" id="play-note"></div>
       </div>
     </div>
   </div>
@@ -632,6 +646,6 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/airlab.js?v=6"></script>
+  <script src="js/airlab.js?v=7"></script>
 </body>
 </html>
