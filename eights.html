@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eights on Pylons — pivotal altitude, interactive</title>
+  <meta name="description" content="Interactive explainer for eights on pylons: what pivotal altitude is, why the wingtip stays on the pylon, and a wind-aware simulation of the full maneuver.">
+  <link rel="canonical" href="https://jesselevine.net/eights.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1050px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 18px; font-size: 14px; max-width: 860px; line-height: 1.6; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd; margin: 36px 0 4px;
+      letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-title .num { color: #4a9eff; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 860px; line-height: 1.65; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 138px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+
+    canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; }
+
+    .formula {
+      font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15px; color: #cfe6ff;
+      background: #14181e; border: 1px solid #2a3a4d; border-radius: 6px;
+      padding: 10px 14px; margin: 8px 0; display: inline-block;
+    }
+    .formula .dim { color: #667; font-size: 12px; }
+
+    .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .tile { background: #14181e; border: 1px solid #2a3040; border-radius: 6px; padding: 7px 12px; min-width: 96px; }
+    .tile .k { font-size: 10.5px; color: #778; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tile .v { font-size: 17px; font-weight: 600; color: #e8eef6; font-variant-numeric: tabular-nums; }
+    .tile .v .u { font-size: 11px; color: #778; font-weight: 400; }
+    .tile.hot { border-color: #4a9eff55; }
+
+    .verdict { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; line-height: 1.5; }
+    .verdict.on   { background: #10251a; border: 1px solid #1f5c39; color: #7fd8a2; }
+    .verdict.high { background: #26140f; border: 1px solid #6b3524; color: #f0a97f; }
+    .verdict.low  { background: #101c2a; border: 1px solid #2a4a6d; color: #8ec2f2; }
+
+    .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
+    .mode-btn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .mode-btn.active { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .mode-btn:hover { border-color: #4a9eff; }
+
+    .notes { font-size: 12.5px; color: #777; line-height: 1.7; max-width: 860px; }
+    .notes b { color: #aaa; }
+    .footer-note { margin-top: 30px; font-size: 12px; color: #555; line-height: 1.6; }
+    @media (max-width: 700px) { .ctl-row label { min-width: 108px; } }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">✈️ Eights on Pylons</h1>
+  <p class="subtitle">
+    The commercial-pilot maneuver where you fly a figure eight around two ground points, holding your
+    wingtip visually <b>pinned</b> on each pylon — not by turning harder, but by flying at exactly the
+    right altitude. This page derives that <b>pivotal altitude</b>, shows why the trick works, and lets
+    you fly the whole maneuver in wind.
+  </p>
+
+  <!-- ── 1 · Pivotal altitude ─────────────────────────────────── -->
+  <div class="section-title"><span class="num">1</span> Pivotal altitude — the magic number</div>
+  <p class="section-lede">
+    At one specific height above the ground, an airplane in a turn appears to <b>pivot</b> around a point
+    off its wingtip: the sight line through the wingtip stays nailed to the ground point with no effort.
+    That height depends on <b>groundspeed only</b> — not bank angle, not distance from the pylon.
+    Faster over the ground&nbsp;→ higher pivotal altitude, and it grows with the <i>square</i> of speed.
+  </p>
+  <div class="card">
+    <div class="formula">PA<span class="dim">(ft AGL)</span> = GS² / 11.3 <span class="dim">&nbsp;(GS in knots — this is just h = V²∕g in mixed units)</span></div>
+    <div class="ctl-row">
+      <label for="pa-gs">Groundspeed</label>
+      <input type="range" id="pa-gs" min="50" max="160" step="1" value="100">
+      <span class="val" id="pa-gs-val"></span>
+    </div>
+    <canvas class="viz" id="pa-chart" width="960" height="330"></canvas>
+    <p class="notes" style="margin:10px 0 0">
+      Typical trainer at 100 kt → <b>≈885 ft AGL</b>. Because groundspeed changes as you turn through the
+      wind, pivotal altitude changes continuously during the maneuver — that's the whole game in section 3.
+    </p>
+  </div>
+
+  <!-- ── 2 · Why it works ─────────────────────────────────────── -->
+  <div class="section-title"><span class="num">2</span> Why the wingtip stays put</div>
+  <p class="section-lede">
+    Two rotation rates compete. Your <b>heading</b> swings at the turn rate, g·tan φ ∕ V. The <b>bearing</b>
+    from you to the pylon swings at V ∕ d. Put the wing on the pylon (so tan φ = h ∕ d) and the ratio of the
+    two rates becomes <b>g·h ∕ V²</b> — the distance d cancels. The rates match, and the pylon freezes on the
+    wingtip, only when <b>h&nbsp;=&nbsp;V²∕g</b>. Fly higher and your nose out-turns the bearing: the pylon
+    appears to drift <b>ahead</b> of the wingtip. Lower, and it falls <b>behind</b>.
+  </p>
+  <div class="card">
+    <div class="ctl-row">
+      <label for="g-tas">Groundspeed</label>
+      <input type="range" id="g-tas" min="60" max="160" step="1" value="100">
+      <span class="val" id="g-tas-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="g-alt">Your altitude</label>
+      <input type="range" id="g-alt" min="300" max="1800" step="5" value="885">
+      <span class="val" id="g-alt-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="g-dist">Pylon distance</label>
+      <input type="range" id="g-dist" min="800" max="3200" step="20" value="1500">
+      <span class="val" id="g-dist-val"></span>
+    </div>
+    <canvas class="viz" id="geom-canvas" width="960" height="360"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">bank to hold pylon</div><div class="v" id="g-bank"></div></div>
+      <div class="tile"><div class="k">turn rate (heading)</div><div class="v" id="g-turnrate"></div></div>
+      <div class="tile"><div class="k">bearing rate (pylon)</div><div class="v" id="g-bearrate"></div></div>
+      <div class="tile hot"><div class="k">pivotal altitude</div><div class="v" id="g-pa"></div></div>
+    </div>
+    <div class="verdict" id="g-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      The fix is self-correcting in the right direction: pylon drifts <b>ahead → apply forward pressure</b>.
+      Descending both lowers you toward pivotal altitude <i>and</i> gains airspeed, which raises pivotal
+      altitude toward you. Pylon falls <b>behind → back pressure</b>, the mirror image. "Follow the pylon
+      with the elevator."
+    </p>
+  </div>
+
+  <!-- ── 3 · Fly the eight ────────────────────────────────────── -->
+  <div class="section-title"><span class="num">3</span> Fly the eight — wind makes it three-dimensional</div>
+  <p class="section-lede">
+    In wind, groundspeed rises and falls as you turn through the eight, so the pivotal altitude rises and
+    falls with it: <b>highest at the downwind side of each turn, lowest upwind</b>. Flying the maneuver well
+    means continuously climbing and descending to ride that curve. Toggle to <b>hold a fixed altitude</b>
+    instead and watch the pylon drift off the wingtip exactly as section 2 predicts.
+  </p>
+  <div class="card">
+    <div class="ctl-row">
+      <label for="s-tas">True airspeed</label>
+      <input type="range" id="s-tas" min="70" max="140" step="1" value="100">
+      <span class="val" id="s-tas-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="s-wspd">Wind speed</label>
+      <input type="range" id="s-wspd" min="0" max="30" step="1" value="12">
+      <span class="val" id="s-wspd-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="s-wdir">Wind from</label>
+      <input type="range" id="s-wdir" min="0" max="355" step="5" value="0">
+      <span class="val" id="s-wdir-val"></span>
+    </div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="m-pivotal" type="button">Fly pivotal altitude (correct)</button>
+      <button class="mode-btn" id="m-hold" type="button">Hold constant altitude</button>
+      <button class="mode-btn" id="m-pause" type="button">⏸ Pause</button>
+    </div>
+    <div class="ctl-row" id="hold-row" style="display:none">
+      <label for="s-hold">Held altitude</label>
+      <input type="range" id="s-hold" min="400" max="1600" step="10" value="900">
+      <span class="val" id="s-hold-val"></span>
+    </div>
+    <canvas class="viz" id="sim-canvas" width="960" height="400"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">groundspeed</div><div class="v" id="s-gs"></div></div>
+      <div class="tile hot"><div class="k">pivotal altitude</div><div class="v" id="s-pa"></div></div>
+      <div class="tile"><div class="k">altitude flown</div><div class="v" id="s-alt"></div></div>
+      <div class="tile"><div class="k">bank</div><div class="v" id="s-bank"></div></div>
+      <div class="tile"><div class="k">crab</div><div class="v" id="s-crab"></div></div>
+    </div>
+    <div class="verdict" id="s-verdict"></div>
+    <h3 style="margin-top:16px">Required altitude around one full eight</h3>
+    <canvas class="viz" id="alt-strip" width="960" height="220"></canvas>
+    <p class="notes" style="margin:10px 0 0">
+      With the default 12 kt of wind at 100 KTAS the required altitude swings roughly
+      <span id="swing-note"></span> across the eight — every lap is a gentle climb–descend cycle,
+      twice. Entry is normally made <b>downwind</b>, so you arrive at the first pylon at the highest
+      pivotal altitude with speed to trade away.
+    </p>
+  </div>
+
+  <p class="footer-note">
+    Model notes: groundspeed on the circular segments is solved from TAS + steady wind (crab included);
+    bank shown is the coordinated-turn bank for the ground track. Ground track is idealized — a real
+    eights-on-pylons track drifts with the wind and the pilot varies bank instead; the pivotal-altitude
+    physics is identical. Commercial ACS tolerance: pylon stays on the reference line, ~30–40° max bank at
+    the steepest point. See the FAA <i>Airplane Flying Handbook</i>, Ch. 9 (Ground Reference Maneuvers).
+    No data leaves the page.
+  </p>
+
+  <script src="js/eights.js"></script>
+</body>
+</html>
