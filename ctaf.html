@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KANP CTAF 122.9 — Live Monitor</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131c2e; --panel2:#0f1726; --text:#e8eef7;
+    --muted:#8ea2bd; --accent:#3fa9f5; --accent2:#1e6fd0; --live:#38d39f; --err:#ff5c72;
+    --border:#233149;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#eef2f8; --panel:#ffffff; --panel2:#f3f6fb; --text:#12233c;
+      --muted:#5a6b85; --accent:#1e6fd0; --accent2:#155bb0; --live:#12a874; --err:#d63a52;
+      --border:#dbe3ef; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 600px at 50% -10%, rgba(63,169,245,.12), transparent 60%), var(--bg);
+    color:var(--text); display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card{
+    width:100%; max-width:460px; background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--border); border-radius:18px; padding:28px 26px 24px;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .top{display:flex; align-items:center; gap:12px; margin-bottom:6px}
+  .badge{
+    display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600;
+    letter-spacing:.04em; text-transform:uppercase; color:var(--muted);
+    border:1px solid var(--border); border-radius:999px; padding:5px 11px;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);transition:.3s}
+  .dot.live{background:var(--live); box-shadow:0 0 0 0 rgba(56,211,159,.6); animation:pulse 1.8s infinite}
+  .dot.err{background:var(--err)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(56,211,159,.5)}70%{box-shadow:0 0 0 10px rgba(56,211,159,0)}100%{box-shadow:0 0 0 0 rgba(56,211,159,0)}}
+  h1{font-size:26px; margin:14px 0 2px; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 20px}
+  .freq{font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent)}
+  .player{display:flex; align-items:center; gap:16px; margin:6px 0 18px}
+  .play{
+    flex:0 0 auto; width:64px;height:64px;border-radius:50%; border:none; cursor:pointer;
+    background:linear-gradient(180deg,var(--accent),var(--accent2)); color:#fff;
+    display:grid; place-items:center; box-shadow:0 8px 22px rgba(30,111,208,.45); transition:.15s;
+  }
+  .play:hover{transform:translateY(-1px)} .play:active{transform:translateY(0)}
+  .play svg{width:26px;height:26px;fill:#fff}
+  .meta{min-width:0}
+  .status{font-size:14px; font-weight:600}
+  .hint{font-size:12.5px; color:var(--muted); margin-top:2px}
+  audio{display:none}
+  .foot{border-top:1px solid var(--border); margin-top:18px; padding-top:14px; font-size:12px; color:var(--muted)}
+  .foot b{color:var(--text)}
+  a{color:var(--accent); text-decoration:none} a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="top">
+      <span class="badge"><span id="dot" class="dot"></span><span id="badgeText">Offline</span></span>
+    </div>
+    <h1>KANP CTAF <span class="freq">122.9</span></h1>
+    <p class="sub">Lee Airport · Annapolis, MD — Common Traffic Advisory Frequency (AM)</p>
+
+    <div class="player">
+      <button id="btn" class="play" aria-label="Play">
+        <svg id="icoPlay" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="icoStop" viewBox="0 0 24 24" style="display:none"><path d="M6 6h12v12H6z"/></svg>
+      </button>
+      <div class="meta">
+        <div class="status" id="status">Tap play to listen</div>
+        <div class="hint" id="hint">Live audio can be silent between transmissions.</div>
+      </div>
+    </div>
+
+    <audio id="audio" preload="none"></audio>
+
+    <div class="foot">
+      Unofficial live receiver monitor. <b>Not for operational or navigational use.</b>
+      Audio may lag real time by a few seconds.
+    </div>
+  </main>
+
+<script>
+  // ==== Stream URL — set this to your Tailscale Funnel (or other HTTPS) address ====
+  const STREAM_URL = "https://jalpine.taila8f067.ts.net/kanp.mp3";
+  // ================================================================================
+
+  const audio  = document.getElementById('audio');
+  const btn     = document.getElementById('btn');
+  const icoPlay = document.getElementById('icoPlay');
+  const icoStop = document.getElementById('icoStop');
+  const dot     = document.getElementById('dot');
+  const badge   = document.getElementById('badgeText');
+  const statusEl= document.getElementById('status');
+  const hintEl  = document.getElementById('hint');
+
+  let playing = false;
+  let reconnectTimer = null;
+
+  function setState(mode, msg){
+    dot.className = 'dot' + (mode==='live' ? ' live' : mode==='err' ? ' err' : '');
+    badge.textContent = mode==='live' ? 'Live' : mode==='err' ? 'Error' : mode==='buffering' ? 'Buffering' : 'Offline';
+    if(msg) statusEl.textContent = msg;
+  }
+  function showPlay(isPlaying){
+    icoPlay.style.display = isPlaying ? 'none' : '';
+    icoStop.style.display = isPlaying ? '' : 'none';
+    btn.setAttribute('aria-label', isPlaying ? 'Stop' : 'Play');
+  }
+
+  function start(){
+    playing = true; showPlay(true);
+    setState('buffering','Connecting…');
+    // cache-bust so a reconnect doesn't replay a stale buffer
+    audio.src = STREAM_URL + (STREAM_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+    audio.load();
+    audio.play().catch(err => { setState('err','Autoplay blocked — tap again'); });
+  }
+  function stop(){
+    playing = false; showPlay(false);
+    clearTimeout(reconnectTimer);
+    audio.pause(); audio.removeAttribute('src'); audio.load();
+    setState('off','Stopped');
+  }
+  function scheduleReconnect(){
+    if(!playing) return;
+    setState('err','Reconnecting…');
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(start, 3000);
+  }
+
+  btn.addEventListener('click', () => playing ? stop() : start());
+  audio.addEventListener('playing', () => setState('live','On air'));
+  audio.addEventListener('waiting', () => setState('buffering','Buffering…'));
+  audio.addEventListener('stalled', scheduleReconnect);
+  audio.addEventListener('error',   scheduleReconnect);
+  audio.addEventListener('ended',   scheduleReconnect);
+</script>
+</body>
+</html>
