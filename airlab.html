@@ -83,6 +83,9 @@
     .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
     .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 86px; text-align: right; font-weight: 600; }
     .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+    .hold-row { font-size: 12px; color: #888; }
+    .hold-row label.radio { min-width: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #aaa; }
+    .hold-row input[type="radio"] { accent-color: #4a9eff; margin: 0; }
     .btn {
       background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
       font-size: 13px; padding: 5px 14px; border-radius: 5px;
@@ -172,8 +175,9 @@
     <a href="#sec-atmo"><b>1</b> air is molecules</a><span class="arr">→</span>
     <a href="#sec-da"><b>2</b> heat &amp; altitude thin it</a><span class="arr">→</span>
     <a href="#sec-pitot"><b>3</b> instruments feel it</a><span class="arr">→</span>
-    <a href="#sec-speeds"><b>4</b> IAS → TAS → GS</a><span class="arr">→</span>
-    <a href="#sec-parcel"><b>5</b> the air itself moves</a>
+    <a href="#sec-forces"><b>4</b> forces fly on it</a><span class="arr">→</span>
+    <a href="#sec-speeds"><b>5</b> IAS → TAS → GS</a><span class="arr">→</span>
+    <a href="#sec-parcel"><b>6</b> the air itself moves</a>
   </div>
   <p class="flow-lede">
     One idea runs through this whole page: <b style="color:#bbb">everything your airplane does starts with how many
@@ -194,9 +198,17 @@
         <div class="ctl-row"><label for="play-dew">Dewpoint</label>
           <input type="range" id="play-dew" min="-25" max="45" step="1" value="5">
           <span class="val" id="play-dew-val"></span></div>
+        <div class="ctl-row"><label for="play-rh">Relative humidity</label>
+          <input type="range" id="play-rh" min="1" max="100" step="1" value="51">
+          <span class="val" id="play-rh-val"></span></div>
         <div class="ctl-row"><label for="play-pres">Pressure</label>
           <input type="range" id="play-pres" min="550" max="1050" step="5" value="1013">
           <span class="val" id="play-pres-val"></span></div>
+        <div class="ctl-row hold-row">
+          <label>As temperature moves, hold</label>
+          <label class="radio"><input type="radio" name="play-hold" value="dew" checked> dewpoint <span class="faint">(RH follows)</span></label>
+          <label class="radio"><input type="radio" name="play-hold" value="rh"> RH <span class="faint">(dewpoint follows)</span></label>
+        </div>
         <div class="ctl-row" style="gap:8px">
           <button class="btn secondary" id="play-std">Standard sea-level air</button>
           <button class="btn secondary" id="play-july">KANP July afternoon</button>
@@ -204,7 +216,7 @@
       </div>
       <div>
         <div class="kv"><span class="k">Molecules per volume (density)</span><span class="v" id="play-sigma">—</span></div>
-        <div class="kv"><span class="k">Relative humidity</span><span class="v" id="play-rh">—</span></div>
+        <div class="kv"><span class="k">Relative humidity</span><span class="v" id="play-rh-ro">—</span></div>
         <div class="kv"><span class="k">The wing thinks it's at</span><span class="v" id="play-da">—</span></div>
         <div class="canvas-note" id="play-note" style="margin-top:8px"></div>
       </div>
@@ -399,19 +411,82 @@
       in the cylinders is why the panel-2 takeoff numbers deteriorate twice as fast as intuition expects.
       (A turbocharger is simply a machine for putting the missing molecules back.)</p>
       <p>Try the "climb and hold the needle" button: the needle stays put while true airspeed grows —
-      you get free speed with altitude. The price appears in panel 4.</p>
+      you get free speed with altitude. Panel 4 shows the forces doing it; panel 5 counts the knots.</p>
     </div>
   </details>
   </section>
 
-  <!-- ================= 4. AIRSPEEDS ================= -->
+  <!-- ================= 4. FOUR FORCES ================= -->
+  <section id="sec-forces">
+  <div class="section-title"><span class="num">4</span> Four forces — where the molecules push</div>
+  <p class="section-lede">
+    The same ram pressure that works the gauge is what actually flies the airplane. The <b>wing</b> throws
+    passing molecules down (lift); the <b>propeller</b> — just a wing spun sideways — throws them back (thrust).
+    Against them: <b>weight</b>, the one force density can't touch, and <b>drag</b>, the toll the molecules charge
+    for passage. Thin the air and watch which arrows shrink — and which don't.
+  </p>
+  <div class="col-canvas-side">
+    <div class="card">
+      <canvas id="forces-canvas" class="lab" style="height:330px; cursor:default"></canvas>
+      <div class="canvas-note">Level, unaccelerated flight: lift matches weight, thrust matches drag. Arrow lengths are conceptual — watch how they respond, not their exact size.</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Flight condition</h3>
+        <div class="ctl-row"><label for="f-da">Density altitude</label>
+          <input type="range" id="f-da" min="0" max="15000" step="250" value="0">
+          <span class="val" id="f-da-val"></span></div>
+        <div class="ctl-row"><label for="f-ias">Indicated airspeed</label>
+          <input type="range" id="f-ias" min="55" max="140" step="1" value="105">
+          <span class="val" id="f-ias-val"></span></div>
+        <div class="ctl-row"><label for="f-wt">Weight</label>
+          <input type="range" id="f-wt" min="1600" max="2550" step="10" value="2300">
+          <span class="val" id="f-wt-val"></span></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>The forces respond</h3>
+        <div class="kv"><span class="k">True airspeed for this IAS</span><span class="v" id="f-tas">—</span></div>
+        <div class="kv"><span class="k">Engine power available</span><span class="v" id="f-pwr">—</span></div>
+        <div class="kv"><span class="k">Molecules through the prop</span><span class="v" id="f-prop">—</span></div>
+        <div class="kv"><span class="k">Drag at this IAS</span><span class="v" id="f-drag">—</span></div>
+        <div class="kv"><span class="k">Stall speed at this weight</span><span class="v" id="f-stall">—</span></div>
+        <div class="canvas-note" id="f-note"></div>
+      </div>
+    </div>
+  </div>
+  <details class="explain">
+    <summary>Weight, drag, and why thin air hits thrust twice</summary>
+    <div class="body">
+      <p><b>Lift = weight, always</b> (in level flight). The airplane doesn't get to choose how much lift to make —
+      weight sets the bill and the wing must pay it. What density changes is the <i>cost</i> of paying: thin air
+      means a higher true speed or a higher angle of attack for the same lift. Load the airplane heavier and the
+      bill itself grows — stall speed rises with √weight, and the wing pays extra <b>induced drag</b> for the
+      privilege (drag born from making lift — strongest when slow and heavy, exactly where takeoff lives).</p>
+      <p><b>Thrust is molecule-throwing.</b> Newton, not magic: the prop accelerates a column of air backward and
+      the reaction pushes forward. Thin air cuts it <b>twice</b> — the engine inhales fewer oxygen molecules
+      (less power to spin the prop) <i>and</i> each blade bites fewer air molecules to throw (less grip per
+      horsepower). That double cut is why high-DA climb performance collapses faster than the power chart alone
+      suggests.</p>
+      <p><b>Drag is honest.</b> At the same <i>indicated</i> speed, drag is the same at any altitude — same
+      q = ½ρV², same toll. That's the quiet gift of altitude: at 8,000 ft the same drag buys you ~12 % more
+      true speed. The whole cruise-performance game in panel 5 is that trade: climb until the engine's fading
+      power available meets the drag you must pay.</p>
+      <p><b>Weight is immune.</b> Gravity doesn't care about density, temperature, or humidity — every other
+      player on this page weakens with thin air except the one pulling down. That asymmetry <i>is</i> the
+      density-altitude problem.</p>
+    </div>
+  </details>
+  </section>
+
+  <!-- ================= 5. AIRSPEEDS ================= -->
   <section id="sec-speeds">
-  <div class="section-title"><span class="num">4</span> Indicated → true → ground speed</div>
+  <div class="section-title"><span class="num">5</span> Indicated → true → ground speed</div>
   <p class="section-lede">
     Now chain it together. Panel 3 showed the gauge under-reads in thin air — so <b>true airspeed</b> grows
-    with altitude for the same indicated. Then the wind, which the airplane can't feel at all, decides what
-    the <b>ground</b> sees. Left: how TAS grows with altitude. Right: the wind triangle — drag on the compass
-    to steer the wind.
+    with altitude for the same indicated, and panel 4 showed the engine fading while drag stays honest: put
+    together, density picks your cruise speed <i>and</i> your best altitude. Then the wind, which the airplane
+    can't feel at all, decides what the <b>ground</b> sees. Left: how TAS grows with altitude. Right: the wind
+    triangle — drag on the compass to steer the wind.
   </p>
   <div class="two-col">
     <div class="card">
@@ -444,6 +519,21 @@
     </div>
   </div>
   <div class="card" style="margin-top:14px">
+    <h3>Cruise performance — density picks your best altitude</h3>
+    <div class="col-canvas-side" style="gap:16px">
+      <div>
+        <canvas id="cruise-canvas" class="lab" style="height:220px; cursor:default"></canvas>
+        <div class="canvas-note">Concept trainer at 75 % cruise (or full throttle when 75 % isn't there anymore). Move the cruise altitude and temp-vs-ISA sliders above — the marker is your cruise.</div>
+      </div>
+      <div style="font-size:13px; color:#999; line-height:1.65">
+        <p style="margin:2px 0 8px">Temperature, pressure and humidity all funnel into one number — <b style="color:#bbb">density</b> — and density writes this curve:</p>
+        <p style="margin:0 0 8px"><b style="color:#bbb">Climbing helps at first</b>: drag at the same indicated speed is the same, so every foot of thin air is free true airspeed (+2 %/1,000 ft).</p>
+        <p style="margin:0 0 8px"><b style="color:#bbb">Then the engine gives out</b>: a normally aspirated engine loses ~3 % power per 1,000 ft of DA. Where fading power meets the drag bill is the hump — the best-cruise altitude.</p>
+        <p style="margin:0" id="cruise-note"></p>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
     <h3>The whole chain, this trip</h3>
     <div id="chain-body" style="overflow-x:auto"></div>
   </div>
@@ -467,9 +557,9 @@
   </details>
   </section>
 
-  <!-- ================= 5. PARCEL OF AIR ================= -->
+  <!-- ================= 6. PARCEL OF AIR ================= -->
   <section id="sec-parcel">
-  <div class="section-title"><span class="num">5</span> A parcel of air — when the air itself moves</div>
+  <div class="section-title"><span class="num">6</span> A parcel of air — when the air itself moves</div>
   <p class="section-lede">
     So far the air sat still while you flew through it. But the same density physics makes the air move
     on its own: warm a bubble of surface air and it's lighter than its surroundings — <b>the atmosphere flies
