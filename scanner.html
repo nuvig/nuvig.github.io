@@ -224,6 +224,16 @@
   const followCb=$("#follow"), onlyCur=$("#onlycur");
 
   let clips=[], selTs=null, maxTs=0, liveMode=false, state=null, gainsLoaded=false;
+  // True once you've picked a gain/squelch but not yet applied it. The 2 s state
+  // poll must NOT overwrite a staged selection, or your choice silently reverts.
+  let audioPending=false;
+  function markPending(on){
+    audioPending=on;
+    const b=$("#apply-audio");
+    b.classList.toggle("primary",true);
+    b.textContent = on ? "Apply audio ●" : "Apply audio";
+    b.style.borderColor = on ? "var(--warn)" : "";
+  }
   const badgeEl=$("#srcbadge");
   function setBadge(mode){ // "live" | "clip" | "off" — the one visible player's source
     if(mode==="live"){ badgeEl.className="srcbadge live"; badgeEl.innerHTML="&#9679; LIVE"; }
@@ -257,24 +267,30 @@
 
   async function post(path,payload,okMsg){
     const key=getKey();
-    if(!key){ note("enter the control key first","err"); setLocked(true); return; }
+    if(!key){ note("enter the control key first","err"); setLocked(true); return false; }
     try{
       const r=await fetch(BASE+path,{method:"POST",
         headers:{"Content-Type":"application/json","X-Control-Key":key},
         body:JSON.stringify(payload)});
       const d=await r.json().catch(()=>({}));
-      if(r.status===403){ note("control key rejected","err"); return; }
-      if(r.status===429){ note("slow down — one change every few seconds","err"); return; }
-      if(!r.ok){ note(d.error||("error "+r.status),"err"); return; }
+      if(r.status===403){ note("control key rejected","err"); return false; }
+      if(r.status===429){ note("too quick — wait a few seconds and press Apply again","err"); return false; }
+      if(!r.ok){ note(d.error||("error "+r.status),"err"); return false; }
       note(d.message||okMsg,"ok");
       setTimeout(pollState,3000); setTimeout(pollState,9000);
-    }catch(e){ note("receiver unreachable — is the PC on? ("+e.message+")","err"); }
+      return true;
+    }catch(e){ note("receiver unreachable — is the PC on? ("+e.message+")","err"); return false; }
   }
   const tune=(f,m)=>post("/api/tune",{freq:f,mode:m},"tuned");
   $("#tune").onclick=()=>{const f=$("#freq").value.trim(); if(f) tune(f,$("#mode").value);};
   $("#freq").addEventListener("keydown",e=>{if(e.key==="Enter")$("#tune").click();});
-  $("#apply-audio").onclick=()=>post("/api/audio",
-    {gain:$("#gain").value, gate:$("#gate").value.trim()},"audio applied");
+  $("#apply-audio").onclick=async()=>{
+    const ok=await post("/api/audio",
+      {gain:$("#gain").value, gate:$("#gate").value},"audio applied");
+    if(ok) markPending(false);   // applied — let the poll resync from the radio
+  };
+  // Any manual pick stages a change and freezes the poll from overwriting it.
+  $("#gate").addEventListener("change",()=>markPending(true));
 
   // Squelch tracks gain (audio level scales with it), but capped: blind scaling
   // at high gain once pushed the gate to 0.5 and silenced everything.
@@ -289,6 +305,7 @@
     sel.value=String(num);
   }
   $("#gain").onchange=()=>{
+    markPending(true);
     if(!state) return;
     const oldG=parseFloat(state.gain), oldGt=parseFloat(state.gate), newG=parseFloat($("#gain").value);
     if(isNaN(oldG)||isNaN(oldGt)||isNaN(newG)) return;
@@ -348,8 +365,12 @@
         $("#gain").innerHTML=s.gains.map(g=>'<option value="'+g+'">'+g.toFixed(1)+' dB</option>').join("");
         gainsLoaded=true;
       }
-      if(document.activeElement!==$("#gain")) $("#gain").value=String(parseFloat(s.gain));
-      if(document.activeElement!==$("#gate")) setGateSelect(s.gate);
+      // Never clobber an unapplied selection — this is what made picking a
+      // squelch appear to "not update": the poll snapped it straight back.
+      if(!audioPending){
+        $("#gain").value=String(parseFloat(s.gain));
+        setGateSelect(s.gate);
+      }
       if(wasFreq!==s.freq) renderPresets();
     }catch(e){
       $("#sig-dot").className="dot bad";
