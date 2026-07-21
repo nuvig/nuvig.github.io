@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Power Curve — power required, reversed command, interactive</title>
+  <meta name="description" content="Interactive explainer for the airplane power curve: parasite vs induced power, minimum-power speed, the region of reversed command (the back side of the power curve), and a live approach simulation of the low-and-slow trap.">
+  <link rel="canonical" href="https://jesselevine.net/power.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1050px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 18px; font-size: 14px; max-width: 860px; line-height: 1.6; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd; margin: 36px 0 4px;
+      letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-title .num { color: #4a9eff; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 860px; line-height: 1.65; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 138px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+
+    canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; }
+
+    .formula {
+      font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15px; color: #cfe6ff;
+      background: #14181e; border: 1px solid #2a3a4d; border-radius: 6px;
+      padding: 10px 14px; margin: 8px 0; display: inline-block;
+    }
+    .formula .dim { color: #667; font-size: 12px; }
+
+    .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .tile { background: #14181e; border: 1px solid #2a3040; border-radius: 6px; padding: 7px 12px; min-width: 96px; }
+    .tile .k { font-size: 10.5px; color: #778; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tile .v { font-size: 17px; font-weight: 600; color: #e8eef6; font-variant-numeric: tabular-nums; }
+    .tile .v .u { font-size: 11px; color: #778; font-weight: 400; }
+    .tile.hot { border-color: #4a9eff55; }
+    .tile.warn { border-color: #6b352455; }
+
+    .verdict { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; line-height: 1.5; }
+    .verdict.on   { background: #10251a; border: 1px solid #1f5c39; color: #7fd8a2; }
+    .verdict.high { background: #26140f; border: 1px solid #6b3524; color: #f0a97f; }
+    .verdict.low  { background: #101c2a; border: 1px solid #2a4a6d; color: #8ec2f2; }
+
+    .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
+    .mode-btn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .mode-btn.active { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .mode-btn:hover { border-color: #4a9eff; }
+
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #99a; margin: 8px 0 2px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 22px; height: 0; border-top: 3px solid; display: inline-block; }
+    .legend i.dash { border-top-style: dashed; }
+
+    .notes { font-size: 12.5px; color: #777; line-height: 1.7; max-width: 860px; }
+    .notes b { color: #aaa; }
+    .footer-note { margin-top: 30px; font-size: 12px; color: #555; line-height: 1.6; }
+    @media (max-width: 700px) { .ctl-row label { min-width: 108px; } }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">⚡ The Power Curve</h1>
+  <p class="subtitle">
+    To hold altitude, an airplane needs enough engine power to overcome drag. Plot that
+    <b>power required</b> against airspeed and you get a U-shaped curve. Its left half is the
+    famous <b>back side of the power curve</b> — the <b>region of reversed command</b>, where
+    flying <i>slower</i> takes <i>more</i> power, and where a lot of low-and-slow accidents live.
+    This page builds the curve from its two halves, shows why the controls feel backwards down
+    there, and lets you fly an approach into the trap.
+  </p>
+
+  <!-- ── 1 · Anatomy of the curve ─────────────────────────────── -->
+  <div class="section-title"><span class="num">1</span> Two kinds of drag make one U-shaped curve</div>
+  <p class="section-lede">
+    Power required is just <b>drag × speed</b>, and drag has two parts that pull in opposite
+    directions with airspeed. <b>Parasite</b> drag (skin, form, the airplane pushing air aside)
+    grows with speed, so its power grows as <b>V³</b>. <b>Induced</b> drag — the price of making
+    lift — is worst when you're slow and flying at a high angle of attack, so its power falls off
+    as <b>1∕V</b>. Add them and the total sags to a minimum at the <b>minimum-power speed</b>, then
+    climbs away on both sides.
+  </p>
+  <div class="card">
+    <div class="formula">P<sub>req</sub> = D · V = <span style="color:#f0a97f">½ρV³·S·C<sub>D0</sub></span> + <span style="color:#8ec2f2">2kW² ∕ (ρVS)</span><span class="dim">&nbsp;&nbsp;(parasite + induced)</span></div>
+    <div class="ctl-row">
+      <label for="c-weight">Weight</label>
+      <input type="range" id="c-weight" min="1600" max="2550" step="10" value="2300">
+      <span class="val" id="c-weight-val"></span>
+    </div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="c-clean" type="button">Clean</button>
+      <button class="mode-btn" id="c-flaps" type="button">Approach (flaps)</button>
+      <button class="mode-btn active" id="c-comp" type="button">Show components</button>
+    </div>
+    <canvas class="viz" id="pc-curve" width="960" height="380"></canvas>
+    <div class="legend">
+      <span><i style="border-color:#e6ecf5"></i> total power required</span>
+      <span><i class="dash" style="border-color:#f0a97f"></i> parasite (∝V³)</span>
+      <span><i class="dash" style="border-color:#8ec2f2"></i> induced (∝1∕V)</span>
+    </div>
+    <div class="readout-grid">
+      <div class="tile warn"><div class="k">stall speed V<sub>s</sub></div><div class="v" id="c-vs"></div></div>
+      <div class="tile hot"><div class="k">min-power speed</div><div class="v" id="c-vmp"></div></div>
+      <div class="tile"><div class="k">best glide / min drag</div><div class="v" id="c-vmd"></div></div>
+      <div class="tile"><div class="k">min power required</div><div class="v" id="c-pmin"></div></div>
+      <div class="tile"><div class="k">max L∕D</div><div class="v" id="c-ld"></div></div>
+    </div>
+    <p class="notes" style="margin:10px 0 0">
+      The bottom of the bowl — <b>minimum-power speed</b> — gives you the most time aloft per gallon
+      (best endurance) and the slowest sink in a glide-power situation. It is <i>not</i> the same as
+      <b>best glide</b>, which is minimum-<i>drag</i> speed and sits a bit faster (a line from the
+      origin tangent to the curve). Add flaps and the whole curve lifts and shifts left: more drag
+      everywhere, but you can fly slower before stalling.
+    </p>
+  </div>
+
+  <!-- ── 2 · Reversed command ─────────────────────────────────── -->
+  <div class="section-title"><span class="num">2</span> The region of reversed command</div>
+  <p class="section-lede">
+    Lay a <b>power-available</b> line (your throttle) across the curve. Where it crosses the curve,
+    power required equals power available and you can hold altitude — and it crosses in <b>two
+    places</b>. The fast one, on the <b>front side</b>, behaves normally: pull the throttle back and
+    you slow down. The slow one, on the <b>back side</b>, is <b>reversed</b>: to fly and hold
+    altitude at a <i>slower</i> speed you need to <i>add</i> power, because induced drag is winning.
+    Drag the airspeed marker across the shaded region and watch the required power climb as you slow.
+  </p>
+  <div class="card">
+    <div class="ctl-row">
+      <label for="r-power">Power available</label>
+      <input type="range" id="r-power" min="20" max="100" step="1" value="55">
+      <span class="val" id="r-power-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="r-speed">Your airspeed</label>
+      <input type="range" id="r-speed" min="40" max="130" step="1" value="60">
+      <span class="val" id="r-speed-val"></span>
+    </div>
+    <canvas class="viz" id="pc-command" width="960" height="360"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">power required now</div><div class="v" id="r-preq"></div></div>
+      <div class="tile"><div class="k">power available</div><div class="v" id="r-pav"></div></div>
+      <div class="tile hot"><div class="k">excess power → V/S</div><div class="v" id="r-vs"></div></div>
+      <div class="tile"><div class="k">slow trim speed</div><div class="v" id="r-slow"></div></div>
+      <div class="tile"><div class="k">fast trim speed</div><div class="v" id="r-fast"></div></div>
+    </div>
+    <div class="verdict" id="r-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      Excess power (available − required) is what climbs the airplane: rate&nbsp;=&nbsp;excess
+      power ∕ weight. Between the two trim speeds you have spare power to climb; outside them you
+      sink. On the <b>front side</b> speed is <b>stable</b> — a gust that slows you cuts drag and the
+      airplane tends to recover. On the <b>back side</b> it's <b>unstable</b> — slow down a touch,
+      drag jumps, you sink and slow further. That's why the back side demands active power control.
+    </p>
+  </div>
+
+  <!-- ── 3 · Fly the trap ─────────────────────────────────────── -->
+  <div class="section-title"><span class="num">3</span> Fly the approach — the low-and-slow trap</div>
+  <p class="section-lede">
+    You're on final, dragged in low with reduced power, sitting on the <b>back side</b>. You notice
+    you're sinking below the aim point. The instinct is to <b>pull back to stop the sink</b> — and
+    on the back side that's exactly wrong: the nose-up raises induced drag, bleeds airspeed, drives
+    power-required <i>up</i>, and you sink <i>faster</i>. The fix is <b>power for altitude, pitch for
+    airspeed</b>. Fly it both ways and watch what happens.
+  </p>
+  <div class="card">
+    <div class="ctl-row">
+      <label for="s-power">Throttle</label>
+      <input type="range" id="s-power" min="20" max="100" step="1" value="30">
+      <span class="val" id="s-power-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="s-weight">Weight</label>
+      <input type="range" id="s-weight" min="1600" max="2550" step="10" value="2300">
+      <span class="val" id="s-weight-val"></span>
+    </div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="s-trap" type="button">Pull to hold altitude (the trap)</button>
+      <button class="mode-btn" id="s-correct" type="button">Pitch for airspeed (correct)</button>
+    </div>
+    <div class="mode-row">
+      <button class="mode-btn" id="s-reset" type="button">↻ Reset approach</button>
+      <button class="mode-btn" id="s-pause" type="button">⏸ Pause</button>
+      <span class="val" id="s-state" style="min-width:0; color:#8ec2f2"></span>
+    </div>
+    <canvas class="viz" id="pc-sim" width="960" height="380"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">airspeed</div><div class="v" id="s-ias"></div></div>
+      <div class="tile hot"><div class="k">vertical speed</div><div class="v" id="s-vsi"></div></div>
+      <div class="tile"><div class="k">angle of attack</div><div class="v" id="s-aoa"></div></div>
+      <div class="tile"><div class="k">power required</div><div class="v" id="s-preq"></div></div>
+      <div class="tile warn"><div class="k">margin to stall</div><div class="v" id="s-margin"></div></div>
+    </div>
+    <div class="verdict" id="s-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      Same throttle, same weight, two techniques. Pulling to hold altitude walks you left along the
+      power curve into an accelerating sink and, eventually, a stall right above the runway. Trading
+      a little altitude to keep the airspeed — and adding power if you need to arrest the descent —
+      keeps you flying. If the throttle simply isn't enough to hold altitude at any speed, the honest
+      answer is <b>lower the nose and go around</b>: no pitch input can conjure power you don't have.
+    </p>
+  </div>
+
+  <p class="footer-note">
+    Model: point-mass longitudinal dynamics for a ~160&nbsp;hp trainer at sea level —
+    C<sub>D0</sub>=0.032 clean / 0.075 with flaps, Oswald k≈0.058, S=174&nbsp;ft², C<sub>Lmax</sub>
+    1.5 / 2.1, prop-efficient power available modeled flat with speed. Numbers are representative,
+    not a specific POH; density altitude is fixed at sea level. The reversed-command physics and the
+    approach dynamics are the point, not the exact knots. See the FAA <i>Airplane Flying Handbook</i>
+    (slow flight &amp; the region of reversed command) and <i>Pilot's Handbook of Aeronautical
+    Knowledge</i>, Ch.&nbsp;5. No data leaves the page.
+  </p>
+
+  <script src="js/power.js"></script>
+</body>
+</html>
