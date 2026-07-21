@@ -128,13 +128,13 @@ const AX = '#3a4150', GRID = '#20242c', INK = '#98a2b3', INK2 = '#5d6675', ACC =
     const err = alt - pa, vd = $('g-verdict');
     if (Math.abs(err) < 20) {
       vd.className = 'verdict on';
-      vd.innerHTML = `<b>Pinned.</b> Heading and bearing rotate at the same rate — the pylon is frozen on the wingtip. You are at pivotal altitude.`;
+      vd.innerHTML = `<b>Pinned.</b> The airplane and the pylon sweep at the same rate — the pylon is frozen on the wingtip. You are at pivotal altitude.`;
     } else if (err > 0) {
       vd.className = 'verdict high';
-      vd.innerHTML = `<b>${fmt(err)} ft too high.</b> Your heading out-turns the bearing (${fmt(turnRate, 2)} vs ${fmt(bearRate, 2)} °/s) — the pylon appears to drift <b>ahead</b> of the wingtip. Correction: <b>forward pressure, descend</b>.`;
+      vd.innerHTML = `<b>${fmt(err)} ft too high.</b> The airplane out-turns the pylon (${fmt(turnRate, 2)} vs ${fmt(bearRate, 2)} °/s), so the pylon slides <b>ahead</b> of the wingtip. Correction: <b>forward pressure, descend</b>.`;
     } else {
       vd.className = 'verdict low';
-      vd.innerHTML = `<b>${fmt(-err)} ft too low.</b> The bearing out-turns your heading (${fmt(bearRate, 2)} vs ${fmt(turnRate, 2)} °/s) — the pylon appears to fall <b>behind</b> the wingtip. Correction: <b>back pressure, climb</b>.`;
+      vd.innerHTML = `<b>${fmt(-err)} ft too low.</b> The pylon sweeps faster than the airplane turns (${fmt(bearRate, 2)} vs ${fmt(turnRate, 2)} °/s), so it slides <b>behind</b> the wingtip. Correction: <b>back pressure, climb</b>.`;
     }
 
     // ---- side view (looking along the flight path; pylon off the low wing) ----
@@ -198,8 +198,8 @@ const AX = '#3a4150', GRID = '#20242c', INK = '#98a2b3', INK2 = '#5d6675', ACC =
       ctx.beginPath(); ctx.roundRect(mx + 92, y, (mw - 92) * val / rmax, 12, 3); ctx.fill();
       ctx.fillStyle = '#c9d2df'; ctx.fillText(`${fmt(val, 2)}°/s`, mx + 96 + (mw - 92) * val / rmax, y + 6);
     };
-    bar('heading rate', turnRate, my, '#d8a04c');
-    bar('bearing rate', bearRate, my + 20, ACC);
+    bar('airplane turn', turnRate, my, '#d8a04c');
+    bar('pylon sweep', bearRate, my + 20, ACC);
   }
   ['g-tas', 'g-alt', 'g-dist'].forEach(id => $(id).addEventListener('input', draw));
   draw();

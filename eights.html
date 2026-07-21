@@ -103,11 +103,16 @@
   <!-- ── 2 · Why it works ─────────────────────────────────────── -->
   <div class="section-title"><span class="num">2</span> Why the wingtip stays put</div>
   <p class="section-lede">
-    Two rotation rates compete. Your <b>heading</b> swings at the turn rate, g·tan φ ∕ V. The <b>bearing</b>
-    from you to the pylon swings at V ∕ d. Put the wing on the pylon (so tan φ = h ∕ d) and the ratio of the
-    two rates becomes <b>g·h ∕ V²</b> — the distance d cancels. The rates match, and the pylon freezes on the
-    wingtip, only when <b>h&nbsp;=&nbsp;V²∕g</b>. Fly higher and your nose out-turns the bearing: the pylon
-    appears to drift <b>ahead</b> of the wingtip. Lower, and it falls <b>behind</b>.
+    Your wingtip is bolted square to the airplane, so it swings around at whatever rate <b>the airplane
+    is turning</b>. Meanwhile the <b>direction out to the pylon</b> is swinging around too, because you're
+    circling it. For the wingtip to stay glued to the pylon, those two have to sweep at the <b>same rate</b>.
+  </p>
+  <p class="section-lede">
+    Now here's the lever: <b>banking harder or flying slower makes the airplane turn quicker; moving closer
+    makes the pylon sweep quicker.</b> Slide the altitude below and watch the two rates in the meter — there's
+    exactly one height where they line up. And it depends only on your <b>groundspeed</b> — not your bank, not
+    how far out the pylon sits (change the distance slider: the match doesn't move). That height is pivotal
+    altitude, the same <b>V²/g ≈ GS²/11.3</b> from section 1.
   </p>
   <div class="card">
     <div class="ctl-row">
@@ -128,16 +133,22 @@
     <canvas class="viz" id="geom-canvas" width="960" height="360"></canvas>
     <div class="readout-grid">
       <div class="tile"><div class="k">bank to hold pylon</div><div class="v" id="g-bank"></div></div>
-      <div class="tile"><div class="k">turn rate (heading)</div><div class="v" id="g-turnrate"></div></div>
-      <div class="tile"><div class="k">bearing rate (pylon)</div><div class="v" id="g-bearrate"></div></div>
+      <div class="tile"><div class="k">airplane turn rate</div><div class="v" id="g-turnrate"></div></div>
+      <div class="tile"><div class="k">pylon sweep rate</div><div class="v" id="g-bearrate"></div></div>
       <div class="tile hot"><div class="k">pivotal altitude</div><div class="v" id="g-pa"></div></div>
     </div>
     <div class="verdict" id="g-verdict"></div>
     <p class="notes" style="margin:10px 0 0">
-      The fix is self-correcting in the right direction: pylon drifts <b>ahead → apply forward pressure</b>.
-      Descending both lowers you toward pivotal altitude <i>and</i> gains airspeed, which raises pivotal
-      altitude toward you. Pylon falls <b>behind → back pressure</b>, the mirror image. "Follow the pylon
-      with the elevator."
+      Too <b>high</b> and the airplane out-turns the pylon — the pylon slides <b>ahead</b> of the wingtip, so
+      you <b>ease forward and descend</b>. Too <b>low</b> and the pylon wins the race and slides <b>behind</b>,
+      so you <b>ease back and climb</b>. You fly the whole maneuver on the elevator, chasing the pylon — never
+      the ailerons.
+    </p>
+    <p class="notes" style="margin:8px 0 0; color:#5d6675">
+      The math, if you want it: the airplane turns at <span class="num-mono">g·tan φ ⁄ V</span> and the pylon
+      sweeps at <span class="num-mono">V ⁄ d</span>. Sighting along the banked wing means <span class="num-mono">tan
+      φ = h ⁄ d</span>, and setting the two rates equal makes both the distance <i>d</i> and the bank <i>φ</i>
+      cancel — leaving just <span class="num-mono">h = V² ⁄ g</span>.
     </p>
   </div>
 
