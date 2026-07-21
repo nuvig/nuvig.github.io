@@ -54,6 +54,13 @@
     .tx.new{animation:flash 1.2s ease-out}
     @keyframes flash{from{background:#1d2a1d}to{background:transparent}}
     .empty{color:#555;font-style:italic;padding:20px 4px}
+    .banner{
+      display:flex;gap:10px;align-items:baseline;background:#241d12;
+      border:1px solid #6a4f22;border-radius:10px;padding:11px 14px;margin-bottom:14px;
+      color:#e0c48a;font-size:14px;
+    }
+    .banner b{color:#ffd89b}
+    .banner a{color:#ffd89b;text-decoration:underline}
 
     #player-bar{
       position:fixed;left:0;right:0;bottom:0;background:#141414f2;
@@ -73,6 +80,8 @@
   <h1>KANP CTAF <span class="freq">122.9</span></h1>
   <p class="subtitle">Lee Airport · Annapolis, MD — live transmissions received on a local SDR.
     Unofficial monitor, not for operational use.</p>
+
+  <div id="tuned-away" class="banner" style="display:none"></div>
 
   <div class="bar">
     <button id="live-btn" class="btn"><span class="dot"></span><span id="live-label">Listen live</span></button>
@@ -199,7 +208,11 @@
       const r = await fetch(BASE + "/index.json?t=" + Date.now());
       if (!r.ok) throw new Error("HTTP " + r.status);
       const data = await r.json();
-      const incoming = (data.clips || []).slice().sort((a,b) => b.ts - a.ts);
+      // One receiver serves both pages, so keep only CTAF clips here.
+      // Clips recorded before the scanner existed have no freq field — those
+      // are all CTAF.
+      const isCtaf = c => !c.freq || Math.abs(parseFloat(String(c.freq).replace(/[Mm]$/,"")) - 122.9) < 0.0005;
+      const incoming = (data.clips || []).filter(isCtaf).sort((a,b) => b.ts - a.ts);
       const prevMax = maxTs;
       for (const c of incoming){ c._new = c.ts > prevMax; if (c.ts > maxTs) maxTs = c.ts; }
       const firstLoad = clips.length === 0;
@@ -226,7 +239,25 @@
     else if (e.key === " "){ e.preventDefault(); player.paused ? player.play().catch(()=>{}) : player.pause(); }
   });
 
-  poll();
+  // The single receiver can be tuned away from 122.9 via scanner.html.
+  // Say so plainly instead of just going silent.
+  async function pollState(){
+    const el = document.getElementById("tuned-away");
+    try{
+      const r = await fetch(BASE + "/api/state?t=" + Date.now());
+      const s = await r.json();
+      if (s.is_ctaf){ el.style.display = "none"; return; }
+      const f = parseFloat(String(s.freq).replace(/[Mm]$/,""));
+      el.style.display = "";
+      el.innerHTML = "<span>&#9888;</span><span>The receiver is currently tuned to <b>" +
+        f + " MHz " + String(s.mode).toUpperCase() + "</b>, so <b>122.9 is not being " +
+        "monitored right now</b>. Live audio and new clips are from that frequency. " +
+        '<a href="/scanner.html">Open the scanner</a> to tune back.</span>';
+    }catch(e){ el.style.display = "none"; }
+  }
+
+  poll(); pollState();
+  setInterval(pollState, POLL_MS);
   setInterval(poll, POLL_MS);
   setInterval(() => { if (clips.length) render(); }, 30000); // refresh "ago" labels
 </script>
