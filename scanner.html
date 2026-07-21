@@ -89,6 +89,12 @@
     #player-inner audio{flex:1;min-width:240px;height:38px}
     #nowplaying{color:#888;font-size:13px;white-space:nowrap}
     #player-inner label{color:#777;font-size:13px;display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+    .srcbadge{border:1px solid var(--line);border-radius:6px;padding:4px 12px;font-size:12px;
+      font-weight:600;letter-spacing:.07em;color:var(--dim);white-space:nowrap}
+    .srcbadge.live{border-color:var(--live);color:#fff;background:#2a1515;
+      animation:livepulse 2s infinite}
+    .srcbadge.clip{border-color:var(--accent);color:#fff;background:#15202e}
+    @keyframes livepulse{0%,100%{box-shadow:0 0 0 0 rgba(255,92,92,.35)}50%{box-shadow:0 0 0 6px rgba(255,92,92,0)}}
     @media (max-width:640px){ .tx .ago{display:none} .now .big{font-size:28px} .meters{margin-left:0} }
   </style>
 </head>
@@ -162,8 +168,9 @@
 
   <div id="player-bar">
     <div id="player-inner">
+      <span class="srcbadge" id="srcbadge">&#9632; OFF</span>
       <audio id="player" controls preload="none"></audio>
-      <span id="nowplaying">nothing selected</span>
+      <span id="nowplaying">nothing playing</span>
       <label><input type="checkbox" id="follow" checked> auto-play new</label>
       <label><input type="checkbox" id="onlycur"> only current freq</label>
     </div>
@@ -198,7 +205,12 @@
   const followCb=$("#follow"), onlyCur=$("#onlycur");
 
   let clips=[], selTs=null, maxTs=0, liveMode=false, state=null, gainsLoaded=false;
-  const live=new Audio(); live.preload="none";
+  const badgeEl=$("#srcbadge");
+  function setBadge(mode){ // "live" | "clip" | "off" — the one visible player's source
+    if(mode==="live"){ badgeEl.className="srcbadge live"; badgeEl.innerHTML="&#9679; LIVE"; }
+    else if(mode==="clip"){ badgeEl.className="srcbadge clip"; badgeEl.textContent="CLIP"; }
+    else { badgeEl.className="srcbadge"; badgeEl.innerHTML="&#9632; OFF"; }
+  }
   const pad=n=>String(n).padStart(2,"0");
   const fmtTime=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());};
   const mhz=f=>parseFloat(String(f).replace(/[Mm]$/,""))||0;
@@ -280,9 +292,14 @@
       $("#cur-label").textContent=presetName(s.freq)||" ";
       $("#audio-readout").textContent="gain "+s.gain+" dB · gate "+s.gate;
 
-      // real signal light — squelch open, i.e. someone is actually transmitting
+      // real signal light — squelch open at the receiver. Measured at the
+      // source, so it leads the live audio by a few seconds of encode/network
+      // buffering — that's inherent, not a fault.
       $("#sig-dot").className="dot"+(s.signal?" on":"");
-      $("#sig-text").textContent=s.signal?"SIGNAL — transmission in progress":"idle — no transmission";
+      $("#sig-text").textContent=s.signal
+        ? (liveMode?"SIGNAL — on air (audio follows ~3 s)":"SIGNAL — transmission in progress")
+        : "idle — no transmission";
+      if(liveMode) nowEl.textContent="live · "+fmtF(s.freq)+" MHz "+s.mode.toUpperCase();
 
       // level meter: -90 dB (silence) .. 0 dB (full scale)
       const db=Math.max(-90,Math.min(0,s.level_db));
@@ -330,8 +347,11 @@
   }
   function select(ts,play){
     const c=clips.find(x=>x.ts===ts); if(!c) return;
-    selTs=ts; if(liveMode) stopLive(); render();
-    nowEl.textContent=fmtTime(ts)+" · "+fmtF(c.freq)+" MHz · "+c.dur.toFixed(1)+"s";
+    selTs=ts;
+    if(liveMode){ liveMode=false; liveBtn.classList.remove("live-on"); liveLabel.textContent="Listen live"; }
+    render();
+    setBadge("clip");
+    nowEl.textContent="clip · "+fmtTime(ts)+" · "+fmtF(c.freq)+" MHz · "+c.dur.toFixed(1)+"s";
     player.src=BASE+"/"+c.clip; if(play) player.play().catch(()=>{});
   }
   onlyCur.onchange=render;
@@ -347,13 +367,27 @@
     }catch(e){}
   }
 
-  function startLive(){ liveMode=true; selTs=null; render(); player.pause();
-    liveBtn.classList.add("live-on"); liveLabel.textContent="Live · stop";
-    nowEl.textContent="live stream";
-    live.src=LIVE+"?t="+Date.now(); live.play().catch(()=>{liveLabel.textContent="tap to allow audio";}); }
-  function stopLive(){ liveMode=false; live.pause(); live.removeAttribute("src");
-    liveBtn.classList.remove("live-on"); liveLabel.textContent="Listen live"; }
+  // One shared player for everything — the badge says what it's playing.
+  function startLive(){
+    liveMode=true; selTs=null; render();
+    liveBtn.classList.add("live-on"); liveLabel.textContent="Stop live";
+    setBadge("live");
+    nowEl.textContent="live · "+(state?fmtF(state.freq)+" MHz "+state.mode.toUpperCase():"");
+    player.src=LIVE+"?t="+Date.now();   // cache-bust: always join at "now"
+    player.play().catch(()=>{ nowEl.textContent="tap play to allow audio"; });
+  }
+  function stopLive(){
+    liveMode=false; player.pause(); player.removeAttribute("src"); player.load();
+    liveBtn.classList.remove("live-on"); liveLabel.textContent="Listen live";
+    setBadge("off"); nowEl.textContent="nothing playing";
+  }
   liveBtn.onclick=()=>liveMode?stopLive():startLive();
+  // If a live stream is paused, the buffer goes stale — rejoin at "now" on resume.
+  player.addEventListener("play",()=>{
+    if(liveMode && player.currentTime>0){
+      player.src=LIVE+"?t="+Date.now(); player.play().catch(()=>{});
+    }
+  });
 
   setLocked(!getKey());
   renderPresets(); pollState(); pollClips();
