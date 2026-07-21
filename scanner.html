@@ -26,51 +26,48 @@
     .now{
       background:linear-gradient(180deg,var(--panel),var(--panel2));
       border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px;
-      display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+      display:flex; align-items:center; gap:22px; flex-wrap:wrap;
     }
     .now .big{font-size:34px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
     .now .big .unit{font-size:16px;color:var(--muted);font-weight:400;margin-left:4px}
-    .now .mode{
-      border:1px solid var(--line);border-radius:6px;padding:2px 8px;
-      font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
-    }
-    .now .label{color:var(--accent);font-size:14px}
-    .pill{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);margin-left:auto}
-    .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+    .mode{border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:12px;
+      color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+    .now .label{color:var(--accent);font-size:14px;min-height:21px}
+    .meters{margin-left:auto;min-width:210px}
+    .sig{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+    .dot{width:10px;height:10px;border-radius:50%;background:var(--dim);transition:.15s}
+    .dot.on{background:var(--ok);box-shadow:0 0 10px rgba(46,204,113,.7)}
     .dot.ok{background:var(--ok)} .dot.bad{background:var(--live)}
+    .meter{height:8px;background:#0b0d10;border:1px solid var(--line);border-radius:5px;
+      overflow:hidden;margin:7px 0 4px}
+    .meter-fill{height:100%;width:0%;background:var(--ok);transition:width .15s,background .15s}
+    .subline{font-size:12px;color:#666;display:flex;justify-content:space-between;gap:10px}
 
-    .btn{
-      background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--text);
+    .btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--text);
       font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;display:inline-flex;
-      align-items:center;gap:8px;
-    }
+      align-items:center;gap:8px}
     .btn:hover{border-color:#3a3a3a;background:var(--panel2)}
     .btn.live-on{border-color:var(--live);color:#fff}
     .btn.live-on .dot{background:var(--live)}
     .btn.primary{border-color:#2a4a6a;background:#17222f}
-    .btn:disabled{opacity:.45;cursor:not-allowed}
 
     fieldset{border:1px solid var(--line);border-radius:12px;margin:0 0 14px;padding:14px 16px}
     legend{color:#9aa4b0;font-size:13px;padding:0 6px}
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-    input,select{
-      background:#0e1013;color:var(--text);border:1px solid var(--line);
-      border-radius:6px;padding:7px 10px;font:inherit;font-size:14px;
-    }
-    input[type=text]{width:130px}
+    input,select{background:#0e1013;color:var(--text);border:1px solid var(--line);
+      border-radius:6px;padding:7px 10px;font:inherit;font-size:14px}
+    input[type=text],input[type=password]{width:140px}
+    .hint{color:#666;font-size:13px}
     .grp{margin:10px 0 4px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
     .presets{display:flex;flex-wrap:wrap;gap:7px}
-    .chip{
-      background:#141414;border:1px solid var(--line);border-radius:14px;color:#9aa4b0;
-      font:inherit;font-size:13px;padding:5px 12px;cursor:pointer;
-    }
+    .chip{background:#141414;border:1px solid var(--line);border-radius:14px;color:#9aa4b0;
+      font:inherit;font-size:13px;padding:5px 12px;cursor:pointer}
     .chip:hover{border-color:#3a3a3a;color:#ddd}
     .chip.on{color:#fff;border-color:var(--accent)}
     .chip .f{color:#666;margin-left:5px;font-variant-numeric:tabular-nums}
     .chip.on .f{color:var(--accent)}
     #msg{font-size:13px;min-height:18px;color:var(--muted)}
     #msg.ok{color:var(--ok)} #msg.err{color:var(--live)}
-    .locked-note{color:#666;font-size:13px}
 
     .daydiv{color:#555;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
       margin:16px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line)}
@@ -92,7 +89,7 @@
     #player-inner audio{flex:1;min-width:240px;height:38px}
     #nowplaying{color:#888;font-size:13px;white-space:nowrap}
     #player-inner label{color:#777;font-size:13px;display:inline-flex;gap:5px;align-items:center;cursor:pointer}
-    @media (max-width:640px){ .tx .ago{display:none} .now .big{font-size:28px} }
+    @media (max-width:640px){ .tx .ago{display:none} .now .big{font-size:28px} .meters{margin-left:0} }
   </style>
 </head>
 <body>
@@ -107,21 +104,32 @@
         <span class="mode" id="cur-mode">--</span></div>
       <div class="label" id="cur-label">&nbsp;</div>
     </div>
-    <span class="pill"><span class="dot" id="stat-dot"></span><span id="stat-text">connecting…</span></span>
+    <div class="meters">
+      <div class="sig"><span class="dot" id="sig-dot"></span>
+        <span id="sig-text">idle — no transmission</span></div>
+      <div class="meter"><div class="meter-fill" id="meter"></div></div>
+      <div class="subline">
+        <span id="lvl-text">—</span>
+        <span id="stat-text">connecting…</span>
+      </div>
+    </div>
   </div>
 
   <div class="row">
     <button id="live-btn" class="btn"><span class="dot"></span><span id="live-label">Listen live</span></button>
+    <span class="hint" id="audio-readout">gain — · gate —</span>
   </div>
 
   <fieldset>
-    <legend>Tuning</legend>
+    <legend>Receiver control</legend>
     <div id="lock-area" class="row">
       <input type="password" id="key" placeholder="control key" autocomplete="off">
       <button class="btn" id="unlock">Unlock</button>
-      <span class="locked-note">Tuning is locked. Enter the control key to retune the receiver.</span>
+      <span class="hint">Locked. Enter the control key to tune and adjust audio.</span>
     </div>
+
     <div id="ctl-area" style="display:none">
+      <div class="grp">Frequency</div>
       <div class="row">
         <input type="text" id="freq" placeholder="e.g. 122.9">
         <select id="mode">
@@ -133,6 +141,19 @@
         <button class="btn" id="lock">Lock</button>
       </div>
       <div id="presets"></div>
+
+      <div class="grp">Audio</div>
+      <div class="row">
+        <label class="hint">gain</label>
+        <select id="gain"></select>
+        <label class="hint">gate</label>
+        <input type="text" id="gate" style="width:80px">
+        <button class="btn primary" id="apply-audio">Apply audio</button>
+      </div>
+      <div class="hint" id="audio-hint">
+        Gain too high on strong signals = distortion; too low = weak/noisy.
+        Watch the meter: peaks in the amber/red zone mean it's overloading.
+      </div>
     </div>
     <div id="msg"></div>
   </fieldset>
@@ -152,28 +173,22 @@
   const HOST = "https://jalpine.taila8f067.ts.net";
   const BASE = HOST + "/ctaf";
   const LIVE = HOST + "/kanp.mp3";
-  const POLL_MS = 8000;
+  const STATE_MS = 2000;   // fast, so the signal light feels live
+  const CLIP_MS  = 8000;
 
-  // Presets — aviation frequencies taken from the local Pi feed config.
   const PRESETS = [
     ["Aviation (AM)", [
-      ["KANP CTAF",          "122.9",   "am"],
-      ["Guard / emergency",  "121.5",   "am"],
-      ["Potomac Approach",   "124.55",  "am"],
-      ["Baltimore Tower",    "119.4",   "am"],
-      ["Potomac BWI Final",  "119.0",   "am"],
-      ["BWI Final (alt)",    "119.7",   "am"],
-      ["Air-to-air",         "122.75",  "am"],
+      ["KANP CTAF","122.9","am"], ["Guard / emergency","121.5","am"],
+      ["Potomac Approach","124.55","am"], ["Baltimore Tower","119.4","am"],
+      ["Potomac BWI Final","119.0","am"], ["BWI Final (alt)","119.7","am"],
+      ["Air-to-air","122.75","am"],
     ]],
     ["Marine — Chesapeake (FM)", [
-      ["Ch 16 distress/call", "156.8",  "fm"],
-      ["Ch 13 bridge",        "156.65", "fm"],
-      ["Ch 09 hailing",       "156.45", "fm"],
+      ["Ch 16 distress/call","156.8","fm"], ["Ch 13 bridge","156.65","fm"],
+      ["Ch 09 hailing","156.45","fm"],
     ]],
     ["Weather (FM)", [
-      ["NOAA Baltimore", "162.4",  "fm"],
-      ["NOAA DC",        "162.55", "fm"],
-      ["NOAA alt",       "162.475","fm"],
+      ["NOAA Baltimore","162.4","fm"], ["NOAA DC","162.55","fm"], ["NOAA alt","162.475","fm"],
     ]],
   ];
 
@@ -182,11 +197,12 @@
   const liveBtn=$("#live-btn"), liveLabel=$("#live-label"), msgEl=$("#msg");
   const followCb=$("#follow"), onlyCur=$("#onlycur");
 
-  let clips=[], selTs=null, maxTs=0, liveMode=false, state=null;
+  let clips=[], selTs=null, maxTs=0, liveMode=false, state=null, gainsLoaded=false;
   const live=new Audio(); live.preload="none";
   const pad=n=>String(n).padStart(2,"0");
   const fmtTime=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());};
   const mhz=f=>parseFloat(String(f).replace(/[Mm]$/,""))||0;
+  const fmtF=f=>{const v=mhz(f); return v?v.toFixed(3).replace(/0+$/,"").replace(/\.$/,""):"—";};
   function fmtAgo(ts){const s=Math.max(0,Math.floor(Date.now()/1000-ts));
     return s<60?s+"s ago":s<3600?Math.floor(s/60)+"m ago":s<86400?Math.floor(s/3600)+"h ago":Math.floor(s/86400)+"d ago";}
   function dayLabel(ts){const d=new Date(ts*1000),n=new Date();
@@ -194,137 +210,154 @@
     const y=new Date(n); y.setDate(n.getDate()-1);
     if(ymd(d)===ymd(n))return "Today"; if(ymd(d)===ymd(y))return "Yesterday";
     return d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});}
-  function presetName(f){
-    const v=mhz(f);
+  function presetName(f){const v=mhz(f);
     for(const [,items] of PRESETS) for(const [name,pf] of items)
       if(Math.abs(parseFloat(pf)-v)<0.0005) return name;
-    return "";
-  }
+    return "";}
+  function note(t,cls){ msgEl.textContent=t||""; msgEl.className=cls||""; }
 
-  // ---- key handling (stored locally in this browser only) ----
+  // ---- key (this browser only) ----
   const KEYNAME="ctaf_control_key";
-  function getKey(){ return localStorage.getItem(KEYNAME)||""; }
-  function setLocked(locked){
-    $("#lock-area").style.display = locked ? "" : "none";
-    $("#ctl-area").style.display  = locked ? "none" : "";
-  }
-  $("#unlock").onclick=()=>{
-    const k=$("#key").value.trim();
-    if(!k) return;
-    localStorage.setItem(KEYNAME,k); $("#key").value="";
-    setLocked(false); note("unlocked — tuning enabled","ok");
-  };
-  $("#lock").onclick=()=>{ localStorage.removeItem(KEYNAME); setLocked(true); note(""); };
-  function note(t,cls){ msgEl.textContent=t; msgEl.className=cls||""; }
+  const getKey=()=>localStorage.getItem(KEYNAME)||"";
+  function setLocked(l){ $("#lock-area").style.display=l?"":"none"; $("#ctl-area").style.display=l?"none":""; }
+  $("#unlock").onclick=()=>{const k=$("#key").value.trim(); if(!k)return;
+    localStorage.setItem(KEYNAME,k); $("#key").value=""; setLocked(false); note("unlocked","ok");};
+  $("#lock").onclick=()=>{localStorage.removeItem(KEYNAME); setLocked(true); note("");};
 
-  // ---- presets ----
+  async function post(path,payload,okMsg){
+    const key=getKey();
+    if(!key){ note("enter the control key first","err"); setLocked(true); return; }
+    try{
+      const r=await fetch(BASE+path,{method:"POST",
+        headers:{"Content-Type":"application/json","X-Control-Key":key},
+        body:JSON.stringify(payload)});
+      const d=await r.json().catch(()=>({}));
+      if(r.status===403){ note("control key rejected","err"); return; }
+      if(r.status===429){ note("slow down — one change every few seconds","err"); return; }
+      if(!r.ok){ note(d.error||("error "+r.status),"err"); return; }
+      note(d.message||okMsg,"ok");
+      setTimeout(pollState,3000); setTimeout(pollState,9000);
+    }catch(e){ note("receiver unreachable — is the PC on? ("+e.message+")","err"); }
+  }
+  const tune=(f,m)=>post("/api/tune",{freq:f,mode:m},"tuned");
+  $("#tune").onclick=()=>{const f=$("#freq").value.trim(); if(f) tune(f,$("#mode").value);};
+  $("#freq").addEventListener("keydown",e=>{if(e.key==="Enter")$("#tune").click();});
+  $("#apply-audio").onclick=()=>post("/api/audio",
+    {gain:$("#gain").value, gate:$("#gate").value.trim()},"audio applied");
+
+  // Gate threshold scales with gain (audio level does), same rule as the desktop GUI.
+  $("#gain").onchange=()=>{
+    if(!state) return;
+    const oldG=parseFloat(state.gain), oldGt=parseFloat(state.gate), newG=parseFloat($("#gain").value);
+    if(isNaN(oldG)||isNaN(oldGt)||isNaN(newG)) return;
+    const sug=Math.max(0,Math.min(0.5, oldGt*Math.pow(10,(newG-oldG)/20)));
+    $("#gate").value=String(parseFloat(sug.toFixed(4)));
+    $("#audio-hint").textContent="Gate auto-scaled for "+newG+" dB — adjust if hiss returns or weak calls get cut.";
+  };
+
   function renderPresets(){
     let html="";
     for(const [group,items] of PRESETS){
       html+='<div class="grp">'+group+'</div><div class="presets">';
       for(const [name,f,m] of items){
         const on = state && Math.abs(mhz(state.freq)-parseFloat(f))<0.0005 ? " on":"";
-        html+='<button class="chip'+on+'" data-f="'+f+'" data-m="'+m+'">'+name+
-              '<span class="f">'+f+'</span></button>';
+        html+='<button class="chip'+on+'" data-f="'+f+'" data-m="'+m+'">'+name+'<span class="f">'+f+'</span></button>';
       }
       html+='</div>';
     }
     $("#presets").innerHTML=html;
-    $("#presets").querySelectorAll(".chip").forEach(el=>
-      el.onclick=()=>tune(el.dataset.f, el.dataset.m));
+    $("#presets").querySelectorAll(".chip").forEach(el=>el.onclick=()=>tune(el.dataset.f,el.dataset.m));
   }
 
-  async function tune(f,m){
-    const key=getKey();
-    if(!key){ note("enter the control key first","err"); setLocked(true); return; }
-    note("tuning to "+f+" MHz…");
-    try{
-      const r=await fetch(BASE+"/api/tune",{method:"POST",
-        headers:{"Content-Type":"application/json","X-Control-Key":key},
-        body:JSON.stringify({freq:f,mode:m})});
-      const d=await r.json().catch(()=>({}));
-      if(r.status===403){ note("control key rejected","err"); return; }
-      if(!r.ok){ note(d.error||("error "+r.status),"err"); return; }
-      note(d.message||"tuned","ok");
-      setTimeout(pollState,3000); setTimeout(pollState,9000);
-    }catch(e){ note("receiver unreachable — is the PC on? ("+e.message+")","err"); }
-  }
-  $("#tune").onclick=()=>{
-    const f=$("#freq").value.trim(); if(!f) return;
-    tune(f,$("#mode").value);
-  };
-  $("#freq").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#tune").click(); });
-
-  // ---- state ----
   async function pollState(){
     try{
       const r=await fetch(BASE+"/api/state?t="+Date.now());
-      state=await r.json();
-      $("#cur-freq").textContent=mhz(state.freq).toFixed(3).replace(/0+$/,"").replace(/\.$/,"");
-      $("#cur-mode").textContent=state.mode;
-      $("#cur-label").textContent=presetName(state.freq)||" ";
-      const ok=state.streaming;
-      $("#stat-dot").className="dot "+(ok?"ok":"bad");
-      $("#stat-text").textContent=ok?"receiving":"no audio ("+state.stalled_s+"s)";
-      renderPresets();
+      const s=await r.json();
+      const wasFreq = state && state.freq;
+      state=s;
+      $("#cur-freq").textContent=fmtF(s.freq);
+      $("#cur-mode").textContent=s.mode;
+      $("#cur-label").textContent=presetName(s.freq)||" ";
+      $("#audio-readout").textContent="gain "+s.gain+" dB · gate "+s.gate;
+
+      // real signal light — squelch open, i.e. someone is actually transmitting
+      $("#sig-dot").className="dot"+(s.signal?" on":"");
+      $("#sig-text").textContent=s.signal?"SIGNAL — transmission in progress":"idle — no transmission";
+
+      // level meter: -90 dB (silence) .. 0 dB (full scale)
+      const db=Math.max(-90,Math.min(0,s.level_db));
+      const pct=((db+90)/90)*100;
+      const fill=$("#meter");
+      fill.style.width=pct.toFixed(1)+"%";
+      fill.style.background = db>-1 ? "var(--live)" : db>-6 ? "var(--warn)" : "var(--ok)";
+      $("#lvl-text").textContent=s.level_db.toFixed(0)+" dB";
+
+      // pipeline health, stated for what it is
+      $("#stat-text").textContent = s.streaming
+        ? "receiver online" : "NO AUDIO ("+s.stalled_s+"s)";
+      $("#stat-text").style.color = s.streaming ? "#666" : "var(--live)";
+
+      if(!gainsLoaded && Array.isArray(s.gains)){
+        $("#gain").innerHTML=s.gains.map(g=>'<option value="'+g+'">'+g.toFixed(1)+' dB</option>').join("");
+        gainsLoaded=true;
+      }
+      if(document.activeElement!==$("#gain")) $("#gain").value=String(parseFloat(s.gain));
+      if(document.activeElement!==$("#gate")) $("#gate").value=s.gate;
+      if(wasFreq!==s.freq) renderPresets();
     }catch(e){
-      $("#stat-dot").className="dot bad";
-      $("#stat-text").textContent="receiver offline";
+      $("#sig-dot").className="dot bad";
+      $("#sig-text").textContent="receiver offline";
+      $("#stat-text").textContent="unreachable";
     }
   }
 
-  // ---- clips ----
   function render(){
     let src=clips;
     if(onlyCur.checked && state) src=clips.filter(c=>Math.abs(mhz(c.freq)-mhz(state.freq))<0.0005);
-    if(!src.length){ listEl.innerHTML='<div class="empty">No transmissions recorded yet on this frequency.</div>'; return; }
+    if(!src.length){ listEl.innerHTML='<div class="empty">No transmissions recorded yet'+(onlyCur.checked?" on this frequency":"")+'.</div>'; return; }
     let html="",lastDay="";
     for(const c of src){
       const dl=dayLabel(c.ts);
       if(dl!==lastDay){ html+='<div class="daydiv">'+dl+'</div>'; lastDay=dl; }
       html+='<div class="tx'+(c.ts===selTs?" sel":"")+'" data-ts="'+c.ts+'">'
           +'<span class="play">&#9654;</span><span class="time">'+fmtTime(c.ts)+'</span>'
-          +'<span class="freq">'+(mhz(c.freq)?mhz(c.freq).toFixed(3).replace(/0+$/,"").replace(/\.$/,""):"—")+'</span>'
+          +'<span class="freq">'+fmtF(c.freq)+'</span>'
           +'<span class="ago">'+fmtAgo(c.ts)+'</span>'
           +'<span class="dur">'+c.dur.toFixed(1)+'s</span></div>';
     }
     listEl.innerHTML=html;
-    listEl.querySelectorAll(".tx").forEach(el=>
-      el.onclick=()=>select(parseFloat(el.dataset.ts),true));
+    listEl.querySelectorAll(".tx").forEach(el=>el.onclick=()=>select(parseFloat(el.dataset.ts),true));
   }
   function select(ts,play){
     const c=clips.find(x=>x.ts===ts); if(!c) return;
     selTs=ts; if(liveMode) stopLive(); render();
-    nowEl.textContent=fmtTime(ts)+" · "+mhz(c.freq)+" MHz · "+c.dur.toFixed(1)+"s";
+    nowEl.textContent=fmtTime(ts)+" · "+fmtF(c.freq)+" MHz · "+c.dur.toFixed(1)+"s";
     player.src=BASE+"/"+c.clip; if(play) player.play().catch(()=>{});
   }
   onlyCur.onchange=render;
 
   async function pollClips(){
     try{
-      const r=await fetch(BASE+"/index.json?t="+Date.now());
-      const d=await r.json();
+      const d=await (await fetch(BASE+"/index.json?t="+Date.now())).json();
       const inc=(d.clips||[]).slice().sort((a,b)=>b.ts-a.ts);
       const prev=maxTs;
       for(const c of inc){ c._new=c.ts>prev; if(c.ts>maxTs) maxTs=c.ts; }
       const first=clips.length===0; clips=inc; render();
       if(!first && followCb.checked && !liveMode && inc[0] && inc[0]._new) select(inc[0].ts,true);
-    }catch(e){ /* state poll already reports offline */ }
+    }catch(e){}
   }
 
-  function startLive(){
-    liveMode=true; selTs=null; render(); player.pause();
+  function startLive(){ liveMode=true; selTs=null; render(); player.pause();
     liveBtn.classList.add("live-on"); liveLabel.textContent="Live · stop";
     nowEl.textContent="live stream";
-    live.src=LIVE+"?t="+Date.now(); live.play().catch(()=>{liveLabel.textContent="tap to allow audio";});
-  }
+    live.src=LIVE+"?t="+Date.now(); live.play().catch(()=>{liveLabel.textContent="tap to allow audio";}); }
   function stopLive(){ liveMode=false; live.pause(); live.removeAttribute("src");
     liveBtn.classList.remove("live-on"); liveLabel.textContent="Listen live"; }
   liveBtn.onclick=()=>liveMode?stopLive():startLive();
 
   setLocked(!getKey());
   renderPresets(); pollState(); pollClips();
-  setInterval(pollState,POLL_MS); setInterval(pollClips,POLL_MS);
+  setInterval(pollState,STATE_MS); setInterval(pollClips,CLIP_MS);
   setInterval(()=>{ if(clips.length) render(); },30000);
 </script>
 </body>
