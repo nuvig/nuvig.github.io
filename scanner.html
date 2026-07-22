@@ -175,9 +175,11 @@
       <div class="hint" id="audio-hint">
         <b>Gain</b> = how hard the receiver amplifies: higher hears weaker/farther
         signals but distorts close ones (meter peaking red = too high).
-        <b>Squelch</b> = mutes the channel below a loudness threshold: higher kills
+        <b>Squelch</b> = mutes the channel until a signal is present: higher kills
         more hiss but starts eating quiet voices. If you can't hear a weak
         transmission you know is there, lower the squelch first.
+        The bar shows <b>SNR</b> — how far the signal stands above the noise floor.
+        Grey/low = nothing there; green = a solid signal. Changes apply instantly.
       </div>
     </div>
     <div id="msg"></div>
@@ -348,13 +350,21 @@
         ? "SIGNAL — transmission in progress" : "idle — no transmission";
       if(liveMode) nowEl.textContent="live · "+fmtF(s.freq)+" MHz "+s.mode.toUpperCase();
 
-      // level meter: -90 dB (silence) .. 0 dB (full scale)
-      const db=Math.max(-90,Math.min(0,s.level_db));
-      const pct=((db+90)/90)*100;
+      // Signal meter. With the real-time DSP engine this is true RF channel
+      // power and SNR measured before any squelch — an actual S-meter. The
+      // bar tracks SNR (how far the signal stands above the noise floor).
       const fill=$("#meter");
-      fill.style.width=pct.toFixed(1)+"%";
-      fill.style.background = db>-1 ? "var(--live)" : db>-6 ? "var(--warn)" : "var(--ok)";
-      $("#lvl-text").textContent=s.level_db.toFixed(0)+" dB";
+      if(s.realtime && s.rf_db!=null){
+        const snr=s.snr_db||0;
+        fill.style.width=Math.max(0,Math.min(100,(snr/30)*100)).toFixed(1)+"%";
+        fill.style.background = snr>=10 ? "var(--ok)" : snr>=3 ? "var(--warn)" : "var(--dim)";
+        $("#lvl-text").textContent=s.rf_db.toFixed(0)+" dBFS · SNR "+snr.toFixed(0)+" dB";
+      } else {
+        const db=Math.max(-90,Math.min(0,s.level_db));
+        fill.style.width=(((db+90)/90)*100).toFixed(1)+"%";
+        fill.style.background = db>-1 ? "var(--live)" : db>-6 ? "var(--warn)" : "var(--ok)";
+        $("#lvl-text").textContent=s.level_db.toFixed(0)+" dB (audio)";
+      }
 
       // pipeline health, stated for what it is
       $("#stat-text").textContent = s.streaming
