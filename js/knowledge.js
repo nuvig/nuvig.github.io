@@ -12,6 +12,7 @@
   const GROUPS = {
     root:   { name: 'Aviation',        color: '#e8eef6' },
     aero:   { name: 'Aerodynamics',    color: '#4a9eff' },
+    frame:  { name: 'Airframe & Controls', color: '#c9a26a' },
     power:  { name: 'Powerplant & Systems', color: '#f0a24a' },
     wx:     { name: 'Weather',         color: '#37c9e0' },
     nav:    { name: 'Navigation',      color: '#5fd08a' },
@@ -73,8 +74,8 @@
         'Whether the airplane returns to trim on its own, and how the controls change its state.',
       [
         n('Static & Dynamic Stability', 'aero', 'Static = initial tendency after a disturbance; dynamic = what the motion does over time (damped, neutral or divergent). Trainers are positively stable in both.'),
-        n('Longitudinal Stability', 'aero', 'Pitch stability, governed by CG relative to the neutral point. Forward CG = more stable, heavier controls; aft CG = twitchy and eventually unrecoverable.', [], [['xCGRef','set by CG']]),
-        n('Adverse Yaw', 'aero', 'The down-aileron wing makes more lift AND more induced drag, yawing the nose away from the turn. Answered with coordinated rudder.'),
+        (function(){ const ls = n('Longitudinal Stability', 'aero', 'Pitch stability, governed by CG relative to the neutral point. Forward CG = more stable, heavier controls; aft CG = twitchy and eventually unrecoverable.', [], [['xCGRef','set by CG']]); ls.id='xLongStabRef'; return ls; })(),
+        (function(){ const ay = n('Adverse Yaw', 'aero', 'The down-aileron wing makes more lift AND more induced drag, yawing the nose away from the turn. Answered with coordinated rudder.'); ay.id='xAdverseYawRef'; return ay; })(),
         (function(){ const lf = n('Load Factor', 'aero', 'Ratio of lift to weight (g). Climbs with bank angle in a level turn (1/cos φ) and is limited by the flight envelope.',
           [], [['xManeuverRef','bounds the V-n diagram']]); lf.id='xLoadFactorRef'; return lf; })(),
         (function(){ const lr = n('Load & Stall Link', 'aero', 'Because Vs scales with √(load factor), every increase in g — a steep turn, a pull-up, a gust — raises the speed at which the wing stalls.'); lr.id='xLoadRef'; return lr; })(),
@@ -86,6 +87,42 @@
         n('Wingtip Vortices', 'aero', 'Rotating air shed from a lifting wing — the core of wake turbulence. Strongest when heavy, clean and slow. Stay at or above a heavy jet\'s flight path and land beyond its touchdown point.', [], [['xPatternRef','sequencing & spacing']]),
         n('Mach & Compressibility', 'aero', 'As local flow approaches the speed of sound, air compresses and shock waves form — irrelevant to trainers but the ceiling for jets (Mmo, coffin corner).'),
       ]),
+    ]),
+
+    /* ══ AIRFRAME & FLIGHT CONTROLS ═══════════════════════════════════ */
+    n('Airframe & Flight Controls', 'frame',
+      'The structure that carries the loads and the surfaces the pilot moves to steer it.',
+    [
+      n('Structure & Loads', 'frame', 'How the airframe is built and how flight loads travel through it to the ground and back.',
+        [
+          n('Fuselage Construction', 'frame', 'Truss (welded tube), monocoque (skin carries all load) and semi-monocoque (skin + stringers + bulkheads) — the near-universal metal airplane.'),
+          n('Wing Structure', 'frame', 'Spars carry bending, ribs give the airfoil shape, stringers and skin carry the rest. Cantilever (internal spar) vs strut-braced; a "wet wing" is a sealed integral tank.'),
+          n('Empennage', 'frame', 'The tail: vertical stabilizer + rudder for yaw, horizontal stabilizer + elevator (or a one-piece stabilator) for pitch. It provides the stabilizing tail-down force.', [], [['xLongStabRef','provides pitch stability']]),
+          n('Load Paths & Fatigue', 'frame', 'Limit load = the most you should ever pull; ultimate = 1.5× that before failure. Repeated cycles fatigue metal — hence life limits and inspections.', [], [['xManeuverRef','limited by the V-n diagram'],['xEquipRef','inspection intervals']]),
+        ]),
+      n('Primary Flight Controls', 'frame', 'The three that move the airplane about its three axes — roll, pitch and yaw.',
+        [
+          n('Ailerons — Roll', 'frame', 'Move opposite each other to bank about the longitudinal axis. The down-going aileron adds lift and drag, so they generate adverse yaw.', [], [['xAdverseYawRef','cause adverse yaw']]),
+          n('Elevator / Stabilator — Pitch', 'frame', 'Change the tail\'s angle of attack to pitch about the lateral axis. A stabilator is an all-moving surface with an anti-servo tab to add feel and prevent over-control.'),
+          n('Rudder — Yaw', 'frame', 'Controls yaw about the vertical axis — it coordinates turns and counters adverse yaw and P-factor. It is not what turns the airplane.', [], [['xPFactorRef','counters P-factor']]),
+        ]),
+      n('Secondary Controls & High Lift', 'frame', 'Trim to relieve pressure, and the devices that reshape the wing for slow flight.',
+        [
+          n('Trim Systems', 'frame', 'Trim tabs, anti-servo tabs, servo tabs or a movable stabilizer relieve the control-pressure so the pilot doesn\'t hold force. Set for hands-off flight at a target speed.'),
+          n('Flaps', 'frame', 'Plain, split, slotted and Fowler flaps raise the coefficient of lift (and drag), lowering stall speed so you can approach slower and steeper.', [], [['xStallRef','lower stall speed'],['xInducedRef','add drag']]),
+          n('Leading-Edge Devices', 'frame', 'Slots and slats delay separation to a higher AoA for more usable lift; on jets they extend the low-speed envelope. Spoilers/speedbrakes do the opposite — kill lift and add drag.'),
+        ]),
+      n('Control Mechanics', 'frame', 'How yoke and pedals actually move the surfaces, and what limits how fast you may fly.',
+        [
+          n('Cables, Pushrods & Bellcranks', 'frame', 'Yoke and pedals drive the surfaces through cables, pushrods, bellcranks and stops. Control checks confirm "free and correct" before every flight.'),
+          n('Flutter & Balance', 'frame', 'Surfaces are mass- and aerodynamically balanced so they don\'t flutter — a destructive resonance that Vne is set below. Never exceed the red line, especially in rough air.', [], [['xManeuverRef','why Vne exists']]),
+        ]),
+      n('Landing Gear & Brakes', 'frame', 'What holds the airplane up on the ground and stops it.',
+        [
+          n('Fixed vs Retractable', 'frame', 'Tricycle gear is stable and easy on the ground; tailwheel demands active directional control. Retractable gear cuts drag but adds a "gear-down" item that must never be skipped.'),
+          n('Brakes & Tires', 'frame', 'Independent hydraulic disc brakes give differential steering; hydroplaning on a wet runway and overheating on hard braking are the traps.'),
+          n('Shock Absorption', 'frame', 'Oleo (air/oil) struts, spring-steel legs or bungees absorb the touchdown and taxi loads — the reason a firm arrival isn\'t a structural one.'),
+        ]),
     ]),
 
     /* ══ POWERPLANT & SYSTEMS ═════════════════════════════════════════ */
@@ -240,6 +277,15 @@
               (function(){ const ab = n('ADS-B Out & In', 'nav', 'ADS-B Out broadcasts your GPS position for surveillance (required in most controlled airspace); ADS-B In brings free traffic (TIS-B) and weather (FIS-B).'); ab.x=[['xADSBRef','ADS-B']]; return ab; })(),
             ]),
         ]),
+      n('Flight Planning', 'nav', 'Turning a departure and a destination into a flyable route with times, fuel and outs.',
+        [
+          n('Cross-Country Planning', 'nav', 'Choose a route and checkpoints, clear terrain and airspace, pick fuel stops, and check the whole picture — weather, NOTAMs, runway lengths and performance.', [], [['xADMRef','the preflight decision']]),
+          n('E6B / Flight Computer', 'nav', 'The mechanical or app flight computer solves the wind triangle, converts IAS↔TAS, computes time-speed-distance and fuel, and handles unit and density-altitude problems.', [], [['xWCARef','solves the wind triangle']]),
+          n('Time, Speed, Distance & Fuel', 'nav', 'Leg groundspeeds give leg times; fuel burn plus reserves (VFR 30 min day / 45 min night, IFR to destination + alternate + 45 min) sizes the tanks.', [], [['xEngFailRef','avoiding exhaustion']]),
+          n('Descent Planning', 'nav', 'The 3-to-1 rule: ~3 NM per 1,000 ft to lose. Start down early enough for a comfortable, stabilized arrival rather than a dive at the field.', [], [['xLandingRef','a stabilized arrival']]),
+          n('Diversion & Lost Procedures', 'nav', 'Divert to a pre-briefed alternate on heading and time; if lost, the 5 Cs — Climb, Communicate, Confess, Comply, Conserve — and use every nav aid you have.', [], [['xCommRef','confess & communicate']]),
+          n('VFR Flight Plan & Flight Following', 'nav', 'File and open a VFR flight plan for search-and-rescue coverage (it is NOT ATC), and separately request flight following for radar traffic advisories.', [], [['xFFRef','radar advisories']]),
+        ]),
     ]),
 
     /* ══ AIRSPACE & ATC ════════════════════════════════════════════════ */
@@ -256,7 +302,7 @@
       n('ATC Services', 'air', 'Clearances, separation and advisories — the human layer.',
         [
           n('Clearances & Readbacks', 'air', 'An ATC clearance is an authorization, not an instruction to violate safety. Read back anything that keeps you clear of others or the ground.'),
-          n('Flight Following', 'air', 'VFR radar advisories — traffic calls and a controller watching, workload permitting. Cheap insurance.'),
+          (function(){ const ff = n('Flight Following', 'air', 'VFR radar advisories — traffic calls and a controller watching, workload permitting. Cheap insurance.'); ff.id='xFFRef'; return ff; })(),
           n('Radio Phraseology', 'air', 'Who you are, where you are, what you want. Standard phraseology keeps a shared frequency unambiguous.', [], [['xCommRef','communication']]),
         ]),
       n('Airport Operations', 'air', 'The rules and rhythm of the field itself.',
