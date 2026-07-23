@@ -1,0 +1,106 @@
+---
+id: weather
+group: wx
+label: Weather
+groupName: Weather
+color: #37c9e0
+order: 3
+---
+The atmosphere as a system you read, forecast and stay ahead of.
+
+- Weather Theory & Energy :: The "why" beneath every report: where the atmosphere's energy comes from and how it moves heat and water around the planet.
+  - Solar Heating & Uneven Warming :: The sun heats the equator more than the poles, and land faster than water. That temperature imbalance is the engine behind every wind, front and storm.
+  - Global Circulation (Three Cells) :: Hadley, Ferrel and Polar cells carry heat poleward; their boundaries seat the subtropical highs, the prevailing westerlies and the jet stream that steer North American weather.
+  - The Water Cycle & Latent Heat :: Evaporation, condensation and precipitation move water — and the latent heat released when vapor condenses is the actual fuel that builds cumulus into thunderstorms.
+  - Heat Transfer :: Radiation warms the ground, conduction warms the air touching it, convection lifts that air in bubbles, and advection carries whole air masses horizontally — the four ways heat gets around.
+- Atmosphere & Pressure :: The gas the airplane flies in: its standard state, and how pressure and temperature bend performance.
+  - Standard Atmosphere (ISA) :: The reference day: 15 °C and 29.92" Hg at sea level, cooling ~2 °C per 1,000 ft to the tropopause. Every performance chart is corrected from it.
+  - Density Altitude {#density-altitude} :: Pressure altitude corrected for non-standard temperature — the altitude the airplane "feels." High, hot and humid = thin air = worse climb, longer roll, higher TAS for the same IAS.
+  - Pressure Altitude {#pressure-altitude} :: Height above the standard datum plane (set 29.92). The basis for flight levels and performance charts.
+  - Altimetry & Settings :: Set the local altimeter (QNH) and the altimeter reads field elevation. "High to low, hot to cold, look out below" — flying toward lower pressure or colder air puts you lower than indicated.
+  - Temperature, Lapse Rate & Inversions :: The environmental lapse rate decides stability; a temperature inversion (warmer aloft) caps the air — trapping haze, fog and low-level wind shear beneath it. -> wind-shear-and-microburst "inversion shear"
+- Moisture & Stability :: Water and vertical motion — the two ingredients that set the sky's whole mood.
+  - Dewpoint & Humidity :: The closer temperature and dewpoint, the nearer to saturation — a tight spread warns of fog, low ceilings and visible moisture. Cooling to the dewpoint makes cloud.
+  - Stability & Adiabatic Lapse :: Compare the parcel's adiabatic cooling (dry ~3 °C, moist ~1.5 °C /1000 ft) to the environment: parcel warmer than around it → it keeps rising → unstable.
+  - Stable vs Unstable Air :: Stable: stratus, steady precip, poor visibility, smooth ride. Unstable: cumulus, showers, gusts, good visibility, turbulence. Everything downstream flows from this one call.
+  - Clouds :: Grouped by height and by form. "Cirro/alto/strato" name the level, "cumulus" means rising, "stratus" layered, "nimbus" raining — read the sky and you read the stability.
+    - Low Clouds :: Bases below ~6,500 ft: stratus, stratocumulus and rain-bearing nimbostratus. Layered low cloud means stable, moist air — ceilings, poor visibility, a smooth ride.
+    - Middle Clouds :: Roughly 6,500–20,000 ft: altostratus (a grey sheet, sun a dim disc) and altocumulus. Altocumulus castellanus warns of instability aloft and afternoon storms.
+    - High Clouds :: Above ~20,000 ft and made of ice: cirrus, cirrostratus (halo) and cirrocumulus. A thickening, lowering cirrus deck is the first sign of an approaching warm front.
+    - Cumuliform & Vertical :: Cumulus → towering cumulus → cumulonimbus: the growing signature of unstable, convective air. A CB is a thunderstorm with all its hazards, whatever ATIS calls it. -> thunderstorms "the CB is a storm"
+    - Special Clouds :: Lenticular (standing mountain-wave lens — smooth lift, brutal rotor nearby), rotor, mammatus (hanging pouches under a severe anvil) and fog as stratus at the surface.
+  - Precipitation :: What falls out of the cloud, and what its form tells you about the air it fell through. -> airframe-icing "freezing rain → ice"
+    - Formation :: Drops grow by collision-coalescence in warm cloud, or by the ice-crystal process in cold cloud. It takes cloud, saturation and a way for droplets to grow large enough to fall.
+    - Freezing Rain & Ice Pellets :: A warm layer aloft over a subfreezing layer: rain that freezes on contact (freezing rain) or refreezes into ice pellets first. The classic warm-front icing trap — and a reason to climb. -> airframe-icing "severe airframe icing"
+    - Snow, Graupel & Hail :: Snow from cold stable air; graupel and hail from strong convective updrafts. Hail can be thrown miles from the parent cell under the anvil. -> thunderstorms "hail = strong updraft"
+    - Virga & Downbursts :: Precipitation that evaporates before reaching the ground — a marker of dry air below and a warning sign for evaporative-cooling downdrafts and dry microbursts. -> wind-shear-and-microburst "dry microburst risk"
+- Air Masses & Fronts :: Big bodies of air with uniform character, and the boundaries where they collide — the engine of most flyable and unflyable weather.
+  - Air Masses :: Named by source region: continental/maritime (dry/moist) × polar/tropical (cold/warm). cP is cold and dry, mT warm and moist — the air mass sets the baseline before any front arrives.
+  - Cold Front :: Cold air undercuts warm, steep and fast: a narrow band of towering cumulus, showers or embedded storms, gusty wind shift, then rapid clearing and cooler, drier air behind. -> wind-shear-and-microburst "frontal wind shift"
+  - Warm Front :: Warm air overrides cold, shallow and slow: a wide deck of lowering stratus, steady precipitation, poor visibility and — if the warm air is moist over freezing cold air — freezing rain. -> airframe-icing "freezing-rain icing"
+  - Stationary & Occluded Fronts :: A stationary front stalls with a mix of both regimes; an occlusion forms as a cold front overtakes a warm one, wrapping the worst of both around the low.
+  - Frontal Passage Clues :: Wind shift (veering), temperature and dewpoint change, pressure trend (falling then rising), and the sky sequence — how you know a front went through even without a chart.
+- Wind & Circulation :: Why the air moves — from the planetary scale down to the ridgeline outside the window.
+  - Pressure Systems :: Highs (sinking, diverging, fair) and lows (rising, converging, cloudy); ridges and troughs are their elongated cousins. Circulation is clockwise-out of a high, counter-clockwise-into a low (N. hemisphere).
+  - Coriolis & Pressure Gradient :: Air accelerates from high to low pressure, then Coriolis deflects it right until the flow parallels the isobars (geostrophic). Tight isobars = strong wind.
+  - Local Winds :: Surface-level effects that override the pressure-gradient wind — the ones that actually decide the ride and the crosswind at your field.
+    - Sea & Land Breeze :: By day the land heats and draws cool air in off the water (sea breeze); by night it reverses. The sea-breeze front can trigger a line of afternoon cumulus along the coast.
+    - Valley & Mountain Winds :: Anabatic (up-slope) winds by day as the sun heats the slopes; katabatic (down-slope) drainage by night as cold dense air slides down — strongest and gustiest near the terrain.
+    - Föhn / Chinook Winds :: Air forced over a ridge dries and warms as it descends the lee side — strong, warm, gusty downslope wind that can raise temperatures and hide turbulence.
+    - Gust Fronts & Outflow :: The cold downdraft of a storm spreads out at the surface as a gust front — a sudden wind shift and shear well ahead of the rain. The shelf cloud is your warning. -> wind-shear-and-microburst "low-level wind shear"
+  - Mountain Wave & Rotor :: Stable air over a ridge sets up standing waves with smooth lift aloft but violent rotor and downdrafts below — lenticular and rotor clouds are the visible warning. -> wind-shear-and-microburst "severe shear & downdraft"
+  - Winds Aloft & the Jet Stream :: Wind generally veers and strengthens with height; the jet stream is a fast core near the tropopause bordered by clear-air turbulence.
+- Hazards :: The weather that actually bends or breaks airplanes.
+  - Thunderstorms {#thunderstorms} :: The complete package: severe turbulence, hail, lightning, downdrafts, low-level wind shear and microbursts. Never fly under one, and give them 20 NM. -> wind-shear-and-microburst "make wind shear" -> v-speeds-and-the-envelope "slow to Va inside"
+    - Life Cycle :: Cumulus (updraft only) → mature (up + downdrafts, heaviest hazards, the moment it rains) → dissipating (downdraft chokes it off). Needs moisture, instability and a lift trigger.
+    - Types :: Air-mass (single-cell, brief), multicell and squall-line (a wall ahead of a cold front — the worst to cross), and the rotating supercell that spawns tornadoes and giant hail.
+    - Embedded & Night Storms :: Storms hidden in stratiform cloud or darkness — invisible to the eye, so radar, datalink and a wide berth are the only defense.
+  - Turbulence :: Chaotic vertical and horizontal gusts. Below maneuvering speed the wing stalls before it overstresses — slow down and ride it. -> v-speeds-and-the-envelope "fly Va"
+    - Types :: Mechanical (wind over terrain/buildings), thermal/convective (rising bubbles), frontal and wind-shear turbulence, mountain-wave rotor, and clear-air turbulence near the jet.
+    - Wake Turbulence :: The wingtip vortices of a bigger airplane — strongest heavy, clean and slow. Stay above its path and land beyond its touchdown point. -> traffic-pattern "sequencing & spacing"
+    - Intensity & Reporting :: Light, moderate, severe, extreme — reported by effect on the airplane and occupants. A PIREP of the ride is worth more than any forecast.
+  - Airframe Icing {#airframe-icing} :: Structural ice needs visible moisture and a surface at 0 °C or below. It destroys lift, adds weight and drag, and jams controls — exit the conditions early. -> icing-conditions "same moisture"
+    - Rime, Clear & Mixed :: Rime is rough and milky (small drops, fast freeze); clear is smooth, heavy and hard to shed (large drops, slow freeze); mixed is both. Clear and freezing rain are the dangerous ones.
+    - Effects on the Wing :: Even light ice disrupts the airfoil: higher stall speed at a LOWER angle of attack, more drag, less thrust — the stall can come with no warning. -> stall "raises stall speed"
+    - Freezing Rain & Drizzle :: Supercooled drops that freeze on contact — the fastest, heaviest accretion there is. A warm layer aloft over a cold one; climb or descend out, do not press on.
+  - Wind Shear & Microburst {#wind-shear-and-microburst} :: A sudden change of wind vector with position — brutal on approach and departure, where you have least energy and altitude.
+    - Low-Level Wind Shear :: Near the surface from fronts, inversions, terrain or storms. A shift from headwind to tailwind sinks the airplane and drops the airspeed at the worst moment.
+    - Microburst :: A concentrated column of sinking air under a storm: a strong headwind and updraft, then a violent downdraft and tailwind within a mile or two. Go around early; do not try to fly through it.
+    - Inversion & Frontal Shear :: Wind shear also lurks at temperature inversions and along frontal boundaries away from any storm — smoother-looking air that still bites on final.
+  - Icing Conditions {#icing-conditions} :: Visible moisture (cloud, rain, wet snow) with temperatures near or below freezing — the trigger for both carburetor and airframe ice.
+  - Fog & Restricted Visibility :: Cloud at the surface, plus haze, smoke, blowing snow and dust — the quiet way an easy flight turns into an instrument approach.
+    - Radiation Fog :: Clear, calm, moist nights: the ground radiates heat, cools the air to its dewpoint, and by dawn the valley is socked in. Burns off with the sun and a little wind.
+    - Advection & Upslope Fog :: Advection: moist air moving over a cooler surface (coasts). Upslope: moist air pushed up rising terrain and cooled — both need wind, so they persist longer than radiation fog.
+    - Steam & Precipitation Fog :: Steam fog rises off warm water into cold air; precipitation fog forms as rain saturates cooler air beneath a warm front.
+- Flight Categories & Minimums :: How reported ceiling and visibility collapse into a single go/no-go word — and the personal line you draw above the legal one.
+  - VFR / MVFR / IFR / LIFR :: Categories by ceiling and visibility: VFR (>3,000 ft & >5 SM), Marginal VFR (1,000–3,000 & 3–5), IFR (500–1,000 & 1–3), Low IFR (<500 ft or <1 SM). The colours on every briefing map. -> vfr-weather-minimums "vs the legal VFR minimums"
+  - Ceiling & Sky Cover :: FEW/SCT are not ceilings; the ceiling is the lowest broken or overcast layer (or vertical visibility into an obscuration). It sets MVFR/IFR and whether an approach is legal to start.
+  - Visibility & RVR :: Prevailing visibility in statute miles, or runway visual range in feet where transmissometers exist — the controlling number for approach minimums and takeoff.
+  - Personal Minimums :: Numbers you set on the ground — ceiling, visibility, wind, crosswind — above the regulatory minimums, sized to your currency, the airplane and the day. The heart of good ADM. -> aeronautical-decision-making "the decision framework"
+- Weather Products & Briefing :: How you turn the atmosphere into a go/no-go — the reports you decode and the forecasts you weigh.
+  - Weather Briefing :: Standard, abbreviated or outlook briefings via 1-800-WX-BRIEF / ForeFlight / aviationweather.gov — plus adverse conditions, synopsis, NOTAMs and TFRs. Required preflight information. -> aeronautical-decision-making "feeds the go/no-go"
+  - METAR :: The hourly (or special, SPECI) surface observation — the ground truth right now, decoded field by field.
+    - Station, Time & Modifier :: ICAO id, a day-hour-minute Zulu timestamp, and AUTO (unattended) or COR (corrected). Everything after is in a fixed order you can read at a glance.
+    - Wind Group :: Direction (true) and speed, gusts after a G, VRB for variable, and a variable range (e.g. 180V240). "00000KT" is calm — watch it against the runway you're using.
+    - Visibility & RVR :: Prevailing visibility in statute miles; runway visual range in feet (R06/2400FT) when it's low. The number that often decides VFR vs IFR.
+    - Present Weather Codes :: Intensity (-/+), descriptor (SH, TS, FZ, BL) and phenomenon (RA, SN, FG, BR, DZ). "-SHRA" is light rain showers; "+TSRA" is a heavy thunderstorm with rain.
+    - Sky Condition & Ceiling :: FEW/SCT/BKN/OVC by hundreds of feet AGL. The ceiling is the lowest BKN or OVC layer — the number the flight category and approach hinge on.
+    - Temp/Dewpoint, Altimeter & Remarks :: Temperature/dewpoint in °C (M for minus), altimeter after an A, then RMK — sea-level pressure, precise readings, and notes the coded body can't hold.
+  - TAF :: The terminal aerodrome forecast — roughly a 5 SM bubble around one airport, and a forecast, not a promise.
+    - Validity & Issue :: Issued four times a day, valid 24 or 30 hours, with a day-hour/day-hour valid period. Amended (TAF AMD) when the forecast busts.
+    - Change Groups :: FM = a rapid, permanent change at a stated time; BECMG = a gradual change over a window; TEMPO = temporary fluctuations under an hour that come and go.
+    - Probability (PROB) :: PROB30/PROB40 flags a 30–40% chance of the stated conditions — usually thunderstorms or low visibility. Not used in the first hours of the forecast.
+    - Reading TAF vs METAR :: The METAR is the airport now; the TAF is that airport's future. Trend the two together, and weight a fresh METAR that already disagrees with the TAF.
+  - Winds & Temps Aloft (FB) :: Forecast wind and temperature at fixed levels — pick the altitude for the best groundspeed, the smoothest ride and the freezing level. -> wind-correction-triangle "feeds wind correction" -> time-speed-distance-and-fuel "plan groundspeed & fuel"
+  - Graphical Forecasts (GFA) :: The Graphical Forecast for Aviation and prog charts — the big-picture map, valid from now out to 15+ hours, that puts the coded reports in spatial context.
+  - PIREPs :: Pilot reports are the only in-situ truth — cloud tops, ride, icing, the actual bases. UA (routine) or UUA (urgent). Give them as freely as you use them.
+  - Radar & Datalink Weather :: The moving picture of the weather — and the traps in how it's made and delivered.
+    - NEXRAD & Echo Intensity :: Ground radar reflectivity in dBZ (green→red→magenta). Composite vs base reflectivity, and attenuation/shadowing behind a strong cell — never pick your way through a line on radar alone. -> thunderstorms "locate the storms"
+    - Satellite Imagery :: Visible shows cloud by daylight; infrared shows cloud-top temperature (so height) day and night — cold, high tops mark the strongest convection.
+    - Datalink & Latency :: FIS-B (ADS-B In) and SiriusXM bring NEXRAD and text products to the cockpit — but the mosaic can be 5–15+ minutes old. Use it strategically, never tactically around a cell. -> ads-b "FIS-B via ADS-B In"
+    - Lightning & Ceiling/Vis Products :: Lightning networks pinpoint active convection in real time; graphical ceiling and visibility products paint where the IFR is.
+  - In-Flight Advisories :: The warnings issued once you're airborne — matched to the hazard's severity.
+    - AIRMET (S/T/Z) :: Widespread MODERATE hazards for lighter aircraft: Sierra (IFR/mountain obscuration), Tango (turbulence & surface winds) and Zulu (icing & freezing level).
+    - SIGMET :: SEVERE, non-convective hazards for all aircraft — severe turbulence or icing, widespread dust/sand, volcanic ash — issued as needed, not on a schedule.
+    - Convective SIGMET :: Thunderstorm-specific and always implying severe turbulence, icing and low-level wind shear: lines, embedded storms, or areas of heavy convection. -> thunderstorms "the storms themselves"
+    - G-AIRMET & CWA :: The graphical, time-stepped G-AIRMET, and the Center Weather Advisory — a short-fuse heads-up for conditions developing over an ARTCC.
