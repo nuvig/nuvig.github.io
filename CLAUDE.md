@@ -20,9 +20,7 @@ Bump it when you change a file's JS or the browser serves stale code.
 - `atc.html` + `js/atc.js` — ATC transcript viewer. Pi-only (no GitHub fallback): `pi/atc.py` records LiveATC feeds (ffmpeg RMS-squelch segmentation → WAV clips) and transcribes with whisper.cpp; `server.py` serves `/api/atc/*`. The Pi (32-bit OS) is ~100× too slow for whisper — transcription runs on the PC via `pc/atc_transcribe.py` (faster-whisper, polls `/api/atc/pending`, POSTs to `/api/atc/text`); on the Pi `KANP_ATC_WHISPER_BIN` points at a nonexistent path so it records only. **LiveATC ToS forbids republishing — never export ATC audio/transcripts to the traffic-data branch or anywhere public.** Feeds configured in `site.env` (`KANP_ATC_FEEDS`), default: Potomac GRACO 124.55 / BELAY 125.525 / BWI Final.
 - `procedures.html` + `js/procedures.js` — Procedure Explorer: overlays any US SID/STAR/IAP on Leaflet (sectional/TAC/IFR layers) with a custom canvas 3D altitude view, transition-by-transition selection, flow animation, shareable `#apt=…&sel=…` links. Data: `data/procedures/` (index + per-airport JSON), regenerated each 28-day AIRAC cycle by `python scripts/build_procedures.py` (downloads FAA CIFP, stdlib only; leg-array layout documented in that file and mirrored in procedures.js).
 - `weather.html` + `js/weather.js` — weather hub (wind compass, flight-window scoring, crosswind analysis, TAFs, radar)
-- **SDR receiver pages** (one remotely-tunable receiver PC near the field, reachable over Tailscale — host/paths/CTAF in `SITE.receiver`). Recorder/streamer is separate from the flight-tracker Pi; unofficial monitor, not for operational use:
-  - `ctaf.html` — live + recorded transmissions on the home-field CTAF (KANP 122.9). Self-contained inline JS; polls the clip server's `index.json`/`/api/state`, filters to the CTAF frequency, warns when the receiver is tuned away.
-  - `scanner.html` — the tuning UI for that same receiver (aviation/marine/weather presets, gain + squelch control behind a control key, live S-meter). `noindex`. Self-contained inline JS. Tuning it away from CTAF is what ctaf.html's "tuned away" banner reports.
+- `scanner.html` — **SDR receiver monitor + tuning UI** (one remotely-tunable receiver PC near the field, reachable over Tailscale — host/paths/CTAF in `SITE.receiver`). Aviation/marine/weather presets, gain + squelch control behind a control key, live S-meter, live stream + recorded clips (all frequencies, filterable to current). `noindex`. Self-contained inline JS. Recorder/streamer is separate from the flight-tracker Pi; unofficial monitor, not for operational use.
 - **Interactive aviation-education pages** (standalone, canvas-based, no dependencies, educational only — not linked to the tracker):
   - `airlab.html` + `js/airlab.js` — Air Lab: density/pressure altitude, ram pressure, TAS/GS, air-parcel sims
   - `eights.html` + `js/eights.js` — Eights on Pylons: pivotal altitude PA = GS²/11.3, wind-aware maneuver sim
@@ -32,7 +30,7 @@ Bump it when you change a file's JS or the browser serves stale code.
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only**
 - `scripts/` — legacy Node collector, superseded by `pi/`; don't extend it
 
-Not every page is linked from `index.html`: `atc`, `ctaf`, `bubbles`, `scanner` are reachable by direct URL only (scanner is intentionally `noindex`).
+Not every page is linked from `index.html`: `atc`, `bubbles`, `scanner` are reachable by direct URL only (scanner is intentionally `noindex`).
 
 ## Data flow (tracker)
 
