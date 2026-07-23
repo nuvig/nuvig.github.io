@@ -2,7 +2,7 @@
 
 Personal website (jesselevine.net, GitHub Pages from `main`) + KANP flight tracker + weather hub.
 Plain HTML/JS/CSS — **no build step, no framework, no npm**. Leaflet is vendored in `js/vendor/`.
-Owner: Jesse, private pilot based at KANP (Lee Airport, Annapolis MD).
+Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapolis MD).
 
 ## Layout
 
