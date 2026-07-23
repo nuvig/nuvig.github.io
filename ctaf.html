@@ -77,7 +77,7 @@
 </head>
 <body>
   <a id="back-link" href="/">&larr; jesselevine.net</a>
-  <h1>KANP CTAF <span class="freq">122.9</span></h1>
+  <h1><span id="apt-id">KANP</span> CTAF <span class="freq" id="ctaf-freq">122.9</span></h1>
   <p class="subtitle">Lee Airport · Annapolis, MD — live transmissions received on a local SDR.
     Unofficial monitor, not for operational use.</p>
 
@@ -100,12 +100,19 @@
     </div>
   </div>
 
+<script src="js/site-config.js"></script>
 <script>
-  // ===== config =====
-  const HOST = "https://jalpine.taila8f067.ts.net";
-  const BASE = HOST + "/ctaf";        // clip server (index.json + clips/)
-  const LIVE = HOST + "/kanp.mp3";    // continuous live stream
+  // ===== config (from SITE.receiver — edit js/site-config.js, not here) =====
+  const HOST = SITE.receiver.host;
+  const BASE = HOST + SITE.receiver.apiPath;   // clip server (index.json + clips/)
+  const LIVE = HOST + SITE.receiver.livePath;  // continuous live stream
+  const CTAF = SITE.receiver.ctafFreq;         // home-field CTAF, MHz
   const POLL_MS = 8000;
+
+  // Fill the header from SITE so it tracks the configured field/frequency.
+  document.getElementById("apt-id").textContent = SITE.airport.id;
+  document.getElementById("ctaf-freq").textContent = CTAF;
+  document.title = SITE.airport.id + " CTAF " + CTAF + " — Live Transmissions";
 
   const $ = s => document.querySelector(s);
   const listEl = $("#list"), statusEl = $("#status"), player = $("#player");
@@ -142,7 +149,7 @@
 
   function render(){
     if (!clips.length){
-      listEl.innerHTML = '<div class="empty">No transmissions recorded yet. This updates automatically when someone keys up on 122.9.</div>';
+      listEl.innerHTML = '<div class="empty">No transmissions recorded yet. This updates automatically when someone keys up on ' + CTAF + '.</div>';
       return;
     }
     let html = "", lastDay = "";
@@ -211,7 +218,7 @@
       // One receiver serves both pages, so keep only CTAF clips here.
       // Clips recorded before the scanner existed have no freq field — those
       // are all CTAF.
-      const isCtaf = c => !c.freq || Math.abs(parseFloat(String(c.freq).replace(/[Mm]$/,"")) - 122.9) < 0.0005;
+      const isCtaf = c => !c.freq || Math.abs(parseFloat(String(c.freq).replace(/[Mm]$/,"")) - CTAF) < 0.0005;
       const incoming = (data.clips || []).filter(isCtaf).sort((a,b) => b.ts - a.ts);
       const prevMax = maxTs;
       for (const c of incoming){ c._new = c.ts > prevMax; if (c.ts > maxTs) maxTs = c.ts; }
@@ -250,7 +257,7 @@
       const f = parseFloat(String(s.freq).replace(/[Mm]$/,""));
       el.style.display = "";
       el.innerHTML = "<span>&#9888;</span><span>The receiver is currently tuned to <b>" +
-        f + " MHz " + String(s.mode).toUpperCase() + "</b>, so <b>122.9 is not being " +
+        f + " MHz " + String(s.mode).toUpperCase() + "</b>, so <b>" + CTAF + " is not being " +
         "monitored right now</b>. Live audio and new clips are from that frequency. " +
         '<a href="/scanner.html">Open the scanner</a> to tune back.</span>';
     }catch(e){ el.style.display = "none"; }

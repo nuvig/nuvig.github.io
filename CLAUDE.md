@@ -1,13 +1,17 @@
 # CLAUDE.md
 
-Personal website (jesselevine.net, GitHub Pages from `main`) + KANP flight tracker + weather hub.
+Personal website (jesselevine.net, GitHub Pages from `main`) + KANP flight tracker + weather hub
++ a growing set of interactive aviation-education pages + an SDR receiver monitor.
 Plain HTML/JS/CSS — **no build step, no framework, no npm**. Leaflet is vendored in `js/vendor/`.
 Owner: Jesse, private pilot based at KANP (Lee Airport, Annapolis MD).
 
+Cache-busting is manual: JS refs carry a hand-bumped `?v=N` query (e.g. `airlab.js?v=8`).
+Bump it when you change a file's JS or the browser serves stale code.
+
 ## Layout
 
-- `index.html` — personal site landing page
-- `js/site-config.js` — **all site-specific constants** (airport, coordinates, runway geometry, ops gates, nearby airports, TAF stations, snapshot URL, timezone) in one `SITE` global, loaded first on every page. Pi mirror: `pi/site.env.example` → `/etc/kanp/site.env` (read by the systemd units via `EnvironmentFile`). Edit these, not the consumers.
+- `index.html` + `js/home.js` — personal site landing page (live card teasers, email copy button). `js/sim.js` is a neon ball-physics easter egg, lazy-loaded by home.js only on first click.
+- `js/site-config.js` — **all site-specific constants** (airport, coordinates, runway geometry, ops gates, nearby airports, TAF stations, snapshot URL, timezone, SDR receiver host/CTAF) in one `SITE` global, loaded first on the pages that need it (tracker, weather, ctaf, scanner). Pi mirror: `pi/site.env.example` → `/etc/kanp/site.env` (read by the systemd units via `EnvironmentFile`). Edit these, not the consumers. The pure-educational pages below (airlab/eights/power/knowledge/bubbles) are airport-agnostic and deliberately don't load it.
 - `kanp.html` — flight tracker (Live / History Map / Traffic Study tabs)
   - `js/kanp.js` — shared utils + Live tab (poll every 5–60 s, trails, heatmap, localStorage). KANP = 38.9422, -76.5684, 60 nm radius (from `SITE`)
   - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD overlays
@@ -16,8 +20,19 @@ Owner: Jesse, private pilot based at KANP (Lee Airport, Annapolis MD).
 - `atc.html` + `js/atc.js` — ATC transcript viewer. Pi-only (no GitHub fallback): `pi/atc.py` records LiveATC feeds (ffmpeg RMS-squelch segmentation → WAV clips) and transcribes with whisper.cpp; `server.py` serves `/api/atc/*`. The Pi (32-bit OS) is ~100× too slow for whisper — transcription runs on the PC via `pc/atc_transcribe.py` (faster-whisper, polls `/api/atc/pending`, POSTs to `/api/atc/text`); on the Pi `KANP_ATC_WHISPER_BIN` points at a nonexistent path so it records only. **LiveATC ToS forbids republishing — never export ATC audio/transcripts to the traffic-data branch or anywhere public.** Feeds configured in `site.env` (`KANP_ATC_FEEDS`), default: Potomac GRACO 124.55 / BELAY 125.525 / BWI Final.
 - `procedures.html` + `js/procedures.js` — Procedure Explorer: overlays any US SID/STAR/IAP on Leaflet (sectional/TAC/IFR layers) with a custom canvas 3D altitude view, transition-by-transition selection, flow animation, shareable `#apt=…&sel=…` links. Data: `data/procedures/` (index + per-airport JSON), regenerated each 28-day AIRAC cycle by `python scripts/build_procedures.py` (downloads FAA CIFP, stdlib only; leg-array layout documented in that file and mirrored in procedures.js).
 - `weather.html` + `js/weather.js` — weather hub (wind compass, flight-window scoring, crosswind analysis, TAFs, radar)
+- **SDR receiver pages** (one remotely-tunable receiver PC near the field, reachable over Tailscale — host/paths/CTAF in `SITE.receiver`). Recorder/streamer is separate from the flight-tracker Pi; unofficial monitor, not for operational use:
+  - `ctaf.html` — live + recorded transmissions on the home-field CTAF (KANP 122.9). Self-contained inline JS; polls the clip server's `index.json`/`/api/state`, filters to the CTAF frequency, warns when the receiver is tuned away.
+  - `scanner.html` — the tuning UI for that same receiver (aviation/marine/weather presets, gain + squelch control behind a control key, live S-meter). `noindex`. Self-contained inline JS. Tuning it away from CTAF is what ctaf.html's "tuned away" banner reports.
+- **Interactive aviation-education pages** (standalone, canvas-based, no dependencies, educational only — not linked to the tracker):
+  - `airlab.html` + `js/airlab.js` — Air Lab: density/pressure altitude, ram pressure, TAS/GS, air-parcel sims
+  - `eights.html` + `js/eights.js` — Eights on Pylons: pivotal altitude PA = GS²/11.3, wind-aware maneuver sim
+  - `power.html` + `js/power.js` — the power curve: parasite vs induced power, region of reversed command, approach sim
+  - `knowledge.html` + `js/knowledge.js` — Aviation Knowledge Map: expandable concept graph with cross-links
+  - `bubbles.html` — Bubble Pop, a self-contained game/easter egg (inline JS; unlisted)
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only**
 - `scripts/` — legacy Node collector, superseded by `pi/`; don't extend it
+
+Not every page is linked from `index.html`: `atc`, `ctaf`, `bubbles`, `scanner` are reachable by direct URL only (scanner is intentionally `noindex`).
 
 ## Data flow (tracker)
 

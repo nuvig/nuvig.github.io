@@ -197,16 +197,18 @@
     </div>
   </div>
 
+<script src="js/site-config.js"></script>
 <script>
-  const HOST = "https://jalpine.taila8f067.ts.net";
-  const BASE = HOST + "/ctaf";
-  const LIVE = HOST + "/kanp.mp3";
+  // Receiver config from SITE.receiver — edit js/site-config.js, not here.
+  const HOST = SITE.receiver.host;
+  const BASE = HOST + SITE.receiver.apiPath;
+  const LIVE = HOST + SITE.receiver.livePath;
   const STATE_MS = 2000;   // fast, so the signal light feels live
   const CLIP_MS  = 8000;
 
   const PRESETS = [
     ["Aviation (AM)", [
-      ["KANP CTAF","122.9","am"], ["Guard / emergency","121.5","am"],
+      [SITE.airport.id + " CTAF", String(SITE.receiver.ctafFreq), "am"], ["Guard / emergency","121.5","am"],
       ["Potomac Approach","124.55","am"], ["Baltimore Tower","119.4","am"],
       ["Potomac BWI Final","119.0","am"], ["BWI Final (alt)","119.7","am"],
       ["Air-to-air","122.75","am"],

@@ -1,7 +1,7 @@
 // Site configuration — the one file to edit when pointing this project at a
 // different airport. Loaded before every other script (kanp.html,
-// weather.html, index.html). The Pi-side mirror of the tracker values lives
-// in /etc/kanp/site.env (see pi/site.env.example).
+// weather.html, index.html, ctaf.html, scanner.html). The Pi-side mirror of
+// the tracker values lives in /etc/kanp/site.env (see pi/site.env.example).
 //
 // All headings/directions are DEGREES TRUE (FAA true runway alignments;
 // METAR and model winds are also true), never magnetic.
@@ -98,5 +98,18 @@ const SITE = {
       { id: 'KBWI', label: 'Baltimore/Washington Intl' },
       { id: 'KDCA', label: 'Washington National' },
     ],
+  },
+
+  // SDR receiver (ctaf.html + scanner.html). One remotely-tunable receiver PC
+  // near the field, reachable over Tailscale. `host` is the Tailscale HTTPS
+  // base; the clip server (index.json, clips/, /api/*) lives at host + apiPath,
+  // and the continuous live stream at host + livePath. `ctafFreq` (MHz) is the
+  // home field's CTAF — the channel ctaf.html filters for and the scanner's
+  // home-field preset. Not secret: this URL is already public in the pages.
+  receiver: {
+    host: 'https://jalpine.taila8f067.ts.net',
+    apiPath: '/ctaf',
+    livePath: '/kanp.mp3',
+    ctafFreq: 122.9,
   },
 };
