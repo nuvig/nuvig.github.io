@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aviation Knowledge Map — expandable concept graph</title>
+  <meta name="description" content="An interactive, expandable knowledge map of airplane flying: aerodynamics, systems, weather, navigation, airspace, regulations, performance, human factors, maneuvers, instruments and emergencies — with the cross-links between them.">
+  <link rel="canonical" href="https://jesselevine.net/knowledge.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    html, body { height: 100%; }
+    body {
+      max-width: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    .kg-header {
+      flex: 0 0 auto;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 12px 18px; border-bottom: 1px solid var(--border);
+      background: #131313;
+    }
+    .kg-header h1 { margin: 0; font-size: 1.15rem; letter-spacing: -0.01em; }
+    .kg-header .sub { color: var(--muted); font-size: 12px; max-width: 420px; line-height: 1.45; }
+    #back-link { font-size: 13px; text-decoration: none; color: #777; white-space: nowrap; }
+    #back-link:hover { color: #ccc; }
+
+    .search-box { position: relative; margin-left: auto; }
+    .search-box input {
+      background: #0f141b; border: 1px solid #2a3a4d; color: #e8eef6;
+      border-radius: 8px; padding: 8px 12px; font: inherit; font-size: 13px;
+      width: 230px; outline: none;
+    }
+    .search-box input:focus { border-color: var(--accent); }
+    #search-results {
+      display: none; position: absolute; top: 40px; right: 0; z-index: 40;
+      width: 300px; max-height: 340px; overflow-y: auto;
+      background: #14181e; border: 1px solid #2a3a4d; border-radius: 8px;
+      box-shadow: 0 10px 30px #000b; padding: 4px;
+    }
+    .sr-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      background: none; border: 0; color: #dbe4ef; text-align: left;
+      padding: 7px 9px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
+    }
+    .sr-item:hover { background: #1d2530; }
+    .sr-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+    .sr-group { margin-left: auto; color: #667; font-size: 11px; }
+
+    .kg-main { flex: 1 1 auto; display: flex; min-height: 0; }
+
+    #graph-wrap {
+      position: relative; flex: 1 1 auto; min-width: 0;
+      background:
+        radial-gradient(circle at 30% 30%, #161b22 0%, #0d1015 70%);
+      cursor: grab;
+    }
+    #graph { display: block; touch-action: none; }
+
+    .kg-controls {
+      position: absolute; top: 12px; left: 12px; z-index: 20;
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .kg-controls button {
+      background: rgba(20,24,30,0.85); border: 1px solid #2a3a4d; color: #b8c6d8;
+      border-radius: 7px; padding: 6px 11px; font: inherit; font-size: 12px; cursor: pointer;
+      backdrop-filter: blur(6px);
+    }
+    .kg-controls button:hover { border-color: var(--accent); color: #dbeafe; }
+
+    #legend {
+      position: absolute; bottom: 12px; left: 12px; z-index: 20;
+      display: flex; gap: 5px; flex-wrap: wrap; max-width: 62%;
+    }
+    .leg-item {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(20,24,30,0.78); border: 1px solid #232c38; color: #9fb0c4;
+      border-radius: 99px; padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer;
+      backdrop-filter: blur(6px);
+    }
+    .leg-item:hover { border-color: #46566b; color: #dbe4ef; }
+    .leg-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+    .hint-badge {
+      position: absolute; top: 12px; right: 12px; z-index: 20;
+      background: rgba(20,24,30,0.78); border: 1px solid #232c38; color: #7f8ea3;
+      border-radius: 8px; padding: 6px 10px; font-size: 11px; line-height: 1.5;
+      max-width: 210px; backdrop-filter: blur(6px);
+    }
+
+    /* Info panel */
+    #info {
+      flex: 0 0 340px; width: 340px; background: #14181e;
+      border-left: 1px solid var(--border); padding: 18px 18px 24px;
+      overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+    }
+    #info-path { font-size: 11px; color: #5d6675; line-height: 1.5; word-break: break-word; }
+    #info-title { margin: 0; font-size: 1.25rem; color: #eef3f9; line-height: 1.25; }
+    #info-group {
+      align-self: flex-start; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+      border: 1px solid; border-radius: 99px; padding: 2px 10px;
+    }
+    #info-body { font-size: 13.5px; color: #c4cdd9; line-height: 1.6; margin: 2px 0 4px; }
+    #info-links { display: flex; flex-direction: column; gap: 6px; }
+    .link-head {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+      color: #6b7686; margin: 10px 0 2px;
+    }
+    .chip {
+      display: inline-block; text-align: left; background: #10151c;
+      border: 1px solid #2a3a4d; color: #c8d4e2; border-radius: 7px;
+      padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .chip:hover { background: #182029; border-color: var(--accent); }
+
+    @media (max-width: 820px) {
+      .kg-main { flex-direction: column; }
+      #info {
+        flex: 0 0 auto; width: auto; max-height: 40%;
+        border-left: 0; border-top: 1px solid var(--border);
+      }
+      #legend { max-width: 90%; }
+      .hint-badge { display: none; }
+      .kg-header .sub { display: none; }
+      .search-box input { width: 150px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="kg-header">
+    <a id="back-link" href="/">&larr; jesselevine.net</a>
+    <h1>🧭 Aviation Knowledge Map</h1>
+    <p class="sub">Click a node to open it. Dashed gold lines connect ideas that live on different branches but drive each other.</p>
+    <div class="search-box">
+      <input id="search" type="text" placeholder="Search concepts…" autocomplete="off" spellcheck="false">
+      <div id="search-results"></div>
+    </div>
+  </header>
+
+  <div class="kg-main">
+    <div id="graph-wrap">
+      <canvas id="graph"></canvas>
+      <div class="kg-controls">
+        <button id="btn-expand">Expand domains</button>
+        <button id="btn-collapse">Collapse all</button>
+        <button id="btn-reset">Recenter</button>
+      </div>
+      <div class="hint-badge">
+        Drag background to pan · wheel to zoom · drag a node to move it ·
+        <b>+</b> nodes have hidden branches.
+      </div>
+      <div id="legend"></div>
+    </div>
+
+    <aside id="info">
+      <div id="info-path"></div>
+      <h2 id="info-title">Aviation</h2>
+      <span id="info-group">Aviation</span>
+      <p id="info-body"></p>
+      <div id="info-links"></div>
+    </aside>
+  </div>
+
+  <script src="js/knowledge.js"></script>
+</body>
+</html>
