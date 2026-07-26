@@ -83,7 +83,7 @@
     famous <b>back side of the power curve</b> — the <b>region of reversed command</b>, where
     flying <i>slower</i> takes <i>more</i> power, and where a lot of low-and-slow accidents live.
     This page builds the curve from its two halves, shows why the controls feel backwards down
-    there, and lets you fly an approach into the trap.
+    there, lets you set up <b>slow flight</b> in that region, and then fly an approach into the trap.
   </p>
 
   <!-- ── 1 · Anatomy of the curve ─────────────────────────────── -->
@@ -169,8 +169,56 @@
     </p>
   </div>
 
-  <!-- ── 3 · Fly the trap ─────────────────────────────────────── -->
-  <div class="section-title"><span class="num">3</span> Fly the approach — the low-and-slow trap</div>
+  <!-- ── 3 · Slow flight ──────────────────────────────────────── -->
+  <div class="section-title"><span class="num">3</span> Slow flight — flying the back side on purpose</div>
+  <p class="section-lede">
+    <b>Slow flight</b> is the maneuver where you go and <i>live</i> on the back side deliberately —
+    flying just above the stall, at the ragged edge of the reversed-command region, to feel how the
+    airplane handles down there before you ever meet it on final. The lesson it teaches is a control
+    swap: <b>pitch (trim) sets your airspeed, throttle sets your altitude</b>. Trim for a slow target
+    speed, then fly the altitude with power alone. Notice how much throttle it takes just to stay
+    level — and that asking for a <i>slower</i> speed asks for <i>more</i> power.
+  </p>
+  <div class="card">
+    <div class="ctl-row">
+      <label for="sf-speed">Pitch / trim → airspeed</label>
+      <input type="range" id="sf-speed" min="40" max="95" step="1" value="54">
+      <span class="val" id="sf-speed-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="sf-power">Throttle → altitude</label>
+      <input type="range" id="sf-power" min="20" max="100" step="1" value="35">
+      <span class="val" id="sf-power-val"></span>
+    </div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="sf-clean" type="button">Clean</button>
+      <button class="mode-btn" id="sf-flaps" type="button">Approach (flaps)</button>
+      <button class="mode-btn" id="sf-level" type="button">⇢ Set throttle for level</button>
+      <button class="mode-btn" id="sf-reset" type="button">↻ Recenter</button>
+    </div>
+    <canvas class="viz" id="pc-slow" width="960" height="300"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">airspeed</div><div class="v" id="sf-ias"></div></div>
+      <div class="tile hot"><div class="k">vertical speed</div><div class="v" id="sf-vsi"></div></div>
+      <div class="tile"><div class="k">pitch / angle of attack</div><div class="v" id="sf-aoa"></div></div>
+      <div class="tile"><div class="k">throttle for level</div><div class="v" id="sf-need"></div></div>
+      <div class="tile warn"><div class="k">margin above stall</div><div class="v" id="sf-margin"></div></div>
+    </div>
+    <div class="verdict" id="sf-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      Sweep the speed slider and watch the <b>throttle-for-level</b> mark trace the whole bowl: it
+      falls as you slow toward the minimum-power speed, bottoms out, then <b>climbs again</b> as you
+      slow past it — the moment it starts climbing you've crossed onto the back side, where slower
+      costs <i>more</i> power. Slow flight lives right down at that bottom: high pitch, high angle of
+      attack, sloppy controls, the stall horn moaning, and a lot of throttle just to stay level. Try
+      to fix a sink by pulling to a slower speed and you dig the hole deeper; add power instead and
+      you climb. It's where you drill <b>power for altitude, pitch for airspeed</b> until it's reflex
+      by the time you meet it on short final.
+    </p>
+  </div>
+
+  <!-- ── 4 · Fly the trap ─────────────────────────────────────── -->
+  <div class="section-title"><span class="num">4</span> Fly the approach — the low-and-slow trap</div>
   <p class="section-lede">
     You're on final, dragged in low with reduced power, sitting on the <b>back side</b>. You notice
     you're sinking below the aim point. The instinct is to <b>pull back to stop the sink</b> — and

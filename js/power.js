@@ -30,6 +30,7 @@ const CONFIG = {
   flaps: { cd0: 0.075, clmax: 2.1 },
 };
 
+const DEG_ = Math.PI / 180;
 const fmt = (n, d = 0) => n.toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -282,6 +283,185 @@ const S2 = (() => {
 
   $('r-power').addEventListener('input', draw);
   $('r-speed').addEventListener('input', draw);
+  return { draw };
+})();
+
+/* ── 3 · slow flight — living on the back side ──────────────── */
+const SSF = (() => {
+  const { ctx, w, h } = setup($('pc-slow'));
+  const W = 2300 * LB2N;
+  const CLA = 0.100, A0 = -2.0;      // lift-curve: CL ≈ CLA·(α−A0)/deg  (α in degrees)
+  let cfg = 'clean';
+  // lagged state so the airplane responds smoothly to slider changes
+  let Vc = 54 / MS2KT, ROCc = 0, alt = 0, trail = [];
+
+  function targets() {
+    const c = CONFIG[cfg];
+    const Vt = (+$('sf-speed').value) / MS2KT;
+    const Pav = (+$('sf-power').value / 100) * PAV_MAX;
+    const Vs = vstall(W, c.clmax);
+    return { c, Vt, Pav, Vs };
+  }
+
+  function step(dt) {
+    const { c, Vt, Pav, Vs } = targets();
+    // airspeed relaxes to the trimmed target (pitch/trim owns speed)
+    Vc += (Math.max(Vt, Vs * 0.9) - Vc) / 3.0 * dt;
+    const pv = preq(Vc, W, c.cd0).total;
+    const rocTarget = (Pav - pv) / W;            // specific excess power, m/s
+    ROCc += (rocTarget - ROCc) / 1.8 * dt;       // vertical response lag
+    alt += ROCc * dt;
+    alt = clamp(alt, -260, 260);
+    trail.push(alt); if (trail.length > 240) trail.shift();
+  }
+
+  function draw() {
+    const { c, Vt, Pav, Vs } = targets();
+    $('sf-speed-val').innerHTML = `${$('sf-speed').value} <span class="u">kt</span>`;
+    $('sf-power-val').innerHTML = `${$('sf-power').value}<span class="u">%</span>`;
+
+    const kt = Vc * MS2KT, vsi = ROCc * MS2FPM;
+    const q = 0.5 * RHO * Vc * Vc;
+    const CL = clamp(W / (q * S), 0, c.clmax);
+    const aStall = A0 + c.clmax / CLA;
+    const aoa = clamp(A0 + CL / CLA, 0, aStall);
+    const gammaDeg = Math.asin(clamp(ROCc / Vc, -0.5, 0.5)) * 57.2958;
+    const pitch = aoa + gammaDeg;
+    const pvLevel = preq(Vt, W, c.cd0).total;
+    const needPct = clamp(pvLevel / PAV_MAX * 100, 0, 120);
+    const margin = (Vc - Vs) * MS2KT;
+
+    ctx.clearRect(0, 0, w, h);
+    // ── left: flight-attitude scene ──
+    const cx = w * 0.28, cy = h * 0.50;
+    const pr = pitch * DEG_, gr = gammaDeg * DEG_;
+    const warn = margin < 6, near = margin < 1.2;   // stall-warning regime / actual stall
+
+    // horizon reference
+    ctx.strokeStyle = '#2a3340'; ctx.setLineDash([4, 5]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 150, cy); ctx.lineTo(cx + 160, cy); ctx.stroke();
+    ctx.setLineDash([]);
+    label(ctx, cx - 150, cy - 6, 'horizon', '#4a5568', 'left');
+
+    // extended chord / body-axis ray (where the nose points)
+    ctx.strokeStyle = '#4a5568'; ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 158 * Math.cos(pr), cy - 158 * Math.sin(pr)); ctx.stroke();
+    ctx.setLineDash([]);
+    // flight-path ray (velocity vector)
+    ctx.strokeStyle = '#5c7a9c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 150 * Math.cos(gr), cy - 150 * Math.sin(gr)); ctx.stroke();
+    label(ctx, cx + 150 * Math.cos(gr) + 6, cy - 150 * Math.sin(gr) + 4, 'flight path', '#5c7a9c', 'left');
+    // relative wind arrow flowing into the CG (opposite velocity)
+    ctx.strokeStyle = '#7c8a5a'; ctx.lineWidth = 1.5;
+    const rwx = cx - 104 * Math.cos(gr), rwy = cy + 104 * Math.sin(gr);
+    ctx.beginPath(); ctx.moveTo(rwx, rwy); ctx.lineTo(cx - 34 * Math.cos(gr), cy + 34 * Math.sin(gr)); ctx.stroke();
+    label(ctx, rwx, rwy + 14, 'relative wind', '#7c8a5a', 'left');
+
+    // AoA wedge between chord and velocity, out ahead of the nose
+    const aoaCol = near ? RED : '#e0b64a';
+    ctx.strokeStyle = aoaCol; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy, 96, -pr, -gr); ctx.stroke();
+    const am = (pr + gr) / 2;
+    label(ctx, cx + 116 * Math.cos(am), cy - 116 * Math.sin(am) + 4, `α ${fmt(aoa)}°`, aoaCol, 'left');
+
+    // airplane at pitch attitude
+    drawPlane(ctx, cx, cy, pr, near ? RED : (warn ? '#e0b64a' : '#dbe7f5'));
+    label(ctx, cx, cy + 44, `pitch ${fmt(pitch)}°`, INK2, 'center');
+
+    if (near) { ctx.fillStyle = RED; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'center'; ctx.fillText('⚠ STALLED', cx, cy - 66); }
+    else if (warn) { ctx.fillStyle = '#e0b64a'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('♪ stall horn', cx, cy - 66); }
+
+    // ── right: altitude trace + VSI ──
+    const px0 = w * 0.58, pw = w - px0 - 74, pt = 28, pb = h - 56, pmid = (pt + pb) / 2;
+    ctx.strokeStyle = GRID; ctx.strokeRect(px0, pt, pw, pb - pt);
+    ctx.strokeStyle = '#2f3a4a'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(px0, pmid); ctx.lineTo(px0 + pw, pmid); ctx.stroke(); ctx.setLineDash([]);
+    label(ctx, px0 + 4, pmid - 4, 'level', '#4a5568', 'left');
+    label(ctx, px0 + pw / 2, pt - 8, 'altitude (last ~20 s)', INK2, 'center');
+    const AY = a => pmid - clamp(a, -260, 260) / 260 * (pb - pmid);
+    ctx.strokeStyle = vsi >= 5 ? GREEN : (vsi <= -5 ? RED : INK); ctx.lineWidth = 2; ctx.beginPath();
+    trail.forEach((a, i) => { const x = px0 + i / 240 * pw, y = AY(a); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    // current dot
+    const lastX = px0 + (trail.length - 1) / 240 * pw;
+    const vCol = vsi >= 5 ? GREEN : (vsi <= -5 ? RED : WHITE);
+    ctx.fillStyle = vCol; ctx.beginPath(); ctx.arc(lastX, AY(alt), 3.5, 0, 7); ctx.fill();
+    // big VSI readout inside the box
+    ctx.font = 'bold 15px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = vCol; ctx.fillText(`${vsi >= 0 ? '+' : ''}${fmt(vsi)} fpm`, px0 + 8, pt + 18);
+    ctx.font = '11px system-ui'; ctx.fillStyle = INK2; ctx.fillText('throttle sets this', px0 + 8, pt + 33);
+
+    // ── bottom: throttle bar with the level-flight mark ──
+    const bx = cx - 120, by = h - 22, bw = 240;
+    ctx.fillStyle = '#1e2530'; ctx.fillRect(bx, by, bw, 9);
+    const thr = +$('sf-power').value;
+    ctx.fillStyle = thr >= needPct ? GREEN : ORANGE; ctx.fillRect(bx, by, bw * clamp(thr, 0, 100) / 100, 9);
+    // level-flight throttle mark
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(bx + bw * clamp(needPct, 0, 100) / 100, by - 4); ctx.lineTo(bx + bw * clamp(needPct, 0, 100) / 100, by + 13); ctx.stroke();
+    label(ctx, bx, by - 6, 'throttle', INK2, 'left');
+    label(ctx, bx + bw, by - 6, '↑ mark = throttle for level', INK2, 'right');
+
+    // readouts
+    $('sf-ias').innerHTML = `${fmt(kt)} <span class="u">kt</span>`;
+    $('sf-vsi').innerHTML = `${vsi >= 0 ? '+' : ''}${fmt(vsi)} <span class="u">fpm</span>`;
+    $('sf-aoa').innerHTML = `${fmt(pitch)}° <span class="u">/ α ${fmt(aoa)}°</span>`;
+    $('sf-need').innerHTML = `${fmt(needPct)}<span class="u">%</span>`;
+    $('sf-margin').innerHTML = `${margin >= 0 ? '+' : ''}${fmt(margin)} <span class="u">kt</span>`;
+    $('sf-margin').parentElement.classList.toggle('warn', margin < 8);
+
+    // verdict — classify by the trimmed target speed vs the minimum-power speed
+    const el = $('sf-verdict');
+    const vmp = vminPower(W, c.cd0).v;
+    const arrow = vsi > 5 ? 'climbing' : vsi < -5 ? 'sinking' : 'holding level';
+    if (Vt < Vs) {
+      el.className = 'verdict high';
+      el.innerHTML = `<b>Trimmed below stall (${fmt(Vs * MS2KT)} kt).</b> No amount of power holds this — the wing is done. Lower the nose to get flying speed back.`;
+    } else if (Vt <= vmp) {
+      el.className = 'verdict low';
+      el.innerHTML = `<b>Slow flight — back side.</b> ${fmt(margin)} kt above the stall and slower than the ${fmt(vmp * MS2KT)}-kt min-power speed, nose ${fmt(pitch)}° up, needing <b>${fmt(needPct)}%</b> throttle just to stay level (${arrow}). Here you fly altitude with the <b>throttle</b> and airspeed with <b>pitch</b> — and pulling to a slower speed pushes the throttle-for-level mark <i>up</i>.`;
+    } else if (Vt < vmp + 4 / MS2KT) {
+      el.className = 'verdict low';
+      el.innerHTML = `<b>Bottom of the bowl — the edge of slow flight.</b> You're right around the ${fmt(vmp * MS2KT)}-kt min-power speed, where the throttle-for-level mark is at its lowest. Trim a hair slower and you cross onto the back side; the reversed-command feel is already creeping in.`;
+    } else {
+      el.className = 'verdict on';
+      el.innerHTML = `<b>Front side — normal feel.</b> Faster than the ${fmt(vmp * MS2KT)}-kt min-power speed, so easing the nose up slows you <i>and</i> sheds drag. Trim back toward the stall to settle into slow flight and watch the controls swap.`;
+    }
+  }
+
+  function drawPlane(ctx, x, y, ang, col) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-ang);
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-38, 0); ctx.lineTo(42, 0); ctx.stroke();       // fuselage + spinner
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(14, -7); ctx.lineTo(-14, -7); ctx.stroke();     // high wing (side view)
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(4, -7); ctx.moveTo(-6, 0); ctx.lineTo(-8, -7); ctx.stroke(); // struts
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-38, 0); ctx.lineTo(-45, -13); ctx.lineTo(-33, 0); ctx.stroke();  // vertical tail
+    ctx.beginPath(); ctx.moveTo(-30, 0); ctx.lineTo(-45, -2); ctx.stroke();     // horizontal stab
+    ctx.restore();
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    for (let i = 0; i < 3; i++) step(dt / 3);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  $('sf-speed').addEventListener('input', draw);
+  $('sf-power').addEventListener('input', draw);
+  $('sf-flaps').addEventListener('click', () => { cfg = 'flaps'; $('sf-flaps').classList.add('active'); $('sf-clean').classList.remove('active'); draw(); });
+  $('sf-clean').addEventListener('click', () => { cfg = 'clean'; $('sf-clean').classList.add('active'); $('sf-flaps').classList.remove('active'); draw(); });
+  $('sf-level').addEventListener('click', () => {
+    const { c, Vt } = targets();
+    const need = clamp(preq(Vt, W, c.cd0).total / PAV_MAX * 100, 20, 100);
+    $('sf-power').value = Math.round(need); draw();
+  });
+  $('sf-reset').addEventListener('click', () => { alt = 0; trail = []; draw(); });
+  requestAnimationFrame(loop);
   return { draw };
 })();
 
