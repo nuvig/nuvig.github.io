@@ -64,7 +64,13 @@ async function fetchJSON(url) {
 /* ========================= solar (NOAA equations) ======================== */
 // Accurate to ~1 min. zenith 90.833° = sunrise/sunset, 96° = civil twilight.
 function solarTimes(date, lat, lon) {
-  const doy = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+  // Anchor on the calendar day *at the airport* (TZ), not the viewer's browser
+  // timezone. Using browser-local Y/M/D here put the UTC-midnight base a day off
+  // for viewers west of the airport, pushing dawn/dusk outside the scored window
+  // so every hour read as night.
+  const [y, mo, d] = date.toLocaleDateString('en-CA', { timeZone: TZ }).split('-').map(Number);
+  const base = Date.UTC(y, mo - 1, d); // 00:00 UTC of that calendar day
+  const doy = Math.floor((base - Date.UTC(y, 0, 0)) / 86400000);
   const g = (2 * Math.PI / 365) * (doy - 1 + 0.5);
   const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
     - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
@@ -78,8 +84,7 @@ function solarTimes(date, lat, lon) {
     const ha = (Math.acos(cosH) * 180 / Math.PI) * (rising ? 1 : -1);
     return 720 - 4 * (lon + ha) - eqtime;
   };
-  const mk = (min) => min == null ? null :
-    new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) + min * 60000);
+  const mk = (min) => min == null ? null : new Date(base + min * 60000);
   return {
     dawn: mk(utcMin(96, true)),
     sunrise: mk(utcMin(90.833, true)),
