@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aviation Tools — interactive explainers &amp; flight planning tools</title>
+  <meta name="description" content="Interactive aviation tools: instrument procedure explorer, eights-on-pylons and power-curve explainers, an atmosphere and performance lab, and an expandable aviation knowledge map.">
+  <link rel="canonical" href="https://jesselevine.net/tools.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/tools.html">
+  <meta property="og:title" content="Aviation Tools — Jesse Levine, CFI/CFII/MEI">
+  <meta property="og:description" content="Interactive aviation tools: procedure explorer, maneuver and aerodynamics explainers, an atmosphere lab, and an aviation knowledge map.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 940px; }
+
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+
+    .subtitle { color: var(--muted); margin: 4px 0 8px; font-size: 0.95rem; max-width: 640px; }
+
+    .cat { margin: 34px 0 0; }
+    .cat > h2 {
+      margin: 0 0 2px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #bbb;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .cat > .cat-lede { margin: 0 0 12px; font-size: 0.85rem; color: var(--faint); }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 14px;
+    }
+
+    /* Reuse .card / .tracker-link from main.css; the grid supplies the spacing. */
+    .tool-grid .card {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .tool-grid .card h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: #ccc;
+    }
+    .tool-grid .card p {
+      margin: 0 0 12px;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .tool-grid .card .go { margin-top: auto; }
+
+    .tool-grid .card.soon {
+      border-style: dashed;
+      background: transparent;
+    }
+    .tool-grid .card.soon h3 { color: var(--faint); }
+  </style>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "Aviation Tools",
+    "url": "https://jesselevine.net/tools.html",
+    "description": "Interactive aviation tools and explainers built by Jesse Levine, CFI/CFII/MEI.",
+    "mainEntity": {
+      "@type": "ItemList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
+        { "@type": "ListItem", "position": 2, "name": "Eights on Pylons", "url": "https://jesselevine.net/eights.html" },
+        { "@type": "ListItem", "position": 3, "name": "The Power Curve", "url": "https://jesselevine.net/power.html" },
+        { "@type": "ListItem", "position": 4, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
+        { "@type": "ListItem", "position": 5, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
+      ]
+    }
+  }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Aviation Tools</h1>
+    <p class="subtitle">Interactive explainers and planning tools I built for flight instruction — free, no login, everything runs in your browser.</p>
+  </header>
+
+  <main>
+    <!-- To add a tool: drop another <a class="card tracker-link"> into the right
+         .tool-grid below. To add a category: copy a whole <section class="cat">
+         block. Keep new tools listed in the ItemList JSON-LD in <head> too. -->
+
+    <section class="cat">
+      <h2>Procedures &amp; Charts</h2>
+      <p class="cat-lede">Reading and flying published instrument procedures.</p>
+      <div class="tool-grid">
+        <a class="card tracker-link" href="/procedures.html">
+          <h3>🛫 Procedure Explorer</h3>
+          <p>Overlay any US SID, STAR or instrument approach on the sectional, TAC or IFR chart. Pick transitions one at a time, animate the flow, and see the altitudes in 3D.</p>
+          <span class="go">Open the explorer →</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="cat">
+      <h2>Maneuvers &amp; Aerodynamics</h2>
+      <p class="cat-lede">The physics behind the maneuvers, made steerable.</p>
+      <div class="tool-grid">
+        <a class="card tracker-link" href="/eights.html">
+          <h3>✈️ Eights on Pylons</h3>
+          <p>Pivotal altitude derived and charted, plus a wind-aware simulation of the full figure eight — see exactly why the wingtip stays pinned to the pylon.</p>
+          <span class="go">Open the explainer →</span>
+        </a>
+
+        <a class="card tracker-link" href="/power.html">
+          <h3>⚡ The Power Curve</h3>
+          <p>Parasite versus induced power, minimum-power speed, and the region of reversed command — with a live approach simulation of the low-and-slow trap.</p>
+          <span class="go">Open the explainer →</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="cat">
+      <h2>Atmosphere &amp; Performance</h2>
+      <p class="cat-lede">How the air itself flies the airplane.</p>
+      <div class="tool-grid">
+        <a class="card tracker-link" href="/airlab.html">
+          <h3>🎈 Air Lab</h3>
+          <p>Interactive simulations of density altitude, true airspeed, ground speed and atmospheric stability — pull the levers and watch the performance numbers move.</p>
+          <span class="go">Open the lab →</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="cat">
+      <h2>Study &amp; Reference</h2>
+      <p class="cat-lede">Ground-school material and the connections between it.</p>
+      <div class="tool-grid">
+        <a class="card tracker-link" href="/knowledge.html">
+          <h3>🧭 Aviation Knowledge Map</h3>
+          <p>An expandable concept graph of the whole airplane knowledge web — aerodynamics, systems, weather, navigation, airspace, regs and more — with the cross-links between them.</p>
+          <span class="go">Open the map →</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+
+  <footer>
+    <p>© Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+  </footer>
+</body>
+</html>
