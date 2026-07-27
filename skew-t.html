@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skew-T Explorer — KANP soundings</title>
-  <meta name="description" content="Interactive Skew-T log-p diagram for Lee Airport (KANP), Annapolis MD: model forecast soundings, CAPE/CIN, LCL cloud base, freezing level, wind barbs, and a plain-language guide to reading soundings.">
+  <meta name="description" content="Interactive Skew-T log-p diagram for Lee Airport (KANP), Annapolis MD: model forecast soundings for any US airport, SPC observed balloon soundings with explain-on-hover, CAPE/CIN, cloud bases, freezing level, and a guide to how balloon data becomes model forecasts.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -92,6 +92,11 @@
     <label>Site
       <select id="site-select"></select>
     </label>
+    <label>Any airport
+      <input type="text" id="site-input" placeholder="e.g. APA" size="6" maxlength="4"
+             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
+    </label>
+    <button class="btn" id="site-go">Go</button>
     <label>Model
       <select id="model-select">
         <option value="best_match">Best match</option>
@@ -126,6 +131,143 @@
         <div id="summary" class="explain" style="font-size:13px"></div>
       </div>
     </div>
+  </div>
+
+  <div class="section-title">Observed soundings — Storm Prediction Center</div>
+  <p class="subtitle" style="margin-top:0">
+    The real thing: weather-balloon (radiosonde) soundings rendered by SPC's SHARP analysis.
+    Hover anywhere on the chart for an explanation of the panel under your cursor — inside the
+    Skew-T itself you'll get the actual observed values at that level.
+  </p>
+
+  <div class="controls">
+    <label>RAOB site
+      <input type="text" id="obs-station" value="IAD" list="raob-sites" size="6" maxlength="4"
+             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
+    </label>
+    <datalist id="raob-sites">
+      <option value="IAD">Sterling VA (nearest to KANP)</option>
+      <option value="WAL">Wallops Island VA</option>
+      <option value="PIT">Pittsburgh PA</option>
+      <option value="OKX">Upton NY</option>
+      <option value="ALB">Albany NY</option>
+      <option value="BUF">Buffalo NY</option>
+      <option value="GSO">Greensboro NC</option>
+      <option value="RNK">Blacksburg VA</option>
+      <option value="MHX">Newport NC</option>
+      <option value="CHS">Charleston SC</option>
+      <option value="FFC">Peachtree City GA</option>
+      <option value="BNA">Nashville TN</option>
+      <option value="BMX">Birmingham AL</option>
+      <option value="ILN">Wilmington OH</option>
+      <option value="DTX">Detroit MI</option>
+      <option value="GRB">Green Bay WI</option>
+      <option value="MPX">Minneapolis MN</option>
+      <option value="ILX">Lincoln IL</option>
+      <option value="DVN">Davenport IA</option>
+      <option value="SGF">Springfield MO</option>
+      <option value="TOP">Topeka KS</option>
+      <option value="OAX">Omaha NE</option>
+      <option value="OUN">Norman OK</option>
+      <option value="FWD">Fort Worth TX</option>
+      <option value="AMA">Amarillo TX</option>
+      <option value="MAF">Midland TX</option>
+      <option value="SHV">Shreveport LA</option>
+      <option value="LIX">Slidell LA</option>
+      <option value="JAX">Jacksonville FL</option>
+      <option value="TBW">Tampa Bay FL</option>
+      <option value="MFL">Miami FL</option>
+      <option value="DNR">Denver CO</option>
+      <option value="ABQ">Albuquerque NM</option>
+      <option value="SLC">Salt Lake City UT</option>
+      <option value="TUS">Tucson AZ</option>
+      <option value="NKX">San Diego CA</option>
+      <option value="OAK">Oakland CA</option>
+      <option value="SLE">Salem OR</option>
+      <option value="OTX">Spokane WA</option>
+      <option value="BIS">Bismarck ND</option>
+    </datalist>
+    <label>Launch
+      <select id="obs-cycle"></select>
+    </label>
+    <span id="obs-status" style="color:#f59e0b"></span>
+  </div>
+
+  <div class="layout" style="grid-template-columns: 1fr 340px">
+    <div class="card" id="obs-img-wrap" style="padding:6px; position:relative">
+      <img id="obs-img" alt="SPC observed sounding" style="width:100%; display:block; border-radius:6px; cursor:crosshair; background:#fff">
+      <div id="obs-readout" style="font-size:12px; color:#888; padding:6px 10px 2px; font-variant-numeric:tabular-nums; min-height:22px"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3 id="obs-hover-title">Hover the chart</h3>
+        <div id="obs-hover-body" class="explain" style="font-size:13px"></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Derived from the observed data</h3>
+        <div id="obs-indices"></div>
+        <div class="idx-note">
+          Computed here from the raw balloon data (via the Iowa Environmental
+          Mesonet archive) using the same surface-parcel engine as the model
+          section above — they will differ slightly from SPC's numbers, which
+          use virtual temperature and effective-layer parcels.
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Quick take</h3>
+        <div id="obs-summary" class="explain" style="font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">From balloon to forecast — how the two views connect</div>
+  <div class="card explain">
+    <p>
+      Twice a day, at 00Z and 12Z, about 92 U.S. National Weather Service offices release
+      weather balloons. Each radiosonde climbs at roughly 1,000 ft/min for about two hours,
+      radioing back pressure, temperature, and humidity while GPS drift gives the winds —
+      one true measured column of atmosphere, up to ~100,000 ft. The SPC chart above is that
+      raw ascent drawn by their SHARP analysis package, with the severe-weather math laid out
+      around it. Our nearest launch site is Sterling VA (IAD), about 40 nm west of Annapolis.
+    </p>
+    <h4>Assimilation: the balloon teaches the model</h4>
+    <p>
+      Those observations don't stay on a chart. Every RAOB — along with satellite radiances,
+      aircraft reports, surface stations, and radar — is fed into <strong>data assimilation</strong>,
+      the step where a model's previous forecast is nudged toward what was actually measured.
+      Radiosondes are disproportionately valuable here: they are one of the few direct,
+      full-column truth measurements, so they anchor the satellite data that fills the gaps
+      between launch sites. The corrected 3-D snapshot (the <em>analysis</em>) becomes the
+      starting point from which the GFS, HRRR, ICON and friends integrate the equations of
+      motion forward in time.
+    </p>
+    <h4>From grid to the diagram at the top of this page</h4>
+    <p>
+      The model's output is a grid — for the GFS, roughly 13 nm between points; for the HRRR,
+      about 1.6 nm — with values stored at standard pressure levels (1000, 975, 950 … 100 hPa).
+      When you type an airport code above, the page looks up its coordinates, and Open-Meteo
+      pulls the model column nearest that point: temperature, humidity, wind, and geopotential
+      height at each level. This page then reconstructs dewpoint from humidity, lifts a surface
+      parcel, and draws the same kind of diagram SPC draws — except the "balloon" is virtual,
+      it exists everywhere, and it exists for tomorrow too.
+    </p>
+    <h4>Why they disagree — and which to trust</h4>
+    <ul>
+      <li><strong>Resolution</strong> — the balloon reports every few seconds of ascent and captures
+        razor-thin inversions and moist layers; the model column is smoothed onto ~21 levels here.
+        A 300-ft-thick freezing-drizzle layer can be invisible in the model sounding.</li>
+      <li><strong>Time and place</strong> — the RAOB is truth, but only at 00Z/12Z and only at the
+        launch site (and the balloon drifts downwind as it climbs). The model column is an
+        estimate, but for any hour and any point.</li>
+      <li><strong>Drift with lead time</strong> — a model sounding valid an hour from now is usually
+        excellent; at 48 h, timing errors in fronts and moisture grow. Comparing the 12Z IAD
+        balloon against the model's 12Z column (set the slider above to the same hour) is the
+        honest way to judge how much to trust today's forecast soundings.</li>
+    </ul>
+    <p class="idx-note">
+      Good habit: check the morning IAD balloon here, note where the inversions and moisture
+      really are, then watch how the forecast soundings evolve them through the day.
+    </p>
   </div>
 
   <div class="section-title">How to read a Skew-T</div>
@@ -186,6 +328,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/skewt.js"></script>
+  <script src="js/skewt.js?v=2"></script>
+  <script src="js/skewt-obs.js?v=1"></script>
 </body>
 </html>

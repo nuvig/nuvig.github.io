@@ -83,6 +83,47 @@
     siteSel.appendChild(o);
   });
 
+  // ------------------------------------------------- any-airport lookup
+  // Geocode an ICAO/IATA-style code via api.weather.gov station metadata
+  // (CORS-open) and add it to the site list. US stations only.
+  async function lookupAirport(codeRaw) {
+    const code = codeRaw.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,4}$/.test(code)) throw new Error('enter a 3–4 letter airport id');
+    const tries = code.length === 3 ? ['K' + code, code] : [code];
+    for (const id of tries) {
+      const r = await fetch('https://api.weather.gov/stations/' + id);
+      if (!r.ok) continue;
+      const j = await r.json();
+      const [lon, lat] = j.geometry.coordinates;
+      const elevM = j.properties.elevation ? j.properties.elevation.value : 0;
+      return { id, name: j.properties.name || id, lat, lon,
+               elevFt: Math.round((elevM || 0) / 0.3048) };
+    }
+    throw new Error(code + ' not found (US stations only)');
+  }
+
+  async function addAirport() {
+    const inp = $('site-input');
+    $('status-msg').textContent = 'looking up ' + inp.value.toUpperCase() + '…';
+    try {
+      const site = await lookupAirport(inp.value);
+      let i = sites.findIndex(s => s.id === site.id);
+      if (i === -1) {
+        i = sites.length;
+        sites.push(site);
+        const o = document.createElement('option');
+        o.value = i; o.textContent = `${site.id} — ${site.name}`;
+        siteSel.appendChild(o);
+      }
+      siteSel.value = i;
+      inp.value = '';
+      $('status-msg').textContent = '';
+      load();
+    } catch (e) {
+      $('status-msg').textContent = e.message;
+    }
+  }
+
   // ---------------------------------------------------------------- fetch
   function apiUrl(site, model) {
     const vars = [];
@@ -289,7 +330,7 @@
     : Math.round(ft / 100) * 100 + ' ft AGL';
 
   // ---------------------------------------------------------------- summary
-  function writeSummary(prof, pcl, idx) {
+  function summaryHTML(prof, pcl) {
     const bits = [];
     if (pcl.cape > 1500 && pcl.cin > -50)
       bits.push('<strong style="color:#ef4444">Strong instability with little cap</strong> — thunderstorms likely if lift arrives.');
@@ -322,7 +363,7 @@
     if (icing.length)
       bits.push(`<strong style="color:#f59e0b">Icing band</strong>: moisture at ${fmtFt(icing[0].z / 0.3048)}–${fmtFt(icing[icing.length - 1].z / 0.3048)} between 0 and −20 °C.`);
 
-    $('summary').innerHTML = bits.map(b => `<p>${b}</p>`).join('');
+    return bits.map(b => `<p>${b}</p>`).join('');
   }
 
   // ---------------------------------------------------------------- drawing
@@ -557,7 +598,7 @@
       $('indices').innerHTML = idx.map(r =>
         `<div class="kv"><span class="k">${r.k}</span>` +
         `<span class="v${r.cls ? ' ' + r.cls : ''}">${r.v}</span></div>`).join('');
-      writeSummary(sounding, parcel, idx);
+      $('summary').innerHTML = summaryHTML(sounding, parcel);
     } else {
       $('indices').innerHTML = '<div class="kv"><span class="k">no data at this hour</span></div>';
       $('summary').textContent = '';
@@ -574,9 +615,15 @@
     $('hour-slider').value = hourIdx; update();
   });
   siteSel.addEventListener('change', load);
+  $('site-go').addEventListener('click', addAirport);
+  $('site-input').addEventListener('keydown', ev => { if (ev.key === 'Enter') addAirport(); });
   $('model-select').addEventListener('change', load);
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(draw, 150); });
 
   load();
+
+  // Analysis engine shared with the observed-sounding module (skewt-obs.js):
+  // works on any profile array of {p,T,Td,ws,wd,z} sorted surface-first.
+  window.SkewTCore = { analyzeParcel, computeIndices, summaryHTML };
 })();
