@@ -206,12 +206,18 @@
     <label>Launch
       <select id="obs-cycle"></select>
     </label>
+    <label style="display:flex;align-items:center;gap:6px">Zoom
+      <input type="range" id="obs-zoom" min="100" max="260" step="5" value="100"
+             style="width:110px;accent-color:#4a9eff">
+    </label>
     <span id="obs-status" style="color:#f59e0b"></span>
   </div>
 
   <div class="layout" style="grid-template-columns: 1fr 340px">
     <div class="card" id="obs-img-wrap" style="padding:6px; position:relative">
-      <img id="obs-img" alt="SPC observed sounding" style="width:100%; display:block; border-radius:6px; cursor:crosshair; background:#fff">
+      <div id="obs-scroll" style="overflow:auto; max-height:80vh; border-radius:6px">
+        <img id="obs-img" alt="SPC observed sounding" style="width:100%; display:block; cursor:crosshair; background:#fff">
+      </div>
       <div id="obs-readout" style="font-size:12px; color:#888; padding:6px 10px 2px; font-variant-numeric:tabular-nums; min-height:22px"></div>
     </div>
     <div>
@@ -353,6 +359,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/skewt.js?v=4"></script>
-  <script src="js/skewt-obs.js?v=1"></script>
+  <script src="js/skewt-obs.js?v=2"></script>
 </body>
 </html>

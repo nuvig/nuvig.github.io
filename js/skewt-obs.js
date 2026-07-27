@@ -83,6 +83,72 @@
   const pFromY = fy => Math.exp(Math.log(100) +
     (fy - Y_P100) / (Y_P1000 - Y_P100) * Math.log(10));
 
+  // ------------------------------------------------------------- stations
+  // CONUS RAOB launch sites (SPC 3-letter id → lat, lon) for the
+  // nearest-site fallback when someone types a non-balloon airport.
+  const RAOBS = {
+    ABQ: [35.04, -106.62], ABR: [45.45, -98.41],  ALB: [42.69, -73.83],
+    AMA: [35.23, -101.71], APX: [44.91, -84.72],  BIS: [46.77, -100.75],
+    BMX: [33.16, -86.76],  BNA: [36.25, -86.57],  BOI: [43.57, -116.21],
+    BRO: [25.92, -97.42],  BUF: [42.94, -78.72],  CAR: [46.87, -68.01],
+    CHS: [32.90, -80.03],  CRP: [27.77, -97.50],  DDC: [37.77, -99.97],
+    DNR: [39.77, -104.87], DRT: [29.37, -100.92], DTX: [42.70, -83.47],
+    DVN: [41.61, -90.58],  EPZ: [31.87, -106.70], EYW: [24.55, -81.75],
+    FFC: [33.36, -84.57],  FGZ: [35.23, -111.82], FWD: [32.83, -97.30],
+    GGW: [48.21, -106.63], GJT: [39.11, -108.53], GRB: [44.48, -88.13],
+    GSO: [36.08, -79.94],  GYX: [43.89, -70.25],  IAD: [38.98, -77.47],
+    ILN: [39.42, -83.82],  ILX: [40.15, -89.34],  INL: [48.57, -93.38],
+    JAN: [32.32, -90.08],  JAX: [30.48, -81.70],  LBF: [41.13, -100.68],
+    LCH: [30.12, -93.22],  LIX: [30.34, -89.83],  LKN: [40.87, -115.73],
+    LZK: [34.84, -92.26],  MAF: [31.94, -102.19], MFL: [25.75, -80.38],
+    MFR: [42.37, -122.87], MHX: [34.78, -76.88],  MPX: [44.85, -93.56],
+    NKX: [32.87, -117.15], OAK: [37.73, -122.21], OAX: [41.32, -96.37],
+    OKX: [40.87, -72.86],  OTX: [47.68, -117.63], OUN: [35.18, -97.44],
+    PIT: [40.53, -80.23],  REV: [39.57, -119.80], RIW: [43.06, -108.48],
+    RNK: [37.20, -80.41],  SGF: [37.24, -93.40],  SHV: [32.45, -93.84],
+    SLC: [40.77, -111.95], SLE: [44.92, -123.00], TBW: [27.70, -82.40],
+    TFX: [47.46, -111.38], TLH: [30.40, -84.35],  TOP: [39.07, -95.62],
+    TUS: [32.23, -110.96], UNR: [44.07, -103.21],
+    VEF: [36.05, -115.18], WAL: [37.94, -75.46],
+  };
+  // (deliberately omits XMR/VBG — range sites that don't launch every 00Z/12Z)
+
+  const distNm = (a, b, c, d) => {
+    const R = Math.PI / 180;
+    const x = (d - b) * R * Math.cos((a + c) / 2 * R), y = (c - a) * R;
+    return Math.hypot(x, y) * 3440;
+  };
+
+  function nearestRaob(lat, lon) {
+    let best = null, bd = 1e9;
+    for (const [id, [la, lo]] of Object.entries(RAOBS)) {
+      const dd = distNm(lat, lon, la, lo);
+      if (dd < bd) { bd = dd; best = id; }
+    }
+    return { id: best, nm: Math.round(bd) };
+  }
+
+  // typed id → RAOB site (falling back to the nearest launch site to that airport)
+  async function resolveStation(raw) {
+    const typed = raw.trim().toUpperCase();
+    const st = typed.replace(/^K(?=[A-Z]{3}$)/, '');
+    if (RAOBS[st]) return { st, note: '' };
+    // not a balloon site — geocode the airport and pick the closest one
+    const tries = st.length === 3 ? ['K' + st, st] : [st];
+    for (const id of tries) {
+      try {
+        const r = await fetch('https://api.weather.gov/stations/' + id);
+        if (!r.ok) continue;
+        const j = await r.json();
+        const [lon, lat] = j.geometry.coordinates;
+        const near = nearestRaob(lat, lon);
+        return { st: near.id,
+                 note: `${typed} doesn't launch balloons — showing the nearest site: ${near.id}, ${near.nm} nm away` };
+      } catch (e) { /* try next */ }
+    }
+    return { st, note: '' };            // unknown: let the image 404 explain
+  }
+
   // ------------------------------------------------------------- state
   let profile = null;       // [{p,T,Td,ws,wd,z}] surface-first, z AGL m
   let parcel = null;
@@ -97,16 +163,16 @@
   });
 
   // ------------------------------------------------------------- loading
-  function stationId() {
-    return $('obs-station').value.trim().toUpperCase().replace(/^K(?=[A-Z]{3}$)/, '');
-  }
-
   async function loadObs() {
-    const st = stationId();
-    if (!/^[A-Z0-9]{3}$/.test(st)) { $('obs-status').textContent = 'enter a 3-letter site id'; return; }
+    const raw = $('obs-station').value;
+    if (!/^[A-Z0-9]{3,4}$/.test(raw.trim().toUpperCase())) {
+      $('obs-status').textContent = 'enter a 3–4 letter site id'; return;
+    }
+    $('obs-status').textContent = 'looking up site…';
+    const { st, note } = await resolveStation(raw);
     const cyc = cycles[+cycSel.value];
     const key = st + spcStamp(cyc);
-    if (key === curKey) return;
+    if (key === curKey) { $('obs-status').textContent = note; return; }
     curKey = key;
     profile = parcel = null;
 
@@ -114,7 +180,7 @@
     const img = $('obs-img');
     $('obs-status').textContent = 'loading…';
     img.style.opacity = 0.35;
-    img.onload = () => { img.style.opacity = 1; $('obs-status').textContent = ''; };
+    img.onload = () => { img.style.opacity = 1; $('obs-status').textContent = note; };
     img.onerror = () => {
       img.style.opacity = 0.15;
       $('obs-status').textContent = `no SPC sounding for ${st} at ${cycleLabel(cyc)} — check the site id, or the balloon may not have launched`;
@@ -199,6 +265,11 @@
   });
 
   // ------------------------------------------------------------- wiring
+  // zoom: scale the image inside a scrollable frame; hover math uses the
+  // image's live bounding rect, so it keeps working at any size
+  $('obs-zoom').addEventListener('input', ev => {
+    $('obs-img').style.width = ev.target.value + '%';
+  });
   cycSel.addEventListener('change', loadObs);
   $('obs-station').addEventListener('change', loadObs);
   $('obs-station').addEventListener('keydown', ev => { if (ev.key === 'Enter') loadObs(); });
