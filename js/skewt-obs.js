@@ -265,11 +265,6 @@
   });
 
   // ------------------------------------------------------------- wiring
-  // zoom: scale the image inside a scrollable frame; hover math uses the
-  // image's live bounding rect, so it keeps working at any size
-  $('obs-zoom').addEventListener('input', ev => {
-    $('obs-img').style.width = ev.target.value + '%';
-  });
   cycSel.addEventListener('change', loadObs);
   $('obs-station').addEventListener('change', loadObs);
   $('obs-station').addEventListener('keydown', ev => { if (ev.key === 'Enter') loadObs(); });
