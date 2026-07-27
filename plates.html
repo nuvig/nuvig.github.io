@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approach Plate Decoder — every item on an FAA plate, explained</title>
+  <meta name="description" content="Click any item on an FAA instrument approach chart and find out what it means. Nine plates compared, from a textbook ILS to Aspen's 6.5° descent, Eagle County's offset LDA and the curved RNP down the Potomac.">
+  <link rel="canonical" href="https://jesselevine.net/plates.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/plates.html">
+  <meta property="og:title" content="Approach Plate Decoder — Jesse Levine, CFI/CFII/MEI">
+  <meta property="og:description" content="Every item on an FAA approach plate, explained — with nine standard and unusual procedures from around the NAS side by side.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1420px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #888; margin: 4px 0 14px; font-size: 14px; max-width: 900px; line-height: 1.6; }
+    .subtitle b { color: #bbb; }
+
+    /* ---- caution banner --------------------------------------------- */
+    .caution {
+      display: flex; gap: 12px; align-items: flex-start;
+      background: #241a0f; border: 1px solid #6b4a24; border-radius: 8px;
+      padding: 11px 14px; margin: 0 0 18px; font-size: 12.5px; line-height: 1.6; color: #e0b98c;
+      max-width: 1000px;
+    }
+    .caution .ic { font-size: 17px; line-height: 1.2; }
+    .caution b { color: #f5cf9c; }
+
+    /* ---- plate picker ------------------------------------------------ */
+    .pgroup { margin: 0 0 12px; }
+    .pglabel {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #6f7783; margin: 0 0 6px; font-weight: 700;
+    }
+    .pchips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pchip {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 8px;
+      padding: 7px 12px; font: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+      display: flex; flex-direction: column; gap: 2px; line-height: 1.35;
+    }
+    .pchip b { color: #cfe6ff; font-size: 13px; font-weight: 600; }
+    .pchip span { color: #6f7c8c; font-size: 10.5px; }
+    .pchip:hover { border-color: #4a9eff; }
+    .pchip.on { border-color: #4a9eff; background: #182534; }
+    .pchip.on b { color: #fff; }
+
+    /* ---- view switch -------------------------------------------------- */
+    .views { display: flex; gap: 8px; margin: 14px 0 12px; flex-wrap: wrap; align-items: center; }
+    .viewbtn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 16px; font: inherit; font-size: 12.5px; cursor: pointer;
+    }
+    .viewbtn.on { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .viewbtn:hover { border-color: #4a9eff; }
+    #cycle-note { margin-left: auto; font-size: 11px; color: #55606e; }
+
+    /* ---- main layout -------------------------------------------------- */
+    .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 16px; align-items: start; }
+
+    .toolbar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin: 0 0 8px; font-size: 12px; color: #7d8797;
+    }
+    .toolbar button {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 6px;
+      padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+    }
+    .toolbar button:hover { border-color: #4a9eff; color: #cfe6ff; }
+    #hover-name { color: #4a9eff; font-weight: 600; min-height: 16px; }
+    .tsep { width: 1px; height: 18px; background: #2a3a4d; }
+
+    #plate-scroll {
+      background: #0b0e13; border: 1px solid #2a3040; border-radius: 8px;
+      padding: 8px; overflow: auto; max-height: 88vh;
+    }
+    #plate-svg { display: block; height: auto; }
+    #plate-status { color: #d08a6a; font-size: 12.5px; min-height: 16px; }
+
+    /* svg interaction layers */
+    #plate-svg .hit { fill: transparent; pointer-events: all; cursor: pointer; }
+    #plate-svg .hi { fill: transparent; stroke: none; pointer-events: none; transition: fill 0.08s; }
+    #plate-svg .hi.hover { fill: rgba(74, 158, 255, 0.20); }
+    #plate-svg .hi.on { fill: rgba(74, 158, 255, 0.28); stroke: #1268c4; stroke-width: 1.6; }
+    #plate-svg text { font-family: 'Arial Narrow', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
+    /* ---- rail ---------------------------------------------------------- */
+    .rail { display: flex; flex-direction: column; gap: 12px; }
+    .rcard { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 13px 15px; }
+    .rcard h2 { margin: 0 0 2px; font-size: 15px; color: #e8eef6; }
+    .rcard .sub { color: #6f7c8c; font-size: 11.5px; margin: 0 0 10px; }
+    .rcard p { margin: 8px 0; font-size: 12.5px; line-height: 1.62; color: #a8b2bf; }
+    .rcard p b { color: #d7dee7; }
+    .rcard ul { margin: 6px 0 0; padding-left: 18px; }
+    .rcard li { font-size: 12.5px; line-height: 1.6; color: #a8b2bf; margin: 5px 0; }
+    .rcard li b { color: #d7dee7; }
+
+    #plate-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 10px 0 2px; }
+    .fact {
+      background: #14181e; border: 1px solid #2a3040; border-radius: 5px;
+      padding: 5px 8px; display: flex; flex-direction: column;
+    }
+    .fact .k { font-size: 9.5px; color: #6b7686; text-transform: uppercase; letter-spacing: 0.05em; }
+    .fact .v { font-size: 13px; color: #e8eef6; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .chart-link {
+      display: inline-block; margin-top: 8px; font-size: 12px; color: #4a9eff; text-decoration: none;
+    }
+    .chart-link:hover { text-decoration: underline; }
+
+    #el-panel { min-height: 150px; }
+    #el-panel .el-sec {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #4a9eff; font-weight: 700; margin-bottom: 3px;
+    }
+    #el-panel h3 { margin: 0 0 6px; font-size: 15px; color: #e8eef6; }
+    #el-panel .why { color: #9aa5b3; }
+    #el-panel .watch {
+      background: #1c1712; border-left: 2px solid #8a6135; padding: 7px 10px;
+      border-radius: 0 5px 5px 0; color: #cbb08e;
+    }
+    #el-panel .illus-note, #el-panel .src-note {
+      font-size: 11px; color: #6b7686; border-top: 1px solid #2a3040; padding-top: 8px; margin-bottom: 0;
+    }
+    #el-panel .illus-note { color: #a98a5f; }
+    #el-panel .hint { color: #737d8b; }
+
+    .idx-sec {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #6b7686; font-weight: 700; margin: 12px 0 4px;
+    }
+    .idx-sec:first-child { margin-top: 0; }
+    .idx-item {
+      display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+      background: none; border: 0; color: #9aa5b3; font: inherit; font-size: 12px;
+      padding: 3px 5px; border-radius: 4px; cursor: pointer;
+    }
+    .idx-item:hover { background: #1e2732; color: #cfe6ff; }
+    .idx-item.on { background: #182534; color: #cfe6ff; }
+    .idx-item .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #4a9eff; flex: none;
+    }
+    .idx-item.absent { color: #565f6b; }
+    .idx-item.absent .dot { background: #39424e; }
+    .idx-item .na { margin-left: auto; font-size: 9.5px; color: #4a525d; }
+    #el-index { max-height: 420px; overflow-y: auto; }
+
+    /* ---- compare ------------------------------------------------------- */
+    #view-compare { overflow-x: auto; }
+    table.cmp { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 12.5px; }
+    table.cmp th {
+      text-align: left; padding: 8px 10px; color: #7d8797; font-weight: 600;
+      border-bottom: 1px solid #333; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    table.cmp td {
+      padding: 9px 10px; border-bottom: 1px solid #232323; color: #b6c0cd;
+      font-variant-numeric: tabular-nums; vertical-align: top;
+    }
+    table.cmp td .sub { color: #616b78; font-size: 10.5px; }
+    table.cmp td.hot { color: #f0a97f; font-weight: 600; }
+    table.cmp .lnk {
+      background: none; border: 0; color: #cfe6ff; font: inherit; font-size: 12.5px;
+      font-weight: 600; padding: 0; cursor: pointer; text-align: left;
+    }
+    table.cmp .lnk:hover { color: #4a9eff; text-decoration: underline; }
+
+    .footer-note { margin-top: 28px; font-size: 11.5px; color: #555; line-height: 1.7; max-width: 980px; }
+    .footer-note b { color: #7d8797; }
+    .footer-note a { color: #4a6d95; }
+
+    @media (max-width: 1080px) {
+      .wrap { grid-template-columns: minmax(0, 1fr); }
+      #plate-scroll { max-height: none; }
+      #el-index { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/tools.html">&larr; Aviation Tools</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">🗺️ Approach Plate Decoder</h1>
+  <p class="subtitle">
+    An FAA instrument approach chart is a dense sheet where <b>every mark means something</b>, and almost
+    none of it is labelled. This page rebuilds nine of them — three ordinary ones and six of the strangest
+    in the national airspace system — and lets you click any item to find out what it is, why it is there,
+    and what it is quietly telling you. Then compare them side by side and see what actually changes
+    between a textbook ILS and a 6.5° descent into a Colorado valley.
+  </p>
+
+  <div class="caution">
+    <span class="ic">⚠</span>
+    <div>
+      <b>Not for navigation.</b> These are schematic teaching recreations, not copies of the published charts.
+      The geometry — fixes, courses, altitudes, glidepath angles, runways, field elevations — is drawn live
+      from the FAA CIFP cycle this site ships. Everything a CIFP file does <i>not</i> carry — frequencies,
+      minimums, notes, TDZE, lighting — is authored by hand, marked <b>◊&nbsp;illustrative</b> in the
+      explanation panel, and is <b>not</b> a substitute for the real plate. Every procedure links to its
+      official chart. Terminal procedures change every 28 days.
+    </div>
+  </div>
+
+  <div id="plate-picker"></div>
+
+  <div class="views">
+    <button class="viewbtn on" data-view="plate">Decode a plate</button>
+    <button class="viewbtn" data-view="compare">Compare all nine</button>
+    <span id="cycle-note"></span>
+  </div>
+
+  <section id="view-plate">
+    <div class="wrap">
+      <div>
+        <div class="toolbar">
+          <button id="tour-prev" title="Previous item (←)">← Prev</button>
+          <button id="tour-next" title="Next item (→)">Guided tour →</button>
+          <button id="tour-clear" title="Clear selection (Esc)">Clear</button>
+          <span id="tour-pos" style="font-variant-numeric:tabular-nums"></span>
+          <span class="tsep"></span>
+          <button id="zoom-out">−</button>
+          <span id="zoom-val" style="min-width:42px; text-align:center">100%</span>
+          <button id="zoom-in">+</button>
+          <button id="zoom-fit">Fit</button>
+          <span class="tsep"></span>
+          <span id="hover-name"></span>
+        </div>
+        <div id="plate-status"></div>
+        <div id="plate-scroll">
+          <svg id="plate-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1292" width="1000"></svg>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="rcard">
+          <h2 id="plate-name">—</h2>
+          <div class="sub" id="plate-sub"></div>
+          <div id="plate-facts"></div>
+          <p id="plate-lead"></p>
+          <p style="margin-bottom:2px"><b>What to notice</b></p>
+          <ul id="plate-why"></ul>
+          <a class="chart-link" id="plate-real" href="#" target="_blank" rel="noopener">
+            See the official FAA chart for this approach →
+          </a>
+        </div>
+
+        <div class="rcard" id="el-panel"></div>
+
+        <div class="rcard">
+          <h2 style="font-size:13px; color:#aab4c1; margin-bottom:8px">Every item on the plate</h2>
+          <div id="el-index"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-compare" hidden>
+    <div id="cmp-body"></div>
+    <p class="footer-note" style="margin-top:14px">
+      Every column here is computed from the FAA CIFP cycle, not typed in: the final approach course is the
+      bearing of the last final-segment leg converted to magnetic, the glidepath is the procedure's coded
+      vertical angle, and the missed approach altitude is the climb constraint on the missed segment.
+      Anything above <b>3.1°</b> or a field above <b>5,000 ft</b> is highlighted.
+    </p>
+  </section>
+
+  <p class="footer-note">
+    <b>How the drawings are built.</b> Each plate names an airport and a procedure id; the page fetches
+    <code>data/procedures/apt/{ICAO}.json</code> — the same FAA CIFP extract that powers the
+    <a href="/procedures.html">Procedure Explorer</a> — decodes the ARINC 424 leg sequence, and renders the
+    plan view, profile and briefing values from it. The final approach fix is identified as the last named
+    fix before the leg where the coded vertical path begins; the missed approach point is the last fix of
+    the final segment. Distances in the profile are straight-line between fixes, so a procedure built from
+    curved RF legs reads slightly short.
+    <br><br>
+    <b>What is not real.</b> Frequencies, minimums, procedure notes, TDZE and lighting are hand-authored to
+    show what those boxes contain and where they sit — they are flagged in the explanation panel and must
+    not be used to fly. Terrain contours and special-use airspace are drawn schematically. The chart
+    reference and amendment numbers are placeholders.
+    <br><br>
+    Reference material: FAA <i>Instrument Procedures Handbook</i> (FAA-H-8083-16), <i>Instrument Flying
+    Handbook</i> (FAA-H-8083-15), the <i>Aeronautical Chart User's Guide</i>, and TERPS (FAA Order 8260.3).
+    Nothing leaves your browser.
+  </p>
+
+  <script src="js/plates-data.js"></script>
+  <script src="js/plates.js"></script>
+</body>
+</html>

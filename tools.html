@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Aviation Tools — interactive explainers &amp; flight planning tools</title>
-  <meta name="description" content="Interactive aviation tools: instrument procedure explorer, eights-on-pylons and power-curve explainers, an atmosphere and performance lab, and an expandable aviation knowledge map.">
+  <meta name="description" content="Interactive aviation tools: instrument procedure explorer, an approach plate decoder, eights-on-pylons and power-curve explainers, an atmosphere and performance lab, and an expandable aviation knowledge map.">
   <link rel="canonical" href="https://jesselevine.net/tools.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -77,10 +77,11 @@
       "@type": "ItemList",
       "itemListElement": [
         { "@type": "ListItem", "position": 1, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
-        { "@type": "ListItem", "position": 2, "name": "Eights on Pylons", "url": "https://jesselevine.net/eights.html" },
-        { "@type": "ListItem", "position": 3, "name": "The Power Curve", "url": "https://jesselevine.net/power.html" },
-        { "@type": "ListItem", "position": 4, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
-        { "@type": "ListItem", "position": 5, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
+        { "@type": "ListItem", "position": 2, "name": "Approach Plate Decoder", "url": "https://jesselevine.net/plates.html" },
+        { "@type": "ListItem", "position": 3, "name": "Eights on Pylons", "url": "https://jesselevine.net/eights.html" },
+        { "@type": "ListItem", "position": 4, "name": "The Power Curve", "url": "https://jesselevine.net/power.html" },
+        { "@type": "ListItem", "position": 5, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
+        { "@type": "ListItem", "position": 6, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
       ]
     }
   }
@@ -100,11 +101,18 @@
     <section class="cat">
       <h2>Procedures &amp; Charts</h2>
       <p class="cat-lede">Reading and flying published instrument procedures.</p>
+      <!-- Both tools read data/procedures/, rebuilt each AIRAC cycle by scripts/build_procedures.py. -->
       <div class="tool-grid">
         <a class="card tracker-link" href="/procedures.html">
           <h3>🛫 Procedure Explorer</h3>
           <p>Overlay any US SID, STAR or instrument approach on the sectional, TAC or IFR chart. Pick transitions one at a time, animate the flow, and see the altitudes in 3D.</p>
           <span class="go">Open the explorer →</span>
+        </a>
+
+        <a class="card tracker-link" href="/plates.html">
+          <h3>🗺️ Approach Plate Decoder</h3>
+          <p>Click any item on an FAA approach chart and find out what it means. Nine plates side by side, from a textbook ILS to Aspen's 6.5° descent, an offset LDA into Eagle County and the curved RNP down the Potomac.</p>
+          <span class="go">Decode a plate →</span>
         </a>
       </div>
     </section>
