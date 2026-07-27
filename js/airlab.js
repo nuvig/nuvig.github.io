@@ -839,7 +839,7 @@ function forcesTick(dt) {
 
   // molecule stream: density-scaled population (exaggerated like the page
   // background), TAS-scaled speed
-  const N = Math.round(clamp(W * H / 2200, 40, 150) * Math.pow(c.sigma, 2.2));
+  const N = Math.round(clamp(W * H / 900, 100, 380) * Math.pow(c.sigma, 2.2));
   while (forces.parts.length < N) {
     forces.parts.push({ x: Math.random() * W, y: Math.random() * H, vy: 0, j: Math.random() });
   }
