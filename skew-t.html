@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skew-T Explorer — KANP soundings</title>
+  <title>Skew-T Explorer — soundings, explained</title>
   <meta name="description" content="Interactive Skew-T log-p diagram for Lee Airport (KANP), Annapolis MD: model forecast soundings for any US airport, SPC observed balloon soundings with explain-on-hover, CAPE/CIN, cloud bases, freezing level, and a guide to how balloon data becomes model forecasts.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -86,56 +86,64 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Skew-T Explorer</h1>
-  <p class="subtitle">Model forecast soundings over Lee Airport (KANP) — vertical temperature, moisture, and wind. Not for operational use.</p>
+  <p class="subtitle">A guided walk through atmospheric soundings — how to read the diagram, today's real
+    balloon data, how those balloons feed the models, and forecast soundings for any US airport.
+    Not for operational use.</p>
 
-  <div class="controls">
-    <label>Site
-      <select id="site-select"></select>
-    </label>
-    <label>Any airport
-      <input type="text" id="site-input" placeholder="e.g. APA" size="6" maxlength="4"
-             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
-    </label>
-    <button class="btn" id="site-go">Go</button>
-    <label>Model
-      <select id="model-select">
-        <option value="best_match">Best match</option>
-        <option value="gfs_seamless">GFS + HRRR</option>
-        <option value="gfs_global">GFS global</option>
-        <option value="icon_seamless">ICON</option>
-      </select>
-    </label>
-    <button class="btn" id="prev-hr">−1 h</button>
-    <input type="range" id="hour-slider" min="0" max="48" step="1" value="0">
-    <button class="btn" id="next-hr">+1 h</button>
-    <span id="valid-label">—</span>
-    <span id="status-msg"></span>
+  <div class="section-title">1 · How to read a Skew-T</div>
+  <div class="card explain">
+    <p>
+      A <strong>Skew-T log-p diagram</strong> plots one column of atmosphere: pressure
+      decreases upward on a log scale (so the vertical axis is roughly linear in
+      altitude), and isotherms are <em>skewed</em> 45° to the right — which is why the
+      temperature trace of a normal atmosphere runs nearly straight up the page
+      instead of leaning hard left.
+    </p>
+    <h4>The two data traces</h4>
+    <p>
+      <span class="swatch" style="background:#ef4444"></span><strong>Temperature</strong> and
+      <span class="swatch" style="background:#22c55e"></span><strong>dewpoint</strong>, plotted
+      against height. The horizontal gap between them is the moisture story:
+      where they nearly touch, the air is saturated — that's a cloud layer or fog.
+      Where they spread wide, the air is dry. Wind barbs on the right edge show
+      speed/direction at each level (each full barb = 10 kt, flag = 50 kt).
+    </p>
+    <h4>The background reference lines</h4>
+    <ul>
+      <li><span class="swatch" style="background:#3b4d63"></span><strong>Isotherms</strong> — constant temperature, skewed 45°. The 0 °C line matters most: it's the freezing level.</li>
+      <li><span class="swatch" style="background:#5c4a33"></span><strong>Dry adiabats</strong> — the path an unsaturated rising parcel cools along (~3 °C / 1,000 ft).</li>
+      <li><span class="swatch" style="background:#33524a"></span><strong>Moist adiabats</strong> — the slower cooling of a saturated parcel (condensation releases heat).</li>
+      <li><span class="swatch" style="background:#4a3d5c"></span><strong>Mixing-ratio lines</strong> — constant water-vapor content, in g/kg.</li>
+    </ul>
+    <h4>The parcel and CAPE</h4>
+    <p>
+      A parcel line lifts air from the surface: dry-adiabatically to the
+      <strong>LCL</strong> (where it saturates — a good estimate of cumulus cloud base),
+      then moist-adiabatically above. Where the parcel is <em>warmer</em> than the
+      environment it accelerates upward — that area totals to
+      <strong>CAPE</strong> (convective fuel). Where it's colder is
+      <strong>CIN</strong> — the cap that must be broken before storms can fire.
+      In the forecast diagram below, the parcel is the dashed white line, CAPE the
+      red shading, CIN the blue.
+    </p>
+    <h4>What a pilot looks for</h4>
+    <ul>
+      <li><strong>Cloud bases</strong> — LCL for cumulus; any level where T and Td pinch together marks a layer of cloud or high humidity.</li>
+      <li><strong>Stability</strong> — big CAPE with weak CIN on a summer afternoon means building cumulus and possible thunderstorms; a strong inversion (temperature increasing with height) traps haze and turbulence below it and gives smooth air above.</li>
+      <li><strong>Icing</strong> — visible moisture between 0 °C and about −20 °C is the structural-icing band; check where the traces are close together in that temperature range.</li>
+      <li><strong>Freezing level</strong> — where the temperature trace crosses 0 °C; drives icing and precipitation-type decisions.</li>
+      <li><strong>Wind shear</strong> — barbs changing speed or direction sharply over a short height, especially near the surface at dawn (low-level jet above a nocturnal inversion), warn of LLWS on climbout and mechanical turbulence.</li>
+    </ul>
+    <p class="idx-note">
+      Two ways to get a sounding: a real balloon (section 2, twice a day at fixed sites) or
+      a model's virtual column (section 4, any airport, any hour). Section 3 explains how
+      the first becomes the second.
+    </p>
   </div>
 
-  <div class="layout">
-    <div class="card" id="skewt-wrap">
-      <canvas id="skewt"></canvas>
-      <div id="hover-readout">hover the diagram for level readout</div>
-    </div>
-    <div>
-      <div class="card">
-        <h3>Derived indices</h3>
-        <div id="indices"></div>
-        <div class="idx-note">
-          Surface-based parcel, no virtual-temperature correction — CAPE runs
-          slightly low in moist air. Heights AGL from model geopotential.
-        </div>
-      </div>
-      <div class="card" style="margin-top:14px">
-        <h3>Quick take</h3>
-        <div id="summary" class="explain" style="font-size:13px"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section-title">Observed soundings — Storm Prediction Center</div>
+  <div class="section-title">2 · The real thing — observed balloon soundings (SPC)</div>
   <p class="subtitle" style="margin-top:0">
-    The real thing: weather-balloon (radiosonde) soundings rendered by SPC's SHARP analysis.
+    Weather-balloon (radiosonde) soundings rendered by the Storm Prediction Center's SHARP analysis.
     Hover anywhere on the chart for an explanation of the panel under your cursor — inside the
     Skew-T itself you'll get the actual observed values at that level.
   </p>
@@ -208,8 +216,8 @@
         <div id="obs-indices"></div>
         <div class="idx-note">
           Computed here from the raw balloon data (via the Iowa Environmental
-          Mesonet archive) using the same surface-parcel engine as the model
-          section above — they will differ slightly from SPC's numbers, which
+          Mesonet archive) using the same surface-parcel engine as the forecast
+          section below — they will differ slightly from SPC's numbers, which
           use virtual temperature and effective-layer parcels.
         </div>
       </div>
@@ -220,7 +228,7 @@
     </div>
   </div>
 
-  <div class="section-title">From balloon to forecast — how the two views connect</div>
+  <div class="section-title">3 · From balloon to forecast — how the two views connect</div>
   <div class="card explain">
     <p>
       Twice a day, at 00Z and 12Z, about 92 U.S. National Weather Service offices release
@@ -245,7 +253,7 @@
     <p>
       The model's output is a grid — for the GFS, roughly 13 nm between points; for the HRRR,
       about 1.6 nm — with values stored at standard pressure levels (1000, 975, 950 … 100 hPa).
-      When you type an airport code above, the page looks up its coordinates, and Open-Meteo
+      When you type an airport code in section 4 below, the page looks up its coordinates, and Open-Meteo
       pulls the model column nearest that point: temperature, humidity, wind, and geopotential
       height at each level. This page then reconstructs dewpoint from humidity, lifts a surface
       parcel, and draws the same kind of diagram SPC draws — except the "balloon" is virtual,
@@ -261,7 +269,7 @@
         estimate, but for any hour and any point.</li>
       <li><strong>Drift with lead time</strong> — a model sounding valid an hour from now is usually
         excellent; at 48 h, timing errors in fronts and moisture grow. Comparing the 12Z IAD
-        balloon against the model's 12Z column (set the slider above to the same hour) is the
+        balloon against the model's 12Z column (set the slider in section 4 to the same hour) is the
         honest way to judge how much to trust today's forecast soundings.</li>
     </ul>
     <p class="idx-note">
@@ -270,53 +278,52 @@
     </p>
   </div>
 
-  <div class="section-title">How to read a Skew-T</div>
-  <div class="card explain">
-    <p>
-      A <strong>Skew-T log-p diagram</strong> plots one column of atmosphere: pressure
-      decreases upward on a log scale (so the vertical axis is roughly linear in
-      altitude), and isotherms are <em>skewed</em> 45° to the right — which is why the
-      temperature trace of a normal atmosphere runs nearly straight up the page
-      instead of leaning hard left.
-    </p>
-    <h4>The two data traces</h4>
-    <p>
-      <span class="swatch" style="background:#ef4444"></span><strong>Temperature</strong> and
-      <span class="swatch" style="background:#22c55e"></span><strong>dewpoint</strong>, plotted
-      against height. The horizontal gap between them is the moisture story:
-      where they nearly touch, the air is saturated — that's a cloud layer or fog.
-      Where they spread wide, the air is dry. Wind barbs on the right edge show
-      speed/direction at each level (each full barb = 10 kt, flag = 50 kt).
-    </p>
-    <h4>The background reference lines</h4>
-    <ul>
-      <li><span class="swatch" style="background:#3b4d63"></span><strong>Isotherms</strong> — constant temperature, skewed 45°. The 0 °C line matters most: it's the freezing level.</li>
-      <li><span class="swatch" style="background:#5c4a33"></span><strong>Dry adiabats</strong> — the path an unsaturated rising parcel cools along (~3 °C / 1,000 ft).</li>
-      <li><span class="swatch" style="background:#33524a"></span><strong>Moist adiabats</strong> — the slower cooling of a saturated parcel (condensation releases heat).</li>
-      <li><span class="swatch" style="background:#4a3d5c"></span><strong>Mixing-ratio lines</strong> — constant water-vapor content, in g/kg.</li>
-    </ul>
-    <h4>The parcel and CAPE</h4>
-    <p>
-      The dashed white line lifts a surface parcel: dry-adiabatically to the
-      <strong>LCL</strong> (where it saturates — a good estimate of cumulus cloud base),
-      then moist-adiabatically above. Where the parcel is <em>warmer</em> than the
-      environment it accelerates upward — that area is shaded red and totals to
-      <strong>CAPE</strong> (convective fuel). Where it's colder, shaded blue, is
-      <strong>CIN</strong> — the cap that must be broken before storms can fire.
-    </p>
-    <h4>What a pilot looks for</h4>
-    <ul>
-      <li><strong>Cloud bases</strong> — LCL for cumulus; any level where T and Td pinch together marks a layer of cloud or high humidity.</li>
-      <li><strong>Stability</strong> — big CAPE with weak CIN on a summer afternoon means building cumulus and possible thunderstorms; a strong inversion (temperature increasing with height) traps haze and turbulence below it and gives smooth air above.</li>
-      <li><strong>Icing</strong> — visible moisture between 0 °C and about −20 °C is the structural-icing band; check where the traces are close together in that temperature range.</li>
-      <li><strong>Freezing level</strong> — where the temperature trace crosses 0 °C; drives icing and precipitation-type decisions.</li>
-      <li><strong>Wind shear</strong> — barbs changing speed or direction sharply over a short height, especially near the surface at dawn (low-level jet above a nocturnal inversion), warn of LLWS on climbout and mechanical turbulence.</li>
-    </ul>
-    <p class="idx-note">
-      These are <em>model forecast</em> soundings, not balloon observations — the nearest
-      real RAOB launches are Sterling VA (IAD) at 00Z/12Z, viewable at
-      <a href="https://www.spc.noaa.gov/exper/soundings/" target="_blank" rel="noopener">SPC</a>.
-    </p>
+  <div class="section-title">4 · Forecast soundings — <span id="model-site-name">KDCA</span></div>
+  <p class="subtitle" style="margin-top:0">
+    The same diagram, but from a model — a virtual balloon for any US airport, any hour out to
+    72 hours. Type an airport id and press Go.
+  </p>
+
+  <div class="controls">
+    <label>Any airport
+      <input type="text" id="site-input" placeholder="e.g. BWI" size="6" maxlength="4"
+             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
+    </label>
+    <button class="btn" id="site-go">Go</button>
+    <label>Model
+      <select id="model-select">
+        <option value="best_match">Best match</option>
+        <option value="gfs_seamless">GFS + HRRR</option>
+        <option value="gfs_global">GFS global</option>
+        <option value="icon_seamless">ICON</option>
+      </select>
+    </label>
+    <button class="btn" id="prev-hr">−1 h</button>
+    <input type="range" id="hour-slider" min="0" max="48" step="1" value="0">
+    <button class="btn" id="next-hr">+1 h</button>
+    <span id="valid-label">—</span>
+    <span id="status-msg"></span>
+  </div>
+
+  <div class="layout">
+    <div class="card" id="skewt-wrap">
+      <canvas id="skewt"></canvas>
+      <div id="hover-readout">hover the diagram for level readout</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Derived indices</h3>
+        <div id="indices"></div>
+        <div class="idx-note">
+          Surface-based parcel, no virtual-temperature correction — CAPE runs
+          slightly low in moist air. Heights AGL from model geopotential.
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Quick take</h3>
+        <div id="summary" class="explain" style="font-size:13px"></div>
+      </div>
+    </div>
   </div>
 
   <footer class="sources">
@@ -328,7 +335,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/skewt.js?v=2"></script>
+  <script src="js/skewt.js?v=3"></script>
   <script src="js/skewt-obs.js?v=1"></script>
 </body>
 </html>

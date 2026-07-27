@@ -69,19 +69,18 @@
 
   // ---------------------------------------------------------------- state
   const $ = id => document.getElementById(id);
-  const sites = [SITE.airport, ...SITE.weather.nearbyAirports];
+  // default forecast site; any-airport lookup replaces it
+  let curSite = { id: 'KDCA', name: 'Ronald Reagan Washington National Airport',
+                  lat: 38.8521, lon: -77.0377, elevFt: 15 };
   let data = null;          // parsed API response for current site+model
   let hourIdx = 0;
   let sounding = null;      // current profile array
   let parcel = null;        // current parcel analysis
   const cache = new Map();
 
-  const siteSel = $('site-select');
-  sites.forEach((s, i) => {
-    const o = document.createElement('option');
-    o.value = i; o.textContent = `${s.id} — ${s.name}`;
-    siteSel.appendChild(o);
-  });
+  function setSiteTitle() {
+    $('model-site-name').textContent = `${curSite.id} — ${curSite.name}`;
+  }
 
   // ------------------------------------------------- any-airport lookup
   // Geocode an ICAO/IATA-style code via api.weather.gov station metadata
@@ -106,17 +105,9 @@
     const inp = $('site-input');
     $('status-msg').textContent = 'looking up ' + inp.value.toUpperCase() + '…';
     try {
-      const site = await lookupAirport(inp.value);
-      let i = sites.findIndex(s => s.id === site.id);
-      if (i === -1) {
-        i = sites.length;
-        sites.push(site);
-        const o = document.createElement('option');
-        o.value = i; o.textContent = `${site.id} — ${site.name}`;
-        siteSel.appendChild(o);
-      }
-      siteSel.value = i;
+      curSite = await lookupAirport(inp.value);
       inp.value = '';
+      setSiteTitle();
       $('status-msg').textContent = '';
       load();
     } catch (e) {
@@ -141,7 +132,7 @@
   }
 
   async function load() {
-    const site = sites[+siteSel.value];
+    const site = curSite;
     const model = $('model-select').value;
     const key = site.id + '|' + model;
     $('status-msg').textContent = cache.has(key) ? '' : 'loading…';
@@ -192,7 +183,7 @@
     }
     prof.sort((a, b) => b.p - a.p);
     // surface z: geopotential heights are MSL; make z AGL using site elevation
-    const elevM = sites[+siteSel.value].elevFt * 0.3048;
+    const elevM = curSite.elevFt * 0.3048;
     for (const pt of prof) if (!pt.sfc) pt.z = Math.max(0, pt.z - elevM);
     return prof;
   }
@@ -614,13 +605,13 @@
     hourIdx = Math.min(+$('hour-slider').max, hourIdx + 1);
     $('hour-slider').value = hourIdx; update();
   });
-  siteSel.addEventListener('change', load);
   $('site-go').addEventListener('click', addAirport);
   $('site-input').addEventListener('keydown', ev => { if (ev.key === 'Enter') addAirport(); });
   $('model-select').addEventListener('change', load);
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(draw, 150); });
 
+  setSiteTitle();
   load();
 
   // Analysis engine shared with the observed-sounding module (skewt-obs.js):
