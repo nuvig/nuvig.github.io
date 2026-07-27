@@ -374,6 +374,60 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   // ---------------------------------------------------------------- 2D render
   const KIND_W = { enroute: 2.5, common: 5, runway: 3.5, transition: 2.5, final: 4.5, other: 3 };
 
+  // Coded procedures often break at radar-vector segments (a SID's runway leg
+  // ends "expect vectors", the common route starts at a fix miles away). Draw
+  // dotted connectors between consecutive stages of the same procedure so the
+  // intended flow reads even across the gap.
+  function stageOf(type, kind) {
+    const m = { SID: { runway: 0, common: 1, enroute: 2 },
+                STAR: { enroute: 0, common: 1, runway: 2 },
+                APP: { transition: 0, final: 1 } };
+    const s = m[type] && m[type][kind];
+    return s == null ? -1 : s;
+  }
+  function endVertex(geom, first) {
+    const segs = geom.segments.filter(s => s.style !== 'hold' && !s.missed);
+    if (!segs.length) return null;
+    const s = first ? segs[0] : segs[segs.length - 1];
+    return first ? s.pts[0] : s.pts[s.pts.length - 1];
+  }
+  function connectorsFor(apt, procId, set, proc) {
+    const items = [...set]
+      .map(idx => ({ stage: stageOf(proc.type, proc.trans[idx].k),
+                     g: getGeom(apt, procId, idx) }))
+      .filter(it => it.stage >= 0);
+    const out = [];
+    for (const it of items) {
+      const from = endVertex(it.g, false);
+      if (!from) continue;
+      let best = null;
+      for (const other of items) {
+        if (other.stage <= it.stage) continue;
+        const to = endVertex(other.g, true);
+        if (!to) continue;
+        const d = distNm(from, to);
+        if (!best || other.stage < best.stage
+            || (other.stage === best.stage && d < best.d))
+          best = { stage: other.stage, d, to };
+      }
+      if (!best || best.d <= 0.4 || best.d >= 80) continue;
+      // if the route already continues through this point via another selected
+      // transition (chained transitions share fixes), no connector is needed
+      let covered = false;
+      for (const other of items) {
+        if (other === it || covered) continue;
+        for (const s of other.g.segments) {
+          if (s.style === 'hold') continue;
+          for (const p of s.pts)
+            if (distNm(from, p) < 0.3) { covered = true; break; }
+          if (covered) break;
+        }
+      }
+      if (!covered) out.push([from, best.to]);
+    }
+    return out;
+  }
+
   function redraw() {
     overlay.clearLayers(); arrowLayer.clearLayers(); flowLayer.clearLayers();
     const airports = new Set(state.curApt ? [state.curApt] : []);
@@ -400,6 +454,13 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
             { sticky: true, className: 'fix-label' });
         }
         if (state.labels) drawFixes(g.fixes, color);
+      }
+      for (const [a, b] of connectorsFor(apt, procId, set, proc)) {
+        L.polyline([[a[0], a[1]], [b[0], b[1]]], {
+          color: '#cfd8e3', weight: 1.6, opacity: 0.55, dashArray: '2 7',
+        }).addTo(overlay)
+          .bindTooltip(`${apt} ${procId} · gap — expect vectors (see chart)`,
+            { sticky: true, className: 'fix-label' });
       }
     }
     // airport + runways
@@ -644,7 +705,8 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     const all = [];
     for (const [key, set] of state.sel) {
       const [apt, procId] = key.split('|');
-      if (!state.docs.get(apt)) continue;
+      const doc = state.docs.get(apt);
+      if (!doc) continue;
       for (const idx of set) {
         const g = getGeom(apt, procId, idx);
         for (const s of g.segments) {
@@ -653,6 +715,10 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
         }
         for (const fx of g.fixes) if (!(fx.missed && !state.missed)) fixes3.push(fx);
       }
+      const proc = doc.procs.find(p => p.id === procId);
+      for (const [a, b] of connectorsFor(apt, procId, set, proc))
+        all.push({ s: { pts: [a, b], style: 'connector', kind: 'other', missed: false },
+                   color: '#cfd8e3' });
     }
     if (!all.length) return null;
     let sy = 0, sx = 0, n = 0;
@@ -660,11 +726,46 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     ref = [sy / n, sx / n];
     const toXY = p => [(p[1] - ref[1]) * NM_LAT * Math.cos(ref[0] * D2R),
                        (p[0] - ref[0]) * NM_LAT];
+    const byTrans = new Map();               // "key|idx" -> converted paths in order
+    for (const item of all) {
+      const pts = item.s.pts.map(p => { const [x, y] = toXY(p); return [x, y, p[2] || 0]; });
+      const path = { pts, color: item.color, style: item.s.style,
+                     missed: item.s.missed, kind: item.s.kind };
+      paths.push(path);
+      if (item.tkey) {
+        if (!byTrans.has(item.tkey)) byTrans.set(item.tkey, []);
+        if (path.style !== 'hold' && path.style !== 'connector' && !path.missed)
+          byTrans.get(item.tkey).push(path);
+      }
+    }
+    // Transitions interpolate altitudes independently, so where one chains
+    // into another (shared fix) the ribbons can meet at different heights.
+    // Snap the upstream end to the downstream start, ramping the correction
+    // over the upstream transition so its profile stays smooth.
+    const groups = [...byTrans.values()].filter(g => g.length);
+    for (const A of groups) {
+      const la = A[A.length - 1].pts, end = la[la.length - 1];
+      for (const B of groups) {
+        if (A === B) continue;
+        const start = B[0].pts[0];
+        if (Math.hypot(end[0] - start[0], end[1] - start[1]) > 0.25) continue;
+        const delta = start[2] - end[2];
+        if (Math.abs(delta) < 50) continue;
+        let total = 0;
+        for (const p of A) for (let i = 1; i < p.pts.length; i++)
+          total += Math.hypot(p.pts[i][0] - p.pts[i - 1][0], p.pts[i][1] - p.pts[i - 1][1]);
+        if (total < 1e-6) { end[2] = start[2]; break; }
+        let cum = 0;
+        for (const p of A) for (let i = 0; i < p.pts.length; i++) {
+          if (i > 0) cum += Math.hypot(p.pts[i][0] - p.pts[i - 1][0], p.pts[i][1] - p.pts[i - 1][1]);
+          p.pts[i][2] += delta * (cum / total);
+        }
+        break;
+      }
+    }
     let lo = Infinity, hi = -Infinity;
-    for (const { s, color } of all) {
-      const pts = s.pts.map(p => { const [x, y] = toXY(p); return [x, y, p[2] || 0]; });
-      for (const p of pts) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
-      paths.push({ pts, color, style: s.style, missed: s.missed, kind: s.kind });
+    for (const p of paths) for (const q of p.pts) {
+      lo = Math.min(lo, q[2]); hi = Math.max(hi, q[2]);
     }
     const f3 = fixes3.map(fx => {
       const [x, y] = toXY([fx.lat, fx.lon]);
@@ -777,6 +878,13 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       strokePath(g, [[fx.x, fx.y, 0], [fx.x, fx.y, fx.alt]], proj);
     }
     for (const path of scene.paths) {
+      if (path.style === 'connector') {
+        g.setLineDash([2, 7]);
+        g.strokeStyle = 'rgba(205,215,225,0.55)'; g.lineWidth = 1.5;
+        strokePath(g, path.pts, proj);
+        g.setLineDash([]);
+        continue;
+      }
       const wgt = path.missed ? 1.5 : (KIND_W[path.kind] || 3) * 0.75 + 1;
       const dash = path.style === 'stub' || path.missed ? [5, 6] : path.style === 'hold' ? [3, 4] : [];
       g.setLineDash(dash);
@@ -815,6 +923,58 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       g.fillText(txt, p[0] + 7, p[1] - 4);
       g.fillStyle = '#fff';
       g.beginPath(); g.arc(p[0], p[1], 2, 0, 7); g.fill();
+    }
+
+    // compass rose: a ground-plane-oriented rose, so it tilts and rotates
+    // with the camera and always shows where north lies on the terrain
+    {
+      const rcx = W - 58, rcy = H - 56, R = 34;
+      const dirV = th => {
+        const dx = Math.sin(th * D2R), dy = Math.cos(th * D2R);
+        return [dx * cy - dy * sy, -(dx * sy + dy * cy) * sp];
+      };
+      g.beginPath();
+      for (let t = 0; t <= 360; t += 10) {
+        const v = dirV(t);
+        const px = rcx + v[0] * R, py = rcy + v[1] * R;
+        t ? g.lineTo(px, py) : g.moveTo(px, py);
+      }
+      g.closePath();
+      g.fillStyle = 'rgba(10,14,20,0.55)'; g.fill();
+      g.strokeStyle = 'rgba(140,160,180,0.5)'; g.lineWidth = 1; g.stroke();
+      for (let t = 0; t < 360; t += 30) {
+        const v = dirV(t);
+        const inner = t % 90 === 0 ? 0.62 : 0.8;
+        g.beginPath();
+        g.moveTo(rcx + v[0] * R * inner, rcy + v[1] * R * inner);
+        g.lineTo(rcx + v[0] * R, rcy + v[1] * R);
+        g.strokeStyle = t === 0 ? '#ff6b5a' : 'rgba(190,205,220,0.75)';
+        g.lineWidth = t % 90 === 0 ? 2 : 1;
+        g.stroke();
+      }
+      g.font = 'bold 11px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (const [ch, th] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) {
+        const v = dirV(th);
+        g.fillStyle = th === 0 ? '#ff8a7a' : '#cfd8e3';
+        g.fillText(ch, rcx + v[0] * R * 1.3, rcy + v[1] * R * 1.3);
+      }
+      g.textBaseline = 'alphabetic';
+    }
+
+    // distance scale, valid at the orbit target's depth
+    {
+      const pxNm = f / v3.dist;
+      let nice = 1;
+      for (const n of [500, 200, 100, 50, 20, 10, 5, 2, 1])
+        if (n * pxNm <= 150) { nice = n; break; }
+      const wpx = nice * pxNm, x0 = 14, y0 = H - 16;
+      g.strokeStyle = '#9fb0c0'; g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(x0, y0 - 4); g.lineTo(x0, y0);
+      g.lineTo(x0 + wpx, y0); g.lineTo(x0 + wpx, y0 - 4);
+      g.stroke();
+      g.fillStyle = '#9fb0c0'; g.font = '11px system-ui'; g.textAlign = 'center';
+      g.fillText(`${nice} nm`, x0 + wpx / 2, y0 - 7);
     }
     updateScaleLegend([lo, hi]);
   }
