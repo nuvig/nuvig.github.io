@@ -555,23 +555,139 @@
   }
 
   // ---------------------------------------------------------------- hover
+  // Element-aware hover: identify what's under the cursor (a trace, the
+  // parcel, the shaded buoyancy areas, the barbs, or the background grid)
+  // and explain what it implies at that specific level.
+  const WHAT = {
+    temp:   ['Temperature trace', 'The red line — actual air temperature at each height. Its slope is the stability story: leaning left fast = cooling quickly with height (unstable), leaning right = an inversion (very stable).'],
+    dew:    ['Dewpoint trace', 'The green line — how much moisture is in the air. Read it together with the red line: the gap between them says how close the air is to saturation (cloud).'],
+    parcel: ['Parcel path', 'The dashed white line — what a bubble of surface air would do if lifted: cooling fast while clear, slower once it condenses into cloud. Comparing it to the red line tells you whether it keeps rising on its own.'],
+    cape:   ['CAPE — positive buoyancy area', 'Red shading — here the lifted parcel is warmer than the air around it, so it floats upward on its own. The bigger this area, the stronger the updrafts: this is thunderstorm fuel.'],
+    cin:    ['CIN — the cap', 'Blue shading — here the lifted parcel is colder than its surroundings, so it resists rising. This is the lid that must be broken (by heating or lift) before the CAPE above can be released.'],
+    barbs:  ['Wind barbs', 'Wind at each level, plotted °true: half barb 5 kt, full barb 10 kt, flag 50 kt. Watch how they change with height — that change is shear.'],
+    bg:     ['Background grid', 'Just graph paper: skewed blue isotherms (constant temperature), brown dry adiabats (path of unsaturated rising air), green moist adiabats (saturated rising air), dashed purple mixing-ratio lines (constant moisture).'],
+  };
+
+  const parcelTAt = p => {
+    if (!parcel) return null;
+    const path = parcel.path;
+    if (p > path[0].p) return null;
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1];
+      if (p <= a.p && p >= b.p) {
+        const f = (a.p - p) / ((a.p - b.p) || 1);
+        return a.T + f * (b.T - a.T);
+      }
+    }
+    return null;
+  };
+
+  const fmtFtC = ft => Math.round(ft / 100) * 100 >= 10000
+    ? (Math.round(ft / 100) / 10).toFixed(1) + ' kft' : Math.round(ft / 100) * 100 + ' ft';
+
+  // °C per 1000 ft over the ~50 hPa below this level (negative = cooling aloft)
+  function lapseBelow(p) {
+    const lo = atP(sounding, Math.min(p * 1.07, sounding[0].p));
+    const hi = atP(sounding, p);
+    if (!lo || !hi || hi.z - lo.z < 30) return null;
+    return (hi.T - lo.T) / (hi.z - lo.z) * 304.8;
+  }
+
+  function meaningAt(el, p, e, w, x, y) {
+    const ft = e.z / 0.3048;
+    const here = `At ${fmtFtC(ft)} AGL (${Math.round(p)} hPa): `;
+    const spread = e.T - e.Td;
+    const bits = [];
+    if (el === 'temp') {
+      bits.push(`${here}the air is <b>${e.T.toFixed(1)} °C</b>${e.T <= 0 ? ' — below freezing' : ''}.`);
+      const lr = lapseBelow(p);
+      if (lr != null) {
+        if (lr > 0.4) bits.push(`Temperature is <b>rising</b> with height here — an inversion. Expect smooth air above it, with haze, and bumps trapped underneath; climbing through it often feels like a switch.`);
+        else if (lr > -1.1) bits.push(`Cooling only ${(-lr).toFixed(1)} °C per 1,000 ft — a <b>stable</b> layer that resists vertical motion: smoother air, but also where stratus and poor visibility like to sit.`);
+        else if (lr > -2.6) bits.push(`Cooling ${(-lr).toFixed(1)} °C per 1,000 ft — a normal, conditionally unstable lapse rate.`);
+        else bits.push(`Cooling fast (${(-lr).toFixed(1)} °C per 1,000 ft) — a <b>steep, unstable</b> layer: good thermals, bumpy air, and fuel for convection.`);
+      }
+    } else if (el === 'dew') {
+      bits.push(`${here}dewpoint <b>${e.Td.toFixed(1)} °C</b>, ${spread.toFixed(1)} °C below the temperature.`);
+      if (spread < 2) bits.push(`That's essentially <b>saturated — expect cloud at this level</b>.`);
+      else if (spread < 5) bits.push(`Humid — near-saturated air; scattered cloud or building cumulus territory.`);
+      else bits.push(`A wide spread — <b>dry air</b> at this level, no cloud here.`);
+      if (spread < 3 && e.T <= 0 && e.T >= -20)
+        bits.push(`⚠ Moisture with the temperature between 0 and −20 °C: this level is in the <b>structural icing band</b>.`);
+    } else if (el === 'parcel') {
+      const pT = parcelTAt(p);
+      const diff = pT != null ? pT - e.T : null;
+      if (p > parcel.lcl.p)
+        bits.push(`${here}the rising surface parcel is still <b>clear air</b>, cooling ~3 °C per 1,000 ft. It saturates (cloud base) at ${fmtFtC((ftAtP(sounding, parcel.lcl.p) || 0))}.`);
+      else if (diff != null && diff < 0 && (!parcel.lfc || p > parcel.lfc))
+        bits.push(`${here}the parcel is <b>${(-diff).toFixed(1)} °C colder</b> than the surrounding air — inside the cap (CIN). It only keeps rising if something pushes it (heating, terrain, a front).`);
+      else if (diff != null && diff > 0 && (!parcel.el || p > parcel.el || parcel.cape === 0))
+        bits.push(`${here}the parcel is <b>${diff.toFixed(1)} °C warmer</b> than its surroundings — freely buoyant, accelerating upward. This is the updraft region of a building cumulus or storm.`);
+      else
+        bits.push(`${here}parcel and environment are about the same temperature — near the equilibrium level, where updrafts run out of push (storm-top territory).`);
+    } else if (el === 'cape') {
+      const pT = parcelTAt(p);
+      bits.push(`${here}lifted air would be <b>${pT != null ? (pT - e.T).toFixed(1) : '?'} °C warmer</b> than its surroundings — actively buoyant. Total CAPE in this sounding: <b>${parcel.cape} J/kg</b>.`);
+    } else if (el === 'cin') {
+      const pT = parcelTAt(p);
+      bits.push(`${here}lifted air would be <b>${pT != null ? (e.T - pT).toFixed(1) : '?'} °C colder</b> than its surroundings — suppressed. Total CIN: <b>${parcel.cin} J/kg</b>${parcel.cin > -25 ? ' (a weak cap — easily broken)' : parcel.cin < -100 ? ' (a strong lid — storms unlikely unless it erodes)' : ''}.`);
+    } else if (el === 'barbs') {
+      if (w.ws != null) {
+        bits.push(`${here}wind <b>${Math.round(w.wd)}°T at ${Math.round(w.ws)} kt</b>.`);
+        const below = envAtHeight(sounding, Math.max(0, e.z - 610));
+        if (below && below.ws != null) {
+          const [u1, v1] = windUV(below.ws, below.wd), [u2, v2] = windUV(w.ws, w.wd);
+          const shr = Math.hypot(u2 - u1, v2 - v1);
+          if (shr > 15) bits.push(`⚠ It changes by <b>${Math.round(shr)} kt</b> over the 2,000 ft below — significant shear: expect turbulence, and LLWS if this is near the surface.`);
+          else bits.push(`Changing only ${Math.round(shr)} kt over the 2,000 ft below — little shear here.`);
+        }
+      } else bits.push(`${here}no wind data at this level.`);
+    } else {                                       // background grid
+      const Tcur = T_MIN + (x - PL.left - (PL.top + PL.H - y)) / PL.W * (T_MAX - T_MIN);
+      const w_gkg = mixRatio(p, Tcur) * 1000;
+      bits.push(`${here}this spot on the grid is <b>${Tcur.toFixed(0)} °C</b>. Air here would have a potential temperature of ${theta(p, Tcur).toFixed(0)} °C and hold ${w_gkg > 0 ? w_gkg.toFixed(1) : '0'} g/kg of moisture if saturated.`);
+      bits.push(`The nearest data is: T ${e.T.toFixed(1)} °C, Td ${e.Td.toFixed(1)} °C at this height.`);
+    }
+    return bits.map(b => `<p style="margin:4px 0">${b}</p>`).join('');
+  }
+
+  function resetHover() {
+    $('hov-what-t').textContent = 'What am I looking at?';
+    $('hov-what-b').textContent = 'Point at any line on the diagram — this box names it and says what it is.';
+    $('hov-here-t').textContent = 'What does it mean here?';
+    $('hov-here-b').textContent = 'This box reads the value under your cursor and says what it implies at that altitude.';
+  }
+
   canvas.addEventListener('mousemove', ev => {
     if (!sounding) return;
     const r = canvas.getBoundingClientRect();
-    const y = ev.clientY - r.top;
-    if (y < PL.top || y > PL.top + PL.H) { $('hover-readout').textContent = ''; return; }
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    if (y < PL.top || y > PL.top + PL.H || x < PL.left) { resetHover(); return; }
     const p = pOfY(y);
     const e = atP(sounding, p);
-    if (!e) return;
+    if (!e) { resetHover(); return; }
     const w = envAtHeight(sounding, e.z) || sounding[0];
-    $('hover-readout').textContent =
-      `${Math.round(p)} hPa · ${Math.round(e.z / 0.3048).toLocaleString()} ft AGL · ` +
-      `T ${e.T.toFixed(1)} °C · Td ${e.Td.toFixed(1)} °C · spread ${(e.T - e.Td).toFixed(1)} °C` +
-      (w.ws != null ? ` · wind ${Math.round(w.wd)}°T / ${Math.round(w.ws)} kt` : '');
+
+    let el;
+    if (x > PL.left + PL.W) el = 'barbs';
+    else {
+      const xT = xOf(e.T, y), xTd = xOf(e.Td, y);
+      const pT = parcelTAt(p);
+      const xP = pT == null ? 1e9 : xOf(pT, y);
+      const dT = Math.abs(x - xT), dTd = Math.abs(x - xTd), dP = Math.abs(x - xP);
+      const best = Math.min(dT, dTd, dP);
+      if (best <= 9) el = best === dTd ? 'dew' : best === dT ? 'temp' : 'parcel';
+      else if (parcel && pT != null && x > Math.min(xP, xT) + 2 && x < Math.max(xP, xT) - 2)
+        el = pT > e.T ? 'cape' : 'cin';
+      else el = 'bg';
+    }
+    $('hov-what-t').textContent = WHAT[el][0];
+    $('hov-what-b').textContent = WHAT[el][1];
+    $('hov-here-t').textContent = 'At your cursor';
+    $('hov-here-b').innerHTML = meaningAt(el, p, e, w, x, y);
   });
-  canvas.addEventListener('mouseleave', () => {
-    $('hover-readout').textContent = 'hover the diagram for level readout';
-  });
+  canvas.addEventListener('mouseleave', resetHover);
+  resetHover();
 
   // ---------------------------------------------------------------- update
   function update() {

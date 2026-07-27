@@ -53,10 +53,20 @@
     }
     #skewt-wrap { padding: 6px; }
     #skewt { width: 100%; display: block; border-radius: 6px; cursor: crosshair; }
-    #hover-readout {
-      font-size: 12px; color: #888; padding: 6px 10px 2px;
-      font-variant-numeric: tabular-nums; min-height: 22px;
+    .hover-boxes {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 2px 2px;
     }
+    @media (max-width: 560px) { .hover-boxes { grid-template-columns: 1fr; } }
+    .hoverbox {
+      background: #141414; border: 1px solid #2c2c2c; border-radius: 6px;
+      padding: 8px 11px; font-size: 12.5px; color: #999; line-height: 1.55;
+      min-height: 96px;
+    }
+    .hoverbox h4 {
+      margin: 0 0 4px; font-size: 11px; font-weight: 600; color: #ccc;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .hoverbox b { color: #ddd; }
 
     .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; }
     .kv .k { color: #777; }
@@ -93,46 +103,44 @@
   <div class="section-title">1 · How to read a Skew-T</div>
   <div class="card explain">
     <p>
-      A <strong>Skew-T log-p diagram</strong> plots one column of atmosphere: pressure
-      decreases upward on a log scale (so the vertical axis is roughly linear in
-      altitude), and isotherms are <em>skewed</em> 45° to the right — which is why the
-      temperature trace of a normal atmosphere runs nearly straight up the page
-      instead of leaning hard left.
+      A Skew-T looks intimidating; it isn't. It's just a weather report turned on its side:
+      <strong>the bottom of the chart is the runway, the top is airline cruise altitude</strong>,
+      and everything in between is what the air is doing as you climb.
     </p>
-    <h4>The two data traces</h4>
-    <p>
-      <span class="swatch" style="background:#ef4444"></span><strong>Temperature</strong> and
-      <span class="swatch" style="background:#22c55e"></span><strong>dewpoint</strong>, plotted
-      against height. The horizontal gap between them is the moisture story:
-      where they nearly touch, the air is saturated — that's a cloud layer or fog.
-      Where they spread wide, the air is dry. Wind barbs on the right edge show
-      speed/direction at each level (each full barb = 10 kt, flag = 50 kt).
-    </p>
-    <h4>The background reference lines</h4>
+    <p>Ignore the busy background for a moment. Only two lines carry data:</p>
     <ul>
-      <li><span class="swatch" style="background:#3b4d63"></span><strong>Isotherms</strong> — constant temperature, skewed 45°. The 0 °C line matters most: it's the freezing level.</li>
-      <li><span class="swatch" style="background:#5c4a33"></span><strong>Dry adiabats</strong> — the path an unsaturated rising parcel cools along (~3 °C / 1,000 ft).</li>
-      <li><span class="swatch" style="background:#33524a"></span><strong>Moist adiabats</strong> — the slower cooling of a saturated parcel (condensation releases heat).</li>
-      <li><span class="swatch" style="background:#4a3d5c"></span><strong>Mixing-ratio lines</strong> — constant water-vapor content, in g/kg.</li>
+      <li><span class="swatch" style="background:#ef4444"></span><strong>Red — temperature</strong> as you go up.</li>
+      <li><span class="swatch" style="background:#22c55e"></span><strong>Green — dewpoint</strong>, i.e. how much moisture is up there.</li>
     </ul>
-    <h4>The parcel and CAPE</h4>
     <p>
-      A parcel line lifts air from the surface: dry-adiabatically to the
-      <strong>LCL</strong> (where it saturates — a good estimate of cumulus cloud base),
-      then moist-adiabatically above. Where the parcel is <em>warmer</em> than the
-      environment it accelerates upward — that area totals to
-      <strong>CAPE</strong> (convective fuel). Where it's colder is
-      <strong>CIN</strong> — the cap that must be broken before storms can fire.
-      In the forecast diagram below, the parcel is the dashed white line, CAPE the
-      red shading, CIN the blue.
+      And one rule: <strong>where the two lines squeeze together, there's cloud; where they
+      spread apart, the air is dry.</strong> That single idea is most of reading a Skew-T.
+      The feathers on the right are wind at each height (full barb = 10 kt, flag = 50 kt).
     </p>
-    <h4>What a pilot looks for</h4>
+    <h4>The busy background? Just graph paper.</h4>
+    <p>
+      The skewed blue lines mark temperature (the 0 °C one is your freezing level), the brown
+      and green curves are the paths rising air cools along, and the dashed purple lines track
+      moisture. You never read them directly — they're rails that the interesting lines get
+      compared against. Hover the diagram in section 4 and the boxes under it will do the
+      comparing for you.
+    </p>
+    <h4>One bubble of air tells the future</h4>
+    <p>
+      Take air from the surface and imagine lifting it. It cools as it rises; where it gets
+      as cool as its dewpoint, a cloud forms — that height is a good guess at the day's
+      <strong>cumulus cloud base</strong>. Keep lifting: if the bubble ends up <em>warmer</em>
+      than the air around it, it floats up on its own — that's <strong>CAPE</strong>, storm
+      fuel. If it's <em>colder</em>, it sinks back — that's <strong>CIN</strong>, the lid that
+      keeps a hot humid day quiet until it suddenly isn't.
+    </p>
+    <h4>Five things a pilot pulls off it</h4>
     <ul>
-      <li><strong>Cloud bases</strong> — LCL for cumulus; any level where T and Td pinch together marks a layer of cloud or high humidity.</li>
-      <li><strong>Stability</strong> — big CAPE with weak CIN on a summer afternoon means building cumulus and possible thunderstorms; a strong inversion (temperature increasing with height) traps haze and turbulence below it and gives smooth air above.</li>
-      <li><strong>Icing</strong> — visible moisture between 0 °C and about −20 °C is the structural-icing band; check where the traces are close together in that temperature range.</li>
-      <li><strong>Freezing level</strong> — where the temperature trace crosses 0 °C; drives icing and precipitation-type decisions.</li>
-      <li><strong>Wind shear</strong> — barbs changing speed or direction sharply over a short height, especially near the surface at dawn (low-level jet above a nocturnal inversion), warn of LLWS on climbout and mechanical turbulence.</li>
+      <li><strong>Cloud bases</strong> — where red and green pinch together.</li>
+      <li><strong>Bumps or smooth</strong> — steep red line = thermals and bumps; red line leaning right (inversion) = smooth on top, haze below.</li>
+      <li><strong>Icing</strong> — moisture where the temperature sits between 0 and −20 °C.</li>
+      <li><strong>Freezing level</strong> — where the red line crosses the 0 °C line.</li>
+      <li><strong>Wind shear</strong> — barbs that twist or grow suddenly over a short height.</li>
     </ul>
     <p class="idx-note">
       Two ways to get a sounding: a real balloon (section 2, twice a day at fixed sites) or
@@ -308,7 +316,16 @@
   <div class="layout">
     <div class="card" id="skewt-wrap">
       <canvas id="skewt"></canvas>
-      <div id="hover-readout">hover the diagram for level readout</div>
+      <div class="hover-boxes">
+        <div class="hoverbox">
+          <h4 id="hov-what-t"></h4>
+          <div id="hov-what-b"></div>
+        </div>
+        <div class="hoverbox">
+          <h4 id="hov-here-t"></h4>
+          <div id="hov-here-b"></div>
+        </div>
+      </div>
     </div>
     <div>
       <div class="card">
@@ -335,7 +352,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/skewt.js?v=3"></script>
+  <script src="js/skewt.js?v=4"></script>
   <script src="js/skewt-obs.js?v=1"></script>
 </body>
 </html>
