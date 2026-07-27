@@ -43,9 +43,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 `kanp.html` — three tabs: Live / History Map / Traffic Study. Scripts load in dependency order
 (`site-config` → leaflet → `kanp-static` → `kanp` → the rest).
 
-- `js/kanp.js` — shared utils + Live tab (poll every 5–60 s, trails, heatmap, localStorage), plus
-  `KANP.apiBase()` / `getTracks()` / `getStats()` data routing. KANP = 38.9422, -76.5684, 60 nm
-  radius (from `SITE.tracker`).
+- `js/kanp.js` — shared utils + Live tab (trails, heatmap, localStorage), plus `KANP.apiBase()` /
+  `getTracks()` / `getStats()` data routing. Live polls every 3 s against the Pi (`PI_POLL_MS`,
+  matching the collector) and every 60 s against snapshots (`POLL_MS`, which only change hourly).
+  KANP = 38.9422, -76.5684, 60 nm radius (from `SITE.tracker`).
 - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD overlays.
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
@@ -89,8 +90,10 @@ classified there, check all three.
   `trackutil.py`, `atc.py`, `install.sh`, systemd units).
 - `pc/` — `atc_transcribe.py` (faster-whisper worker) + `atc_vocab.txt`. Runs on the PC, not the Pi.
 - `scripts/api-collector.js`, `scripts/receiver-export.js` — legacy Node collector, superseded by
-  `pi/`; don't extend it. (`README.md` still describes this older architecture and is stale.)
-- `docs/receiver-setup.md` — RTL-SDR receiver wiring.
+  `pi/`; don't extend it.
+- `docs/receiver-setup.md` — RTL-SDR receiver wiring. **Its collector sections (0, 0.5, 4) still
+  describe the legacy Node collector as "the setup in use" and are stale**; the receiver-hardware
+  sections (1–3) are current. `pi/README.md` is the authority on the backend.
 
 ## Data flow (tracker)
 
@@ -106,6 +109,11 @@ Frontend tries the Pi API first; off-LAN (or HTTPS mixed-content block) it falls
 snapshots via `kanp-static.js`, mirroring the API's filter semantics client-side. Data there is up to
 1 h stale. `KANP.apiBase()` auto-uses same-origin when the page is served over `http:` with a port
 (i.e. from the Pi itself); `localStorage` `kanp_api_base = 'none'` forces snapshot mode.
+
+There is **no data-source picker in the UI** — `kanp.html` has leftover `.settings-panel` CSS but no
+panel, and the old browser-selectable sources (custom `aircraft.json` URL, ADS-B Exchange via
+RapidAPI) are gone. `kanp_api_base` is set by hand; only `atc.js` still prompts for it. Routing is
+automatic, so don't reintroduce a source selector without being asked.
 
 **Pi deploy:** on the Pi, `git pull` in the repo checkout, then `sudo bash pi/install.sh` (copies to
 `/opt/kanp`, restarts services). Site deploys itself on push to `main`.
