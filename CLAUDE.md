@@ -83,6 +83,12 @@ classified there, check all three.
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,
   TAFs, radar. See the hard constraints section below.
+- `discussion.html` + `js/discussion.js` — DC Forecast Discussion: LWX AFD reader with jargon
+  tooltips, a change log that word-diffs successive AFD issuances (plus a localStorage
+  forecast-drift card), and a synoptic canvas built from an Open-Meteo GFS grid — air-mass fill,
+  isobars/H-L, fronts detected from 850 hPa temp gradients signed by advection, wind particles,
+  RainViewer radar at "now" / model precip at other hours, and a rule-based precip-cause
+  diagnosis at DC. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
 
 ### Backends
 

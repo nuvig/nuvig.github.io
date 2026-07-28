@@ -442,7 +442,7 @@ const SYN = {
   LAT_N: 44, LON_W: -85, DLAT: 1, DLON: 1.5, NX: 12, NY: 10, UP: 8,
   VIEW: [[36.1, -82.8], [42.9, -71.0]],
   VARS: ['pressure_msl', 'temperature_2m', 'dew_point_2m', 'temperature_850hPa',
-         'wind_speed_10m', 'wind_direction_10m'],
+         'wind_speed_10m', 'wind_direction_10m', 'precipitation', 'cape'],
 };
 SYN.NP = SYN.NX * SYN.NY;
 SYN.UX = (SYN.NX - 1) * SYN.UP + 1;
@@ -451,7 +451,7 @@ SYN.UY = (SYN.NY - 1) * SYN.UP + 1;
 const syn = {
   map: null, times: [], raw: {}, t: 0, playing: false, playTimer: null,
   cache: new Map(), tRange: null, lut: null, parts: null, ready: false,
-  layers: { airmass: true, fronts: true, isobars: true, wind: true },
+  layers: { airmass: true, fronts: true, isobars: true, wind: true, radar: true },
 };
 
 function synUrl() {
@@ -585,6 +585,71 @@ function gridXY(lat, lon) {
   return { gx: (lon - SYN.LON_W) / SYN.DLON, gy: (SYN.LAT_N - lat) / SYN.DLAT };
 }
 
+/* Gradients of the smoothed 850 temp field in K/100 km, cached per time —
+   shared by the frontal-zone painter and the precip-cause diagnosis. */
+function gradFields(t) {
+  const key = `grad:${t}`;
+  if (syn.cache.has(key)) return syn.cache.get(key);
+  const air = upsampled('air', t, () => airmassField(t));
+  const { UX, UY, UP } = SYN;
+  const gradX = new Float32Array(UX * UY), gradY = new Float32Array(UX * UY);
+  for (let y = 0; y < UY; y++) {
+    const lat = SYN.LAT_N - (y / UP) * SYN.DLAT;
+    const kmX = 111.32 * Math.cos(lat * Math.PI / 180) * SYN.DLON / UP;
+    for (let x = 0; x < UX; x++) {
+      const i = y * UX + x;
+      const xm = x > 0 ? i - 1 : i, xp = x < UX - 1 ? i + 1 : i;
+      const ym = y > 0 ? i - UX : i, yp = y < UY - 1 ? i + UX : i;
+      const dxCells = Math.max(1, xp - xm);            // 1 at edges, 2 inside
+      const dyCells = Math.max(1, (yp - ym) / UX);
+      gradX[i] = (air[xp] - air[xm]) / (dxCells * kmX) * 100;                      // eastward
+      gradY[i] = (air[ym] - air[yp]) / (dyCells * FRONT_KM_PER_CELL_LAT) * 100;    // northward
+    }
+  }
+  const out = { gradX, gradY };
+  if (syn.cache.size > 40) syn.cache.delete(syn.cache.keys().next().value);
+  syn.cache.set(key, out);
+  return out;
+}
+
+/* ------------------------------- radar ----------------------------------- */
+
+const radar = { layer: null, frameTime: null };
+
+function isNowStep() {
+  return syn.times.length > 0 && Math.abs(syn.times[syn.t] - Date.now()) <= 45 * 60 * 1000;
+}
+
+async function loadRadar() {
+  const cfg = await fetchJSON('https://api.rainviewer.com/public/weather-maps.json');
+  const frames = (cfg.radar && cfg.radar.past) || [];
+  if (!frames.length) return;
+  const f = frames[frames.length - 1];
+  radar.frameTime = f.time * 1000;
+  const url = `${cfg.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`;
+  if (radar.layer) {
+    radar.layer.setUrl(url);
+  } else {
+    // Radar rides in its own pane above the field canvases so echoes stay
+    // true-color instead of being tinted by the air-mass fill.
+    syn.map.createPane('radarPane');
+    const pane = syn.map.getPane('radarPane');
+    pane.style.zIndex = 502;
+    pane.style.pointerEvents = 'none';
+    radar.layer = L.tileLayer(url, {
+      opacity: 0.68, maxNativeZoom: 7, maxZoom: 10, pane: 'radarPane',
+    });
+  }
+  updateRadarVisibility();
+}
+
+function updateRadarVisibility() {
+  if (!radar.layer || !syn.map) return;
+  const show = syn.layers.radar && isNowStep();
+  if (show && !syn.map.hasLayer(radar.layer)) radar.layer.addTo(syn.map);
+  if (!show && syn.map.hasLayer(radar.layer)) syn.map.removeLayer(radar.layer);
+}
+
 /* ------------------------------ colors ---------------------------------- */
 
 const TSTOPS = [                              // fraction → rgb, cold → warm
@@ -661,26 +726,16 @@ function drawFields() {
   const mslp = upsampled('mslp', t, () => Float32Array.from(baseField('pressure_msl', t)));
   const uvB = uvFields(t);
   const uU = upsampled('u', t, () => uvB.u), vU = upsampled('v', t, () => uvB.v);
+  const { gradX, gradY } = gradFields(t);
 
-  // gradients of the smoothed 850 temp field, in K per 100 km
-  const { UX, UY } = SYN;
-  const gradX = new Float32Array(UX * UY), gradY = new Float32Array(UX * UY);
-  for (let y = 0; y < UY; y++) {
-    const lat = SYN.LAT_N - (y / SYN.UP) * SYN.DLAT;
-    const kmX = 111.32 * Math.cos(lat * Math.PI / 180) * SYN.DLON / SYN.UP;
-    for (let x = 0; x < UX; x++) {
-      const i = y * UX + x;
-      const xm = x > 0 ? i - 1 : i, xp = x < UX - 1 ? i + 1 : i;
-      const ym = y > 0 ? i - UX : i, yp = y < UY - 1 ? i + UX : i;
-      const dxCells = Math.max(1, xp - xm);            // 1 at edges, 2 inside
-      const dyCells = Math.max(1, (yp - ym) / UX);
-      gradX[i] = (air[xp] - air[xm]) / (dxCells * kmX) * 100;                      // K / 100 km, eastward
-      gradY[i] = (air[ym] - air[yp]) / (dyCells * FRONT_KM_PER_CELL_LAT) * 100;    // K / 100 km, northward
-    }
-  }
+  // model precip shading fills the radar role at hours the radar can't show
+  const modelPrecip = syn.layers.radar && !isNowStep();
+  const prU = modelPrecip
+    ? upsampled('pr', t, () => Float32Array.from(baseField('precipitation', t)))
+    : null;
 
-  /* --- air-mass fill + frontal zones: quarter-res pixel pass --- */
-  if (syn.layers.airmass || syn.layers.fronts) {
+  /* --- air-mass fill + frontal zones + model precip: low-res pixel pass --- */
+  if (syn.layers.airmass || syn.layers.fronts || modelPrecip) {
     const B = 3;
     const lw = Math.ceil(w / B), lh = Math.ceil(h / B);
     const img = new ImageData(lw, lh);
@@ -705,6 +760,15 @@ function drawFields() {
             const fc = adv < 0 ? [70, 140, 255] : [255, 90, 90];
             r = r * (1 - fa) + fc[0] * fa; g = g * (1 - fa) + fc[1] * fa; b = b * (1 - fa) + fc[2] * fa;
             a = Math.max(a, Math.min(0.7, a + fa * 0.8));
+          }
+        }
+        if (prU) {
+          const pv = sampleU(prU, ux, uy);
+          if (pv > 0.08) {
+            const pc = pv < 0.5 ? [90, 200, 120] : pv < 2 ? [245, 210, 90] : [235, 75, 140];
+            const pa = Math.min(0.72, 0.28 + pv * 0.14);
+            r = r * (1 - pa) + pc[0] * pa; g = g * (1 - pa) + pc[1] * pa; b = b * (1 - pa) + pc[2] * pa;
+            a = Math.max(a, Math.min(0.8, a + pa));
           }
         }
         px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = Math.round(a * 255);
@@ -810,8 +874,8 @@ function drawIsobars(ctx, mslp, w, h) {
 function frac(a, b, lev) { return b === a ? 0.5 : Math.max(0, Math.min(1, (lev - a) / (b - a))); }
 
 /* H/L centers from the base-resolution MSLP grid (less noise than upsampled) */
-function drawExtrema(ctx) {
-  const f = baseField('pressure_msl', syn.t);
+function findExtrema(t) {
+  const f = baseField('pressure_msl', t);
   const marks = [];
   for (let y = 1; y < SYN.NY - 1; y++) {
     for (let x = 1; x < SYN.NX - 1; x++) {
@@ -832,6 +896,11 @@ function drawExtrema(ctx) {
       if ((isMin || isMax) && prom > 0.8) marks.push({ x, y, v, type: isMin ? 'L' : 'H' });
     }
   }
+  return marks;
+}
+
+function drawExtrema(ctx) {
+  const marks = findExtrema(syn.t);
   const cw = parseInt($('syn-canvas').style.width, 10);
   const ch = parseInt($('syn-canvas').style.height, 10);
   ctx.save();
@@ -958,8 +1027,10 @@ function synSetTime(t, fromSlider) {
   const rel = dh === 0 ? 'now' : dh > 0 ? `+${dh} h` : `${dh} h`;
   $('syn-time').innerHTML =
     `${esc(fmtTime(d, { weekday: 'short', hour: 'numeric', timeZoneName: 'short' }))} <span class="rel">· ${esc(rel)}</span>`;
+  updateRadarVisibility();
   drawFields();
   buildWindLut();
+  synExplain();
 }
 
 function synNowIndex() {
@@ -1008,6 +1079,114 @@ function windDirAt(t, gx, gy) {   // interpolate via u/v so 350°↔010° doesn'
   return ((Math.atan2(-ui, -vi) * 180 / Math.PI) + 360) % 360;
 }
 
+/* ---------------- "why the precip" — situational diagnosis at DC --------- */
+
+function compass8(dLatKm, dLonKm) {   // direction FROM DC TO the feature
+  const brg = ((Math.atan2(dLonKm, dLatKm) * 180 / Math.PI) + 360) % 360;
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(brg / 45) % 8];
+}
+
+function kmBetween(lat1, lon1, lat2, lon2) {
+  const dLat = (lat2 - lat1) * 111.32;
+  const dLon = (lon2 - lon1) * 111.32 * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+  return { km: Math.hypot(dLat, dLon), dLatKm: dLat, dLonKm: dLon };
+}
+
+/* Nearest strong-thermal-gradient (frontal-zone) cell to DC, with the
+   advection sign there so we can call it a cold or warm front. */
+function nearestFront(t) {
+  const { gradX, gradY } = gradFields(t);
+  const uvB = uvFields(t);
+  const uU = upsampled('u', t, () => uvB.u), vU = upsampled('v', t, () => uvB.v);
+  let best = null;
+  for (let y = 0; y < SYN.UY; y += 2) {
+    const lat = SYN.LAT_N - (y / SYN.UP) * SYN.DLAT;
+    for (let x = 0; x < SYN.UX; x += 2) {
+      const i = y * SYN.UX + x;
+      const G = Math.hypot(gradX[i], gradY[i]);
+      if (G < 1.8) continue;
+      const lon = SYN.LON_W + (x / SYN.UP) * SYN.DLON;
+      const d = kmBetween(DC.lat, DC.lon, lat, lon);
+      if (!best || d.km < best.km) {
+        const adv = -(uU[i] * gradX[i] + vU[i] * gradY[i]);
+        best = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), adv, G };
+      }
+    }
+  }
+  return best;
+}
+
+function synExplain() {
+  const host = $('syn-why');
+  if (!syn.ready || !host) return;
+  const t = syn.t;
+  const g = gridXY(DC.lat, DC.lon);
+  const v = (name) => bilinear(baseField(name, t), g.gx, g.gy);
+  const pr = Math.max(0, v('precipitation') || 0);
+  const cape = Math.max(0, v('cape') || 0);
+  const spreadF = (v('temperature_2m') - v('dew_point_2m')) * 9 / 5;
+  const tm = Math.max(0, t - 3), tp = Math.min(syn.times.length - 1, t + 3);
+  const dP = bilinear(baseField('pressure_msl', tp), g.gx, g.gy) -
+             bilinear(baseField('pressure_msl', tm), g.gx, g.gy);
+
+  const front = nearestFront(t);
+  let low = null, high = null;
+  for (const m of findExtrema(t)) {
+    const lat = SYN.LAT_N - m.y * SYN.DLAT, lon = SYN.LON_W + m.x * SYN.DLON;
+    const d = kmBetween(DC.lat, DC.lon, lat, lon);
+    const rec = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), v: m.v };
+    if (m.type === 'L' && d.km < 700 && (!low || d.km < low.km)) low = rec;
+    if (m.type === 'H' && d.km < 700 && (!high || d.km < high.km)) high = rec;
+  }
+
+  const nm = (km) => Math.round(km * 0.54 / 10) * 10;
+  const wet = pr >= 0.1;
+  const lead = wet
+    ? `The model has ~${pr < 1 ? pr.toFixed(1) : Math.round(pr)} mm/hr of precip around DC at this hour.`
+    : 'No meaningful precip signal over DC at this hour in the model.';
+
+  const S = [];
+  if (front && front.km < 350) {
+    const overhead = front.km < 70;
+    const where = overhead ? 'is right overhead' : `lies ~${nm(front.km)} nm to the ${front.dir}`;
+    if (front.adv < 0) {
+      S.push(`A cold-frontal zone ${where} — denser, cooler air is wedging under the warm humid air ahead of it, forcing that air upward${wet ? '; that lift is what’s squeezing the moisture out' : ''}.`);
+    } else {
+      S.push(`A warm-frontal zone ${where} — warm moist air is overrunning the cooler surface air, a gentle widespread lift${wet ? ' that favors steady, stratiform precip rather than downpours' : ''}.`);
+    }
+  }
+  if (low) {
+    S.push(`The surface low ${low.km < 90 ? 'nearly overhead' : `~${nm(low.km)} nm to the ${low.dir}`} (${Math.round(low.v)} hPa) keeps broad rising motion over the region — air converging into the low has nowhere to go but up.`);
+  }
+  if (cape >= 1200) {
+    S.push(`CAPE near ${Math.round(cape / 100) * 100} J/kg — an unstable airmass, so expect convective precip: hit-or-miss cells and locally heavy downpours rather than steady rain.`);
+  } else if (cape >= 400) {
+    S.push(`Modest instability (CAPE ~${Math.round(cape / 50) * 50} J/kg) supports scattered showers, maybe a rumble of thunder.`);
+  } else if (wet) {
+    S.push('Almost no CAPE — this is stratiform precip: steady and widespread, wrung out by large-scale lift rather than by buoyant updrafts.');
+  }
+  if (spreadF <= 4) {
+    S.push(`The low-level airmass is close to saturation (temperature–dewpoint spread ${Math.max(0, Math.round(spreadF))}°F), so any lift converts quickly to cloud and rain.`);
+  } else if (spreadF >= 15 && !wet) {
+    S.push(`The airmass is dry (spread ~${Math.round(spreadF)}°F) — whatever lift there is has little moisture to work with.`);
+  }
+  if (dP <= -1.5) {
+    S.push(`Pressure at DC is falling (${dP.toFixed(1)} hPa over 6 h) — the system driving this is still approaching or deepening.`);
+  } else if (dP >= 1.5 && !wet) {
+    S.push(`Pressure is rising (+${dP.toFixed(1)} hPa over 6 h) as high pressure builds in; sinking air dries the column and keeps skies quiet.`);
+  }
+  if (!wet && !S.length) {
+    S.push(high
+      ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${nm(high.km)} nm to the ${high.dir}`} (${Math.round(high.v)} hPa) — subsidence: air slowly sinking, warming and drying as it descends.`
+      : 'No front, low, or instability signal near DC — a quiet, well-mixed airmass.');
+  }
+  const foot = syn.layers.radar && isNowStep() && radar.layer
+    ? '<div class="why-foot">Radar overlay shows what’s actually falling; this read is the model’s explanation of why.</div>' : '';
+  host.innerHTML =
+    `<div class="why-hd">Why (and whether) it’s precipitating — model read at DC</div>` +
+    `<b>${esc(lead)}</b> ${S.slice(0, 4).map(esc).join(' ')}${foot}`;
+}
+
 /* --------------------------- synoptic init ------------------------------- */
 
 async function loadSynoptic() {
@@ -1029,9 +1208,16 @@ async function loadSynoptic() {
   $('syn-now').addEventListener('click', () => { synTogglePlay(false); synSetTime(synNowIndex()); });
   $('syn-wrap').addEventListener('mousemove', synHover);
   $('syn-wrap').addEventListener('click', synHover);
-  for (const [id, key] of [['lyr-airmass', 'airmass'], ['lyr-fronts', 'fronts'], ['lyr-isobars', 'isobars'], ['lyr-wind', 'wind']]) {
-    $(id).addEventListener('change', (e) => { syn.layers[key] = e.target.checked; drawFields(); });
+  for (const [id, key] of [['lyr-airmass', 'airmass'], ['lyr-fronts', 'fronts'], ['lyr-isobars', 'isobars'], ['lyr-wind', 'wind'], ['lyr-radar', 'radar']]) {
+    $(id).addEventListener('change', (e) => {
+      syn.layers[key] = e.target.checked;
+      updateRadarVisibility();
+      drawFields();
+      synExplain();
+    });
   }
+  loadRadar().catch(() => { /* radar is optional garnish */ });
+  setInterval(() => loadRadar().catch(() => {}), 5 * 60 * 1000);
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
