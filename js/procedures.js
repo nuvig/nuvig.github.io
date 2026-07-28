@@ -476,6 +476,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     drawArrows();
     if (state.flow) startFlow(); else stopFlow();
     render3d();
+    renderLegs();
     updateChips();
     saveHash();
   }
@@ -1059,9 +1060,156 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     window.addEventListener('resize', () => { if (v3.on) draw3d(); });
   }
 
+  // ---------------------------------------------------------------- FAA plates
+  // Chart PDFs live at aeronav.faa.gov/d-tpp/{cycle}/{pdf} and a cycle's URLs
+  // die when the next one turns effective — so compute the cycle for *today*
+  // by advancing the built cycle in 28-day steps. The number is YY + 1-based
+  // index of the cycle start within its year (mirrors dtpp_cycle_label() in
+  // scripts/build_procedures.py); pdf names are stable across cycles, so
+  // plate links keep working even if the data hasn't been rebuilt yet.
+  function dtppCycle() {
+    const eff = state.index && state.index.effective;
+    if (!eff) return (state.index && state.index.cycle) || '';
+    let s = Date.UTC(+eff.slice(0, 4), +eff.slice(5, 7) - 1, +eff.slice(8, 10));
+    const DAY = 86400000, now = Date.now();
+    while (now >= s + 28 * DAY) s += 28 * DAY;
+    while (now < s) s -= 28 * DAY;
+    const d = new Date(s);
+    const n = Math.floor((s - Date.UTC(d.getUTCFullYear(), 0, 1)) / (28 * DAY)) + 1;
+    return String(d.getUTCFullYear() % 100).padStart(2, '0') + String(n).padStart(2, '0');
+  }
+  const plateUrl = pdf => `https://aeronav.faa.gov/d-tpp/${dtppCycle()}/${pdf}`;
+
+  // page chips for one chart ref {n,p,a?,c?:[cont pdfs],v?:[variant charts]}
+  function platePages(chart) {
+    const pages = [{ label: 'Plate', pdf: chart.p, amdt: chart.a }];
+    (chart.c || []).forEach((p, i) => pages.push({ label: `p.${i + 2}`, pdf: p, amdt: chart.a }));
+    for (const v of chart.v || []) {
+      const m = v.n.match(/\(([^)]+)\)\s*$/);
+      const lab = m ? m[1] : v.n;
+      pages.push({ label: lab, pdf: v.p, amdt: v.a, full: v.n });
+      (v.c || []).forEach((p, i) =>
+        pages.push({ label: `${lab} p.${i + 2}`, pdf: p, amdt: v.a, full: v.n }));
+    }
+    return pages;
+  }
+
+  function openPlate(title, chart) {
+    const pages = platePages(chart);
+    $('plate-title').textContent = title;
+    const pagesEl = $('plate-pages');
+    pagesEl.innerHTML = '';
+    const show = pg => {
+      $('plate-frame').src = plateUrl(pg.pdf);
+      $('plate-open').href = plateUrl(pg.pdf);
+      $('plate-meta').textContent =
+        (pg.amdt ? `Amdt ${pg.amdt} · ` : '') + 'd-TPP ' + dtppCycle();
+      [...pagesEl.children].forEach((b, i) => b.classList.toggle('on', pages[i] === pg));
+    };
+    if (pages.length > 1)
+      for (const pg of pages) {
+        const b = document.createElement('button');
+        b.textContent = pg.label;
+        if (pg.full) b.title = pg.full;
+        b.addEventListener('click', () => show(pg));
+        pagesEl.appendChild(b);
+      }
+    $('plate-modal').classList.add('on');
+    show(pages[0]);
+  }
+  function closePlate() {
+    $('plate-modal').classList.remove('on');
+    $('plate-frame').src = 'about:blank';         // stop the PDF viewer
+  }
+  function initPlateModal() {
+    $('plate-close').addEventListener('click', closePlate);
+    $('plate-modal').addEventListener('click', e => {
+      if (e.target === $('plate-modal')) closePlate();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && $('plate-modal').classList.contains('on')) closePlate();
+    });
+  }
+
+  // ---------------------------------------------------------------- leg table
+  const PT_NAMES = { IF: 'initial fix', TF: 'track to fix', CF: 'course to fix',
+    DF: 'direct to fix', RF: 'radius to fix (arc)', AF: 'DME arc', FC: 'track from fix',
+    HA: 'hold to altitude', HF: 'hold in lieu of PT', HM: 'hold (manual termination)',
+    FA: 'fix to altitude', FM: 'fix to manual termination', CA: 'course to altitude',
+    VA: 'heading to altitude', CD: 'course to DME', VD: 'heading to DME', FD: 'fix to DME',
+    CI: 'course to intercept', VI: 'heading to intercept', VM: 'heading to manual termination',
+    CR: 'course to radial', VR: 'heading to radial', PI: 'procedure turn' };
+
+  let pulseMk = null;
+  function pulseAt(lat, lon) {
+    if (pulseMk) map.removeLayer(pulseMk);
+    pulseMk = L.circleMarker([lat, lon], { radius: 14, color: '#fff', weight: 2,
+      fill: false, opacity: 0.9 }).addTo(map);
+    setTimeout(() => { if (pulseMk) { map.removeLayer(pulseMk); pulseMk = null; } }, 1200);
+  }
+
+  function renderLegs() {
+    const panel = $('legs-panel');
+    if (!panel.classList.contains('on')) return;
+    const frag = document.createDocumentFragment();
+    let any = false;
+    for (const [key, set] of state.sel) {
+      const [apt, procId] = key.split('|');
+      const doc = state.docs.get(apt);
+      const proc = doc && doc.procs.find(p => p.id === procId);
+      if (!proc) continue;
+      const mv = doc.mv || 0;
+      for (const idx of [...set].sort((a, b) => a - b)) {
+        const t = proc.trans[idx];
+        if (!t) continue;
+        any = true;
+        const h = document.createElement('h3');
+        const sub = t.t.startsWith('(') ? t.t.slice(1, -1) : `${t.t} (${t.k})`;
+        h.innerHTML = `<span class="sw" style="background:${procColor(key)}"></span>` +
+          `${apt} ${proc.name || procId} <small>· ${sub}</small>`;
+        frag.appendChild(h);
+        const wrap = document.createElement('div');
+        wrap.className = 'tbl-wrap';
+        const tb = document.createElement('table');
+        tb.innerHTML = '<tr><th>#</th><th>fix</th><th>leg</th><th>crs °T</th>' +
+          '<th>dist</th><th>altitude</th><th>speed</th><th>vpa</th></tr>';
+        t.legs.forEach((leg, i) => {
+          const tr = document.createElement('tr');
+          const missed = !!(leg[L_FLAGS] & 1);
+          const crs = leg[L_CRS] != null
+            ? String(Math.round((leg[L_CRS] + mv + 360) % 360)).padStart(3, '0') + '°' : '';
+          tr.innerHTML = `<td>${i + 1}${missed ? ' <small>M</small>' : ''}</td>` +
+            `<td>${leg[L_FIX] || '—'}</td>` +
+            `<td title="${PT_NAMES[leg[L_PT]] || ''}">${leg[L_PT] || ''}` +
+            `${leg[L_TURN] ? ' <small>turn ' + leg[L_TURN] + '</small>' : ''}</td>` +
+            `<td>${crs}</td><td>${leg[L_DIST] != null ? leg[L_DIST] + ' nm' : ''}</td>` +
+            `<td class="alts">${consText(leg) || ''}</td>` +
+            `<td class="spd">${leg[L_SPD] ? '≤' + leg[L_SPD] + ' kt' : ''}</td>` +
+            `<td>${leg[L_VA] ? leg[L_VA].toFixed(1) + '°' : ''}</td>`;
+          if (missed) tr.className = 'mst';
+          if (leg[L_LAT] != null) {
+            tr.classList.add('clk');
+            tr.title = 'Click to pan the map here';
+            tr.addEventListener('click', () => {
+              map.panTo([leg[L_LAT], leg[L_LON]]);
+              pulseAt(leg[L_LAT], leg[L_LON]);
+            });
+          }
+          tb.appendChild(tr);
+        });
+        wrap.appendChild(tb);
+        frag.appendChild(wrap);
+      }
+    }
+    panel.innerHTML = '';
+    if (any) panel.appendChild(frag);
+    else panel.innerHTML = '<div id="legs-empty">Select a procedure to list its legs fix-by-fix.</div>';
+  }
+
   // ---------------------------------------------------------------- sidebar UI
   function fmtAptRow(a) {
-    return `<b>${a[0]}</b> ${a[1] || ''}<span class="cnt">${a[4]}S ${a[5]}T ${a[6]}A</span>`;
+    const loc = a[7] ? `<span class="city"> · ${a[7]}, ${a[8]}</span>` : '';
+    return `<b>${a[0]}</b> ${a[1] || ''}${loc}<span class="cnt">${a[4]}S ${a[5]}T ${a[6]}A</span>`;
   }
 
   function initSearch() {
@@ -1077,13 +1225,15 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       const q = inp.value.trim().toUpperCase();
       if (q.length < 2) { close(); return; }
       const apts = state.index.apts;
-      const pri = [], sec = [];
+      const pri = [], sec = [], ter = [];
       for (const a of apts) {
         if (a[0].startsWith(q) || a[0].startsWith('K' + q)) pri.push(a);
-        else if ((a[1] || '').toUpperCase().includes(q)) sec.push(a);
+        else if ((a[1] || '').toUpperCase().includes(q)
+              || (a[7] || '').toUpperCase().includes(q)) sec.push(a);
+        else if (q.length === 2 && a[8] === q) ter.push(a);   // state code
         if (pri.length > 40) break;
       }
-      rows = pri.concat(sec).slice(0, 30);
+      rows = pri.concat(sec, ter).slice(0, 30);
       hl = rows.length ? 0 : -1;
       renderRows();
     });
@@ -1132,7 +1282,20 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     APP: ['transition', 'final', 'other'] };
 
   function buildTree(doc) {
-    $('apt-title').innerHTML = `${doc.id} <small>${doc.name || ''}${doc.elev != null ? ' · ' + doc.elev + ' ft' : ''}</small>`;
+    const tpp = doc.tpp || {};
+    const loc = tpp.city ? ` · ${tpp.city}, ${tpp.st}` : '';
+    $('apt-title').innerHTML = `${doc.id} <small>${doc.name || ''}${loc}` +
+      `${doc.elev != null ? ' · ' + doc.elev + ' ft' : ''}</small>`;
+    const ac = $('apt-charts');
+    ac.innerHTML = '';
+    for (const [label, pdf] of tpp.apt || []) {
+      const b = document.createElement('button');
+      b.textContent = label.replace('Takeoff Minimums', 'T/O minimums')
+                           .replace('Alternate Minimums', 'Alt minimums');
+      b.title = label + ' (FAA PDF)';
+      b.addEventListener('click', () => openPlate(`${doc.id} · ${label}`, { p: pdf }));
+      ac.appendChild(b);
+    }
     const tree = $('proc-tree');
     tree.innerHTML = '';
     const groups = [['SID', 'SIDs — departures'], ['STAR', 'STARs — arrivals'], ['APP', 'Instrument approaches']];
@@ -1151,13 +1314,23 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   function procRow(doc, proc) {
     const key = selKey(doc.id, proc.id);
     const row = document.createElement('div');
-    row.className = 'proc-row';
+    row.className = 'proc-row' + (proc.co ? ' co' : '');
     const head = document.createElement('div');
     head.className = 'proc-head';
-    const label = proc.type === 'APP' ? (proc.name || proc.id) : proc.id;
+    const label = proc.name || proc.id;
+    const showId = proc.name && proc.name !== proc.id && !proc.co;
     head.innerHTML = `<span class="dot"></span><span class="nm">${label}` +
-      (proc.type === 'APP' && proc.name && proc.name !== proc.id ? ` <small>${proc.id}</small>` : '') +
-      `</span><span class="exp">▶</span>`;
+      (showId ? ` <small>${proc.id}</small>` : '') +
+      (proc.co ? ' <span class="co-badge" title="Published FAA plate the public CIFP doesn\'t code — nothing to draw, but the chart is real">plate only</span>' : '') +
+      `</span>` +
+      (proc.chart ? `<button class="pbtn" title="FAA plate — ${proc.chart.n}">plate</button>` : '') +
+      (proc.co ? '' : `<span class="exp">▶</span>`);
+    const plateTitle = () => `${doc.id} · ${proc.name || proc.id}`;
+    const pb = head.querySelector('.pbtn');
+    if (pb) pb.addEventListener('click', e => {
+      e.stopPropagation();
+      openPlate(plateTitle(), proc.chart);
+    });
     const list = document.createElement('div');
     list.className = 'trans-list';
 
@@ -1199,6 +1372,10 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     };
     head.addEventListener('click', e => {
       if (e.target.classList.contains('exp')) { row.classList.toggle('open'); return; }
+      if (proc.co) {                       // nothing to draw — go to the plate
+        if (proc.chart) openPlate(plateTitle(), proc.chart);
+        return;
+      }
       const set = state.sel.get(key);
       const turnOn = !(set && set.size);
       proc.trans.forEach((t, i) => setTrans(doc.id, proc.id, i, turnOn));
@@ -1207,7 +1384,8 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       redraw();
       if (turnOn) fitToSelection(doc.id, proc.id);
     });
-    head.querySelector('.exp').addEventListener('click', e => e.stopPropagation());
+    const exp = head.querySelector('.exp');           // absent on chart-only rows
+    if (exp) exp.addEventListener('click', e => e.stopPropagation());
     syncHead();
     row.appendChild(head); row.appendChild(list);
     return row;
@@ -1314,11 +1492,20 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       $('panel3d').classList.toggle('on', v3.on);
       if (v3.on) { render3d(); fit3d(); draw3d(); }
     });
+    $('btn-legs').addEventListener('click', e => {
+      const on = !$('legs-panel').classList.contains('on');
+      $('legs-panel').classList.toggle('on', on);
+      e.target.classList.toggle('on', on);
+      if (on) renderLegs();
+    });
+    initPlateModal();
 
     try {
       const r = await fetch('data/procedures/index.json');
       state.index = await r.json();
       $('cycle-date').textContent = state.index.effective || state.index.built || '—';
+      const cyc = dtppCycle();
+      if (cyc) $('tpp-cycle').textContent = ' · plates d-TPP ' + cyc;
     } catch (err) {
       $('cycle-date').textContent = 'data unavailable';
       $('tree-empty').textContent = 'Could not load procedure data (data/procedures/index.json).';
