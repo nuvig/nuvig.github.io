@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Aviation Knowledge Map — expandable concept graph</title>
-  <meta name="description" content="An interactive, expandable knowledge map of airplane flying: aerodynamics, systems, weather, navigation, airspace, regulations, performance, human factors, maneuvers, instruments and emergencies — with the cross-links between them.">
+  <meta name="description" content="An interactive, expandable knowledge map of airplane flying: aerodynamics, systems, weather, navigation, airspace, regulations, performance, human factors, maneuvers, instruments and emergencies — with the cross-links between them. Browse it as a graph or a readable outline, deep-link any concept, and track what you know.">
   <link rel="canonical" href="https://jesselevine.net/knowledge.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -38,18 +38,20 @@
     .search-box input:focus { border-color: var(--accent); }
     #search-results {
       display: none; position: absolute; top: 40px; right: 0; z-index: 40;
-      width: 300px; max-height: 340px; overflow-y: auto;
+      width: 320px; max-height: 380px; overflow-y: auto;
       background: #14181e; border: 1px solid #2a3a4d; border-radius: 8px;
       box-shadow: 0 10px 30px #000b; padding: 4px;
     }
     .sr-item {
-      display: flex; align-items: center; gap: 8px; width: 100%;
+      display: block; width: 100%;
       background: none; border: 0; color: #dbe4ef; text-align: left;
-      padding: 7px 9px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
+      padding: 6px 9px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
     }
-    .sr-item:hover { background: #1d2530; }
+    .sr-item:hover, .sr-item.active { background: #1d2530; }
+    .sr-top { display: flex; align-items: center; gap: 8px; }
     .sr-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-    .sr-group { margin-left: auto; color: #667; font-size: 11px; }
+    .sr-known { margin-left: auto; color: #34d17b; font-size: 11px; }
+    .sr-path { color: #5f6b7c; font-size: 10.5px; margin: 2px 0 0 16px; line-height: 1.3; }
 
     .kg-main { flex: 1 1 auto; display: flex; min-height: 0; }
 
@@ -63,7 +65,7 @@
 
     .kg-controls {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      display: flex; gap: 6px; flex-wrap: wrap;
+      display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 24px);
     }
     .kg-controls button {
       background: rgba(20,24,30,0.85); border: 1px solid #2a3a4d; color: #b8c6d8;
@@ -71,6 +73,7 @@
       backdrop-filter: blur(6px);
     }
     .kg-controls button:hover { border-color: var(--accent); color: #dbeafe; }
+    .kg-controls button.on { border-color: #e6c84a; color: #f2dd8a; }
 
     #legend {
       position: absolute; bottom: 12px; left: 12px; z-index: 20;
@@ -84,13 +87,88 @@
     }
     .leg-item:hover { border-color: #46566b; color: #dbe4ef; }
     .leg-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .leg-count { color: #34d17b; font-size: 10px; }
+    .leg-count:empty { display: none; }
 
     .hint-badge {
       position: absolute; top: 12px; right: 12px; z-index: 20;
       background: rgba(20,24,30,0.78); border: 1px solid #232c38; color: #7f8ea3;
       border-radius: 8px; padding: 6px 10px; font-size: 11px; line-height: 1.5;
-      max-width: 210px; backdrop-filter: blur(6px);
+      max-width: 220px; backdrop-filter: blur(6px);
     }
+
+    /* Hover tooltip (desktop) */
+    #tip {
+      display: none; position: absolute; z-index: 30; pointer-events: none;
+      max-width: 270px; background: rgba(15,19,25,0.96); border: 1px solid #2a3a4d;
+      border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5;
+      color: #b9c5d4; box-shadow: 0 8px 24px #0009;
+    }
+    #tip b { color: #e8eef6; display: block; margin-bottom: 2px; }
+
+    /* Outline view */
+    #outline {
+      display: none; position: absolute; inset: 0; z-index: 15;
+      background: #0e1116; overflow-y: auto;
+      padding: 58px 22px 48px;
+      -webkit-overflow-scrolling: touch;
+    }
+    #graph-wrap.outline-open #outline { display: block; }
+    #graph-wrap.outline-open .map-only,
+    #graph-wrap.outline-open #legend,
+    #graph-wrap.outline-open .hint-badge,
+    #graph-wrap.outline-open #tip { display: none; }
+    #graph-wrap.outline-open { cursor: default; }
+
+    .ol-head {
+      max-width: 860px; margin: 0 auto 16px;
+      color: #7f8ea3; font-size: 12.5px; line-height: 1.6;
+      display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: baseline;
+    }
+    .ol-head .ol-progress { color: #34d17b; }
+    .ol-head button {
+      background: none; border: 0; color: #5f6b7c; cursor: pointer;
+      font: inherit; font-size: 11.5px; text-decoration: underline; padding: 0;
+    }
+    .ol-head button:hover { color: #9fb0c4; }
+    .ol-tree { max-width: 860px; margin: 0 auto; }
+
+    details.ol-node { margin: 1px 0; }
+    details.ol-node > *:not(summary) { margin-left: 15px; border-left: 1px solid #1c2430; padding-left: 10px; }
+    details.ol-node > summary { list-style: none; }
+    details.ol-node > summary::-webkit-details-marker { display: none; }
+
+    .ol-row {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    }
+    .ol-row:hover { background: #161d27; }
+    .ol-row.ol-sel { background: #1b2534; }
+    @keyframes ol-flash { 0% { background: #3a3413; } 100% { background: #1b2534; } }
+    .ol-row.ol-flash { animation: ol-flash 1.2s ease-out; }
+    .ol-caret {
+      flex: 0 0 auto; width: 10px; color: #5f6b7c; font-size: 10px;
+      transition: transform 0.12s; transform: rotate(0deg); align-self: center;
+    }
+    details[open] > summary > .ol-caret { transform: rotate(90deg); }
+    .ol-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; align-self: center; }
+    .ol-label { color: #d7e0eb; font-size: 13.5px; }
+    .ol-1 > summary .ol-label, .ol-leaf.ol-1 .ol-label { font-size: 16px; font-weight: 600; }
+    .ol-2 > summary .ol-label, .ol-leaf.ol-2 .ol-label { font-size: 14.5px; font-weight: 600; }
+    .ol-row input[type="checkbox"] {
+      margin-left: auto; align-self: center; accent-color: #34d17b; cursor: pointer;
+      width: 14px; height: 14px; flex: 0 0 auto;
+    }
+    .ol-sum {
+      margin: 1px 0 5px 26px; color: #8d9aab; font-size: 12.5px; line-height: 1.55;
+      max-width: 72ch;
+    }
+    .ol-links { margin: -1px 0 6px 26px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .ol-x {
+      background: none; border: 1px dashed #4d452a; color: #cbb85e;
+      border-radius: 99px; padding: 1px 9px; font: inherit; font-size: 11px; cursor: pointer;
+    }
+    .ol-x:hover { border-color: #e6c84a; color: #f2dd8a; }
 
     /* Info panel */
     #info {
@@ -98,13 +176,31 @@
       border-left: 1px solid var(--border); padding: 18px 18px 24px;
       overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
     }
-    #info-path { font-size: 11px; color: #5d6675; line-height: 1.5; word-break: break-word; }
+    #info-path { font-size: 11px; color: #5d6675; line-height: 1.7; word-break: break-word; }
+    #info-path button {
+      background: none; border: 0; padding: 0; font: inherit; font-size: 11px;
+      color: #5d6675; cursor: pointer;
+    }
+    #info-path button:hover { color: #9fb0c4; text-decoration: underline; }
     #info-title { margin: 0; font-size: 1.25rem; color: #eef3f9; line-height: 1.25; }
     #info-group {
       align-self: flex-start; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
       border: 1px solid; border-radius: 99px; padding: 2px 10px;
     }
+    #info-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .act-btn {
+      background: #10151c; border: 1px solid #2a3a4d; color: #b8c6d8;
+      border-radius: 7px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer;
+    }
+    .act-btn:hover { border-color: var(--accent); color: #dbeafe; }
+    .act-btn.on { border-color: #2c7a4f; background: #12241a; color: #57e39b; }
     #info-body { font-size: 13.5px; color: #c4cdd9; line-height: 1.6; margin: 2px 0 4px; }
+    #info-tool {
+      display: none; text-decoration: none; background: #101a24; border: 1px solid #22415f;
+      border-radius: 8px; padding: 8px 11px; font-size: 12.5px; color: #8fc1f2; line-height: 1.5;
+    }
+    #info-tool:hover { border-color: var(--accent); color: #bcdcfb; }
+    #info-tool small { display: block; color: #5d7690; font-size: 11px; }
     #info-links { display: flex; flex-direction: column; gap: 6px; }
     .link-head {
       font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
@@ -117,6 +213,7 @@
       transition: border-color 0.12s, background 0.12s;
     }
     .chip:hover { background: #182029; border-color: var(--accent); }
+    .chip.more { color: #7f8ea3; border-style: dashed; }
 
     @media (max-width: 820px) {
       .kg-main { flex-direction: column; }
@@ -128,6 +225,7 @@
       .hint-badge { display: none; }
       .kg-header .sub { display: none; }
       .search-box input { width: 150px; }
+      #outline { padding: 58px 12px 40px; }
     }
   </style>
 </head>
@@ -135,25 +233,39 @@
   <header class="kg-header">
     <a id="back-link" href="/">&larr; jesselevine.net</a>
     <h1>🧭 Aviation Knowledge Map</h1>
-    <p class="sub">Click a node to open it. Dashed gold lines connect ideas that live on different branches but drive each other.</p>
+    <p class="sub">Click a node to open it. Dashed gold lines connect ideas that live on different branches but drive each other. Mark what you know — progress is saved in your browser.</p>
     <div class="search-box">
-      <input id="search" type="text" placeholder="Search concepts…" autocomplete="off" spellcheck="false">
+      <input id="search" type="text" placeholder="Search concepts… ( / )" autocomplete="off" spellcheck="false" aria-label="Search concepts">
       <div id="search-results"></div>
     </div>
   </header>
 
   <div class="kg-main">
     <div id="graph-wrap">
-      <canvas id="graph"></canvas>
+      <canvas id="graph" role="img" aria-label="Interactive aviation knowledge graph — use the Outline view for a text version"></canvas>
+      <div id="outline">
+        <div class="ol-head">
+          <span id="ol-stats"></span>
+          <span class="ol-progress" id="ol-progress"></span>
+          <button id="ol-reset" type="button">reset progress</button>
+          <span>Tick what you can teach. Gold chips jump across branches.</span>
+        </div>
+        <div class="ol-tree" id="ol-tree"></div>
+      </div>
       <div class="kg-controls">
-        <button id="btn-expand">Expand domains</button>
-        <button id="btn-collapse">Collapse all</button>
-        <button id="btn-reset">Recenter</button>
+        <button id="btn-view" title="Toggle between the graph and a readable outline">☰ Outline</button>
+        <button id="btn-expand" class="map-only" title="Open the twelve domains">Domains</button>
+        <button id="btn-all" class="map-only" title="Open every branch">Everything</button>
+        <button id="btn-collapse" class="map-only" title="Close all branches">Collapse</button>
+        <button id="btn-reset" class="map-only" title="Fit the visible map to the window">Fit</button>
+        <button id="btn-links" class="map-only" title="Always show the cross-links">Links</button>
+        <button id="btn-random" title="Jump to a random concept">🎲 Random</button>
       </div>
       <div class="hint-badge">
-        Drag background to pan · wheel to zoom · drag a node to move it ·
-        <b>+</b> nodes have hidden branches.
+        Drag to pan · wheel or pinch to zoom · click a selected node again to collapse it ·
+        <b>+N</b> shows hidden branches · arrows move, <b>Enter</b> opens, <b>K</b> marks known.
       </div>
+      <div id="tip"></div>
       <div id="legend"></div>
     </div>
 
@@ -161,11 +273,17 @@
       <div id="info-path"></div>
       <h2 id="info-title">Aviation</h2>
       <span id="info-group">Aviation</span>
+      <div id="info-actions">
+        <button id="act-known" class="act-btn" type="button">✓ Mark as known</button>
+        <button id="act-share" class="act-btn" type="button">🔗 Copy link</button>
+        <button id="act-map" class="act-btn" type="button" style="display:none">🗺 Show on map</button>
+      </div>
       <p id="info-body"></p>
+      <a id="info-tool" href="#"></a>
       <div id="info-links"></div>
     </aside>
   </div>
 
-  <script src="js/knowledge.js"></script>
+  <script src="js/knowledge.js?v=2"></script>
 </body>
 </html>
