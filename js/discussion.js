@@ -466,7 +466,7 @@ function synUrl() {
     `?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
     `&hourly=${SYN.VARS.join(',')}` +
     '&wind_speed_unit=kn&timeformat=unixtime&timezone=UTC' +
-    '&past_hours=6&forecast_hours=49&models=gfs_global';
+    '&past_days=1&forecast_hours=49&models=gfs_global';
 }
 
 async function loadSynData() {
@@ -648,6 +648,36 @@ function updateRadarVisibility() {
   const show = syn.layers.radar && isNowStep();
   if (show && !syn.map.hasLayer(radar.layer)) radar.layer.addTo(syn.map);
   if (!show && syn.map.hasLayer(radar.layer)) syn.map.removeLayer(radar.layer);
+}
+
+/* ---------------- DC point sounding-parameters (CAPE / CIN) -------------- */
+/* Small single-point call: the grid doesn't carry CIN, and cap strength is
+   the usual answer to "why didn't it storm". Past day included so the
+   verification card can hindcast. */
+
+async function loadPointData() {
+  const url = 'https://api.open-meteo.com/v1/forecast' +
+    `?latitude=${DC.lat}&longitude=${DC.lon}` +
+    '&hourly=cape,convective_inhibition,precipitation' +
+    '&past_days=1&forecast_days=3&timeformat=unixtime&timezone=UTC&models=gfs_global';
+  const d = await fetchJSON(url);
+  syn.point = {
+    times: d.hourly.time.map((t) => t * 1000),
+    cape: d.hourly.cape || [],
+    cin: d.hourly.convective_inhibition || [],
+    pr: d.hourly.precipitation || [],
+  };
+}
+
+function pointAt(name, ms) {
+  const p = syn.point;
+  if (!p || !p.times.length) return null;
+  let best = 0;
+  for (let i = 0; i < p.times.length; i++) {
+    if (Math.abs(p.times[i] - ms) < Math.abs(p.times[best] - ms)) best = i;
+  }
+  const v = p[name][best];
+  return v == null ? null : v;
 }
 
 /* ------------------------------ colors ---------------------------------- */
@@ -1165,6 +1195,10 @@ function synExplain() {
   } else if (wet) {
     S.push('Almost no CAPE — this is stratiform precip: steady and widespread, wrung out by large-scale lift rather than by buoyant updrafts.');
   }
+  const cin = pointAt('cin', syn.times[t]);
+  if (!wet && cape >= 700 && cin != null && cin <= -50) {
+    S.push(`There’s fuel but also a lid: CIN around −${Math.round(Math.abs(cin) / 10) * 10} J/kg is capping the column — until heating or an approaching boundary erodes that cap, storms stay locked out no matter the CAPE.`);
+  }
   if (spreadF <= 4) {
     S.push(`The low-level airmass is close to saturation (temperature–dewpoint spread ${Math.max(0, Math.round(spreadF))}°F), so any lift converts quickly to cloud and rain.`);
   } else if (spreadF >= 15 && !wet) {
@@ -1191,7 +1225,10 @@ function synExplain() {
 
 async function loadSynoptic() {
   initSynMap();
-  await loadSynData();
+  await Promise.all([
+    loadSynData(),
+    loadPointData().catch(() => { syn.point = null; }),   // CAPE/CIN garnish — non-fatal
+  ]);
   sizeCanvases();
   drawLegendBar();
   const slider = $('syn-slider');
@@ -1233,6 +1270,131 @@ async function loadSynoptic() {
 }
 
 /* ===========================================================================
+   Verification — why today played out the way it did
+   =========================================================================== */
+
+const OBS_STATION = 'KDCA';
+const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const localDay = (ms) => DAY_FMT.format(new Date(ms));
+
+async function loadVerification() {
+  const host = $('verify-body');
+  if (!syn.ready) { host.innerHTML = '<span class="err">Needs the model grid — synoptic load failed.</span>'; return; }
+  const now = Date.now();
+  const today = localDay(now);
+
+  /* what was expected: the earliest forecast snapshot saved on this device
+     (≥3 h old) that covered today */
+  let snaps = [];
+  try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
+  const withToday = snaps.filter((s) => s.days && s.days[today] && now - s.at > 3 * 3600 * 1000);
+  const exp = withToday.length ? { at: withToday[0].at, ...withToday[0].days[today] } : null;
+
+  /* what actually happened: METARs at DCA today */
+  const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
+  const todays = (obs.features || []).map((f) => f.properties)
+    .filter((p) => p && p.timestamp && localDay(new Date(p.timestamp).getTime()) === today);
+  const thunder = todays.filter((p) => /\b(?:VC)?TS(?!NO)/.test(p.rawMessage || '')).reverse();
+  const rain = todays.filter((p) => /(?:^|\s)[+-]?(?:SH|FZ)?(?:RA|DZ)\b/.test((p.rawMessage || '').replace(/RMK.*$/, '')));
+  let maxT = null;
+  for (const p of todays) {
+    const c = p.temperature && p.temperature.value;
+    if (c != null && (maxT == null || c > maxT)) maxT = c;
+  }
+
+  /* model hindcast at DC over today's past hours */
+  const g = gridXY(DC.lat, DC.lon);
+  const pastIdx = [];
+  for (let i = 0; i < syn.times.length; i++) {
+    if (syn.times[i] <= now && localDay(syn.times[i]) === today) pastIdx.push(i);
+  }
+  let peakCape = 0, dcPrecip = 0, nearbyMax = 0;
+  for (const i of pastIdx) {
+    peakCape = Math.max(peakCape, bilinear(baseField('cape', i), g.gx, g.gy) || 0);
+    dcPrecip += Math.max(0, bilinear(baseField('precipitation', i), g.gx, g.gy) || 0);
+    const pf = baseField('precipitation', i);
+    for (let k = 0; k < SYN.NP; k++) {
+      const lat = SYN.LAT_N - Math.floor(k / SYN.NX) * SYN.DLAT;
+      const lon = SYN.LON_W + (k % SYN.NX) * SYN.DLON;
+      if (kmBetween(DC.lat, DC.lon, lat, lon).km < 120) nearbyMax = Math.max(nearbyMax, pf[k] || 0);
+    }
+  }
+  if (syn.point) {   // point call carries CAPE too and resolves better than the grid
+    for (let i = 0; i < syn.point.times.length; i++) {
+      if (syn.point.times[i] <= now && localDay(syn.point.times[i]) === today) {
+        peakCape = Math.max(peakCape, syn.point.cape[i] || 0);
+      }
+    }
+  }
+  /* strongest cap during the heating hours (15–23 local ≈ when storms fire) */
+  let capJkg = null;
+  if (syn.point) {
+    for (let i = 0; i < syn.point.times.length; i++) {
+      const tms = syn.point.times[i];
+      if (tms > now || localDay(tms) !== today) continue;
+      const hr = +new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(new Date(tms));
+      if (hr >= 11 && hr <= 22) {
+        const c = syn.point.cin[i];
+        if (c != null && (capJkg == null || Math.abs(c) > capJkg)) capJkg = Math.abs(c);
+      }
+    }
+  }
+  const front = nearestFront(synNowIndex());
+
+  /* ---- compose ---- */
+  const F = (c) => Math.round(c * 9 / 5 + 32);
+  const expectedStorms = exp && (/t-?storm|thunder/i.test(exp.short || '') || (exp.pop ?? 0) >= 50);
+  const gotStorms = thunder.length > 0;
+  const gotRain = rain.length > 0 || dcPrecip > 0.5;
+  const hrOf = (p) => fmtTime(new Date(p.timestamp), { hour: 'numeric' });
+
+  const expLine = exp
+    ? `${esc(exp.short || '—')}${exp.pop != null ? ` · ${exp.pop}% precip chance` : ''}${exp.hi != null ? ` · high ${exp.hi}°` : ''} <span class="faint">(forecast saved here ${esc(timeAgo(new Date(exp.at)))})</span>`
+    : '<span class="faint">no earlier forecast saved on this device yet — the comparison starts with your next visit</span>';
+  const obsLine =
+    `${gotStorms ? `thunder at ${OBS_STATION} around ${esc(hrOf(thunder[0]))}${thunder.length > 1 ? `–${esc(hrOf(thunder[thunder.length - 1]))}` : ''}` : 'no thunder'}` +
+    ` · ${rain.length ? 'rain reported' : 'no rain in the METARs'}` +
+    `${maxT != null ? ` · high ${F(maxT)}°F` : ''} <span class="faint">(${OBS_STATION}, through the latest ob)</span>`;
+
+  const S = [];
+  if (expectedStorms && !gotStorms) {
+    if (peakCape >= 800 && capJkg != null && capJkg >= 60) {
+      S.push(`The fuel showed up — the model hindcast has CAPE peaking near ${Math.round(peakCape / 100) * 100} J/kg — but the lid never broke: convective inhibition held around −${Math.round(capJkg / 10) * 10} J/kg at DC through the heating hours, and no trigger was strong enough to punch through it.`);
+    }
+    if (front && front.km < 450 && front.dir.includes('W')) {
+      S.push(`The trigger also ran late: the front that was supposed to set storms off is still ~${Math.round(front.km * 0.54 / 10) * 10} nm to the ${front.dir} at the latest model hour, so the lift never overlapped the unstable air over the district in time.`);
+    } else if (front && front.dir.includes('E')) {
+      S.push('The boundary actually came through — but dry: by the time it crossed, the low levels had stabilized and there was nothing left for it to lift.');
+    }
+    if (nearbyMax > 0.8 && dcPrecip < 0.3) {
+      S.push(`Storms did fire in the region — the hindcast paints up to ~${nearbyMax.toFixed(1)} mm/hr within ~65 nm — they just missed the district. On a ${exp && exp.pop != null ? exp.pop + '%' : 'scattered'} day, that's the coin landing on the other side.`);
+    }
+    if (peakCape < 500) {
+      S.push(`The instability itself underperformed: CAPE at DC only reached ~${Math.round(peakCape / 50) * 50} J/kg — clouds or leftover stable air held surface heating below what the morning forecast banked on.`);
+    }
+    if (!S.length) {
+      S.push('The model’s own hindcast keeps DC dry too — the setup simply weakened faster than the earlier runs (and the forecast built on them) expected.');
+    }
+  } else if (expectedStorms && gotStorms) {
+    S.push(`That verified: thunder reached ${OBS_STATION}${thunder.length ? ` around ${hrOf(thunder[0])}` : ''}${front ? `, with the frontal zone ${front.dir.includes('E') ? 'having swept through' : `still ~${Math.round(front.km * 0.54 / 10) * 10} nm ${front.dir}`}` : ''} — fuel (CAPE ~${Math.round(peakCape / 100) * 100} J/kg) plus a trigger, the classic recipe.`);
+  } else if (!expectedStorms && gotStorms) {
+    S.push(`Storms weren’t really advertised, but they happened anyway — ${capJkg != null && capJkg < 40 ? 'the cap was weaker than forecast, and ' : ''}${front && front.km < 250 ? 'the boundary nearby provided the spark' : 'an outflow or bay-breeze boundary likely provided the spark'}. Small-scale triggers like that are exactly what the models resolve worst.`);
+  } else {
+    S.push(gotRain
+      ? 'A mostly quiet day with some rain — about what the pattern supported.'
+      : `A quiet day${exp ? ' — largely as advertised' : ''}: ${capJkg != null && capJkg >= 60 ? `the column stayed capped (CIN ~−${Math.round(capJkg / 10) * 10} J/kg)` : peakCape < 500 ? 'little instability ever developed' : 'no trigger arrived to tap what instability there was'}, so the sky stayed mostly out of the precip business.`);
+  }
+
+  host.innerHTML =
+    `<div class="v-grid">` +
+    `<div class="v-lab">Expected</div><div>${expLine}</div>` +
+    `<div class="v-lab">Observed</div><div>${obsLine}</div>` +
+    `</div>` +
+    `<p class="v-why">${S.map(esc).join(' ')}</p>` +
+    `<div class="drift-note">PoPs are probabilities, not promises${exp && exp.pop != null && exp.pop > 0 && exp.pop < 100 ? ` — a ${exp.pop}% day stays dry about ${Math.round(10 - exp.pop / 10)} times in 10` : ''}. Hindcast = the model’s own reconstruction (GFS); observations from ${OBS_STATION} METARs. Recheck after the next discussion drops: the change log above usually shows the forecasters reckoning with the same bust.</div>`;
+}
+
+/* ===========================================================================
    init
    =========================================================================== */
 
@@ -1256,6 +1418,9 @@ async function init() {
     }),
   ];
   const done = (await Promise.all(jobs)).filter(Boolean);
+  loadVerification().catch((e) => {
+    $('verify-body').innerHTML = `<span class="err">Verification failed: ${esc(e.message)}</span>`;
+  });
   if (done.length === jobs.length) {
     const issued = AFD.list[0] ? fmtIssued(new Date(AFD.list[0].issuanceTime)) : '';
     setStatus('green', `Discussion issued ${issued} · ${OFFICE}`);

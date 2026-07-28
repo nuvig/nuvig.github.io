@@ -98,6 +98,17 @@
       letter-spacing: 0.06em; margin-bottom: 4px;
     }
     #syn-why .why-foot { margin-top: 6px; font-size: 11px; color: #58656f; }
+
+    /* ---- verification card ---- */
+    .v-grid {
+      display: grid; grid-template-columns: 84px 1fr; gap: 5px 12px;
+      font-size: 13px; color: #bbb;
+    }
+    .v-lab {
+      color: #667; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; padding-top: 2px;
+    }
+    .v-why { font-size: 13px; color: #b9c2cb; line-height: 1.65; margin: 10px 0 0; }
     .syn-legend {
       display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
       font-size: 11px; color: #666; margin-top: 8px;
@@ -239,6 +250,14 @@
     <div id="syn-err"></div>
   </div>
 
+  <!-- ============ VERIFICATION ============ -->
+  <div class="section-title">Today — why it played out the way it did
+    <span class="sub">this morning's forecast vs. what the METARs actually recorded, and the model's hindcast of why</span>
+  </div>
+  <div class="card">
+    <div id="verify-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
   <!-- ============ DISCUSSION ============ -->
   <div class="section-title">The discussion — NWS Baltimore/Washington (LWX)
     <span class="sub" id="afd-issued">the actual forecasters' reasoning, straight from the source · dotted terms have plain-English tooltips</span>
@@ -273,6 +292,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=2"></script>
+  <script src="js/discussion.js?v=3"></script>
 </body>
 </html>

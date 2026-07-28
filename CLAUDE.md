@@ -88,7 +88,9 @@ classified there, check all three.
   forecast-drift card), and a synoptic canvas built from an Open-Meteo GFS grid — air-mass fill,
   isobars/H-L, fronts detected from 850 hPa temp gradients signed by advection, wind particles,
   RainViewer radar at "now" / model precip at other hours, and a rule-based precip-cause
-  diagnosis at DC. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+  diagnosis at DC. A verification card compares the morning forecast (localStorage snapshot)
+  against KDCA METARs and explains busts from the hindcast (CAPE/CIN, front position).
+  Same no-CORS rule as weather.html: never fetch aviationweather.gov.
 
 ### Backends
 
