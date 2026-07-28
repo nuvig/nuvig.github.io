@@ -78,6 +78,17 @@
     'descent-and-star':           { href: 'procedures.html', name: 'Procedure Explorer', sub: 'every US STAR, on the chart' },
     'holding':                    { href: 'procedures.html', name: 'Procedure Explorer', sub: 'holds as charted on real procedures' },
     'ads-b':                      { href: 'kanp.html', name: 'KANP Flight Tracker', sub: 'live ADS-B over Annapolis' },
+    'pitot-static-instruments':   { href: 'instruments.html', name: 'Instrument Errors', sub: 'block the pitot or static and watch the gauges' },
+    'pitot-static-failures':      { href: 'instruments.html', name: 'Instrument Errors', sub: 'block the pitot or static and watch the gauges' },
+    'pitot-static-system':        { href: 'instruments.html', name: 'Instrument Errors', sub: 'block the pitot or static and watch the gauges' },
+    'pitot-tube-and-drain':       { href: 'instruments.html', name: 'Instrument Errors', sub: 'block the pitot or static and watch the gauges' },
+    'airspeed-indicator':         { href: 'instruments.html', name: 'Instrument Errors', sub: 'every pitot-static blockage, on live gauges' },
+    'vertical-speed-indicator':   { href: 'instruments.html', name: 'Instrument Errors', sub: 'every pitot-static blockage, on live gauges' },
+    'altimeter':                  { href: 'instruments.html', name: 'Instrument Errors', sub: 'setting and cold-temperature errors, interactive' },
+    'gyroscopic-instruments':     { href: 'instruments.html', name: 'Instrument Errors', sub: 'gyro drift and the false-climb error' },
+    'heading-indicator':          { href: 'instruments.html', name: 'Instrument Errors', sub: 'watch the Earth rotate under the gyro' },
+    'attitude-indicator':         { href: 'instruments.html', name: 'Instrument Errors', sub: 'the acceleration false climb, interactive' },
+    'magnetic-compass-errors':    { href: 'instruments.html', name: 'Instrument Errors', sub: 'fly UNOS and ANDS in a live compass sim' },
   };
   function toolFor(id) {
     let cur = id;
