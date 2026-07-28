@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DC Forecast Discussion — air masses, fronts &amp; the reasoning behind the forecast</title>
+  <meta name="description" content="The NWS Baltimore/Washington forecast discussion for the DC area, decoded: a live synoptic map of air masses, fronts and pressure systems, plus a change log showing how the forecast — and the forecasters' reasoning — evolved between issuances.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/discussion.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/discussion.html">
+  <meta property="og:title" content="DC Forecast Discussion — decoded">
+  <meta property="og:description" content="Live synoptic map of air masses, fronts and systems around DC, the NWS forecast discussion in readable form, and a change log of how the forecast evolved.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    a { color: #aaa; }
+    #back-link {
+      display: inline-block; margin-top: 16px; font-size: 14px;
+      text-decoration: none; color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+    }
+    .indicator { display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #444; flex-shrink: 0; }
+    .dot.green  { background: #22c55e; animation: pulse 2s infinite; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.red    { background: #ef4444; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 5px 14px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #26497a; }
+    .btn.secondary { background: #333; border-color: #444; color: #ddd; }
+    .btn.secondary:hover { background: #444; }
+
+    .section-title {
+      font-size: 15px; font-weight: 600; color: #ccc;
+      margin: 22px 0 8px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .sub { font-weight: 400; font-size: 12px; color: #555; }
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin-bottom: 0;
+    }
+    .muted { color: #888; }
+    .faint { color: #555; }
+    .num-mono { font-variant-numeric: tabular-nums; }
+    .err { color: #b45309; font-size: 13px; }
+
+    /* ---- synoptic map ---- */
+    #syn-wrap { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #333; background: #0b0b0b; }
+    #syn-map { height: 500px; }
+    @media (max-width: 640px) { #syn-map { height: 380px; } }
+    #syn-canvas, #syn-particles {
+      position: absolute; inset: 0; pointer-events: none; z-index: 500;
+    }
+    #syn-particles { z-index: 501; }
+    .syn-controls {
+      display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap;
+      font-size: 12.5px; color: #999;
+    }
+    .syn-controls input[type=range] { flex: 1; min-width: 160px; accent-color: #4a9eff; }
+    #syn-time { font-size: 13px; color: #ddd; min-width: 200px; }
+    #syn-time .rel { color: #777; }
+    .syn-layers { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #999; margin-top: 8px; }
+    .syn-layers label { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; }
+    .syn-layers input { accent-color: #4a9eff; }
+    #syn-readout {
+      font-size: 12px; color: #888; margin-top: 8px; min-height: 17px;
+      font-variant-numeric: tabular-nums;
+    }
+    #syn-readout b { color: #ddd; font-weight: 600; }
+    .syn-legend {
+      display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+      font-size: 11px; color: #666; margin-top: 8px;
+    }
+    .syn-legend .sw { display: inline-block; width: 22px; height: 4px; border-radius: 2px; vertical-align: 2px; margin-right: 5px; }
+    #legend-tbar { height: 10px; width: 130px; border-radius: 3px; vertical-align: -1px; }
+    .hl-h { color: #74a7ff; font-weight: 700; }
+    .hl-l { color: #ff6b6b; font-weight: 700; }
+
+    /* ---- discussion sections ---- */
+    details.afd-sec {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      margin-bottom: 8px; overflow: hidden;
+    }
+    details.afd-sec > summary {
+      cursor: pointer; list-style: none; padding: 10px 14px;
+      display: flex; align-items: baseline; gap: 10px; user-select: none;
+    }
+    details.afd-sec > summary::-webkit-details-marker { display: none; }
+    details.afd-sec > summary::before {
+      content: "▸"; color: #555; font-size: 11px; transition: transform .12s;
+      display: inline-block; align-self: center;
+    }
+    details.afd-sec[open] > summary::before { transform: rotate(90deg); }
+    details.afd-sec > summary:hover { background: #202020; }
+    .afd-sec .sec-name { font-weight: 600; color: #ddd; font-size: 14px; }
+    .afd-sec .sec-qual { font-size: 12px; color: #666; }
+    .afd-sec .sec-body { padding: 2px 16px 12px 30px; font-size: 13.5px; color: #bbb; line-height: 1.65; }
+    .afd-sec .sec-body p { margin: 8px 0; }
+    .gloss {
+      border-bottom: 1px dotted #5a7a9a; cursor: help; color: #cfe0f0;
+    }
+
+    /* ---- change log ---- */
+    details.log-entry {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      margin-bottom: 8px; overflow: hidden;
+    }
+    details.log-entry > summary {
+      cursor: pointer; list-style: none; padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap; user-select: none;
+    }
+    details.log-entry > summary::-webkit-details-marker { display: none; }
+    details.log-entry > summary::before {
+      content: "▸"; color: #555; font-size: 11px; transition: transform .12s;
+    }
+    details.log-entry[open] > summary::before { transform: rotate(90deg); }
+    details.log-entry > summary:hover { background: #202020; }
+    .log-when { font-weight: 600; color: #ddd; font-size: 13.5px; }
+    .log-ago { font-size: 12px; color: #666; }
+    .chip {
+      font-size: 11px; padding: 1px 8px; border-radius: 10px;
+      background: #24344a; color: #9cc4f0; border: 1px solid #35547a;
+    }
+    .chip.new { background: #1d3d28; color: #7ce0a3; border-color: #2c6a44; }
+    .chip.stat { background: #262626; color: #999; border-color: #3a3a3a; }
+    .log-body { padding: 0 16px 12px 30px; font-size: 13px; color: #aaa; }
+    .log-sec { margin: 10px 0; }
+    .log-sec .log-sec-name { font-weight: 600; color: #ccc; font-size: 12.5px; margin-bottom: 3px; }
+    .diff { line-height: 1.7; }
+    .diff del {
+      background: rgba(239, 68, 68, 0.14); color: #e08a8a;
+      text-decoration: line-through; text-decoration-color: rgba(224,120,120,.6);
+      border-radius: 3px; padding: 0 2px;
+    }
+    .diff ins {
+      background: rgba(34, 197, 94, 0.15); color: #8fdba9;
+      text-decoration: none; border-radius: 3px; padding: 0 2px;
+    }
+    .diff .ell { color: #555; padding: 0 6px; }
+    .log-unchanged { font-size: 12px; color: #555; margin-top: 8px; }
+
+    /* ---- forecast drift ---- */
+    .drift-row {
+      display: flex; gap: 12px; align-items: baseline; padding: 5px 0;
+      border-bottom: 1px solid #242424; font-size: 13px; flex-wrap: wrap;
+    }
+    .drift-row:last-child { border-bottom: none; }
+    .drift-row .day { width: 96px; flex-shrink: 0; color: #ccc; font-weight: 600; }
+    .drift-row .delta { color: #999; }
+    .drift-row .up { color: #f59e0b; }
+    .drift-row .down { color: #4a9eff; }
+    .drift-note { font-size: 11.5px; color: #555; margin-top: 8px; }
+
+    footer.sources { margin-top: 28px; font-size: 11px; color: #555; line-height: 1.7; }
+    footer.sources a { color: #666; }
+  </style>
+</head>
+<body>
+  <a href="/" id="back-link">← Jesse Levine</a>
+
+  <h1>DC Forecast Discussion</h1>
+  <p class="subtitle">
+    The NWS Baltimore/Washington forecast discussion, decoded — with a live map of the air masses,
+    fronts and systems driving it, and a change log of how the reasoning evolved ·
+    <a href="/weather.html">weather hub →</a> ·
+    <a href="/skew-t.html">skew-t →</a>
+  </p>
+
+  <div class="status-bar">
+    <div class="indicator"><div class="dot" id="status-dot"></div><span id="status-text">Loading…</span></div>
+    <span class="faint" id="status-check"></span>
+    <button class="btn secondary" id="refresh-btn" style="margin-left:auto">Refresh now</button>
+  </div>
+
+  <!-- ============ SYNOPTIC MAP ============ -->
+  <div class="section-title">Air masses, fronts &amp; systems — Mid-Atlantic
+    <span class="sub">model surface analysis, rebuilt in your browser: temperature field · isobars · highs/lows · frontal zones · wind flow</span>
+  </div>
+  <div class="card">
+    <div id="syn-wrap">
+      <div id="syn-map"></div>
+      <canvas id="syn-canvas"></canvas>
+      <canvas id="syn-particles"></canvas>
+    </div>
+    <div class="syn-controls">
+      <button class="btn secondary" id="syn-play">▶ Play</button>
+      <input type="range" id="syn-slider" min="0" max="0" value="0" step="1">
+      <span id="syn-time">loading model grid…</span>
+      <button class="btn secondary" id="syn-now">Now</button>
+    </div>
+    <div class="syn-layers">
+      <label><input type="checkbox" id="lyr-airmass" checked> air-mass temperature</label>
+      <label><input type="checkbox" id="lyr-fronts" checked> frontal zones</label>
+      <label><input type="checkbox" id="lyr-isobars" checked> isobars &amp; H/L</label>
+      <label><input type="checkbox" id="lyr-wind" checked> wind flow</label>
+    </div>
+    <div id="syn-readout">Move the cursor over the map to sample the model at any point.</div>
+    <div class="syn-legend" id="syn-legend">
+      <span><canvas id="legend-tbar" width="130" height="10"></canvas> <span id="legend-trange">air mass (850 hPa temp)</span></span>
+      <span><span class="sw" style="background:#4a8cff"></span>cold air advancing</span>
+      <span><span class="sw" style="background:#ff5a5a"></span>warm air advancing</span>
+      <span><span class="hl-h">H</span>/<span class="hl-l">L</span> pressure centers · thin lines = isobars (2 hPa)</span>
+      <span>streaks = surface wind</span>
+    </div>
+    <div id="syn-err"></div>
+  </div>
+
+  <!-- ============ DISCUSSION ============ -->
+  <div class="section-title">The discussion — NWS Baltimore/Washington (LWX)
+    <span class="sub" id="afd-issued">the actual forecasters' reasoning, straight from the source · dotted terms have plain-English tooltips</span>
+  </div>
+  <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
+
+  <!-- ============ CHANGE LOG ============ -->
+  <div class="section-title">Forecast change log
+    <span class="sub">how the forecast — and the reasoning — changed between discussions · <span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span> · checks for new issuances every 10 min</span>
+  </div>
+
+  <div class="card" id="drift-card" style="margin-bottom:8px">
+    <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em">Forecast drift — daily numbers for DC</h3>
+    <div id="drift-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
+  <div id="afd-log"><div class="card"><span class="muted" style="font-size:13px">Loading previous issuances…</span></div></div>
+
+  <footer class="sources">
+    Not for operational use — always get an official briefing.
+    Discussion text: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a>
+    (Area Forecast Discussion, office LWX — Baltimore MD/Washington DC) ·
+    daily forecast: NWS API ·
+    synoptic grid: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (GFS) —
+    the map is a model visualization computed in your browser, not an official surface analysis
+    (frontal zones are detected from 850 hPa temperature gradients and can differ from WPC's drawn fronts).
+    Basemap © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> /
+    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>.
+    Wind directions are °true.
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/discussion.js?v=1"></script>
+</body>
+</html>
