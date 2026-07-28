@@ -1,0 +1,1 @@
+{"id":"KLZD","name":"Danielson","lat":41.81975,"lon":-71.90097,"elev":238.0,"mv":-14.0,"rw":[["RW13",41.82158,-71.90527,134.0,2700.0],["RW31",41.81791,-71.89666,314.0,2700.0]],"tpp":{"city":"Danielson","st":"CT","apt":[["Takeoff Minimums","NE1TO.PDF"]]},"procs":[{"id":"VOR-A","type":"APP","name":"VOR-A","co":1,"chart":{"n":"VOR-A","p":"05708VA.PDF","a":"6F"},"trans":[]}]}
