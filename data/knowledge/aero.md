@@ -20,7 +20,7 @@ How the wing and the air trade momentum to make lift, drag and control.
     - Spin :: An aggravated stall with yaw — one wing more stalled than the other, autorotating. Recovery (PARE): Power idle, Ailerons neutral, Rudder opposite, Elevator forward.
     - Load Factor & Vs :: Stall speed rises with the square root of load factor: a 60° bank doubles load and raises Vs by ~41%. The "accelerated stall." -> maneuvering-speed-va "stalls before overstress"
   - Drag :: The rearward aerodynamic force. Total drag is the sum of parasite and induced — their opposite trends with speed create the drag curve.
-    - Parasite Drag :: Form + skin friction + interference. Grows with the square of airspeed — the fast-flight penalty.
+    - Parasite Drag {#parasite-drag} :: Form + skin friction + interference. Grows with the square of airspeed — the fast-flight penalty.
     - Induced Drag {#induced-drag} :: The price of making lift — the tilt of the lift vector from downwash and tip vortices. Greatest at low speed / high AoA, falls with speed.
     - L/D max :: The speed where total drag is least and lift-to-drag is greatest — best glide, max endurance for a jet, and the bottom of the power curve. -> emergency-airwork "= best glide AoA"
     - Region of Reversed Command {#region-of-reversed-command} :: Slower than L/Dmax it takes MORE power to fly slower, because induced drag is climbing. The "back of the power curve" — the low-and-slow trap on approach.

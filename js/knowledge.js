@@ -64,6 +64,7 @@
     'stability-and-adiabatic-lapse': { href: 'skew-t.html', name: 'Skew-T Explorer', sub: 'watch a parcel rise on a real sounding' },
     'stable-vs-unstable-air':     { href: 'skew-t.html', name: 'Skew-T Explorer', sub: 'read stability off a real sounding' },
     'moisture-and-stability':     { href: 'skew-t.html', name: 'Skew-T Explorer', sub: 'moisture and lapse rates on a real sounding' },
+    'crosswind-component':        { href: 'weather.html', name: 'KANP Weather', sub: 'live crosswind vs the home runway' },
     'metar':                      { href: 'weather.html', name: 'KANP Weather', sub: 'live METARs decoded for the home field' },
     'taf':                        { href: 'weather.html', name: 'KANP Weather', sub: 'live TAFs decoded for the home field' },
     'weather-briefing':           { href: 'weather.html', name: 'KANP Weather', sub: 'a live go/no-go picture for the home field' },
@@ -1305,7 +1306,8 @@
   resize();
 
   /* ── Load the compiled knowledge data, then start the engine ───────────── */
-  fetch('data/knowledge.json')
+  // bump ?v= when the compiled data changes (see CLAUDE.md cache-busting note)
+  fetch('data/knowledge.json?v=2')
     .then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -1318,9 +1320,12 @@
       P[TREE.id] = { x: 0, y: 0, vx: 0, vy: 0, pinned: false };
       expanded.add(TREE.id);
       seedChildren(TREE.id);
-      selectNode(TREE.id);
       refreshProgress();
-      applyHash();
+      // resolve any deep link BEFORE the default root selection — selecting
+      // the root rewrites the URL and would wipe the incoming hash
+      const deep = (location.hash.match(/[#&]c=([\w-]+)/) || [])[1];
+      if (deep && NODES[deep]) goTo(deep);
+      else selectNode(TREE.id);
       (function loop() {
         if (!asleep) { step(); needDraw = true; }
         if (viewAnim) { viewAnim(performance.now()); needDraw = true; }

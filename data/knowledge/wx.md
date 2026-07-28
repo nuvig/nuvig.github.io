@@ -61,7 +61,7 @@ The atmosphere as a system you read, forecast and stay ahead of.
     - Intensity & Reporting :: Light, moderate, severe, extreme — reported by effect on the airplane and occupants. A PIREP of the ride is worth more than any forecast.
   - Airframe Icing {#airframe-icing} :: Structural ice needs visible moisture and a surface at 0 °C or below. It destroys lift, adds weight and drag, and jams controls — exit the conditions early. -> icing-conditions "same moisture"
     - Rime, Clear & Mixed :: Rime is rough and milky (small drops, fast freeze); clear is smooth, heavy and hard to shed (large drops, slow freeze); mixed is both. Clear and freezing rain are the dangerous ones.
-    - Effects on the Wing :: Even light ice disrupts the airfoil: higher stall speed at a LOWER angle of attack, more drag, less thrust — the stall can come with no warning. -> stall "raises stall speed"
+    - Effects on the Wing {#effects-on-the-wing} :: Even light ice disrupts the airfoil: higher stall speed at a LOWER angle of attack, more drag, less thrust — the stall can come with no warning. -> stall "raises stall speed"
     - Freezing Rain & Drizzle :: Supercooled drops that freeze on contact — the fastest, heaviest accretion there is. A warm layer aloft over a cold one; climb or descend out, do not press on.
   - Wind Shear & Microburst {#wind-shear-and-microburst} :: A sudden change of wind vector with position — brutal on approach and departure, where you have least energy and altitude.
     - Low-Level Wind Shear :: Near the surface from fronts, inversions, terrain or storms. A shift from headwind to tailwind sinks the airplane and drops the airspeed at the worst moment.
@@ -91,7 +91,7 @@ The atmosphere as a system you read, forecast and stay ahead of.
     - Change Groups :: FM = a rapid, permanent change at a stated time; BECMG = a gradual change over a window; TEMPO = temporary fluctuations under an hour that come and go.
     - Probability (PROB) :: PROB30/PROB40 flags a 30–40% chance of the stated conditions — usually thunderstorms or low visibility. Not used in the first hours of the forecast.
     - Reading TAF vs METAR :: The METAR is the airport now; the TAF is that airport's future. Trend the two together, and weight a fresh METAR that already disagrees with the TAF.
-  - Winds & Temps Aloft (FB) :: Forecast wind and temperature at fixed levels — pick the altitude for the best groundspeed, the smoothest ride and the freezing level. -> wind-correction-triangle "feeds wind correction" -> time-speed-distance-and-fuel "plan groundspeed & fuel"
+  - Winds & Temps Aloft (FB) {#winds-and-temps-aloft-fb} :: Forecast wind and temperature at fixed levels — pick the altitude for the best groundspeed, the smoothest ride and the freezing level. -> wind-correction-triangle "feeds wind correction" -> time-speed-distance-and-fuel "plan groundspeed & fuel"
   - Graphical Forecasts (GFA) :: The Graphical Forecast for Aviation and prog charts — the big-picture map, valid from now out to 15+ hours, that puts the coded reports in spatial context.
   - PIREPs :: Pilot reports are the only in-situ truth — cloud tops, ride, icing, the actual bases. UA (routine) or UUA (urgent). Give them as freely as you use them.
   - Radar & Datalink Weather :: The moving picture of the weather — and the traps in how it's made and delivered.

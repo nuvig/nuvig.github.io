@@ -22,7 +22,7 @@ The engine and the airframe systems that keep it, and you, running.
     - Preignition :: The charge lights before the plug fires, on a glowing hot spot (deposit, cracked plug). Often follows detonation; symptoms overlap — cool the cylinder.
   - Mixture & Leaning :: Air is thinner with altitude, so the fuel/air ratio must be leaned to hold the right mixture, peak EGT and economy — and enriched before descent. -> density-altitude "why you lean"
     - EGT & Peak :: Exhaust gas temperature peaks at the chemically correct mixture. Lean-of-peak runs cool and economical; rich-of-peak runs cooler and makes more power.
-    - Best Power vs Best Economy :: Slightly rich of peak = most power (climb); at or lean of peak = best fuel flow (cruise). Full rich for takeoff at low density altitude.
+    - Best Power vs Best Economy {#best-power-vs-best-economy} :: Slightly rich of peak = most power (climb); at or lean of peak = best fuel flow (cruise). Full rich for takeoff at low density altitude.
   - Lubrication & Cooling :: Oil lubricates, cools, cleans, seals and cushions; cooling fins and baffles carry the rest of the heat away. Watch oil temp/pressure and CHT together.
     - Oil System :: Wet or dry sump: pump, filter, cooler, pressure and temperature gauges. Low pressure + high temp = get it on the ground.
     - Cooling & Cowl Flaps :: Air-cooled via baffles and fins; cowl flaps trade cooling for drag. Shock cooling from a fast idle descent cracks cylinders.
