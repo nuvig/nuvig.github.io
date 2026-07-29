@@ -53,6 +53,12 @@
 
     .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; align-items: center; }
     .mode-row .lbl { font-size: 12px; color: #778; margin-right: 2px; }
+
+    .impact-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 10px 0 6px; }
+    .impact-row .imp { font-size: 12.5px; font-weight: 700; line-height: 1.45; text-align: center; }
+    .imp.ok   { color: #7fd8a2; }
+    .imp.warn { color: #f0a97f; }
+    .imp.bad  { color: #f0949c; }
     .mode-btn {
       background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
       padding: 5px 14px; font-size: 12.5px; cursor: pointer;
@@ -90,6 +96,9 @@
     <b>climb or descend</b> and watch which needles tell the truth. The middle row is the X-ray view:
     every needle is just a <b>capsule flexing</b> — the ASI's diaphragm with pitot air inside and static
     around it, the altimeter's sealed vacuum wafers, and the VSI's diaphragm racing its own leaky case.
+    The drifting dots are the <b>air molecules</b> in each case (density exaggerated so you can watch it):
+    climb and the air visibly thins; the wafers have none at all — that's the vacuum the whole
+    altimeter is built around.
   </p>
   <div class="card">
     <div class="mode-row">
@@ -114,6 +123,11 @@
       <label for="ps-ias">Actual airspeed</label>
       <input type="range" id="ps-ias" min="40" max="180" step="1" value="105">
       <span class="val" id="ps-ias-val"></span>
+    </div>
+    <div class="impact-row">
+      <div class="imp" id="imp-asi"></div>
+      <div class="imp" id="imp-alt"></div>
+      <div class="imp" id="imp-vsi"></div>
     </div>
     <canvas class="viz stack-top" id="ps-diagram" width="960" height="200"></canvas>
     <canvas class="viz stack-mid" id="ps-guts" width="960" height="240"></canvas>
@@ -325,6 +339,6 @@
     altimeter errors). No data leaves the page.
   </p>
 
-  <script src="js/instruments.js?v=2"></script>
+  <script src="js/instruments.js?v=4"></script>
 </body>
 </html>

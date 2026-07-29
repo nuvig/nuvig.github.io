@@ -123,8 +123,53 @@ function redX(ctx, x, y, s) {
     if (scenario === 'ram') ptL = psA;           // ram blocked, drain bleeds line to static
     else if (scenario === 'both') ptL = frozenPt;
     else if (scenario === 'static') psL = frozenPs;
-    return { alt, ias, indIas: casOf(ptL - psL), indAlt: isaH(psL) };
+    return { alt, ias, psL, ptL, indIas: casOf(ptL - psL), indAlt: isaH(psL) };
   }
+
+  /* ---- air molecules in the cases: dot count tracks static-line pressure ----
+     Dots drift Brownian-style inside the case, bouncing off the walls and the
+     mechanism's keep-out box; the first N are drawn each frame with N mapped
+     over the working pressure range (exaggerated, so a climb visibly thins the
+     air). The wafers get none — that's the vacuum. */
+  const inBox = (x, y, b) => x > b[0] && y > b[1] && x < b[2] && y < b[3];
+  function gasRegion(n, cx, ex) {
+    const x0 = cx - 102, y0 = 42, x1 = cx + 102, y1 = 188;
+    const pts = [];
+    let guard = 0;
+    while (pts.length < n && guard < n * 80) {
+      guard++;
+      const x = x0 + Math.random() * (x1 - x0), y = y0 + Math.random() * (y1 - y0);
+      if (inBox(x, y, ex)) continue;
+      pts.push({ x, y, a: Math.random() * 6.28 });
+    }
+    return { pts, x0, y0, x1, y1, ex };
+  }
+  const MOL = {
+    asi: gasRegion(44, GX.asi, [GX.asi - 84, 82, GX.asi + 88, 158]),
+    alt: gasRegion(52, GX.alt, [GX.alt - 38, 46, GX.alt + 98, 186]),
+    vsi: gasRegion(44, GX.vsi, [GX.vsi - 82, 92, GX.vsi + 78, 160])
+  };
+  const MOL_V = 16;                                // px/s drift speed
+  function moveGas(rg, dt) {
+    for (const p of rg.pts) {
+      p.a += (Math.random() - 0.5) * 0.5;
+      const nx = p.x + Math.cos(p.a) * MOL_V * dt;
+      const ny = p.y + Math.sin(p.a) * MOL_V * dt;
+      if (nx < rg.x0 || nx > rg.x1) { p.a = Math.PI - p.a; continue; }
+      if (ny < rg.y0 || ny > rg.y1) { p.a = -p.a; continue; }
+      if (inBox(nx, ny, rg.ex)) { p.a += Math.PI; continue; }
+      p.x = nx; p.y = ny;
+    }
+  }
+  function drawGas(ctx, rg, n) {
+    ctx.fillStyle = 'rgba(139,187,238,0.9)';
+    for (let i = 0; i < n && i < rg.pts.length; i++) {
+      ctx.beginPath(); ctx.arc(rg.pts[i].x, rg.pts[i].y, 2.1, 0, 7); ctx.fill();
+    }
+  }
+  // pressure → dot count, stretched over the 0–12,000 ft working range
+  const nOf = (maxN, p) => Math.round(maxN * clamp((p / P0 - 0.55) / 0.45, 0.07, 1.05));
+  let molT = null;
 
   /* ---- plumbing diagram (redrawn on scenario change) ---- */
   function drawDiagram() {
@@ -216,12 +261,15 @@ function redX(ctx, x, y, s) {
     ctx.fillStyle = '#8892a2'; ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.fill();
   }
 
-  function drawGuts() {
+  function drawGuts(st, tSec) {
     const { ctx, w, h } = guts;
     ctx.clearRect(0, 0, w, h);
     const P_COL = scenario === 'ram' ? '#6b5a3a' : AMBER;
     const S_COL = scenario === 'static' ? '#41546b' : BLUE;
     const CASE_T = 34, CASE_B = 196, GEAR_Y = 178;
+    const dtm = molT === null ? 0 : clamp(tSec - molT, 0, 0.1);
+    molT = tSec;
+    for (const k in MOL) moveGas(MOL[k], dtm);
 
     ctx.font = '10.5px system-ui'; ctx.textBaseline = 'middle';
     const label = (x, y, txt, color, align) => {
@@ -260,6 +308,7 @@ function redX(ctx, x, y, s) {
     {
       const cx = GX.asi;
       caseBox(cx);
+      drawGas(ctx, MOL.asi, nOf(44, st.psL));
       stub(cx - 12, P_COL); stub(cx + 12, S_COL);
       ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;                       // static vents into the case
       ctx.beginPath(); ctx.moveTo(cx + 12, CASE_T); ctx.lineTo(cx + 12, 52); ctx.stroke();
@@ -286,6 +335,7 @@ function redX(ctx, x, y, s) {
     {
       const cx = GX.alt;
       caseBox(cx);
+      drawGas(ctx, MOL.alt, nOf(52, st.psL));
       stub(cx, S_COL);
       ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;                       // static vents into the case
       ctx.beginPath();
@@ -317,6 +367,7 @@ function redX(ctx, x, y, s) {
     {
       const cx = GX.vsi;
       caseBox(cx);
+      drawGas(ctx, MOL.vsi, nOf(44, st.psL));
       stub(cx, S_COL);
       ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;
       ctx.beginPath();                                                    // direct branch → capsule
@@ -437,7 +488,32 @@ function redX(ctx, x, y, s) {
     drawVSI(ctx, GX.vsi, CY, dVsi);
   }
 
+  /* one-sentence failure impact per instrument, bold across the top */
+  const IMPACT = {
+    normal: [['ok', 'ASI — healthy: reads your true airspeed.'],
+             ['ok', 'Altimeter — healthy: tracks your altitude.'],
+             ['ok', 'VSI — healthy: shows the real climb rate.']],
+    ram:    [['bad', 'ASI — pressure bleeds out the drain: winds down to zero and stays there.'],
+             ['ok', 'Altimeter — unaffected: it relies on the static port only.'],
+             ['ok', 'VSI — unaffected: it relies on the static port only.']],
+    both:   [['bad', 'ASI — trapped pitot air makes it a fake altimeter: reads fast in a climb, slow in a descent.'],
+             ['ok', 'Altimeter — unaffected: it relies on the static port only.'],
+             ['ok', 'VSI — unaffected: it relies on the static port only.']],
+    static: [['bad', 'ASI — reads slow above the blockage altitude, fast below it.'],
+             ['bad', 'Altimeter — frozen at the blockage altitude.'],
+             ['bad', 'VSI — stuck on zero no matter what you fly.']]
+  };
+  let impactScn = null;
+
   function updateText(st) {
+    if (impactScn !== scenario) {
+      impactScn = scenario;
+      [['imp-asi', 0], ['imp-alt', 1], ['imp-vsi', 2]].forEach(([id, i]) => {
+        const el = $(id);
+        el.className = 'imp ' + IMPACT[scenario][i][0];
+        el.textContent = IMPACT[scenario][i][1];
+      });
+    }
     $('ps-alt-val').innerHTML = `${fmt(st.alt)} <span class="u">ft</span>`;
     $('ps-ias-val').innerHTML = `${fmt(st.ias)} <span class="u">kt</span>`;
     $('ps-t-alt').innerHTML = `${fmt(st.alt)}<span class="u"> ft</span>`;
@@ -490,7 +566,7 @@ function redX(ctx, x, y, s) {
     const rate = dtSim > 0 ? (st.indAlt - prevIndAlt) / dtSim * 60 : 0;
     prevIndAlt = st.indAlt;
     dVsi += (clamp(rate, -2400, 2400) - dVsi) * (1 - Math.exp(-dtSim / 1.6));
-    drawGuts();
+    drawGuts(st, t / 1000);
     drawGauges();
     updateText(st);
     requestAnimationFrame(frame);
