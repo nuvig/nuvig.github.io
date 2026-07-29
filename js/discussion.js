@@ -19,6 +19,7 @@ const NWS = 'https://api.weather.gov';
 const OFFICE = 'LWX';                       // Baltimore/Washington forecast office
 const DC = { lat: 38.8894, lon: -77.0352 }; // downtown DC (drift tracker point)
 const TZ = SITE.weather.timeZone;
+const ARCHIVE = SITE.weather.archiveBase || null;   // pi/wxarchive.py output
 const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 
@@ -62,6 +63,45 @@ function setStatus(cls, text) {
    =========================================================================== */
 
 const AFD = { list: [], texts: new Map(), parsed: new Map(), newestId: null };
+
+/* Site-side weather archive (pi/wxarchive.py → weather-data branch): every
+   AFD ever archived, forecast snapshots, METARs — shared across devices,
+   unlike localStorage. Everything here is optional: 404s (archive not set
+   up yet, Pi down) just mean the live-API/localStorage fallbacks apply. */
+const ARC = { index: null, todayFc: null };
+
+async function loadArchive() {
+  if (!ARCHIVE) return;
+  try {
+    ARC.index = await fetchJSON(`${ARCHIVE}/index.json`);
+  } catch (e) { return; }
+  try {
+    const today = localDay(Date.now());
+    if ((ARC.index.forecast_days || []).includes(today)) {
+      ARC.todayFc = await fetchJSON(`${ARCHIVE}/forecast/${today}.json`);
+    }
+  } catch (e) { /* index without today's snapshot — fine */ }
+}
+
+/* Extend the live product list with archived issuances the NWS API no
+   longer serves (it only keeps a few days). Same-minute entries dedupe. */
+function mergeArchivedAfds(list) {
+  if (!ARC.index || !Array.isArray(ARC.index.afd)) return list;
+  const have = new Set(list.map((i) => Math.round(new Date(i.issuanceTime).getTime() / 60000)));
+  const merged = list.slice();
+  for (const a of ARC.index.afd) {
+    const min = Math.round(a.t / 60);
+    if (have.has(min)) continue;
+    have.add(min);
+    merged.push({
+      id: 'arc:' + a.p,
+      '@id': `${ARCHIVE}/${a.p}`,
+      issuanceTime: new Date(a.t * 1000).toISOString(),
+    });
+  }
+  merged.sort((x, y) => new Date(y.issuanceTime) - new Date(x.issuanceTime));
+  return merged;
+}
 
 async function afdList() {
   const data = await fetchJSON(`${NWS}/products/types/AFD/locations/${OFFICE}`);
@@ -335,12 +375,22 @@ async function buildChangelog(list) {
     openUsed = true;
   }
   localStorage.setItem('dcwx_last_seen', String(new Date(items[0].issuanceTime).getTime()));
+  if (ARC.index && Array.isArray(ARC.index.afd) && ARC.index.afd.length) {
+    const oldest = new Date(Math.min(...ARC.index.afd.map((a) => a.t)) * 1000);
+    const note = document.createElement('div');
+    note.className = 'drift-note';
+    note.style.marginTop = '10px';
+    note.textContent = `Site archive: ${ARC.index.afd.length} discussion(s) kept since ` +
+      `${fmtTime(oldest, { month: 'short', day: 'numeric', year: 'numeric' })} on the weather-data branch — ` +
+      'the long-term record this change log draws on.';
+    host.appendChild(note);
+  }
 }
 
 /* ------------------------------ AFD loader ------------------------------ */
 
 async function loadAfd() {
-  const list = await afdList();
+  const list = mergeArchivedAfds(await afdList());
   if (!list.length) throw new Error('no AFD issuances returned');
   AFD.list = list;
   AFD.newestId = list[0].id;
@@ -356,7 +406,7 @@ async function loadAfd() {
 /* Periodic check for a fresh issuance (the "updating" part of the log). */
 async function checkForNew() {
   try {
-    const list = await afdList();
+    const list = mergeArchivedAfds(await afdList());
     if (!list.length || list[0].id === AFD.newestId) return;
     AFD.list = list;
     AFD.newestId = list[0].id;
@@ -397,8 +447,18 @@ async function loadDrift() {
   const now = Date.now();
   let snaps = [];
   try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* reset */ }
-  const baseline = [...snaps].reverse().find((s) => now - s.at > DRIFT_MIN_GAP);
-  renderDrift(baseline, { at: now, days });
+  // Baseline: prefer the site archive's earliest snapshot of today, else the
+  // newest sufficiently-old snapshot saved in this browser.
+  let baseline = null, baseSrc = 'this device';
+  const arcOld = ((ARC.todayFc && ARC.todayFc.snaps) || [])
+    .filter((s) => now - s.t * 1000 > DRIFT_MIN_GAP);
+  if (arcOld.length) {
+    baseline = { at: arcOld[0].t * 1000, days: arcOld[0].days };
+    baseSrc = 'site archive';
+  } else {
+    baseline = [...snaps].reverse().find((s) => now - s.at > DRIFT_MIN_GAP) || null;
+  }
+  renderDrift(baseline, { at: now, days }, baseSrc);
   if (!snaps.length || now - snaps[snaps.length - 1].at > DRIFT_MIN_GAP) {
     snaps.push({ at: now, days });
     while (snaps.length > 10) snaps.shift();
@@ -411,7 +471,7 @@ function fmtDay(dateStr) {
   return fmtTime(d, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function renderDrift(base, cur) {
+function renderDrift(base, cur, baseSrc) {
   const host = $('drift-body');
   if (!base) {
     host.innerHTML = '<span class="muted" style="font-size:13px">Baseline saved — revisit later and this card will show how the daily forecast for DC has shifted since.</span>';
@@ -431,7 +491,9 @@ function renderDrift(base, cur) {
       `<span class="delta">${deltas.length ? deltas.join(' · ') : '<span class="faint">no change</span>'}</span></div>`);
   }
   host.innerHTML = (rows.join('') || '<span class="faint" style="font-size:13px">No overlapping days to compare yet.</span>') +
-    `<div class="drift-note">compared with the forecast saved on this device ${esc(timeAgo(new Date(base.at)))}</div>`;
+    `<div class="drift-note">compared with the forecast ${baseSrc === 'site archive'
+      ? `from the site archive (${esc(timeAgo(new Date(base.at)))})`
+      : `saved on this device ${esc(timeAgo(new Date(base.at)))}`}</div>`;
 }
 
 /* ===========================================================================
@@ -1283,12 +1345,23 @@ async function loadVerification() {
   const now = Date.now();
   const today = localDay(now);
 
-  /* what was expected: the earliest forecast snapshot saved on this device
-     (≥3 h old) that covered today */
-  let snaps = [];
-  try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
-  const withToday = snaps.filter((s) => s.days && s.days[today] && now - s.at > 3 * 3600 * 1000);
-  const exp = withToday.length ? { at: withToday[0].at, ...withToday[0].days[today] } : null;
+  /* what was expected: prefer the site archive's earliest snapshot of today
+     (shared across devices), else the earliest snapshot saved in this
+     browser (≥3 h old) that covered today */
+  let exp = null, expSrc = '';
+  const arcSnap = ((ARC.todayFc && ARC.todayFc.snaps) || []).find((s) => s.days && s.days[today]);
+  if (arcSnap) {
+    exp = { at: arcSnap.t * 1000, ...arcSnap.days[today] };
+    expSrc = `archived on the site at ${fmtTime(new Date(exp.at), { hour: 'numeric' })}`;
+  } else {
+    let snaps = [];
+    try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
+    const withToday = snaps.filter((s) => s.days && s.days[today] && now - s.at > 3 * 3600 * 1000);
+    if (withToday.length) {
+      exp = { at: withToday[0].at, ...withToday[0].days[today] };
+      expSrc = `saved in this browser ${timeAgo(new Date(exp.at))}`;
+    }
+  }
 
   /* what actually happened: METARs at DCA today */
   const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
@@ -1349,8 +1422,8 @@ async function loadVerification() {
   const hrOf = (p) => fmtTime(new Date(p.timestamp), { hour: 'numeric' });
 
   const expLine = exp
-    ? `${esc(exp.short || '—')}${exp.pop != null ? ` · ${exp.pop}% precip chance` : ''}${exp.hi != null ? ` · high ${exp.hi}°` : ''} <span class="faint">(forecast saved here ${esc(timeAgo(new Date(exp.at)))})</span>`
-    : '<span class="faint">no earlier forecast saved on this device yet — the comparison starts with your next visit</span>';
+    ? `${esc(exp.short || '—')}${exp.pop != null ? ` · ${exp.pop}% precip chance` : ''}${exp.hi != null ? ` · high ${exp.hi}°` : ''} <span class="faint">(forecast ${esc(expSrc)})</span>`
+    : '<span class="faint">no earlier forecast on record yet — the comparison starts once the site archive (or your next visit) captures one</span>';
   const obsLine =
     `${gotStorms ? `thunder at ${OBS_STATION} around ${esc(hrOf(thunder[0]))}${thunder.length > 1 ? `–${esc(hrOf(thunder[thunder.length - 1]))}` : ''}` : 'no thunder'}` +
     ` · ${rain.length ? 'rain reported' : 'no rain in the METARs'}` +
@@ -1401,6 +1474,7 @@ async function loadVerification() {
 async function init() {
   setStatus('yellow', 'Loading…');
   $('status-check').textContent = 'checks for new discussions every 10 min';
+  await loadArchive();   // internal try/catch — the page works without it
   const jobs = [
     loadAfd().then(() => 'afd').catch((e) => {
       $('afd-sections').innerHTML = `<div class="card err">Couldn't load the discussion: ${esc(e.message)}</div>`;

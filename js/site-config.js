@@ -60,9 +60,15 @@ const SITE = {
     storagePrefix: 'kanp',
   },
 
-  // Weather hub (weather.html).
+  // Weather hub (weather.html) + forecast discussion (discussion.html).
   weather: {
     timeZone: 'America/New_York',
+
+    // Where pi/wxarchive.py publishes the weather archive (AFD issuances,
+    // forecast snapshots, METARs) — raw URL of this repo's weather-data
+    // branch. discussion.html falls back to the live NWS API + localStorage
+    // when this 404s (e.g. before the Pi's first push).
+    archiveBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/weather-data/wx',
 
     // Nearby fields shown after the home airport. Runway hdg = FAA true
     // alignment; metarStation must report METARs on api.weather.gov.

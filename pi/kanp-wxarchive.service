@@ -1,0 +1,20 @@
+[Unit]
+Description=KANP weather archiver (AFDs + forecasts + METARs -> weather-data branch)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=kanp
+Group=kanp
+ExecStart=/usr/bin/python3 /opt/kanp/pi/wxarchive.py
+
+# Site config — see pi/site.env.example
+EnvironmentFile=-/etc/kanp/site.env
+#Environment=KANP_WX_DIR=/var/lib/kanp/weather-data
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kanp
+PrivateTmp=true

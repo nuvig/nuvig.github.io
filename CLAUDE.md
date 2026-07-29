@@ -88,14 +88,19 @@ classified there, check all three.
   forecast-drift card), and a synoptic canvas built from an Open-Meteo GFS grid — air-mass fill,
   isobars/H-L, fronts detected from 850 hPa temp gradients signed by advection, wind particles,
   RainViewer radar at "now" / model precip at other hours, and a rule-based precip-cause
-  diagnosis at DC. A verification card compares the morning forecast (localStorage snapshot)
-  against KDCA METARs and explains busts from the hindcast (CAPE/CIN, front position).
-  Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+  diagnosis at DC. A verification card compares the morning forecast against KDCA METARs and
+  explains busts from the hindcast (CAPE/CIN, front position). History (change-log depth,
+  drift/verification baselines) prefers the **`weather-data` branch** archive published by
+  `pi/wxarchive.py` (`SITE.weather.archiveBase`), falling back to the live NWS API +
+  localStorage when it 404s. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
 
 ### Backends
 
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only** (`collector.py`, `server.py`, `exporter.py`,
-  `trackutil.py`, `atc.py`, `install.sh`, systemd units).
+  `wxarchive.py`, `trackutil.py`, `atc.py`, `install.sh`, systemd units). `wxarchive.py` (hourly
+  timer) archives LWX AFDs + DC forecast snapshots + KDCA METARs to the **`weather-data` branch**
+  (single amended commit, like the traffic exporter); its digest format mirrors
+  `js/discussion.js` `loadDrift()` — change both together.
 - `pc/` — `atc_transcribe.py` (faster-whisper worker) + `atc_vocab.txt`. Runs on the PC, not the Pi.
 - `scripts/api-collector.js`, `scripts/receiver-export.js` — legacy Node collector, superseded by
   `pi/`; don't extend it.

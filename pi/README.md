@@ -81,6 +81,30 @@ tracker's Data Source settings.
 
 On the LAN, neither is needed — just use `http://<pi-ip>:8787/`.
 
+## Weather archive (discussion.html history)
+
+`wxarchive.py` (hourly, `kanp-wxarchive.timer`) permanently archives the DC
+weather record to the repo's `weather-data` branch: every LWX forecast
+discussion (the NWS API only keeps a few days), NWS daily-forecast snapshots
+for DC several times a day, and KDCA METARs per day. discussion.html reads
+this archive for its change log, forecast-drift and verification cards, so
+the history is shared across devices instead of living in one browser's
+localStorage — and it's the raw material for the long-term "weather story".
+
+One-time setup (same PAT as the traffic exporter works):
+
+```bash
+sudo -u kanp git clone --depth 1 \
+  https://<TOKEN>@github.com/nuvig/nuvig.github.io.git /var/lib/kanp/weather-data
+sudo systemctl start kanp-wxarchive.service   # creates the orphan branch, backfills
+journalctl -u kanp-wxarchive -n 20            # check it pushed
+```
+
+The page works without the archive (falls back to the live NWS API +
+localStorage); the archive just makes the history durable and shared.
+Config: `KANP_WX_OFFICE` / `KANP_WX_OBS` / `KANP_WX_POINT` in site.env.
+Like the traffic branch, `weather-data` is kept at a single amended commit.
+
 ## API quick reference
 
 ```

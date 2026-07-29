@@ -30,9 +30,11 @@ cp /opt/kanp/pi/kanp-collector.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-api.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-export.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-export.timer /etc/systemd/system/
+cp /opt/kanp/pi/kanp-wxarchive.service /etc/systemd/system/
+cp /opt/kanp/pi/kanp-wxarchive.timer /etc/systemd/system/
 cp /opt/kanp/pi/kanp-atc.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer
+systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer kanp-wxarchive.timer
 # enable --now is a no-op for already-running units — restart to pick up new code
 systemctl restart kanp-collector.service kanp-api.service
 
