@@ -1,0 +1,1 @@
+{"id":"2P7","name":"Alderman","lat":40.05686,"lon":-80.96319,"elev":1187.0,"mv":-8.0,"rw":[["RW01",40.05298,-80.96366,13.0,2840.0],["RW19",40.06074,-80.96272,193.0,2840.0]],"tpp":{"city":"St Clairsville","st":"OH","apt":[["Takeoff Minimums","EC2TO.PDF"]]},"procs":[{"id":"VOR-A","type":"APP","name":"VOR-A","co":1,"chart":{"n":"VOR-A","p":"05053VA.PDF","a":"3C"},"trans":[]}]}

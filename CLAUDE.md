@@ -37,6 +37,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
+- `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
+  explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
+  wave ribbons with click ripples, and a flow-field particle swarm with an FPS governor that trims
+  the count on slow machines. Self-contained like bubbles.html (no shared CSS/JS, no libs); cosine
+  palettes are shared between the shader and the canvas modes. Linked from tools.html ("Off Duty").
 
 ### Flight tracker
 
@@ -65,10 +70,18 @@ classified there, check all three.
 
 - `procedures.html` + `js/procedures.js` — Procedure Explorer: overlays any US SID/STAR/IAP on Leaflet
   (sectional/TAC/IFR layers) with a custom canvas 3D altitude view, transition-by-transition selection,
-  flow animation, shareable `#apt=…&sel=…` links. Data: `data/procedures/` (`index.json` + ~3,070
+  a leg-by-leg table (courses shown °true = chart magnetic + station mv), flow animation, shareable
+  `#apt=…&sel=…` links, and an embedded FAA-plate viewer (iframe on
+  `aeronav.faa.gov/d-tpp/{cycle}/{pdf}` — those PDFs send no X-Frame-Options; a cycle's URLs 404 once
+  the next is effective, so `dtppCycle()` advances the built cycle in 28-day steps at view time,
+  mirrored by `dtpp_cycle_label()` in the builder). Data: `data/procedures/` (`index.json` + ~3,180
   per-airport JSON files), regenerated each 28-day AIRAC cycle by `python scripts/build_procedures.py`
-  (downloads FAA CIFP, stdlib only). **Leg-array layout is documented in that script and mirrored in
-  `procedures.js` `decodeLeg()` — change both together.**
+  (downloads FAA CIFP **and the d-TPP chart metafile**, stdlib only). The builder matches charts to
+  CIFP codings (DP/STAR via `<faanfd18>`, IAPs by parsing chart titles into candidate ARINC idents);
+  published plates with no public CIFP coding (many VOR/NDB/TACAN full procedures, visuals, most
+  military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
+  a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
+  documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
 - `power.html` + `js/power.js` — The Power Curve: parasite vs induced power, minimum-power speed, the
   region of reversed command, slow flight, and a point-mass approach sim. Internals are SI; display
   converts to kt/hp/fpm.

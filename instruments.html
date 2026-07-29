@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instrument Errors — pitot-static, gyro &amp; compass errors, interactive</title>
+  <meta name="description" content="Interactive explainer for flight instrument errors: block the pitot or static line and watch the gauges, see altimeter setting and cold-weather traps, gyro drift, and fly the magnetic compass through its turning and acceleration errors.">
+  <link rel="canonical" href="https://jesselevine.net/instruments.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body { max-width: 1050px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 18px; font-size: 14px; max-width: 860px; line-height: 1.6; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd; margin: 36px 0 4px;
+      letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-title .num { color: #4a9eff; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 860px; line-height: 1.65; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 168px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 104px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+
+    canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; }
+    canvas.viz.stack-top { border-radius: 6px 6px 0 0; }
+    canvas.viz.stack-mid { border-radius: 0; }
+    canvas.viz.stack-bot { border-radius: 0 0 6px 6px; }
+
+    .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .tile { background: #14181e; border: 1px solid #2a3040; border-radius: 6px; padding: 7px 12px; min-width: 96px; }
+    .tile .k { font-size: 10.5px; color: #778; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tile .v { font-size: 17px; font-weight: 600; color: #e8eef6; font-variant-numeric: tabular-nums; }
+    .tile .v .u { font-size: 11px; color: #778; font-weight: 400; }
+    .tile.hot { border-color: #4a9eff55; }
+
+    .verdict { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; line-height: 1.5; }
+    .verdict.on   { background: #10251a; border: 1px solid #1f5c39; color: #7fd8a2; }
+    .verdict.high { background: #26140f; border: 1px solid #6b3524; color: #f0a97f; }
+    .verdict.low  { background: #101c2a; border: 1px solid #2a4a6d; color: #8ec2f2; }
+    .verdict.bad  { background: #2a1113; border: 1px solid #7a2c33; color: #f0949c; }
+
+    .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; align-items: center; }
+    .mode-row .lbl { font-size: 12px; color: #778; margin-right: 2px; }
+
+    .impact-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 10px 0 6px; }
+    .impact-row .imp { font-size: 12.5px; font-weight: 700; line-height: 1.45; text-align: center; }
+    .imp.ok   { color: #7fd8a2; }
+    .imp.warn { color: #f0a97f; }
+    .imp.bad  { color: #f0949c; }
+    .mode-btn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .mode-btn.active { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .mode-btn.danger.active { border-color: #d05860; color: #f6c8cc; background: #2a171a; }
+    .mode-btn:hover { border-color: #4a9eff; }
+    .mode-btn.danger:hover { border-color: #d05860; }
+
+    .notes { font-size: 12.5px; color: #777; line-height: 1.7; max-width: 860px; }
+    .notes b { color: #aaa; }
+    .footer-note { margin-top: 30px; font-size: 12px; color: #555; line-height: 1.6; }
+    @media (max-width: 700px) { .ctl-row label { min-width: 120px; } }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">🎛 Instrument Errors</h1>
+  <p class="subtitle">
+    Every instrument in the panel lies to you in some specific, predictable way — and instrument flying
+    is largely the art of knowing <b>which one is lying right now</b>. This page lets you break the
+    pitot-static system and watch the gauges respond, fly the altimeter into pressure and temperature
+    traps, drift the gyros, and take the magnetic compass through the turning and acceleration errors
+    that make it so hard to trust.
+  </p>
+
+  <!-- ── 1 · Pitot-static ─────────────────────────────────────── -->
+  <div class="section-title"><span class="num">1</span> The pitot-static system — three gauges, two holes</div>
+  <p class="section-lede">
+    The airspeed indicator, altimeter and VSI are all just <b>pressure gauges</b> plumbed to two openings:
+    the <b>pitot tube</b> (ram + static pressure, from flying into the air) and the <b>static port</b>
+    (ambient pressure alone). The ASI reads the <i>difference</i> between them; the altimeter reads static
+    pressure against a set datum; the VSI reads how fast static pressure is <i>changing</i>. Ice or a mud
+    dauber in either hole, and specific instruments fail in specific ways. Pick a blockage below, then
+    <b>climb or descend</b> and watch which needles tell the truth. The middle row is the X-ray view:
+    every needle is just a <b>capsule flexing</b> — the ASI's diaphragm with pitot air inside and static
+    around it, the altimeter's sealed vacuum wafers, and the VSI's diaphragm racing its own leaky case.
+    The drifting dots are the <b>air molecules</b> in each case (density exaggerated so you can watch it):
+    climb and the air visibly thins; the wafers have none at all — that's the vacuum the whole
+    altimeter is built around.
+  </p>
+  <div class="card">
+    <div class="mode-row">
+      <span class="lbl">System:</span>
+      <button class="mode-btn active" id="ps-normal" type="button">Normal</button>
+      <button class="mode-btn danger" id="ps-ram" type="button">Pitot blocked (drain open)</button>
+      <button class="mode-btn danger" id="ps-both" type="button">Pitot + drain blocked</button>
+      <button class="mode-btn danger" id="ps-static" type="button">Static port blocked</button>
+    </div>
+    <div class="mode-row">
+      <span class="lbl">Fly:</span>
+      <button class="mode-btn" id="ps-climb" type="button">▲ Climb 500 fpm</button>
+      <button class="mode-btn active" id="ps-level" type="button">— Level</button>
+      <button class="mode-btn" id="ps-desc" type="button">▼ Descend 500 fpm</button>
+    </div>
+    <div class="ctl-row">
+      <label for="ps-alt">Actual altitude</label>
+      <input type="range" id="ps-alt" min="0" max="12000" step="25" value="3000">
+      <span class="val" id="ps-alt-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="ps-ias">Actual airspeed</label>
+      <input type="range" id="ps-ias" min="40" max="180" step="1" value="105">
+      <span class="val" id="ps-ias-val"></span>
+    </div>
+    <div class="impact-row">
+      <div class="imp" id="imp-asi"></div>
+      <div class="imp" id="imp-alt"></div>
+      <div class="imp" id="imp-vsi"></div>
+    </div>
+    <canvas class="viz stack-top" id="ps-diagram" width="960" height="200"></canvas>
+    <canvas class="viz stack-mid" id="ps-guts" width="960" height="240"></canvas>
+    <canvas class="viz stack-bot" id="ps-gauges" width="960" height="310"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">actual altitude</div><div class="v" id="ps-t-alt"></div></div>
+      <div class="tile"><div class="k">actual airspeed</div><div class="v" id="ps-t-ias"></div></div>
+      <div class="tile"><div class="k">actual v/s</div><div class="v" id="ps-t-vs"></div></div>
+      <div class="tile hot"><div class="k">blockage</div><div class="v" id="ps-t-block"></div></div>
+    </div>
+    <div class="verdict" id="ps-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      The killer case is <b>pitot + drain blocked</b> — trapped ram pressure turns the ASI into a crude
+      altimeter. Climb and it reads <b>faster</b>; the instinctive pitch-up to slow down is exactly wrong.
+      With a <b>blocked static port</b>, the altimeter freezes, the VSI insists you're level, and the ASI
+      reads slow above the blockage altitude and fast below it. The escape is the <b>alternate static
+      source</b> (or, in a pinch, breaking the VSI glass — it's the least useful gauge on the line).
+      Cabin static reads slightly low, so expect the altimeter and ASI to read slightly high on alternate air.
+    </p>
+  </div>
+
+  <!-- ── 2 · Altimeter errors ─────────────────────────────────── -->
+  <div class="section-title"><span class="num">2</span> The altimeter's quiet lies — pressure &amp; temperature</div>
+  <p class="section-lede">
+    An altimeter never measures height — it measures <b>pressure</b> and reports the altitude that pressure
+    <i>would</i> mean in a standard atmosphere with the setting you dialed in. Fly toward lower pressure
+    without resetting, or fly in air colder than standard, and every pressure level sits <b>lower</b> than
+    the instrument assumes: the altimeter over-reads while you sink toward the rocks.
+    <b>"From high to low — pressure or temperature — look out below."</b>
+  </p>
+  <div class="card">
+    <div class="mode-row">
+      <span class="lbl">Presets:</span>
+      <button class="mode-btn" id="alt-p-low" type="button">Flew into low pressure</button>
+      <button class="mode-btn" id="alt-p-cold" type="button">Cold arctic night</button>
+      <button class="mode-btn" id="alt-p-both" type="button">Both at once</button>
+      <button class="mode-btn" id="alt-p-reset" type="button">Reset</button>
+    </div>
+    <div class="ctl-row">
+      <label for="alt-ind">Indicated altitude (held)</label>
+      <input type="range" id="alt-ind" min="1500" max="8000" step="100" value="4000">
+      <span class="val" id="alt-ind-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="alt-set">Setting in the window</label>
+      <input type="range" id="alt-set" min="28.80" max="31.00" step="0.01" value="29.92">
+      <span class="val" id="alt-set-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="alt-act">Actual local setting</label>
+      <input type="range" id="alt-act" min="28.80" max="31.00" step="0.01" value="29.92">
+      <span class="val" id="alt-act-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="alt-oat">Surface temp vs standard</label>
+      <input type="range" id="alt-oat" min="-35" max="35" step="1" value="0">
+      <span class="val" id="alt-oat-val"></span>
+    </div>
+    <canvas class="viz" id="alt-canvas" width="960" height="330"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">pressure error</div><div class="v" id="alt-t-press"></div></div>
+      <div class="tile"><div class="k">temperature error</div><div class="v" id="alt-t-temp"></div></div>
+      <div class="tile hot"><div class="k">true altitude</div><div class="v" id="alt-t-true"></div></div>
+      <div class="tile"><div class="k">obstacle clearance</div><div class="v" id="alt-t-clear"></div></div>
+    </div>
+    <div class="verdict" id="alt-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      Rules of thumb: <b>1&nbsp;in&nbsp;Hg ≈ 1,000 ft</b> of altimeter error, and roughly
+      <b>4 ft per 1,000 ft per °C</b> of ISA deviation (4% per 10 °C). Cold is the sneaky one — the
+      altimeter setting fixes the error <i>at the surface</i> but says nothing about the shrunken column
+      above it, which is why cold-temperature-restricted airports require you to <b>add a correction to
+      approach altitudes</b> when it's cold enough. 91.121 requires a current altimeter setting within
+      100 NM for a reason.
+    </p>
+  </div>
+
+  <!-- ── 3 · Gyros ───────────────────────────────────────────── -->
+  <div class="section-title"><span class="num">3</span> Gyro errors — drift and false horizons</div>
+  <p class="section-lede">
+    Gyro instruments trade the compass's twitchiness for a different flaw: a gyro holds its direction in
+    <b>inertial space</b>, and the Earth doesn't sit still underneath it. Add bearing friction, and every
+    spinning instrument slowly wanders. The attitude indicator has its own trap — its self-erecting
+    mechanism aligns to <b>apparent</b> gravity, which tilts backward every time you accelerate.
+  </p>
+  <div class="card">
+    <h3>Heading indicator drift</h3>
+    <div class="ctl-row">
+      <label for="gy-lat">Latitude</label>
+      <input type="range" id="gy-lat" min="0" max="70" step="1" value="39">
+      <span class="val" id="gy-lat-val"></span>
+    </div>
+    <div class="ctl-row">
+      <label for="gy-min">Minutes since you set it</label>
+      <input type="range" id="gy-min" min="0" max="90" step="1" value="15">
+      <span class="val" id="gy-min-val"></span>
+    </div>
+    <canvas class="viz" id="gy-canvas" width="960" height="250"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">earth rate at this latitude</div><div class="v" id="gy-t-rate"></div></div>
+      <div class="tile hot"><div class="k">error accumulated</div><div class="v" id="gy-t-err"></div></div>
+    </div>
+    <p class="notes" style="margin:10px 0 0">
+      This is just the Earth rotating under a rigid gyro — <b>15°/hr × sin(latitude)</b>, the full 15°/hr
+      at the pole and zero at the equator. A latitude nut inside the instrument pre-torques away the error
+      for one latitude, and random friction precession piles on top in either direction — which is why the
+      habit is what matters: <b>reset the heading indicator to the magnetic compass every 10–15 minutes</b>,
+      in straight, level, unaccelerated flight (section 4 explains why <i>only</i> then).
+    </p>
+  </div>
+  <div class="card">
+    <h3>Attitude indicator — the false climb</h3>
+    <div class="ctl-row">
+      <label for="ai-acc">Sustained acceleration</label>
+      <input type="range" id="ai-acc" min="-0.30" max="0.30" step="0.01" value="0.20">
+      <span class="val" id="ai-acc-val"></span>
+    </div>
+    <canvas class="viz" id="ai-canvas" width="960" height="260"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">acceleration</div><div class="v" id="ai-t-acc"></div></div>
+      <div class="tile hot"><div class="k">"down" tilts aft by</div><div class="v" id="ai-t-tilt"></div></div>
+      <div class="tile"><div class="k">AI may creep</div><div class="v" id="ai-t-ai"></div></div>
+      <div class="tile"><div class="k">your inner ear says</div><div class="v" id="ai-t-ear"></div></div>
+    </div>
+    <p class="notes" style="margin:10px 0 0">
+      Gravity plus inertia makes "down" tilt <b>aft</b> during acceleration. The AI's erection system
+      slowly chases that false vertical, so a vacuum AI can creep a couple degrees <b>nose-up</b> on a
+      long takeoff roll or go-around — but your <b>vestibular system feels the whole tilt, instantly</b>.
+      That's the <b>somatogravic illusion</b>: accelerating into a black night, you feel a steep pitch-up,
+      push forward, and fly into the ground. The defense is believing the instruments — which is also why
+      it's worth knowing the AI leans the same direction, just far less. Old units also show small errors
+      after steep turns (a slight climb indication on rollout) and precess after aerobatic attitudes.
+    </p>
+  </div>
+
+  <!-- ── 4 · Magnetic compass ────────────────────────────────── -->
+  <div class="section-title"><span class="num">4</span> The magnetic compass — dip, UNOS &amp; ANDS</div>
+  <p class="section-lede">
+    The Earth's field doesn't run parallel to the ground — it <b>dives into it</b>, steeply at high
+    latitudes (about 60–70° down across the U.S.). The compass card is weighted to stay level and ignore
+    that vertical pull, but the moment you <b>bank</b> or <b>accelerate</b>, the card tilts, the vertical
+    component of the field grabs it, and the reading swings — <b>with nothing actually turning</b>.
+    Turning errors: <b>UNOS</b> — undershoot rolling out on north, overshoot on south. Acceleration
+    errors: <b>ANDS</b> — accelerate and it shows north, decelerate and it shows south (east/west
+    headings only). Fly both below.
+  </p>
+  <div class="card">
+    <div class="mode-row">
+      <button class="mode-btn active" id="mc-turn" type="button">Turning errors — UNOS</button>
+      <button class="mode-btn" id="mc-accel" type="button">Acceleration errors — ANDS</button>
+    </div>
+    <div class="ctl-row">
+      <label for="mc-lat">Latitude</label>
+      <input type="range" id="mc-lat" min="0" max="70" step="1" value="39">
+      <span class="val" id="mc-lat-val"></span>
+    </div>
+    <div id="mc-turn-rows">
+      <div class="ctl-row">
+        <label for="mc-bank">Bank angle</label>
+        <input type="range" id="mc-bank" min="5" max="30" step="1" value="18">
+        <span class="val" id="mc-bank-val"></span>
+      </div>
+      <div class="mode-row">
+        <button class="mode-btn" id="mc-left" type="button">↺ Turn left</button>
+        <button class="mode-btn" id="mc-stop" type="button">Wings level</button>
+        <button class="mode-btn active" id="mc-right" type="button">↻ Turn right</button>
+      </div>
+    </div>
+    <div id="mc-accel-rows" style="display:none">
+      <div class="mode-row">
+        <span class="lbl">Heading:</span>
+        <button class="mode-btn" id="mc-hn" type="button">North</button>
+        <button class="mode-btn active" id="mc-he" type="button">East</button>
+        <button class="mode-btn" id="mc-hs" type="button">South</button>
+        <button class="mode-btn" id="mc-hw" type="button">West</button>
+      </div>
+      <div class="mode-row">
+        <span class="lbl">Speed:</span>
+        <button class="mode-btn" id="mc-acc" type="button">⏩ Accelerate</button>
+        <button class="mode-btn" id="mc-dec" type="button">⏪ Slow down</button>
+      </div>
+    </div>
+    <canvas class="viz" id="mc-canvas" width="960" height="380"></canvas>
+    <div class="readout-grid">
+      <div class="tile"><div class="k">magnetic dip here</div><div class="v" id="mc-t-dip"></div></div>
+      <div class="tile"><div class="k">actual heading</div><div class="v" id="mc-t-act"></div></div>
+      <div class="tile hot"><div class="k">compass reads</div><div class="v" id="mc-t-ind"></div></div>
+      <div class="tile"><div class="k">error</div><div class="v" id="mc-t-err"></div></div>
+    </div>
+    <div class="verdict" id="mc-verdict"></div>
+    <p class="notes" style="margin:10px 0 0">
+      Practical rollout numbers (northern hemisphere): rolling out on <b>north</b>, start the rollout when
+      the compass still has about <b>latitude + ½ bank</b> degrees to go; on <b>south</b>, let it swing
+      past by about <b>latitude − ½ bank</b>. Near east and west the turning error passes through zero —
+      and that's where ANDS takes over instead. The card is only trustworthy in <b>straight, level,
+      unaccelerated flight</b>, which is exactly the condition for setting the heading indicator from it.
+      One more trap: the wet compass card reads <b>backwards</b> compared to your DG — 33 sits to the
+      <i>right</i> of N in the window — so turn <i>toward</i> the small numbers feels wrong the first time.
+    </p>
+  </div>
+
+  <p class="footer-note">
+    Model notes: pitot-static readings use the ISA pressure model with sea-level-calibrated (compressible)
+    airspeed; altimeter temperature error scales indicated height by the surface temperature ratio (the
+    honest version of "4 ft / 1,000 ft / °C"); compass behavior is computed from the actual field geometry —
+    dip from a dipole approximation (tan δ = 2 tan latitude), field projected onto a pendulous card tilted
+    by bank or by apparent gravity — northern hemisphere shown; the southern hemisphere mirrors it.
+    Gauges are drawn generic-trainer style. References: FAA <i>Pilot's Handbook of Aeronautical
+    Knowledge</i> Ch. 8, <i>Instrument Flying Handbook</i> Ch. 5 &amp; 7, AIM 7-2-3 (cold temperature
+    altimeter errors). No data leaves the page.
+  </p>
+
+  <script src="js/instruments.js?v=4"></script>
+</body>
+</html>

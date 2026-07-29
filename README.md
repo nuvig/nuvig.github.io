@@ -34,7 +34,9 @@ output is committed to the repo.
 
 - **`procedures.html`** — Procedure Explorer: overlays any US SID/STAR/IAP on
   a sectional/TAC/IFR map with a 3D altitude view, per-transition selection,
-  flow animation and shareable links.
+  a leg-by-leg table, flow animation, shareable links, and the official FAA
+  plate (d-TPP) for every procedure — plates with no public CIFP coding
+  (many VOR/NDB/TACAN, visuals, military fields) are listed too.
 - **`power.html`** — the airplane power curve: parasite vs induced power,
   minimum-power speed, the region of reversed command, slow flight, and a
   live approach simulation of the low-and-slow trap.

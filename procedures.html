@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Procedure Explorer — SIDs, STARs &amp; Approaches in 3D</title>
-  <meta name="description" content="Overlay any US SID, STAR or instrument approach on a sectional chart, explore transitions, and see altitudes in 3D. Built from the FAA CIFP.">
+  <meta name="description" content="Overlay any US SID, STAR or instrument approach on a sectional chart, explore transitions, see altitudes in 3D, and pull up the official FAA plate. Built from the FAA CIFP + d-TPP.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -50,6 +50,13 @@
 
     #apt-title { padding:10px 12px 6px; font-size:15px; font-weight:600; color:#ddd; }
     #apt-title small { color:#666; font-weight:400; }
+    #apt-charts { display:flex; flex-wrap:wrap; gap:5px; padding:0 12px 8px; }
+    #apt-charts button {
+      background:#1b2229; border:1px solid #35414d; color:#9db8d2; border-radius:5px;
+      font-size:11px; padding:2px 8px; cursor:pointer; font-family:inherit;
+    }
+    #apt-charts button:hover { border-color:#4a9eff; color:#fff; }
+    #search-results .city { color:#5f6b78; font-size:11px; }
 
     /* procedure tree */
     #proc-tree { overflow-y:auto; flex:1; padding:4px 6px 12px; }
@@ -69,6 +76,18 @@
     .proc-head .nm small { color:#666; }
     .proc-head .exp { color:#555; font-size:11px; transition:transform .15s; }
     .proc-row.open .exp { transform:rotate(90deg); }
+    .proc-head .pbtn {
+      background:none; border:1px solid #3a3a3a; color:#8fb8e8; border-radius:4px;
+      font-size:11px; line-height:1.35; padding:0 5px; cursor:pointer; flex-shrink:0;
+      font-family:inherit;
+    }
+    .proc-head .pbtn:hover { border-color:#4a9eff; color:#fff; }
+    .proc-row.co .proc-head .dot { border-style:dashed; background:transparent; }
+    .proc-row.co .proc-head .nm { color:#98a2ad; }
+    .co-badge {
+      font-size:9.5px; color:#6b7c93; border:1px solid #33404f; border-radius:3px;
+      padding:0 4px; margin-left:6px; letter-spacing:.04em; white-space:nowrap;
+    }
     .trans-list { display:none; padding:2px 0 6px 22px; }
     .proc-row.open .trans-list { display:block; }
     .tkind { font-size:10.5px; color:#5f6b78; text-transform:uppercase; letter-spacing:.06em; margin:5px 0 2px; }
@@ -144,6 +163,47 @@
     #c3d-legend canvas { display:block; }
     #c3d-legend .lab { color:#889; font-size:10.5px; }
 
+    /* leg detail table */
+    #legs-panel { display:none; margin-top:10px; background:#141414; border:1px solid #333;
+      border-radius:8px; padding:8px 14px 12px; }
+    #legs-panel.on { display:block; }
+    #legs-panel h3 { font-size:12.5px; margin:10px 0 4px; color:#cfd8e3; font-weight:600; }
+    #legs-panel h3 .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+    #legs-panel h3 small { color:#5f6b78; font-weight:400; }
+    #legs-panel .tbl-wrap { overflow-x:auto; }
+    #legs-panel table { width:100%; border-collapse:collapse; font-size:12px; color:#aab4bf; white-space:nowrap; }
+    #legs-panel th { text-align:left; color:#63707e; font-weight:600; font-size:10.5px;
+      text-transform:uppercase; letter-spacing:.05em; padding:3px 10px 3px 0; border-bottom:1px solid #262c33; }
+    #legs-panel td { padding:3px 10px 3px 0; border-bottom:1px solid #1d2126; }
+    #legs-panel tr.clk { cursor:pointer; }
+    #legs-panel tr.clk:hover td { background:#1a2027; color:#dfe7f0; }
+    #legs-panel tr.mst td { color:#707a85; font-style:italic; }
+    #legs-panel .alts { color:#8fd0ff; } #legs-panel .spd { color:#f0b45a; }
+    #legs-empty { color:#555; font-size:12.5px; padding:6px 0; }
+
+    /* FAA plate viewer */
+    #plate-modal { position:fixed; inset:0; z-index:4000; background:rgba(0,0,0,.74);
+      display:none; align-items:center; justify-content:center; padding:16px; }
+    #plate-modal.on { display:flex; }
+    #plate-box { background:#101418; border:1px solid #3a4654; border-radius:10px;
+      width:min(960px, 96vw); height:min(1300px, 94vh); display:flex; flex-direction:column;
+      overflow:hidden; box-shadow:0 12px 48px rgba(0,0,0,.7); }
+    #plate-bar { display:flex; align-items:center; gap:10px; padding:8px 12px;
+      border-bottom:1px solid #2b3540; font-size:13px; color:#bbb; flex-wrap:wrap; }
+    #plate-title { font-weight:600; color:#e8eef5; }
+    #plate-meta { color:#667; font-size:11.5px; }
+    #plate-pages { display:flex; gap:5px; flex-wrap:wrap; }
+    #plate-pages button { background:#1b2229; border:1px solid #35414d; color:#9db8d2;
+      border-radius:5px; font-size:11px; padding:2px 8px; cursor:pointer; font-family:inherit; }
+    #plate-pages button.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
+    #plate-bar .spacer { flex:1; }
+    #plate-open { color:#8fb8e8; text-decoration:none; font-size:12px;
+      border:1px solid #35414d; border-radius:5px; padding:2px 8px; }
+    #plate-open:hover { border-color:#4a9eff; color:#fff; }
+    #plate-close { background:none; border:none; color:#889; font-size:18px; cursor:pointer; padding:0 4px; }
+    #plate-close:hover { color:#fff; }
+    #plate-frame { flex:1; border:none; background:#2a2e33; }
+
     #howto { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
       padding:12px 16px; font-size:13px; color:#888; line-height:1.55; }
     #howto b { color:#bbb; }
@@ -160,8 +220,9 @@
   <a id="back-link" href="/">&larr; jesselevine.net</a>
   <header>
     <h1>Procedure Explorer</h1>
-    <p class="subtitle">Overlay any US SID, STAR or instrument approach on the chart and see its altitudes in 3D
-      &middot; FAA CIFP cycle effective <span class="cycle" id="cycle-date">…</span></p>
+    <p class="subtitle">Overlay any US SID, STAR or instrument approach on the chart, see its altitudes in 3D,
+      and pull up the official FAA plate
+      &middot; FAA CIFP cycle effective <span class="cycle" id="cycle-date">…</span><span id="tpp-cycle"></span></p>
   </header>
 
   <div id="explorer">
@@ -172,13 +233,16 @@
         <div id="search-results"></div>
       </div>
       <div id="apt-title"></div>
+      <div id="apt-charts"></div>
       <div id="proc-tree"><div id="tree-empty">Pick an airport to list its SIDs, STARs and approaches.<br><br>
-        Click a procedure to overlay all of it; expand it to toggle individual transitions and see how the flows join up.</div></div>
+        Click a procedure to overlay all of it; expand it to toggle individual transitions and see how the flows join up.
+        The <b>plate</b> button opens the official FAA chart.</div></div>
     </div>
 
     <div id="main-col">
       <div id="toolbar">
         <button class="tb-btn" id="btn-3d">3D view</button>
+        <button class="tb-btn" id="btn-legs">Leg table</button>
         <button class="tb-btn" id="btn-flow">Flow animation</button>
         <label><input type="checkbox" id="chk-labels" checked> Fix labels</label>
         <label><input type="checkbox" id="chk-missed" checked> Missed approach</label>
@@ -188,6 +252,8 @@
       </div>
       <div id="chips"></div>
       <div id="proc-map"></div>
+
+      <div id="legs-panel"></div>
 
       <div id="panel3d">
         <div id="c3d-wrap">
@@ -213,8 +279,27 @@
         Dashed legs are heading/vector segments (drawn to an estimated length); a thin dotted grey line bridges
         gaps where the coded route breaks and ATC vectors you to the next segment.
         In the 3D view the ribbon height is altitude (vertical scale exaggerated; posts drop to the ground track).
-        Data: FAA CIFP, for situational awareness only — <b>not for navigation</b>.
+        The <b>plate</b> button on a procedure (and the chips under the airport name) open the official FAA chart;
+        rows marked <b>plate only</b> are published procedures the FAA doesn't code in the public CIFP
+        (many VOR/NDB/TACAN full procedures, visuals, most military fields), so they can't be drawn — but the plate is real.
+        The <b>leg table</b> lists each selected transition fix-by-fix; courses there are <b>&deg;true</b>
+        (chart courses are magnetic — the local variation is applied).
+        Data: FAA CIFP + d-TPP, for situational awareness only — <b>not for navigation</b>.
       </div>
+    </div>
+  </div>
+
+  <div id="plate-modal">
+    <div id="plate-box">
+      <div id="plate-bar">
+        <span id="plate-title"></span>
+        <span id="plate-pages"></span>
+        <span class="spacer"></span>
+        <span id="plate-meta"></span>
+        <a id="plate-open" target="_blank" rel="noopener">open ↗</a>
+        <button id="plate-close" title="Close (Esc)">✕</button>
+      </div>
+      <iframe id="plate-frame" title="FAA terminal procedure plate"></iframe>
     </div>
   </div>
 
@@ -222,6 +307,6 @@
 
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/site-config.js"></script>
-  <script src="js/procedures.js?v=6"></script>
+  <script src="js/procedures.js?v=7"></script>
 </body>
 </html>
