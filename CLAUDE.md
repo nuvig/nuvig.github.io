@@ -37,6 +37,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
+- `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
+  explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
+  wave ribbons with click ripples, and a flow-field particle swarm with an FPS governor that trims
+  the count on slow machines. Self-contained like bubbles.html (no shared CSS/JS, no libs); cosine
+  palettes are shared between the shader and the canvas modes. Linked from tools.html ("Off Duty").
 
 ### Flight tracker
 
