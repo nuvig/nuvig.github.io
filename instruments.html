@@ -35,6 +35,7 @@
 
     canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; }
     canvas.viz.stack-top { border-radius: 6px 6px 0 0; }
+    canvas.viz.stack-mid { border-radius: 0; }
     canvas.viz.stack-bot { border-radius: 0 0 6px 6px; }
 
     .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
@@ -86,7 +87,9 @@
     (ambient pressure alone). The ASI reads the <i>difference</i> between them; the altimeter reads static
     pressure against a set datum; the VSI reads how fast static pressure is <i>changing</i>. Ice or a mud
     dauber in either hole, and specific instruments fail in specific ways. Pick a blockage below, then
-    <b>climb or descend</b> and watch which needles tell the truth.
+    <b>climb or descend</b> and watch which needles tell the truth. The middle row is the X-ray view:
+    every needle is just a <b>capsule flexing</b> — the ASI's diaphragm with pitot air inside and static
+    around it, the altimeter's sealed vacuum wafers, and the VSI's diaphragm racing its own leaky case.
   </p>
   <div class="card">
     <div class="mode-row">
@@ -113,6 +116,7 @@
       <span class="val" id="ps-ias-val"></span>
     </div>
     <canvas class="viz stack-top" id="ps-diagram" width="960" height="200"></canvas>
+    <canvas class="viz stack-mid" id="ps-guts" width="960" height="240"></canvas>
     <canvas class="viz stack-bot" id="ps-gauges" width="960" height="310"></canvas>
     <div class="readout-grid">
       <div class="tile"><div class="k">actual altitude</div><div class="v" id="ps-t-alt"></div></div>
@@ -321,6 +325,6 @@
     altimeter errors). No data leaves the page.
   </p>
 
-  <script src="js/instruments.js?v=1"></script>
+  <script src="js/instruments.js?v=2"></script>
 </body>
 </html>

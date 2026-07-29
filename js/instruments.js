@@ -81,6 +81,7 @@ function redX(ctx, x, y, s) {
 /* ══ 1 · Pitot-static blockage sim ══════════════════════════ */
 (() => {
   const dia = setup($('ps-diagram'));
+  const guts = setup($('ps-guts'));
   const gau = setup($('ps-gauges'));
   const GX = { asi: 170, alt: 480, vsi: 790 };   // gauge centers (x), shared with diagram
   const CY = 152, R = 118;
@@ -198,6 +199,162 @@ function redX(ctx, x, y, s) {
     if (scenario === 'static') redX(ctx, 70, 152, 7);
   }
 
+  /* ---- mechanism cutaways (the "X-ray" row) ----
+     Positions are driven by the same displayed values as the needles, so a
+     frozen static line literally freezes the wafers and the trapped-pitot
+     diaphragm keeps swelling in a climb. */
+  function capsulePath(ctx, x0, x1, ymid, b) {
+    ctx.beginPath();
+    ctx.moveTo(x0, ymid);
+    ctx.quadraticCurveTo((x0 + x1) / 2, ymid - 2 * b, x1, ymid);
+    ctx.quadraticCurveTo((x0 + x1) / 2, ymid + 2 * b, x0, ymid);
+    ctx.closePath();
+  }
+  function gearAt(ctx, x, y) {
+    ctx.fillStyle = '#232833'; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#8892a2'; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#8892a2'; ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.fill();
+  }
+
+  function drawGuts() {
+    const { ctx, w, h } = guts;
+    ctx.clearRect(0, 0, w, h);
+    const P_COL = scenario === 'ram' ? '#6b5a3a' : AMBER;
+    const S_COL = scenario === 'static' ? '#41546b' : BLUE;
+    const CASE_T = 34, CASE_B = 196, GEAR_Y = 178;
+
+    ctx.font = '10.5px system-ui'; ctx.textBaseline = 'middle';
+    const label = (x, y, txt, color, align) => {
+      ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(txt, x, y);
+    };
+    const caseBox = cx => {
+      ctx.fillStyle = 'rgba(127,178,232,0.06)';
+      ctx.strokeStyle = '#4a5262'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.roundRect(cx - 110, CASE_T, 220, CASE_B - CASE_T, 10);
+      ctx.fill(); ctx.stroke(); ctx.lineWidth = 1;
+    };
+    const stub = (x, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CASE_T); ctx.stroke(); ctx.lineWidth = 1;
+    };
+    const shaft = cx => {
+      ctx.strokeStyle = '#8892a2'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx, CASE_B); ctx.lineTo(cx, h); ctx.stroke(); ctx.lineWidth = 1;
+      gearAt(ctx, cx, GEAR_Y);
+    };
+    const rod = pts => {
+      ctx.strokeStyle = '#8892a2'; ctx.lineWidth = 2;
+      ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.stroke(); ctx.lineWidth = 1;
+    };
+    const bracket = (x, y) => { ctx.fillStyle = '#39404e'; ctx.fillRect(x, y, 12, 24); };
+    const corrugate = (cxm, halfw, ymid, b, color) => {
+      ctx.strokeStyle = color; ctx.globalAlpha = 0.35;
+      for (const s of [0.62, 0.82]) {
+        capsulePath(ctx, cxm - halfw * s, cxm + halfw * s, ymid, b * s); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    /* — ASI: diaphragm, pitot inside, static around it — */
+    {
+      const cx = GX.asi;
+      caseBox(cx);
+      stub(cx - 12, P_COL); stub(cx + 12, S_COL);
+      ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;                       // static vents into the case
+      ctx.beginPath(); ctx.moveTo(cx + 12, CASE_T); ctx.lineTo(cx + 12, 52); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + 4, 56); ctx.lineTo(cx + 20, 56); ctx.stroke();
+      ctx.beginPath();                                                    // pitot pipes into the capsule
+      ctx.moveTo(cx - 12, CASE_T); ctx.lineTo(cx - 12, 58);
+      ctx.lineTo(cx - 74, 58); ctx.lineTo(cx - 74, 120);
+      ctx.stroke(); ctx.lineWidth = 1;
+      bracket(cx - 82, 108);
+      const qFrac = clamp(qcOf(clamp(dIas, 0, 200)) / qcOf(200), 0, 1);
+      const bA = 4 + 26 * Math.sqrt(qFrac);
+      capsulePath(ctx, cx - 70, cx + 74, 120, bA);
+      ctx.fillStyle = 'rgba(216,160,76,0.22)'; ctx.fill();
+      ctx.strokeStyle = P_COL; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
+      corrugate(cx + 2, 72, 120, bA, P_COL);
+      rod([[cx + 74, 120], [cx + 88, 146], [cx + 6, 174]]);
+      shaft(cx);
+      label(cx - 102, 162, 'diaphragm — pitot inside', P_COL);
+      label(cx + 102, 72, 'static fills the case', S_COL, 'right');
+      label(cx + 10, h - 14, 'gears turn the needle below', '#8892a2');
+    }
+
+    /* — Altimeter: sealed vacuum wafers, static around them — */
+    {
+      const cx = GX.alt;
+      caseBox(cx);
+      stub(cx, S_COL);
+      ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;                       // static vents into the case
+      ctx.beginPath();
+      ctx.moveTo(cx, CASE_T); ctx.lineTo(cx, 46); ctx.lineTo(cx - 48, 46); ctx.lineTo(cx - 48, 56);
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - 56, 60); ctx.lineTo(cx - 40, 60); ctx.stroke(); ctx.lineWidth = 1;
+      ctx.fillStyle = '#39404e'; ctx.fillRect(cx + 18, 50, 24, 8);        // top anchor for the stack
+      const aFrac = clamp(dAlt / 12000, 0, 1);
+      const hw = 7 + 9 * aFrac;
+      let y = 62 + hw;
+      for (let i = 0; i < 3; i++) {
+        capsulePath(ctx, cx - 30, cx + 90, y, hw);
+        ctx.fillStyle = '#10141a'; ctx.fill();
+        ctx.strokeStyle = '#9aa5b4'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineWidth = 1;
+        ctx.strokeStyle = '#4a5262';
+        ctx.beginPath(); ctx.moveTo(cx - 26, y); ctx.lineTo(cx + 86, y); ctx.stroke();
+        y += 2 * hw + 5;
+      }
+      const stackBot = y - hw - 5;                // bottom tip of the lowest wafer
+      rod([[cx + 30, stackBot], [cx + 4, 174]]);
+      shaft(cx);
+      label(cx - 104, 100, 'sealed wafers,', '#9aa5b4');
+      label(cx - 104, 113, 'vacuum inside', '#9aa5b4');
+      label(cx - 104, 132, 'they swell as the', INK2);
+      label(cx - 104, 145, 'case pressure falls', INK2);
+    }
+
+    /* — VSI: diaphragm fed directly, case fed through the leak — */
+    {
+      const cx = GX.vsi;
+      caseBox(cx);
+      stub(cx, S_COL);
+      ctx.strokeStyle = S_COL; ctx.lineWidth = 2.5;
+      ctx.beginPath();                                                    // direct branch → capsule
+      ctx.moveTo(cx, CASE_T); ctx.lineTo(cx, 44);
+      ctx.lineTo(cx - 74, 44); ctx.lineTo(cx - 74, 126);
+      ctx.stroke();
+      ctx.beginPath();                                                    // leak branch → case
+      ctx.moveTo(cx, 44); ctx.lineTo(cx + 66, 44); ctx.lineTo(cx + 66, 56);
+      ctx.stroke(); ctx.lineWidth = 1;
+      ctx.strokeStyle = S_COL;                                            // the calibrated leak: a throat
+      ctx.beginPath();
+      ctx.moveTo(cx + 62, 56); ctx.lineTo(cx + 64.5, 68);
+      ctx.moveTo(cx + 70, 56); ctx.lineTo(cx + 67.5, 68);
+      ctx.moveTo(cx + 66, 68); ctx.lineTo(cx + 66, 76);
+      ctx.stroke();
+      if (Math.abs(dVsi) > 150) {                                         // air squeezing through the leak
+        const up = dVsi > 0;                                              // climb: case bleeds out
+        ctx.fillStyle = '#cfe6ff';
+        ctx.beginPath();
+        ctx.moveTo(cx + 66, up ? 58 : 66);
+        ctx.lineTo(cx + 63, up ? 64 : 60);
+        ctx.lineTo(cx + 69, up ? 64 : 60);
+        ctx.fill();
+      }
+      bracket(cx - 86, 114);
+      const bV = 14 - 10 * clamp(dVsi / 2000, -1, 1);
+      capsulePath(ctx, cx - 74, cx + 70, 126, bV);
+      ctx.fillStyle = 'rgba(127,178,232,0.20)'; ctx.fill();
+      ctx.strokeStyle = S_COL; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
+      corrugate(cx - 2, 72, 126, bV, S_COL);
+      rod([[cx + 70, 126], [cx + 84, 152], [cx + 6, 174]]);
+      shaft(cx);
+      label(cx - 68, 58, 'direct to diaphragm', S_COL);
+      label(cx + 66, 90, 'calibrated leak', S_COL, 'center');
+      label(cx - 102, 166, 'diaphragm — static inside', S_COL);
+    }
+  }
+
   /* ---- gauges ---- */
   function drawASI(ctx, cx, cy, v) {
     gaugeFace(ctx, cx, cy, R, 'airspeed — knots');
@@ -269,16 +426,12 @@ function redX(ctx, x, y, s) {
   function drawGauges() {
     const { ctx, w, h } = gau;
     ctx.clearRect(0, 0, w, h);
-    // line stubs continuing down from the diagram above
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = scenario === 'ram' ? '#6b5a3a' : AMBER;
-    ctx.beginPath(); ctx.moveTo(GX.asi - 12, 0); ctx.lineTo(GX.asi - 12, CY - R); ctx.stroke();
-    ctx.strokeStyle = scenario === 'static' ? '#41546b' : BLUE;
-    ctx.beginPath();
-    ctx.moveTo(GX.asi + 12, 0); ctx.lineTo(GX.asi + 12, CY - R);
-    ctx.moveTo(GX.alt, 0); ctx.lineTo(GX.alt, CY - R);
-    ctx.moveTo(GX.vsi, 0); ctx.lineTo(GX.vsi, CY - R);
-    ctx.stroke(); ctx.lineWidth = 1;
+    // needle drive shafts continuing down from the mechanism row above
+    ctx.strokeStyle = '#8892a2'; ctx.lineWidth = 2;
+    for (const x of [GX.asi, GX.alt, GX.vsi]) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CY - R - 4); ctx.stroke();
+    }
+    ctx.lineWidth = 1;
     drawASI(ctx, GX.asi, CY, dIas);
     drawALT(ctx, GX.alt, CY, dAlt);
     drawVSI(ctx, GX.vsi, CY, dVsi);
@@ -337,6 +490,7 @@ function redX(ctx, x, y, s) {
     const rate = dtSim > 0 ? (st.indAlt - prevIndAlt) / dtSim * 60 : 0;
     prevIndAlt = st.indAlt;
     dVsi += (clamp(rate, -2400, 2400) - dVsi) * (1 - Math.exp(-dtSim / 1.6));
+    drawGuts();
     drawGauges();
     updateText(st);
     requestAnimationFrame(frame);
