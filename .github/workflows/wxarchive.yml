@@ -1,0 +1,46 @@
+# DC weather archive — replaces pi/wxarchive.py so the Pi holds no weather
+# history at all. Hourly: fetch new LWX AFDs, a DC forecast snapshot, and
+# KDCA METARs into data/wx/, then commit whatever changed to main.
+#
+# Note: GitHub pauses scheduled workflows after ~60 days without a commit to
+# the repo — this workflow's own hourly commits keep it alive indefinitely.
+
+name: Weather archive
+
+on:
+  schedule:
+    - cron: '18 * * * *'   # hourly, off the :00 rush
+  workflow_dispatch: {}     # manual "run now" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wxarchive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch AFDs, forecast snapshot, METARs
+        run: python3 scripts/wxarchive.py
+
+      - name: Commit archive
+        run: |
+          git config user.name  "wx-archive[bot]"
+          git config user.email "wx-archive[bot]@users.noreply.github.com"
+          git add data/wx
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "wx: archive $(date -u +'%Y-%m-%d %H:%MZ')"
+          # main may have moved while we ran — rebase our one commit and retry
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

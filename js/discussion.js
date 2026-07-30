@@ -19,7 +19,7 @@ const NWS = 'https://api.weather.gov';
 const OFFICE = 'LWX';                       // Baltimore/Washington forecast office
 const DC = { lat: 38.8894, lon: -77.0352 }; // downtown DC (drift tracker point)
 const TZ = SITE.weather.timeZone;
-const ARCHIVE = SITE.weather.archiveBase || null;   // pi/wxarchive.py output
+const ARCHIVE = SITE.weather.archiveBase || null;   // scripts/wxarchive.py output (data/wx/)
 const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 
@@ -64,10 +64,10 @@ function setStatus(cls, text) {
 
 const AFD = { list: [], texts: new Map(), parsed: new Map(), newestId: null };
 
-/* Site-side weather archive (pi/wxarchive.py → weather-data branch): every
-   AFD ever archived, forecast snapshots, METARs — shared across devices,
-   unlike localStorage. Everything here is optional: 404s (archive not set
-   up yet, Pi down) just mean the live-API/localStorage fallbacks apply. */
+/* Site-side weather archive (wxarchive GitHub Action → data/wx/ in this
+   repo): every AFD ever archived, forecast snapshots, METARs — shared
+   across devices, unlike localStorage. Everything here is optional: 404s
+   or an empty index just mean the live-API/localStorage fallbacks apply. */
 const ARC = { index: null, todayFc: null };
 
 async function loadArchive() {
@@ -217,7 +217,7 @@ const OPEN_BY_DEFAULT = /^(SYNOPSIS|UPDATE|KEY MESSAGES|NEAR TERM)/;
 function renderDiscussion(item, secs) {
   const issued = new Date(item.issuanceTime);
   $('afd-issued').innerHTML =
-    `issued <b style="color:#aaa">${esc(fmtIssued(issued))}</b> (${esc(timeAgo(issued))}) · dotted terms have plain-English tooltips`;
+    `Issued <b style="color:#9aa">${esc(fmtIssued(issued))}</b> (${esc(timeAgo(issued))}).`;
   const host = $('afd-sections');
   host.innerHTML = '';
   for (const s of secs) {
@@ -381,8 +381,8 @@ async function buildChangelog(list) {
     note.className = 'drift-note';
     note.style.marginTop = '10px';
     note.textContent = `Site archive: ${ARC.index.afd.length} discussion(s) kept since ` +
-      `${fmtTime(oldest, { month: 'short', day: 'numeric', year: 'numeric' })} on the weather-data branch — ` +
-      'the long-term record this change log draws on.';
+      `${fmtTime(oldest, { month: 'short', day: 'numeric', year: 'numeric' })} — ` +
+      'the long-term record this log draws on, archived hourly to the repo.';
     host.appendChild(note);
   }
 }

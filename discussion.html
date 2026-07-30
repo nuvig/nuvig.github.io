@@ -24,9 +24,29 @@
       text-decoration: none; color: #666;
     }
     #back-link:hover { color: #ccc; }
-    .subtitle { color: #666; margin: 4px 0 16px; font-size: 14px; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
     .subtitle a { color: #4a9eff; text-decoration: none; }
     .subtitle a:hover { text-decoration: underline; }
+
+    /* ---- the four acts ---- */
+    .story-nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+    .story-nav a {
+      font-size: 12px; color: #9aa7b2; text-decoration: none;
+      border: 1px solid #2c3946; background: #141a21;
+      padding: 4px 12px; border-radius: 14px; white-space: nowrap;
+    }
+    .story-nav a b { color: #4a9eff; font-weight: 700; margin-right: 6px; }
+    .story-nav a:hover { border-color: #4a9eff; color: #cfe6ff; }
+    .chapter { margin: 36px 0 12px; padding-top: 18px; border-top: 1px solid #262626; }
+    .chapter .kick {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #4a9eff;
+    }
+    .chapter h2 { margin: 4px 0 6px; font-size: 20px; color: #e8e8e8; }
+    .chapter .deck {
+      margin: 0; font-size: 13.5px; color: #8a959f; line-height: 1.55; max-width: 72ch;
+    }
+    .chapter .deck .meta { color: #5a6570; }
 
     .status-bar {
       display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -48,12 +68,6 @@
     .btn.secondary { background: #333; border-color: #444; color: #ddd; }
     .btn.secondary:hover { background: #444; }
 
-    .section-title {
-      font-size: 15px; font-weight: 600; color: #ccc;
-      margin: 22px 0 8px; letter-spacing: 0.02em;
-      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-    }
-    .section-title .sub { font-weight: 400; font-size: 12px; color: #555; }
     .card {
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
       padding: 14px 16px; margin-bottom: 0;
@@ -202,11 +216,17 @@
 
   <h1>DC Forecast Discussion</h1>
   <p class="subtitle">
-    The NWS Baltimore/Washington forecast discussion, decoded — with a live map of the air masses,
-    fronts and systems driving it, and a change log of how the reasoning evolved ·
+    Every forecast is a story. This page follows DC's through all four acts ·
     <a href="/weather.html">weather hub →</a> ·
     <a href="/skew-t.html">skew-t →</a>
   </p>
+
+  <nav class="story-nav">
+    <a href="#setup"><b>I</b> The setup</a>
+    <a href="#reasoning"><b>II</b> The reasoning</a>
+    <a href="#revisions"><b>III</b> The revisions</a>
+    <a href="#verdict"><b>IV</b> The verdict</a>
+  </nav>
 
   <div class="status-bar">
     <div class="indicator"><div class="dot" id="status-dot"></div><span id="status-text">Loading…</span></div>
@@ -214,9 +234,14 @@
     <button class="btn secondary" id="refresh-btn" style="margin-left:auto">Refresh now</button>
   </div>
 
-  <!-- ============ SYNOPTIC MAP ============ -->
-  <div class="section-title">Air masses, fronts &amp; systems — Mid-Atlantic
-    <span class="sub">model surface analysis, rebuilt in your browser: temperature field · isobars · highs/lows · frontal zones · wind flow</span>
+  <!-- ============ ACT I — SYNOPTIC MAP ============ -->
+  <div class="chapter" id="setup">
+    <span class="kick">Act I · The setup</span>
+    <h2>What's moving the air</h2>
+    <p class="deck">The stage the forecast plays out on: a model surface analysis rebuilt live in
+      your browser — air masses, fronts, highs and lows, wind. Scrub the timeline to watch the
+      pattern evolve; hover anywhere for numbers. The note under the map reads the pattern and
+      says why it is (or isn't) raining at DC.</p>
   </div>
   <div class="card">
     <div id="syn-wrap">
@@ -243,30 +268,31 @@
       <span><canvas id="legend-tbar" width="130" height="10"></canvas> <span id="legend-trange">air mass (850 hPa temp)</span></span>
       <span><span class="sw" style="background:#4a8cff"></span>cold air advancing</span>
       <span><span class="sw" style="background:#ff5a5a"></span>warm air advancing</span>
-      <span><span class="hl-h">H</span>/<span class="hl-l">L</span> pressure centers · thin lines = isobars (2 hPa)</span>
+      <span><span class="hl-h">H</span>/<span class="hl-l">L</span> centers · thin lines = isobars (2 hPa)</span>
       <span>streaks = surface wind</span>
-      <span>radar tiles at “now” · green→yellow→magenta shading = model precip at other hours</span>
+      <span>radar at “now” · shading = model precip at other hours</span>
     </div>
     <div id="syn-err"></div>
   </div>
 
-  <!-- ============ VERIFICATION ============ -->
-  <div class="section-title">Today — why it played out the way it did
-    <span class="sub">this morning's forecast vs. what the METARs actually recorded, and the model's hindcast of why</span>
-  </div>
-  <div class="card">
-    <div id="verify-body"><span class="muted" style="font-size:13px">Loading…</span></div>
-  </div>
-
-  <!-- ============ DISCUSSION ============ -->
-  <div class="section-title">The discussion — NWS Baltimore/Washington (LWX)
-    <span class="sub" id="afd-issued">the actual forecasters' reasoning, straight from the source · dotted terms have plain-English tooltips</span>
+  <!-- ============ ACT II — THE DISCUSSION ============ -->
+  <div class="chapter" id="reasoning">
+    <span class="kick">Act II · The reasoning</span>
+    <h2>The forecasters, in their own words</h2>
+    <p class="deck">The Area Forecast Discussion from NWS Baltimore/Washington — the humans behind
+      the forecast explaining what they expect and why. Dotted terms carry plain-English
+      tooltips. <span class="meta" id="afd-issued"></span></p>
   </div>
   <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
 
-  <!-- ============ CHANGE LOG ============ -->
-  <div class="section-title">Forecast change log
-    <span class="sub">how the forecast — and the reasoning — changed between discussions · <span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span> · checks for new issuances every 10 min</span>
+  <!-- ============ ACT III — THE REVISIONS ============ -->
+  <div class="chapter" id="revisions">
+    <span class="kick">Act III · The revisions</span>
+    <h2>How the story gets rewritten</h2>
+    <p class="deck">A forecast never stands still — each new discussion quietly rewrites the last.
+      The drift card tracks how DC's daily numbers have shifted; below it, word-level diffs
+      (<span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span>)
+      show the reasoning itself being revised. New issuances are picked up every 10 minutes.</p>
   </div>
 
   <div class="card" id="drift-card" style="margin-bottom:8px">
@@ -276,15 +302,26 @@
 
   <div id="afd-log"><div class="card"><span class="muted" style="font-size:13px">Loading previous issuances…</span></div></div>
 
+  <!-- ============ ACT IV — VERIFICATION ============ -->
+  <div class="chapter" id="verdict">
+    <span class="kick">Act IV · The verdict</span>
+    <h2>Did it come true?</h2>
+    <p class="deck">This morning's forecast against what KDCA's METARs actually recorded — and when
+      they disagree, the model's own hindcast of where the day went sideways.</p>
+  </div>
+  <div class="card">
+    <div id="verify-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
   <footer class="sources">
     Not for operational use — always get an official briefing.
-    Discussion text: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a>
-    (Area Forecast Discussion, office LWX — Baltimore MD/Washington DC) ·
-    daily forecast: NWS API ·
+    Discussion &amp; daily forecast: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a>
+    (office LWX — Baltimore MD/Washington DC) ·
     radar: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> ·
     synoptic grid: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (GFS) —
     the map is a model visualization computed in your browser, not an official surface analysis
-    (frontal zones are detected from 850 hPa temperature gradients and can differ from WPC's drawn fronts).
+    (frontal zones come from 850 hPa temperature gradients and can differ from WPC's drawn fronts) ·
+    history: archived hourly into this site's repo by a GitHub Action.
     Basemap © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> /
     <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>.
     Wind directions are °true.
@@ -292,6 +329,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=4"></script>
+  <script src="js/discussion.js?v=5"></script>
 </body>
 </html>

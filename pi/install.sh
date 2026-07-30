@@ -30,11 +30,13 @@ cp /opt/kanp/pi/kanp-collector.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-api.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-export.service /etc/systemd/system/
 cp /opt/kanp/pi/kanp-export.timer /etc/systemd/system/
-cp /opt/kanp/pi/kanp-wxarchive.service /etc/systemd/system/
-cp /opt/kanp/pi/kanp-wxarchive.timer /etc/systemd/system/
 cp /opt/kanp/pi/kanp-atc.service /etc/systemd/system/
+# weather archiving moved to GitHub Actions (.github/workflows/wxarchive.yml)
+# — retire the old Pi units if this box ever ran them
+systemctl disable --now kanp-wxarchive.timer kanp-wxarchive.service 2>/dev/null || true
+rm -f /etc/systemd/system/kanp-wxarchive.service /etc/systemd/system/kanp-wxarchive.timer
 systemctl daemon-reload
-systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer kanp-wxarchive.timer
+systemctl enable --now kanp-collector.service kanp-api.service kanp-export.timer
 # enable --now is a no-op for already-running units — restart to pick up new code
 systemctl restart kanp-collector.service kanp-api.service
 

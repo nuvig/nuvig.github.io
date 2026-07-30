@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""KANP weather archiver.
+"""DC weather archiver — GitHub Actions edition (stdlib only).
 
-Permanently archives the raw material of the DC weather story to the repo's
-`weather-data` branch so discussion.html can read history from any device via
-raw.githubusercontent.com (localStorage only remembers one browser):
+Permanently archives the raw material of the DC weather story into the
+repo's own data/wx/ folder so discussion.html can read history from any
+device (localStorage only remembers one browser):
 
   - every LWX Area Forecast Discussion issuance (full text — the NWS
     products API only keeps a few days; this keeps them all)
@@ -11,75 +11,61 @@ raw.githubusercontent.com (localStorage only remembers one browser):
     *expected*, for drift + verification)
   - KDCA METARs per day (what actually *happened*)
 
-Run hourly by kanp-wxarchive.timer. Stdlib + git CLI only.
+Run hourly by .github/workflows/wxarchive.yml, which commits whatever this
+script writes. No Pi, no PAT, no side branch — the archive is ordinary
+files on main, served by GitHub Pages at /data/wx/.
 
-One-time setup (as root) — a dedicated shallow clone, same PAT as the
-traffic exporter (fine-grained, read/write Contents on this repo only):
+Output layout (data/wx/):
+  index.json                       archive catalog + freshness
+  afd/YYYY/afd-YYYYMMDD-HHMM.json  one file per AFD issuance (UTC stamp)
+  forecast/YYYY-MM-DD.json         {date, snaps:[{t, days:{date:{hi,lo,pop,short}}}]}
+  obs/YYYY-MM-DD.json              {date, station, metars:[[t, raw], ...]}
 
-  sudo -u kanp git clone --depth 1 \
-      https://<TOKEN>@github.com/nuvig/nuvig.github.io.git /var/lib/kanp/weather-data
-
-The script creates/checks out the orphan `weather-data` branch by itself on
-first run. Without the clone in place it exits cleanly with a hint.
-
-Output layout (branch weather-data):
-  wx/index.json                     archive catalog + freshness
-  wx/afd/YYYY/afd-YYYYMMDD-HHMM.json  one file per AFD issuance (UTC stamp)
-  wx/forecast/YYYY-MM-DD.json       {date, snaps:[{t, days:{date:{hi,lo,pop,short}}}]}
-  wx/obs/YYYY-MM-DD.json            {date, station, metars:[[t, raw], ...]}
-
-History-bloat control: like the traffic exporter, the branch is kept at a
-single commit — each push amends and force-pushes. The archive files
-themselves accumulate forever; that is the point.
+Growth math: AFDs are ~8 KB × ~5/day, forecasts + obs a few KB/day —
+roughly 15 MB/year of JSON. A public repo doesn't notice.
 """
 
 import datetime
 import json
 import os
-import subprocess
 import sys
 import urllib.error
 import urllib.request
 
-import gitutil
+OFFICE = os.environ.get("WX_OFFICE", "LWX")
+OBS_STATION = os.environ.get("WX_OBS", "KDCA")
+POINT = os.environ.get("WX_POINT", "38.8894,-77.0352")  # downtown DC
+TZ = "America/New_York"   # archive days are local DC days (matches the page)
 
-ARCHIVE_DIR = os.environ.get("KANP_WX_DIR", "/var/lib/kanp/weather-data")
-OFFICE = os.environ.get("KANP_WX_OFFICE", "LWX")
-OBS_STATION = os.environ.get("KANP_WX_OBS", "KDCA")
-POINT = os.environ.get("KANP_WX_POINT", "38.8894,-77.0352")  # downtown DC
-PUSH = os.environ.get("KANP_WX_PUSH", "1") == "1"
-GC_INTERVAL_S = int(os.environ.get("KANP_GC_INTERVAL_S", gitutil.DEFAULT_INTERVAL_S))
-
-BRANCH = "weather-data"
 NWS = "https://api.weather.gov"
-WX = os.path.join(ARCHIVE_DIR, "wx")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WX = os.path.join(REPO, "data", "wx")
 AFD_DIR = os.path.join(WX, "afd")
 FC_DIR = os.path.join(WX, "forecast")
 OBS_DIR = os.path.join(WX, "obs")
 # Keep at most ~9 forecast snapshots/day: skip if the last one is fresher.
-SNAP_GAP_S = int(os.environ.get("KANP_WX_SNAP_GAP_S", "9000"))  # 2.5 h
+SNAP_GAP_S = int(os.environ.get("WX_SNAP_GAP_S", "9000"))  # 2.5 h
 
 
 def log(msg):
     print(msg, flush=True)
 
 
+def local_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo(TZ))
+    except Exception:
+        return datetime.datetime.now().astimezone()
+
+
 def fetch(url):
     req = urllib.request.Request(url, headers={
-        "User-Agent": "kanp-wxarchive (jesselevine.net)",
+        "User-Agent": "wxarchive (jesselevine.net)",
         "Accept": "application/ld+json, application/geo+json, application/json",
     })
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
-
-
-def git(*args, check=True):
-    return subprocess.run(
-        ["git", "-C", ARCHIVE_DIR,
-         "-c", "user.name=kanp-wxarchive",
-         "-c", "user.email=kanp@localhost", *args],
-        capture_output=True, text=True, check=check,
-    )
 
 
 def write_json(path, obj):
@@ -96,20 +82,6 @@ def read_json(path, default):
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return default
-
-
-def ensure_branch():
-    """Check out `weather-data`, creating it as an orphan on first run."""
-    cur = git("rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
-    if cur == BRANCH:
-        return
-    git("fetch", "--depth", "1", "origin", BRANCH, check=False)
-    if git("rev-parse", "--verify", f"origin/{BRANCH}", check=False).returncode == 0:
-        git("checkout", "-B", BRANCH, f"origin/{BRANCH}")
-    else:
-        git("checkout", "--orphan", BRANCH)
-        git("rm", "-rf", "-q", ".", check=False)   # clear the inherited index
-        log(f"created orphan branch {BRANCH}")
 
 
 def archive_afds():
@@ -166,7 +138,7 @@ def snapshot_forecast():
     days = digest_periods(fc["properties"].get("periods", []))
     if not days:
         return False
-    now = datetime.datetime.now().astimezone()
+    now = local_now()
     path = os.path.join(FC_DIR, f"{now:%Y-%m-%d}.json")
     doc = read_json(path, {"date": f"{now:%Y-%m-%d}", "snaps": []})
     snaps = doc["snaps"]
@@ -180,6 +152,7 @@ def snapshot_forecast():
 
 def archive_obs():
     data = fetch(f"{NWS}/stations/{OBS_STATION}/observations?limit=72")
+    tz = local_now().tzinfo
     by_day = {}
     for f in data.get("features", []):
         p = f.get("properties") or {}
@@ -187,7 +160,7 @@ def archive_obs():
         if not iso or not raw:
             continue
         t = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        day = f"{t.astimezone():%Y-%m-%d}"
+        day = f"{t.astimezone(tz):%Y-%m-%d}"
         by_day.setdefault(day, []).append([int(t.timestamp()), raw])
     changed = 0
     for day, metars in by_day.items():
@@ -217,7 +190,7 @@ def build_index():
                     tzinfo=datetime.timezone.utc)
             except ValueError:
                 continue
-            rel = os.path.relpath(os.path.join(root, fname), WX)
+            rel = os.path.relpath(os.path.join(root, fname), WX).replace(os.sep, "/")
             afd.append({"t": int(t.timestamp()), "p": rel})
     afd.sort(key=lambda a: -a["t"])
     listing = lambda d: sorted(
@@ -235,15 +208,6 @@ def build_index():
 
 
 def main():
-    if not os.path.isdir(os.path.join(ARCHIVE_DIR, ".git")):
-        log(f"archive dir {ARCHIVE_DIR} is not a git clone — skipping.\n"
-            "One-time setup:\n"
-            "  sudo -u kanp git clone --depth 1 "
-            f"https://<TOKEN>@github.com/nuvig/nuvig.github.io.git {ARCHIVE_DIR}")
-        return 0
-
-    ensure_branch()
-
     problems = 0
     for step in (archive_afds, snapshot_forecast, archive_obs):
         try:
@@ -253,30 +217,6 @@ def main():
             problems += 1
     n = build_index()
     log(f"index: {n} AFD issuance(s) archived")
-
-    if not PUSH:
-        log("KANP_WX_PUSH=0 — skipping git push")
-        return 0
-
-    git("add", "-A", "wx")
-    if not git("status", "--porcelain").stdout.strip():
-        log("no changes to publish")
-        return 0 if problems == 0 else 1
-
-    # keep the branch at one commit: amend if we authored the tip, else new
-    last_author = git("log", "-1", "--format=%an", check=False).stdout.strip()
-    msg = f"weather archive {datetime.datetime.now():%Y-%m-%d %H:%M %Z}"
-    if last_author == "kanp-wxarchive":
-        git("commit", "--amend", "-m", msg)
-    else:
-        git("commit", "-m", msg)
-
-    r = git("push", "--force", "-u", "origin", BRANCH, check=False)
-    if r.returncode != 0:
-        log(f"push failed:\n{r.stderr.strip()}")
-        return 1
-    log("published weather archive")
-    gitutil.maintain(ARCHIVE_DIR, log, GC_INTERVAL_S)   # see exporter.py
     return 0 if problems == 0 else 1
 
 
