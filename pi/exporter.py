@@ -33,6 +33,7 @@ import sys
 import urllib.error
 import urllib.request
 
+import gitutil
 from trackutil import simplify_track
 
 DB_PATH = os.environ.get("KANP_DB", "/var/lib/kanp/kanp.db")
@@ -49,6 +50,9 @@ SITE_TRAFFIC_PATH = os.environ.get(
 # lossless; raise it to shrink files further, lower it for even more fidelity.
 SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
 PUSH = os.environ.get("KANP_EXPORT_PUSH", "1") == "1"
+# How often to prune/repack the export clone (see gitutil.maintain). Lower it
+# if the clone still grows between runs; 0 disables collection entirely.
+GC_INTERVAL_S = int(os.environ.get("KANP_GC_INTERVAL_S", gitutil.DEFAULT_INTERVAL_S))
 
 V2_DIR = os.path.join(EXPORT_DIR, "v2")
 DAYS_DIR = os.path.join(V2_DIR, "days")
@@ -288,6 +292,9 @@ def main():
         log(f"push failed:\n{r.stderr.strip()}")
         return 1
     log(f"published {len(days)} day file(s) to traffic-data")
+    # Amending hourly orphans the previous commit's blobs — reclaim them, or
+    # .git grows without bound (it reached 5.7 GB against 301 MB of data).
+    gitutil.maintain(EXPORT_DIR, log, GC_INTERVAL_S)
     return 0
 
 

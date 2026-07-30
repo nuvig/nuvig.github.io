@@ -110,7 +110,10 @@ classified there, check all three.
 ### Backends
 
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only** (`collector.py`, `server.py`, `exporter.py`,
-  `wxarchive.py`, `trackutil.py`, `atc.py`, `install.sh`, systemd units). `wxarchive.py` (hourly
+  `wxarchive.py`, `trackutil.py`, `gitutil.py`, `atc.py`, `install.sh`, systemd units).
+  **Both publishers must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
+  orphans the previous commit's blobs locally every run, and without pruning `.git` grows without
+  bound (it hit 5.7 GB against 301 MB of data on the real Pi). `wxarchive.py` (hourly
   timer) archives LWX AFDs + DC forecast snapshots + KDCA METARs to the **`weather-data` branch**
   (single amended commit, like the traffic exporter); its digest format mirrors
   `js/discussion.js` `loadDrift()` — change both together.

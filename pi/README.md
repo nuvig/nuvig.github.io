@@ -46,7 +46,25 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 A position row is ~90 bytes with indexes. At a 15 s poll with ~10–25
 aircraft in range that's roughly **8–20 MB/day**, so a full year lands
 around 3–7 GB — comfortably inside the 8 GB cap, which itself leaves
-plenty of headroom on the card.
+plenty of headroom on the card. Keep `KANP_MAX_DB_MB` **below the card's
+free space**, or the cap can't do its job.
+
+Also watch the publisher clones. `exporter.py` and `wxarchive.py` keep
+their branch at a single amended commit, which orphans the previous
+commit's blobs locally on every run — ~33 MB/hour for the traffic
+snapshots, which once grew `traffic-data/.git` to 5.7 GB against 301 MB of
+actual data. `gitutil.maintain()` now expires the reflog each run and
+prunes/repacks every `KANP_GC_INTERVAL_S` (default 6 h) to keep it flat.
+To reclaim an already-bloated clone by hand:
+
+```bash
+sudo -u kanp git -C /var/lib/kanp/traffic-data reflog expire --expire=now --all
+sudo -u kanp git -C /var/lib/kanp/traffic-data gc --prune=now
+```
+
+The exported day files themselves grow with `KANP_RETENTION_DAYS` (~16 MB
+per day of traffic), so a full year would be ~6 GB on the branch — past
+GitHub's ~1 GB soft repo limit. Trim the export window before then.
 
 ## Remote access (jesselevine.net, HTTPS)
 

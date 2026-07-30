@@ -41,11 +41,14 @@ import sys
 import urllib.error
 import urllib.request
 
+import gitutil
+
 ARCHIVE_DIR = os.environ.get("KANP_WX_DIR", "/var/lib/kanp/weather-data")
 OFFICE = os.environ.get("KANP_WX_OFFICE", "LWX")
 OBS_STATION = os.environ.get("KANP_WX_OBS", "KDCA")
 POINT = os.environ.get("KANP_WX_POINT", "38.8894,-77.0352")  # downtown DC
 PUSH = os.environ.get("KANP_WX_PUSH", "1") == "1"
+GC_INTERVAL_S = int(os.environ.get("KANP_GC_INTERVAL_S", gitutil.DEFAULT_INTERVAL_S))
 
 BRANCH = "weather-data"
 NWS = "https://api.weather.gov"
@@ -273,6 +276,7 @@ def main():
         log(f"push failed:\n{r.stderr.strip()}")
         return 1
     log("published weather archive")
+    gitutil.maintain(ARCHIVE_DIR, log, GC_INTERVAL_S)   # see exporter.py
     return 0 if problems == 0 else 1
 
 
