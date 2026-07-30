@@ -99,27 +99,31 @@ classified there, check all three.
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,
   TAFs, radar. See the hard constraints section below.
-- `discussion.html` + `js/discussion.js` — DC Forecast Discussion: LWX AFD reader with jargon
-  tooltips, a change log that word-diffs successive AFD issuances (plus a localStorage
-  forecast-drift card), and a synoptic canvas built from an Open-Meteo GFS grid — air-mass fill,
-  isobars/H-L, fronts detected from 850 hPa temp gradients signed by advection, wind particles,
-  RainViewer radar at "now" / model precip at other hours, and a rule-based precip-cause
-  diagnosis at DC. A verification card compares the morning forecast against KDCA METARs and
-  explains busts from the hindcast (CAPE/CIN, front position). History (change-log depth,
-  drift/verification baselines) prefers the **`weather-data` branch** archive published by
-  `pi/wxarchive.py` (`SITE.weather.archiveBase`), falling back to the live NWS API +
-  localStorage when it 404s. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+- `discussion.html` + `js/discussion.js` — DC Forecast Discussion, laid out as a four-act story
+  (I setup / II reasoning / III revisions / IV verdict): a synoptic canvas built from an
+  Open-Meteo GFS grid — air-mass fill, isobars/H-L, fronts detected from 850 hPa temp gradients
+  signed by advection, wind particles, RainViewer radar at "now" / model precip at other hours,
+  and a rule-based precip-cause diagnosis at DC; the LWX AFD reader with jargon tooltips; a
+  change log that word-diffs successive AFD issuances plus a forecast-drift card; and a
+  verification card comparing the morning forecast against KDCA METARs, explaining busts from
+  the hindcast (CAPE/CIN, front position). History (change-log depth, drift/verification
+  baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
+  (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
+  while the archive is empty. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+- `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives LWX
+  AFDs, DC daily-forecast snapshots and KDCA METARs into `data/wx/` on `main` (stdlib only; the
+  workflow commits, no Pi involved). Its forecast digest mirrors `js/discussion.js` `loadDrift()`
+  — change both together.
 
 ### Backends
 
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only** (`collector.py`, `server.py`, `exporter.py`,
-  `wxarchive.py`, `trackutil.py`, `gitutil.py`, `atc.py`, `install.sh`, systemd units).
-  **Both publishers must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
+  `trackutil.py`, `gitutil.py`, `atc.py`, `install.sh`, systemd units).
+  **The exporter must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
   orphans the previous commit's blobs locally every run, and without pruning `.git` grows without
-  bound (it hit 5.7 GB against 301 MB of data on the real Pi). `wxarchive.py` (hourly
-  timer) archives LWX AFDs + DC forecast snapshots + KDCA METARs to the **`weather-data` branch**
-  (single amended commit, like the traffic exporter); its digest format mirrors
-  `js/discussion.js` `loadDrift()` — change both together.
+  bound (it hit 5.7 GB against 301 MB of data on the real Pi). Weather archiving used to live
+  here (`wxarchive.py`) but moved to the wxarchive GitHub Action so the Pi stores no weather
+  history; `install.sh` retires the old `kanp-wxarchive` units.
 - `pc/` — `atc_transcribe.py` (faster-whisper worker) + `atc_vocab.txt`. Runs on the PC, not the Pi.
 - `scripts/api-collector.js`, `scripts/receiver-export.js` — legacy Node collector, superseded by
   `pi/`; don't extend it.

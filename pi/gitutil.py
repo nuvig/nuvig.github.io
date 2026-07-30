@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Shared git housekeeping for the Pi publishers (exporter.py, wxarchive.py).
+"""Git housekeeping for the Pi publisher (exporter.py).
 
-Both publish to a branch kept at a single amended commit. That keeps the
+It publishes to a branch kept at a single amended commit. That keeps the
 *remote* tiny, but locally every `commit --amend` orphans the previous
 commit's blobs — and the reflog pins them, so nothing is ever reclaimed.
 With ~33 MB of day-files rewritten hourly the export clone grew to 5.7 GB of

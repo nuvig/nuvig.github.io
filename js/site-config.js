@@ -64,11 +64,13 @@ const SITE = {
   weather: {
     timeZone: 'America/New_York',
 
-    // Where pi/wxarchive.py publishes the weather archive (AFD issuances,
-    // forecast snapshots, METARs) — raw URL of this repo's weather-data
-    // branch. discussion.html falls back to the live NWS API + localStorage
-    // when this 404s (e.g. before the Pi's first push).
-    archiveBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/weather-data/wx',
+    // Where the weather archive lives (AFD issuances, forecast snapshots,
+    // METARs) — plain files in this repo, written hourly by the
+    // wxarchive GitHub Action (.github/workflows/wxarchive.yml →
+    // scripts/wxarchive.py) and served same-origin by GitHub Pages.
+    // discussion.html falls back to the live NWS API + localStorage while
+    // the archive is still empty.
+    archiveBase: 'data/wx',
 
     // Nearby fields shown after the home airport. Runway hdg = FAA true
     // alignment; metarStation must report METARs on api.weather.gov.

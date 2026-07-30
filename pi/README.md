@@ -49,11 +49,10 @@ around 3–7 GB — comfortably inside the 8 GB cap, which itself leaves
 plenty of headroom on the card. Keep `KANP_MAX_DB_MB` **below the card's
 free space**, or the cap can't do its job.
 
-Also watch the publisher clones. `exporter.py` and `wxarchive.py` keep
-their branch at a single amended commit, which orphans the previous
-commit's blobs locally on every run — ~33 MB/hour for the traffic
-snapshots, which once grew `traffic-data/.git` to 5.7 GB against 301 MB of
-actual data. `gitutil.maintain()` now expires the reflog each run and
+Also watch the exporter clone. `exporter.py` keeps its branch at a single
+amended commit, which orphans the previous commit's blobs locally on every
+run — ~33 MB/hour for the traffic snapshots, which once grew
+`traffic-data/.git` to 5.7 GB against 301 MB of actual data. `gitutil.maintain()` now expires the reflog each run and
 prunes/repacks every `KANP_GC_INTERVAL_S` (default 6 h) to keep it flat.
 To reclaim an already-bloated clone by hand:
 
@@ -101,27 +100,12 @@ On the LAN, neither is needed — just use `http://<pi-ip>:8787/`.
 
 ## Weather archive (discussion.html history)
 
-`wxarchive.py` (hourly, `kanp-wxarchive.timer`) permanently archives the DC
-weather record to the repo's `weather-data` branch: every LWX forecast
-discussion (the NWS API only keeps a few days), NWS daily-forecast snapshots
-for DC several times a day, and KDCA METARs per day. discussion.html reads
-this archive for its change log, forecast-drift and verification cards, so
-the history is shared across devices instead of living in one browser's
-localStorage — and it's the raw material for the long-term "weather story".
-
-One-time setup (same PAT as the traffic exporter works):
-
-```bash
-sudo -u kanp git clone --depth 1 \
-  https://<TOKEN>@github.com/nuvig/nuvig.github.io.git /var/lib/kanp/weather-data
-sudo systemctl start kanp-wxarchive.service   # creates the orphan branch, backfills
-journalctl -u kanp-wxarchive -n 20            # check it pushed
-```
-
-The page works without the archive (falls back to the live NWS API +
-localStorage); the archive just makes the history durable and shared.
-Config: `KANP_WX_OFFICE` / `KANP_WX_OBS` / `KANP_WX_POINT` in site.env.
-Like the traffic branch, `weather-data` is kept at a single amended commit.
+Not the Pi's job anymore. The DC weather record (LWX forecast discussions,
+daily-forecast snapshots, KDCA METARs) is archived hourly by a GitHub
+Action — `.github/workflows/wxarchive.yml` running `scripts/wxarchive.py` —
+straight into `data/wx/` on `main`, so it uses no Pi storage and needs no
+Pi setup. `pi/install.sh` retires the old `kanp-wxarchive` units if this
+box ever ran them.
 
 ## API quick reference
 
