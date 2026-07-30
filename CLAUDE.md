@@ -15,7 +15,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - **All headings/directions are °true** throughout the site (FAA true runway alignments; METAR and
   model winds are also true). Never magnetic.
 - `css/main.css` is the shared stylesheet (dark theme, CSS vars, 760 px max-width). Every page uses
-  it except the three self-contained toys/SDR pages (`bubbles.html`, `ctaf.html`, `scanner.html`).
+  it except the four self-contained toys/SDR pages (`bubbles.html`, `glow.html`, `ctaf.html`,
+  `scanner.html`).
 - **Cache-busting is manual**: assets are referenced as `js/foo.js?v=N` / `css/main.css?v=N`.
   When you change a file that already carries a `?v=`, bump the number in every page referencing it
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
@@ -41,7 +42,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
   wave ribbons with click ripples, and a flow-field particle swarm with an FPS governor that trims
   the count on slow machines. Self-contained like bubbles.html (no shared CSS/JS, no libs); cosine
-  palettes are shared between the shader and the canvas modes. Linked from tools.html ("Off Duty").
+  palettes are shared between the shader and the canvas modes. **Deliberately unlinked from site
+  navigation** — it is not an aviation tool, so it does not belong on `tools.html`; reachable only by
+  direct URL (unlike bubbles.html it is still indexable, no `noindex`).
 
 ### Flight tracker
 
