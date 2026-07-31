@@ -668,17 +668,26 @@ function skyWord(sky) {
 
 function renderHero() {
   const metar = state.metars[AIRPORTS[0].metarStation];
-  const ok = metar && !metar.error;
+  // NWS "latest" keeps serving old obs after a sensor stops reporting, so a
+  // stale METAR is "unavailable" too — prefer current model wind past 90 min.
+  const age = metar && !metar.error ? ageMin(metar.time) : null;
+  const ok = age != null && age <= 90;
   const cur = state.om && state.om.current;
 
-  // Fall back to model wind if the METAR is missing
+  // Fall back to model wind if the METAR is missing or stale
   let wind = ok ? metar : null;
   let src = ok
-    ? `${KANP.metarStation} METAR, ${ageMin(metar.time)} min ago · directions °true`
+    ? `${KANP.metarStation} METAR, ${age} min ago · directions °true`
     : null;
-  if (!ok && cur) {
-    wind = { windDir: round(cur.wind_direction_10m), windKt: round(cur.wind_speed_10m), gustKt: round(cur.wind_gusts_10m) };
-    src = `${KANP.metarStation} unavailable — model wind (Open-Meteo) · °true`;
+  if (!ok && cur && cur.wind_speed_10m != null) {
+    const spd = round(cur.wind_speed_10m);
+    const gst = round(cur.wind_gusts_10m || 0);
+    wind = {
+      windDir: spd > 0 ? round(cur.wind_direction_10m / 10) * 10 % 360 : null,
+      windKt: spd,
+      gustKt: gst >= spd + 5 ? gst : null, // model always reports gusts; only show real ones
+    };
+    src = `${KANP.metarStation} ${age != null ? `obs ${age} min old` : 'unavailable'} — estimated from model wind (Open-Meteo) · °true`;
   }
   $('hero-compass').innerHTML = compassSVG(AIRPORTS[0], wind, 300);
   $('hero-src-line').textContent = src || 'no wind data available';
