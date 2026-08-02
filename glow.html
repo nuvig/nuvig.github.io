@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Glow — interactive fractal, wave &amp; particle art</title>
-  <meta name="description" content="An interactive generative-art toy: a cursor-morphing Julia set explorer, a flowing wave field, and a swirling particle flow field. Click, drag, scroll, save a wallpaper.">
+  <title>Glow — interactive fractal, wave, particle, laser &amp; cloth art</title>
+  <meta name="description" content="An interactive generative-art toy: a cursor-morphing Julia set explorer, a flowing wave field, a swirling particle flow field, a laser-and-mirrors light show, and a tearable cloth sim. Click, drag, scroll, save a wallpaper.">
   <link rel="canonical" href="https://jesselevine.net/glow.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://jesselevine.net/glow.html">
-  <meta property="og:title" content="Glow — interactive fractal, wave &amp; particle art">
-  <meta property="og:description" content="Fractals that follow your cursor, waves that ripple where you click, particles that swirl around your hand. No login, no build, just canvas.">
+  <meta property="og:title" content="Glow — interactive generative art toys">
+  <meta property="og:description" content="Fractals that follow your cursor, waves that ripple where you click, particles that swirl around your hand, lasers bouncing off mirrors you draw, and cloth you can tear. No login, no build, just canvas.">
   <meta property="og:image" content="https://jesselevine.net/assets/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <style>
@@ -174,7 +174,10 @@
     }
     @media (max-width: 700px) {
       #brand a { display: none; }
-      #tabs button { padding: 6px 11px; font-size: 12px; }
+      #brand h1 { letter-spacing: 0.18em; }
+      #tabs { max-width: 76vw; overflow-x: auto; scrollbar-width: none; }
+      #tabs::-webkit-scrollbar { display: none; }
+      #tabs button { padding: 6px 9px; font-size: 11.5px; }
       #gear { display: flex; }
       #panel {
         top: auto; right: 10px; left: 10px; bottom: 10px; width: auto;
@@ -207,6 +210,8 @@
       <button data-mode="fractal" role="tab">Fractal</button>
       <button data-mode="waves" role="tab">Waves</button>
       <button data-mode="particles" role="tab">Particles</button>
+      <button data-mode="lasers" role="tab">Lasers</button>
+      <button data-mode="cloth" role="tab">Cloth</button>
     </nav>
   </header>
 
@@ -894,9 +899,477 @@ const Particles = (() => {
 })();
 
 /* =========================================================================
+   LASERS — draw mirrors, place emitters, raytraced beams (2D canvas)
+   ========================================================================= */
+const Lasers = (() => {
+  const S = { tool: 'mirror', spin: 0.35, bounces: 11, trails: 0.55, pal: 3 };
+  const mirrors = [];      // {cx, cy, len, ang, w}      w = spin rate
+  const lasers = [];       // {x, y, ang, w, t}          t = palette position
+  const sparks = [];       // {x, y, vx, vy, life, rgb}
+  let segs = [];           // per-frame segment cache: mirrors then 4 walls
+  let drag = null;         // active pointer edit
+  let lastTap = { t: -1, x: 0, y: 0 };
+
+  function defaultScene() {
+    mirrors.length = 0; lasers.length = 0;
+    const m = Math.min(W, H);
+    mirrors.push(
+      { cx: W * 0.38, cy: H * 0.34, len: m * 0.24, ang: 0.5, w: 0.22 },
+      { cx: W * 0.66, cy: H * 0.62, len: m * 0.28, ang: 2.2, w: -0.16 },
+      { cx: W * 0.30, cy: H * 0.72, len: m * 0.20, ang: 1.1, w: 0.19 },
+      { cx: W * 0.72, cy: H * 0.26, len: m * 0.22, ang: 2.8, w: -0.24 },
+    );
+    lasers.push(
+      { x: W * 0.06, y: H * 0.88, ang: -0.62, w: 0.05, t: 0.05 },
+      { x: W * 0.93, y: H * 0.82, ang: -2.45, w: -0.04, t: 0.45 },
+      { x: W * 0.50, y: H * 0.06, ang: 1.35, w: 0.06, t: 0.75 },
+    );
+  }
+
+  function enter() {
+    ctx.clearRect(0, 0, W, H);
+    if (!mirrors.length && !lasers.length) defaultScene();
+  }
+
+  function mirrorEnds(mr) {
+    const hx = Math.cos(mr.ang) * mr.len / 2, hy = Math.sin(mr.ang) * mr.len / 2;
+    return [mr.cx - hx, mr.cy - hy, mr.cx + hx, mr.cy + hy];
+  }
+
+  function segHit(px, py, dx, dy, ax, ay, bx, by) {
+    const rx = bx - ax, ry = by - ay;
+    const den = dx * ry - dy * rx;
+    if (Math.abs(den) < 1e-9) return -1;
+    const t = ((ax - px) * ry - (ay - py) * rx) / den;
+    const u = ((ax - px) * dy - (ay - py) * dx) / den;
+    return (t > 1e-4 && u >= 0 && u <= 1) ? t : -1;
+  }
+
+  // trace one beam; fills pts [x0,y0,x1,y1,…] and per-bounce hit list
+  const hits = [];
+  function trace(x, y, ang, pts) {
+    let dx = Math.cos(ang), dy = Math.sin(ang), skip = -1;
+    pts.length = 0; pts.push(x, y);
+    for (let b = 0; b < S.bounces; b++) {
+      let bt = Infinity, bi = -1;
+      for (let i = 0; i < segs.length; i++) {
+        if (i === skip) continue;
+        const s = segs[i];
+        const t = segHit(x, y, dx, dy, s[0], s[1], s[2], s[3]);
+        if (t > 0 && t < bt) { bt = t; bi = i; }
+      }
+      if (bi < 0) { pts.push(x + dx * 4000, y + dy * 4000); break; }
+      x += dx * bt; y += dy * bt;
+      pts.push(x, y);
+      hits.push(x, y);
+      const s = segs[bi];
+      let mx = s[2] - s[0], my = s[3] - s[1];
+      const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
+      const nx = -my, ny = mx;
+      const dn = dx * nx + dy * ny;
+      dx -= 2 * dn * nx; dy -= 2 * dn * ny;
+      skip = bi;
+    }
+  }
+
+  const beamPts = [];
+  function frame(dt) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = `rgba(0,0,0,${clamp(1 - S.trails, 0.02, 1) * 0.9})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    for (const mr of mirrors) mr.ang += mr.w * S.spin * dt;
+    for (const lz of lasers) lz.ang += lz.w * S.spin * dt;
+
+    // segment cache: mirrors first (so ids match), then the four walls
+    segs = mirrors.map(mirrorEnds);
+    segs.push([0, 0, W, 0], [W, 0, W, H], [W, H, 0, H], [0, H, 0, 0]);
+
+    const p = PALETTES[S.pal];
+    hits.length = 0;
+
+    for (const lz of lasers) {
+      const c = palRGB(p, lz.t);
+      const rgb = `${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0}`;
+      const hitBase = hits.length;
+      trace(lz.x, lz.y, lz.ang, beamPts);
+
+      // glow + core + flowing packets per segment, energy fading each bounce
+      // (packet dash offset carries the accumulated length so the pattern
+      // flows continuously through the reflections)
+      let acc = 0;
+      for (let i = 0; i + 3 < beamPts.length; i += 2) {
+        const e = Math.pow(0.88, i / 2) * (0.8 + 0.2 * Math.sin(time * 6 + i));
+        ctx.beginPath();
+        ctx.moveTo(beamPts[i], beamPts[i + 1]);
+        ctx.lineTo(beamPts[i + 2], beamPts[i + 3]);
+        ctx.strokeStyle = `rgba(${rgb},${(0.07 * e).toFixed(3)})`;
+        ctx.lineWidth = 9;
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(${rgb},${(0.85 * e).toFixed(3)})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([5, 36]);
+        ctx.lineDashOffset = acc - time * 260;
+        ctx.strokeStyle = `rgba(255,255,255,${(0.45 * e).toFixed(3)})`;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        acc += Math.hypot(beamPts[i + 2] - beamPts[i], beamPts[i + 3] - beamPts[i + 1]);
+      }
+
+      // impact glow + occasional sparks at this beam's bounce points
+      for (let i = hitBase; i + 1 < hits.length; i += 2) {
+        const hx = hits[i], hy = hits[i + 1];
+        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, 10);
+        g.addColorStop(0, `rgba(${rgb},0.5)`);
+        g.addColorStop(1, `rgba(${rgb},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(hx - 10, hy - 10, 20, 20);
+        if (dt > 0 && Math.random() < 0.2 && sparks.length < 260) {
+          const a = rand(0, TAU), sp = rand(30, 150);
+          sparks.push({ x: hx, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                        life: rand(0.3, 0.7), rgb });
+        }
+      }
+      // emitter bloom
+      const eg = ctx.createRadialGradient(lz.x, lz.y, 0, lz.x, lz.y, 14);
+      eg.addColorStop(0, `rgba(${rgb},0.9)`);
+      eg.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = eg;
+      ctx.fillRect(lz.x - 14, lz.y - 14, 28, 28);
+    }
+
+    // sparks
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.life -= dt;
+      if (s.life <= 0) { sparks.splice(i, 1); continue; }
+      s.x += s.vx * dt; s.y += s.vy * dt;
+      s.vy += 220 * dt;
+      ctx.strokeStyle = `rgba(${s.rgb},${Math.min(1, s.life * 2).toFixed(3)})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x - s.vx * 0.03, s.y - s.vy * 0.03);
+      ctx.stroke();
+    }
+
+    // mirrors + handles drawn on top (source-over so they stay crisp)
+    ctx.globalCompositeOperation = 'source-over';
+    for (const mr of mirrors) {
+      const [ax, ay, bx, by] = mirrorEnds(mr);
+      ctx.strokeStyle = 'rgba(215,228,248,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.fillStyle = 'rgba(160,180,210,0.75)';
+      for (const [hx, hy] of [[ax, ay], [bx, by]]) {
+        ctx.beginPath(); ctx.arc(hx, hy, 3.5, 0, TAU); ctx.fill();
+      }
+    }
+    for (const lz of lasers) {
+      // aim handle: small ring ahead of the emitter
+      const axh = lz.x + Math.cos(lz.ang) * 30, ayh = lz.y + Math.sin(lz.ang) * 30;
+      ctx.strokeStyle = 'rgba(220,230,250,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(axh, ayh, 5, 0, TAU); ctx.stroke();
+    }
+    // live preview of an element being drawn
+    if (drag && drag.kind === 'new-mirror') {
+      ctx.strokeStyle = 'rgba(215,228,248,0.5)';
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(drag.x, drag.y); ctx.lineTo(P.x, P.y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function nearest() {
+    // returns closest grabbable thing within reach, or null
+    let best = null, bd = 20;
+    mirrors.forEach((mr, i) => {
+      const [ax, ay, bx, by] = mirrorEnds(mr);
+      const d0 = Math.hypot(P.x - ax, P.y - ay), d1 = Math.hypot(P.x - bx, P.y - by);
+      const dc = Math.hypot(P.x - mr.cx, P.y - mr.cy);
+      if (d0 < bd) { best = { kind: 'm-end', i, end: 0 }; bd = d0; }
+      if (d1 < bd) { best = { kind: 'm-end', i, end: 1 }; bd = d1; }
+      if (dc < bd) { best = { kind: 'm-move', i }; bd = dc; }
+    });
+    lasers.forEach((lz, i) => {
+      const hx = lz.x + Math.cos(lz.ang) * 30, hy = lz.y + Math.sin(lz.ang) * 30;
+      const da = Math.hypot(P.x - hx, P.y - hy), de = Math.hypot(P.x - lz.x, P.y - lz.y);
+      if (da < bd) { best = { kind: 'l-aim', i }; bd = da; }
+      if (de < bd) { best = { kind: 'l-move', i }; bd = de; }
+    });
+    return best;
+  }
+
+  function onPointer(type, e) {
+    if (type === 'down') {
+      // double-tap deletes the nearest element
+      const now = performance.now();
+      if (now - lastTap.t < 350 && Math.hypot(P.x - lastTap.x, P.y - lastTap.y) < 24) {
+        const hit = nearest();
+        if (hit) {
+          if (hit.kind[0] === 'm') mirrors.splice(hit.i, 1);
+          else lasers.splice(hit.i, 1);
+          drag = null; lastTap.t = -1; dirty = true;
+          return;
+        }
+      }
+      lastTap = { t: now, x: P.x, y: P.y };
+
+      drag = nearest();
+      if (!drag) {
+        if (S.tool === 'mirror') {
+          drag = { kind: 'new-mirror', x: P.x, y: P.y };
+        } else {
+          if (lasers.length >= 6) lasers.shift();
+          lasers.push({ x: P.x, y: P.y, ang: 0, w: rand(-0.06, 0.06),
+                        t: rand(0, 1) });
+          drag = { kind: 'l-aim', i: lasers.length - 1 };
+        }
+      }
+    } else if (type === 'move' && drag && P.down) {
+      if (drag.kind === 'm-end') {
+        const mr = mirrors[drag.i];
+        const [ax, ay, bx, by] = mirrorEnds(mr);
+        const fx = drag.end === 0 ? bx : ax, fy = drag.end === 0 ? by : ay;
+        mr.cx = (fx + P.x) / 2; mr.cy = (fy + P.y) / 2;
+        mr.len = Math.max(24, Math.hypot(P.x - fx, P.y - fy));
+        mr.ang = Math.atan2(drag.end === 0 ? fy - P.y : P.y - fy,
+                            drag.end === 0 ? fx - P.x : P.x - fx);
+      } else if (drag.kind === 'm-move') {
+        mirrors[drag.i].cx = P.x; mirrors[drag.i].cy = P.y;
+      } else if (drag.kind === 'l-move') {
+        lasers[drag.i].x = P.x; lasers[drag.i].y = P.y;
+      } else if (drag.kind === 'l-aim') {
+        const lz = lasers[drag.i];
+        lz.ang = Math.atan2(P.y - lz.y, P.x - lz.x);
+      }
+      dirty = true;
+    } else if (type === 'up') {
+      if (drag && drag.kind === 'new-mirror') {
+        const len = Math.hypot(P.x - drag.x, P.y - drag.y);
+        if (len > 24) {
+          if (mirrors.length >= 12) mirrors.shift();
+          mirrors.push({ cx: (drag.x + P.x) / 2, cy: (drag.y + P.y) / 2, len,
+                         ang: Math.atan2(P.y - drag.y, P.x - drag.x),
+                         w: rand(-0.2, 0.2) });
+        }
+      }
+      drag = null;
+    }
+  }
+
+  function randomize() {
+    S.pal = Math.random() * PALETTES.length | 0;
+    mirrors.length = 0; lasers.length = 0;
+    const m = Math.min(W, H);
+    const nm = 3 + Math.random() * 3 | 0, nl = 2 + Math.random() * 3 | 0;
+    for (let i = 0; i < nm; i++)
+      mirrors.push({ cx: rand(W * 0.2, W * 0.8), cy: rand(H * 0.2, H * 0.8),
+                     len: m * rand(0.14, 0.3), ang: rand(0, TAU), w: rand(-0.3, 0.3) });
+    for (let i = 0; i < nl; i++)
+      lasers.push({ x: rand(W * 0.05, W * 0.95), y: rand(H * 0.05, H * 0.95),
+                    ang: rand(0, TAU), w: rand(-0.08, 0.08), t: i / nl + rand(0, 0.1) });
+    S.spin = rand(0.15, 0.9);
+    dirty = true;
+  }
+
+  return {
+    name: 'lasers', usesGL: false, S,
+    enter, frame, onPointer, randomize,
+    hint: '<b>drag</b> to draw a mirror · grab ends to re-aim · <b>double-tap</b> deletes',
+    controls: () => [
+      { t: 'sec', l: 'Lasers' },
+      { t: 'sel', k: 'tool', l: 'Drawing tool', opts: [['mirror', 'Mirror'], ['laser', 'Laser']] },
+      { t: 'range', k: 'spin', l: 'Spin', min: 0, max: 2, step: 0.01 },
+      { t: 'range', k: 'bounces', l: 'Bounces', min: 2, max: 30, step: 1 },
+      { t: 'range', k: 'trails', l: 'Trails', min: 0.1, max: 0.95, step: 0.005 },
+      { t: 'btn', l: '✕ Clear scene', on: () => { mirrors.length = 0; lasers.length = 0; } },
+    ],
+  };
+})();
+
+/* =========================================================================
+   CLOTH — Verlet cloth you can pull, cut, and tear (2D canvas)
+   ========================================================================= */
+const Cloth = (() => {
+  const NB = 48;
+  const S = { wind: 0.5, gravity: 1, iter: 3, tear: true, cut: false, trails: 0.3, pal: 5 };
+  let pts = [], cons = [];
+  let LUT = [];
+  let dragIdx = -1;
+
+  function buildLUT() {
+    const p = PALETTES[S.pal];
+    LUT = [];
+    for (let b = 0; b < NB; b++) {
+      const c = palRGB(p, b / (NB - 1));
+      const m = Math.max(c[0], c[1], c[2]);      // same visibility floor as particles
+      if (m < 0.4) {
+        const s = 0.4 / Math.max(m, 0.08);
+        for (let j = 0; j < 3; j++) c[j] = Math.min(1, c[j] * s + 0.03);
+      }
+      LUT.push(`${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0}`);
+    }
+  }
+
+  function build() {
+    pts = []; cons = [];
+    const spacing = clamp(W / 46, 15, 26);
+    const cols = Math.max(12, Math.min(64, Math.floor(W * 0.74 / spacing)));
+    const rows = Math.max(8, Math.min(40, Math.floor(H * 0.62 / spacing)));
+    const x0 = (W - (cols - 1) * spacing) / 2, y0 = H * 0.08;
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const x = x0 + c * spacing, y = y0 + r * spacing;
+        pts.push({ x, y, px: x, py: y, pin: r === 0 ? x : -1 });
+      }
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (c < cols - 1) cons.push({ a: i, b: i + 1, rest: spacing });
+        if (r < rows - 1) cons.push({ a: i, b: i + cols, rest: spacing });
+      }
+    Cloth._y0 = y0;
+  }
+
+  function enter() {
+    ctx.clearRect(0, 0, W, H);
+    buildLUT();
+    if (!pts.length) build();
+  }
+
+  function frame(dt) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = `rgba(0,0,0,${clamp(1 - S.trails, 0.02, 1) * 0.9})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'butt';
+
+    const dtc = Math.min(dt, 0.033);
+    const g = S.gravity * 1150 * dtc * dtc;
+    const wBase = S.wind * (0.55 + 0.45 * Math.sin(time * 0.7)) * 720 * dtc * dtc;
+
+    // integrate
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.pin >= 0) { p.x = p.pin; p.y = Cloth._y0; p.px = p.x; p.py = p.y; continue; }
+      const flut = (vnoise3(p.x * 0.008, p.y * 0.008, time * 0.6) - 0.5);
+      const nx = p.x + (p.x - p.px) * 0.986 + wBase * (0.6 + flut) ;
+      const ny = p.y + (p.y - p.py) * 0.986 + g + flut * wBase * 0.8;
+      p.px = p.x; p.py = p.y;
+      p.x = nx; p.y = ny;
+      if (p.y > H + 40) { p.y = H + 40; p.py = p.y; }
+    }
+
+    // pointer: pull one point, or slice constraints
+    const cutting = P.down && (S.cut || P.right);
+    if (P.down && !cutting) {
+      if (dragIdx < 0) {
+        let bd = 40 * 40;
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          if (p.pin >= 0) continue;
+          const d = (p.x - P.x) ** 2 + (p.y - P.y) ** 2;
+          if (d < bd) { bd = d; dragIdx = i; }
+        }
+      }
+      if (dragIdx >= 0) {
+        const p = pts[dragIdx];
+        p.x = P.x; p.y = P.y;
+        p.px = P.x - P.vx * 0.6; p.py = P.y - P.vy * 0.6;
+      }
+    } else dragIdx = -1;
+
+    // satisfy constraints (+ tearing / cutting)
+    for (let it = 0; it < S.iter; it++) {
+      for (let i = cons.length - 1; i >= 0; i--) {
+        const cn = cons[i];
+        const a = pts[cn.a], b = pts[cn.b];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        if (it === 0) {
+          if (S.tear && d > cn.rest * 3.4) { cons.splice(i, 1); continue; }
+          if (cutting) {
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            if ((mx - P.x) ** 2 + (my - P.y) ** 2 < 14 * 14) { cons.splice(i, 1); continue; }
+          }
+        }
+        const diff = (d - cn.rest) / d * 0.5;
+        dx *= diff; dy *= diff;
+        if (a.pin < 0) { a.x += dx; a.y += dy; }
+        if (b.pin < 0) { b.x -= dx; b.y -= dy; }
+      }
+    }
+
+    // render, bucketed by stress-driven color
+    const buckets = Cloth._buckets || (Cloth._buckets = Array.from({ length: NB }, () => []));
+    for (const bk of buckets) bk.length = 0;
+    for (let i = 0; i < cons.length; i++) {
+      const cn = cons[i];
+      const a = pts[cn.a], b = pts[cn.b];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const stress = clamp((d / cn.rest - 1) * 2.2, 0, 1);
+      const t = clamp(0.12 + (a.x / W) * 0.3 + stress * 0.55, 0, 1);
+      buckets[Math.min(NB - 1, t * NB | 0)].push(i);
+    }
+    for (let bkt = 0; bkt < NB; bkt++) {
+      const list = buckets[bkt];
+      if (!list.length) continue;
+      ctx.beginPath();
+      for (const ci of list) {
+        const cn = cons[ci];
+        ctx.moveTo(pts[cn.a].x, pts[cn.a].y);
+        ctx.lineTo(pts[cn.b].x, pts[cn.b].y);
+      }
+      ctx.strokeStyle = `rgba(${LUT[bkt]},0.10)`;
+      ctx.lineWidth = 3.4;
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${LUT[bkt]},0.72)`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function randomize() {
+    S.pal = Math.random() * PALETTES.length | 0;
+    S.wind = rand(0, 1.6);
+    S.gravity = rand(0.5, 1.8);
+    buildLUT();
+    build();
+    dirty = true;
+  }
+
+  return {
+    name: 'cloth', usesGL: false, S,
+    enter, frame, onPointer: () => {}, randomize,
+    onPal: buildLUT,
+    onResize: build,
+    hint: '<b>drag</b> to pull the cloth · <b>right-drag</b> to cut · it tears if you yank',
+    controls: () => [
+      { t: 'sec', l: 'Cloth' },
+      { t: 'range', k: 'wind', l: 'Wind', min: 0, max: 2, step: 0.01 },
+      { t: 'range', k: 'gravity', l: 'Gravity', min: 0.1, max: 2.5, step: 0.01 },
+      { t: 'range', k: 'iter', l: 'Stiffness', min: 1, max: 6, step: 1 },
+      { t: 'chk', k: 'tear', l: 'Tears under stress' },
+      { t: 'chk', k: 'cut', l: 'Drag cuts (vs pulls)' },
+      { t: 'range', k: 'trails', l: 'Trails', min: 0.05, max: 0.9, step: 0.005 },
+      { t: 'btn', l: '⟲ Reset cloth', on: () => Cloth.reset() },
+    ],
+    reset: () => { build(); dirty = true; },
+  };
+})();
+
+/* =========================================================================
    UI — panel builder, palettes, tabs, actions, hints
    ========================================================================= */
-const MODES = { fractal: Fractal, waves: Waves, particles: Particles };
+const MODES = { fractal: Fractal, waves: Waves, particles: Particles,
+                lasers: Lasers, cloth: Cloth };
 const ctrlsEl = document.getElementById('ctrls');
 const palsEl = document.getElementById('pals');
 const hintEl = document.getElementById('hint');
@@ -1142,6 +1615,8 @@ addEventListener('keydown', e => {
     case '1': setMode('fractal'); break;
     case '2': setMode('waves'); break;
     case '3': setMode('particles'); break;
+    case '4': setMode('lasers'); break;
+    case '5': setMode('cloth'); break;
   }
 });
 
