@@ -42,7 +42,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
   wave ribbons with click ripples, a flow-field particle swarm with an FPS governor that trims
   the count on slow machines, a laser playground (draw mirrors, place spinning emitters, raytraced
-  bounces), and a Verlet cloth you can pull, cut (right-drag) and tear. Self-contained like
+  bounces), a Verlet cloth you can pull, cut (right-drag) and tear (pin modes incl. a wind-blown
+  flag, draggable ball obstacle, weave density), and squishy soft-body jelly blocks with faces
+  (grab and fling, tap to spawn, they stack). Self-contained like
   bubbles.html (no shared CSS/JS, no libs); cosine
   palettes are shared between the shader and the canvas modes. **Deliberately unlinked from site
   navigation** — it is not an aviation tool, so it does not belong on `tools.html`; reachable only by

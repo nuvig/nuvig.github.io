@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Glow — interactive fractal, wave, particle, laser &amp; cloth art</title>
-  <meta name="description" content="An interactive generative-art toy: a cursor-morphing Julia set explorer, a flowing wave field, a swirling particle flow field, a laser-and-mirrors light show, and a tearable cloth sim. Click, drag, scroll, save a wallpaper.">
+  <title>Glow — interactive generative art toys</title>
+  <meta name="description" content="Interactive generative-art toys: a cursor-morphing Julia set explorer, a flowing wave field, a swirling particle flow field, a laser-and-mirrors light show, a tearable cloth sim, and squishy jelly blocks. Click, drag, scroll, save a wallpaper.">
   <link rel="canonical" href="https://jesselevine.net/glow.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -175,9 +175,9 @@
     @media (max-width: 700px) {
       #brand a { display: none; }
       #brand h1 { letter-spacing: 0.18em; }
-      #tabs { max-width: 76vw; overflow-x: auto; scrollbar-width: none; }
+      #tabs { max-width: 78vw; overflow-x: auto; scrollbar-width: none; }
       #tabs::-webkit-scrollbar { display: none; }
-      #tabs button { padding: 6px 9px; font-size: 11.5px; }
+      #tabs button { padding: 6px 8px; font-size: 11px; }
       #gear { display: flex; }
       #panel {
         top: auto; right: 10px; left: 10px; bottom: 10px; width: auto;
@@ -212,6 +212,7 @@
       <button data-mode="particles" role="tab">Particles</button>
       <button data-mode="lasers" role="tab">Lasers</button>
       <button data-mode="cloth" role="tab">Cloth</button>
+      <button data-mode="blocks" role="tab">Blocks</button>
     </nav>
   </header>
 
@@ -1198,10 +1199,12 @@ const Lasers = (() => {
    ========================================================================= */
 const Cloth = (() => {
   const NB = 48;
-  const S = { wind: 0.5, gravity: 1, iter: 3, tear: true, cut: false, trails: 0.3, pal: 5 };
+  const S = { wind: 0.5, gravity: 1, iter: 3, tear: true, cut: false, ball: false,
+              pins: 'top', density: 1, trails: 0.3, pal: 5 };
   let pts = [], cons = [];
   let LUT = [];
-  let dragIdx = -1;
+  let dragIdx = -1, dragBall = false;
+  const ball = { x: 0, y: 0, r: 80 };
 
   function buildLUT() {
     const p = PALETTES[S.pal];
@@ -1219,14 +1222,20 @@ const Cloth = (() => {
 
   function build() {
     pts = []; cons = [];
-    const spacing = clamp(W / 46, 15, 26);
-    const cols = Math.max(12, Math.min(64, Math.floor(W * 0.74 / spacing)));
-    const rows = Math.max(8, Math.min(40, Math.floor(H * 0.62 / spacing)));
-    const x0 = (W - (cols - 1) * spacing) / 2, y0 = H * 0.08;
+    const spacing = clamp(W / 46 / S.density, 9, 30);
+    // a flag is a smaller banner off a left-edge pole; the others are a big sheet
+    const flag = S.pins === 'flag';
+    const cols = Math.max(12, Math.min(80, Math.floor(W * (flag ? 0.52 : 0.74) / spacing)));
+    const rows = Math.max(8, Math.min(48, Math.floor(H * (flag ? 0.34 : 0.62) / spacing)));
+    const x0 = flag ? W * 0.12 : (W - (cols - 1) * spacing) / 2;
+    const y0 = flag ? H * 0.28 : H * 0.08;
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
         const x = x0 + c * spacing, y = y0 + r * spacing;
-        pts.push({ x, y, px: x, py: y, pin: r === 0 ? x : -1 });
+        const pin = S.pins === 'flag' ? c === 0
+                  : S.pins === 'corners' ? (r === 0 && (c === 0 || c === cols - 1))
+                  : r === 0;
+        pts.push({ x, y, px: x, py: y, pin, ax: x, ay: y });
       }
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
@@ -1234,7 +1243,8 @@ const Cloth = (() => {
         if (c < cols - 1) cons.push({ a: i, b: i + 1, rest: spacing });
         if (r < rows - 1) cons.push({ a: i, b: i + cols, rest: spacing });
       }
-    Cloth._y0 = y0;
+    ball.x = W * 0.5; ball.y = H * 0.55;
+    ball.r = Math.min(W, H) * 0.085;
   }
 
   function enter() {
@@ -1251,13 +1261,15 @@ const Cloth = (() => {
     ctx.lineCap = 'butt';
 
     const dtc = Math.min(dt, 0.033);
-    const g = S.gravity * 1150 * dtc * dtc;
-    const wBase = S.wind * (0.55 + 0.45 * Math.sin(time * 0.7)) * 720 * dtc * dtc;
+    // flag mode: light fabric — wind dominates, gravity mostly sags the tail
+    const g = S.gravity * (S.pins === 'flag' ? 0.3 : 1) * 1150 * dtc * dtc;
+    const wBase = S.wind * (S.pins === 'flag' ? 3.2 : 1) *
+                  (0.55 + 0.45 * Math.sin(time * 0.7)) * 720 * dtc * dtc;
 
     // integrate
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
-      if (p.pin >= 0) { p.x = p.pin; p.y = Cloth._y0; p.px = p.x; p.py = p.y; continue; }
+      if (p.pin) { p.x = p.ax; p.y = p.ay; p.px = p.x; p.py = p.y; continue; }
       const flut = (vnoise3(p.x * 0.008, p.y * 0.008, time * 0.6) - 0.5);
       const nx = p.x + (p.x - p.px) * 0.986 + wBase * (0.6 + flut) ;
       const ny = p.y + (p.y - p.py) * 0.986 + g + flut * wBase * 0.8;
@@ -1266,24 +1278,46 @@ const Cloth = (() => {
       if (p.y > H + 40) { p.y = H + 40; p.py = p.y; }
     }
 
-    // pointer: pull one point, or slice constraints
+    // pointer: drag the ball, pull one point, or slice constraints
     const cutting = P.down && (S.cut || P.right);
     if (P.down && !cutting) {
-      if (dragIdx < 0) {
-        let bd = 40 * 40;
-        for (let i = 0; i < pts.length; i++) {
-          const p = pts[i];
-          if (p.pin >= 0) continue;
-          const d = (p.x - P.x) ** 2 + (p.y - P.y) ** 2;
-          if (d < bd) { bd = d; dragIdx = i; }
+      if (dragIdx < 0 && !dragBall && S.ball &&
+          Math.hypot(P.x - ball.x, P.y - ball.y) < ball.r + 8) dragBall = true;
+      if (dragBall) {
+        ball.x = P.x; ball.y = P.y;
+      } else {
+        if (dragIdx < 0) {
+          let bd = 40 * 40;
+          for (let i = 0; i < pts.length; i++) {
+            const p = pts[i];
+            if (p.pin) continue;
+            const d = (p.x - P.x) ** 2 + (p.y - P.y) ** 2;
+            if (d < bd) { bd = d; dragIdx = i; }
+          }
+        }
+        if (dragIdx >= 0) {
+          const p = pts[dragIdx];
+          p.x = P.x; p.y = P.y;
+          p.px = P.x - P.vx * 0.6; p.py = P.y - P.vy * 0.6;
         }
       }
-      if (dragIdx >= 0) {
-        const p = pts[dragIdx];
-        p.x = P.x; p.y = P.y;
-        p.px = P.x - P.vx * 0.6; p.py = P.y - P.vy * 0.6;
+    } else { dragIdx = -1; dragBall = false; }
+
+    // hover breeze: a fast-moving cursor brushes the cloth aside
+    if (!P.down && P.has) {
+      const spd = Math.hypot(P.vx, P.vy);
+      if (spd > 3) {
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          if (p.pin) continue;
+          const d = Math.hypot(p.x - P.x, p.y - P.y);
+          if (d < 70) {
+            const w = (1 - d / 70) * 0.22;
+            p.x += P.vx * w; p.y += P.vy * w;
+          }
+        }
       }
-    } else dragIdx = -1;
+    }
 
     // satisfy constraints (+ tearing / cutting)
     for (let it = 0; it < S.iter; it++) {
@@ -1301,9 +1335,40 @@ const Cloth = (() => {
         }
         const diff = (d - cn.rest) / d * 0.5;
         dx *= diff; dy *= diff;
-        if (a.pin < 0) { a.x += dx; a.y += dy; }
-        if (b.pin < 0) { b.x -= dx; b.y -= dy; }
+        if (!a.pin) { a.x += dx; a.y += dy; }
+        if (!b.pin) { b.x -= dx; b.y -= dy; }
       }
+      // the ball is a hard obstacle the cloth drapes around
+      if (S.ball) {
+        const rr = ball.r + 2;
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          if (p.pin) continue;
+          const dx = p.x - ball.x, dy = p.y - ball.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < rr * rr && d2 > 1e-6) {
+            const d = Math.sqrt(d2);
+            p.x = ball.x + dx / d * rr;
+            p.y = ball.y + dy / d * rr;
+          }
+        }
+      }
+    }
+
+    // the ball renders under the cloth so the mesh drapes over it
+    if (S.ball) {
+      ctx.globalCompositeOperation = 'source-over';
+      const bg = ctx.createRadialGradient(ball.x - ball.r * 0.35, ball.y - ball.r * 0.35, ball.r * 0.1,
+                                          ball.x, ball.y, ball.r);
+      bg.addColorStop(0, 'rgba(90,110,150,0.95)');
+      bg.addColorStop(0.7, 'rgba(28,38,58,0.95)');
+      bg.addColorStop(1, 'rgba(12,16,26,0.95)');
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(180,200,235,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'lighter';
     }
 
     // render, bucketed by stress-driven color
@@ -1353,9 +1418,14 @@ const Cloth = (() => {
     hint: '<b>drag</b> to pull the cloth · <b>right-drag</b> to cut · it tears if you yank',
     controls: () => [
       { t: 'sec', l: 'Cloth' },
+      { t: 'sel', k: 'pins', l: 'Pinned along', opts: [['top', 'Top edge'], ['flag', 'Left edge (flag)'], ['corners', 'Top corners']],
+        on: () => Cloth.reset() },
       { t: 'range', k: 'wind', l: 'Wind', min: 0, max: 2, step: 0.01 },
       { t: 'range', k: 'gravity', l: 'Gravity', min: 0.1, max: 2.5, step: 0.01 },
       { t: 'range', k: 'iter', l: 'Stiffness', min: 1, max: 6, step: 1 },
+      { t: 'range', k: 'density', l: 'Weave density', min: 0.7, max: 1.6, step: 0.05,
+        on: () => Cloth.reset() },
+      { t: 'chk', k: 'ball', l: 'Ball obstacle (draggable)' },
       { t: 'chk', k: 'tear', l: 'Tears under stress' },
       { t: 'chk', k: 'cut', l: 'Drag cuts (vs pulls)' },
       { t: 'range', k: 'trails', l: 'Trails', min: 0.05, max: 0.9, step: 0.005 },
@@ -1366,10 +1436,240 @@ const Cloth = (() => {
 })();
 
 /* =========================================================================
+   BLOCKS — squishy soft-body jelly cubes (2D canvas)
+   ========================================================================= */
+const Blocks = (() => {
+  const K = 4, MAXB = 8;
+  const S = { gravity: 1, squish: 0.6, bounce: 0.35, faces: true, trails: 0.25, pal: 1 };
+  const blocks = [];        // {s, t, pts:[K*K {x,y,px,py}]}
+  let dragRef = null;       // {b, i} — grabbed block point
+  let tapT = 0, tapX = 0, tapY = 0, tapEmpty = false;
+
+  // spring topology for a K×K lattice: structural, shear, and skip-one braces
+  const TOPO = [];
+  for (let r = 0; r < K; r++)
+    for (let c = 0; c < K; c++) {
+      const i = r * K + c;
+      if (c < K - 1) TOPO.push([i, i + 1, 1]);
+      if (r < K - 1) TOPO.push([i, i + K, 1]);
+      if (c < K - 1 && r < K - 1) {
+        TOPO.push([i, i + K + 1, Math.SQRT2]);
+        TOPO.push([i + 1, i + K, Math.SQRT2]);
+      }
+      if (c < K - 2) TOPO.push([i, i + 2, 2]);
+      if (r < K - 2) TOPO.push([i, i + 2 * K, 2]);
+    }
+  // perimeter walk (K=4) for the blobby outline
+  const PERIM = [0, 1, 2, 3, 7, 11, 15, 14, 13, 12, 8, 4];
+
+  function spawn(x, y, s) {
+    const b = { s, t: Math.random(), pts: [] };
+    for (let r = 0; r < K; r++)
+      for (let c = 0; c < K; c++) {
+        const px = x + (c - (K - 1) / 2) * s, py = y + (r - (K - 1) / 2) * s;
+        b.pts.push({ x: px, y: py, px, py });
+      }
+    blocks.push(b);
+    if (blocks.length > MAXB) blocks.shift();
+  }
+
+  function enter() {
+    ctx.clearRect(0, 0, W, H);
+    if (!blocks.length) {
+      spawn(W * 0.32, H * 0.25, Math.min(34, W * 0.03 + 18));
+      spawn(W * 0.52, H * 0.12, Math.min(28, W * 0.024 + 16));
+      spawn(W * 0.68, H * 0.3, Math.min(38, W * 0.033 + 20));
+    }
+  }
+
+  function frame(dt) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = `rgba(0,0,0,${clamp(1 - S.trails, 0.02, 1) * 0.9})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const dtc = Math.min(dt, 0.033);
+    if (dtc > 0) {
+      const g = 1500 * S.gravity * dtc * dtc;
+      const stiff = 0.5 - 0.38 * S.squish;
+
+      for (const b of blocks)
+        for (const p of b.pts) {
+          let vx = (p.x - p.px) * 0.995, vy = (p.y - p.py) * 0.995;
+          const sp = Math.hypot(vx, vy);              // keep flings from exploding
+          if (sp > 38) { vx *= 38 / sp; vy *= 38 / sp; }
+          p.px = p.x; p.py = p.y;
+          p.x += vx; p.y += vy + g;
+        }
+
+      if (dragRef && P.down) {
+        const p = blocks[dragRef.b] && blocks[dragRef.b].pts[dragRef.i];
+        if (p) {
+          p.x = P.x; p.y = P.y;
+          p.px = P.x - P.vx * 0.5; p.py = P.y - P.vy * 0.5;
+        }
+      }
+
+      for (let it = 0; it < 3; it++) {
+        for (const b of blocks) {
+          for (const [ia, ib, m] of TOPO) {
+            const a = b.pts[ia], c2 = b.pts[ib];
+            let dx = c2.x - a.x, dy = c2.y - a.y;
+            const d = Math.hypot(dx, dy) || 1e-6;
+            const rest = b.s * m;
+            const diff = (d - rest) / d * stiff;
+            dx *= diff; dy *= diff;
+            a.x += dx; a.y += dy;
+            c2.x -= dx; c2.y -= dy;
+          }
+          // walls and floor, with restitution + floor friction
+          for (const p of b.pts) {
+            if (p.y > H - 4) {
+              const vy = p.y - p.py, vxf = p.x - p.px;
+              p.y = H - 4; p.py = p.y + vy * S.bounce;
+              p.px = p.x - vxf * 0.72;
+            }
+            if (p.y < 4) { const vy = p.y - p.py; p.y = 4; p.py = p.y + vy * S.bounce; }
+            if (p.x < 4) { const vx = p.x - p.px; p.x = 4; p.px = p.x + vx * S.bounce; }
+            if (p.x > W - 4) { const vx = p.x - p.px; p.x = W - 4; p.px = p.x + vx * S.bounce; }
+          }
+        }
+      }
+
+      // block-vs-block: soft point repulsion between different blocks
+      for (let i = 0; i < blocks.length; i++)
+        for (let j = i + 1; j < blocks.length; j++) {
+          const A = blocks[i], B = blocks[j];
+          const rr = (A.s + B.s) * 0.5 * 0.9;
+          for (const pa of A.pts)
+            for (const pb of B.pts) {
+              const dx = pb.x - pa.x, dy = pb.y - pa.y;
+              const d2 = dx * dx + dy * dy;
+              if (d2 < rr * rr && d2 > 1e-6) {
+                const d = Math.sqrt(d2), push = (rr - d) / d * 0.4;
+                pa.x -= dx * push; pa.y -= dy * push;
+                pb.x += dx * push; pb.y += dy * push;
+              }
+            }
+        }
+    }
+
+    // render: blobby fill + glow outline (+ a face that squashes along)
+    const pal = PALETTES[S.pal];
+    for (const b of blocks) {
+      const c = palRGB(pal, b.t);
+      const m = Math.max(c[0], c[1], c[2]);      // visibility floor, as elsewhere
+      if (m < 0.5) {
+        const s2 = 0.5 / Math.max(m, 0.1);
+        for (let j = 0; j < 3; j++) c[j] = Math.min(1, c[j] * s2 + 0.03);
+      }
+      const rgb = `${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0}`;
+      ctx.beginPath();
+      const q = PERIM.map(i => b.pts[i]);
+      let mx = (q[q.length - 1].x + q[0].x) / 2, my = (q[q.length - 1].y + q[0].y) / 2;
+      ctx.moveTo(mx, my);
+      for (let i = 0; i < q.length; i++) {
+        const n = q[(i + 1) % q.length];
+        ctx.quadraticCurveTo(q[i].x, q[i].y, (q[i].x + n.x) / 2, (q[i].y + n.y) / 2);
+      }
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${rgb},0.16)`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${rgb},0.12)`;
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${rgb},0.85)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (S.faces) {
+        // local frame from the mid-edges → the face squashes with the block
+        const avg = idx => idx.reduce((s2, i) => [s2[0] + b.pts[i].x / idx.length,
+                                                  s2[1] + b.pts[i].y / idx.length], [0, 0]);
+        const L = avg([0, 4, 8, 12]), R = avg([3, 7, 11, 15]);
+        const T = avg([0, 1, 2, 3]), Bo = avg([12, 13, 14, 15]);
+        const cx = (L[0] + R[0] + T[0] + Bo[0]) / 4, cy = (L[1] + R[1] + T[1] + Bo[1]) / 4;
+        const xa = [(R[0] - L[0]) / 2, (R[1] - L[1]) / 2];
+        const ya = [(Bo[0] - T[0]) / 2, (Bo[1] - T[1]) / 2];
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.save();
+        ctx.transform(xa[0], xa[1], ya[0], ya[1], cx, cy);
+        ctx.fillStyle = 'rgba(238,243,255,0.95)';
+        for (const ex of [-0.28, 0.28]) {
+          ctx.beginPath(); ctx.arc(ex, -0.14, 0.13, 0, TAU); ctx.fill();
+        }
+        ctx.fillStyle = 'rgba(10,14,22,0.95)';
+        for (const ex of [-0.28, 0.28]) {
+          ctx.beginPath(); ctx.arc(ex, -0.11, 0.062, 0, TAU); ctx.fill();
+        }
+        ctx.strokeStyle = 'rgba(10,14,22,0.85)';
+        ctx.lineWidth = 0.05;
+        ctx.beginPath(); ctx.arc(0, 0.16, 0.17, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+        ctx.restore();
+        ctx.globalCompositeOperation = 'lighter';
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function onPointer(type, e) {
+    if (type === 'down') {
+      dragRef = null;
+      let bd = 44 * 44;
+      blocks.forEach((b, bi) => {
+        b.pts.forEach((p, pi) => {
+          const d = (p.x - P.x) ** 2 + (p.y - P.y) ** 2;
+          if (d < bd) { bd = d; dragRef = { b: bi, i: pi }; }
+        });
+      });
+      tapT = performance.now(); tapX = P.x; tapY = P.y;
+      tapEmpty = !dragRef;
+    } else if (type === 'up') {
+      if (tapEmpty && performance.now() - tapT < 260 &&
+          Math.hypot(P.x - tapX, P.y - tapY) < 12) {
+        spawn(tapX, tapY, rand(20, 38));
+        dirty = true;
+      }
+      dragRef = null;
+    }
+  }
+
+  function randomize() {
+    S.pal = Math.random() * PALETTES.length | 0;
+    S.gravity = rand(0.5, 1.6);
+    S.squish = rand(0.25, 1);
+    S.bounce = rand(0.1, 0.7);
+    blocks.length = 0;
+    const n = 3 + Math.random() * 3 | 0;
+    for (let i = 0; i < n; i++)
+      spawn(rand(W * 0.15, W * 0.85), rand(H * 0.1, H * 0.4), rand(20, 40));
+    dirty = true;
+  }
+
+  return {
+    name: 'blocks', usesGL: false, S,
+    enter, frame, onPointer, randomize,
+    hint: '<b>drag</b> to grab &amp; fling a block · <b>tap</b> empty space to add one',
+    controls: () => [
+      { t: 'sec', l: 'Blocks' },
+      { t: 'range', k: 'gravity', l: 'Gravity', min: 0.1, max: 2.5, step: 0.01 },
+      { t: 'range', k: 'squish', l: 'Squishiness', min: 0, max: 1, step: 0.01 },
+      { t: 'range', k: 'bounce', l: 'Bounce', min: 0, max: 0.85, step: 0.01 },
+      { t: 'chk', k: 'faces', l: 'Faces' },
+      { t: 'range', k: 'trails', l: 'Trails', min: 0.05, max: 0.9, step: 0.005 },
+      { t: 'btn', l: '+ Add block', on: () => spawn(rand(W * 0.2, W * 0.8), H * 0.12, rand(20, 38)) },
+      { t: 'btn', l: '✕ Clear', on: () => { blocks.length = 0; } },
+    ],
+  };
+})();
+
+/* =========================================================================
    UI — panel builder, palettes, tabs, actions, hints
    ========================================================================= */
 const MODES = { fractal: Fractal, waves: Waves, particles: Particles,
-                lasers: Lasers, cloth: Cloth };
+                lasers: Lasers, cloth: Cloth, blocks: Blocks };
 const ctrlsEl = document.getElementById('ctrls');
 const palsEl = document.getElementById('pals');
 const hintEl = document.getElementById('hint');
@@ -1487,6 +1787,7 @@ function setMode(name, push) {
     const on = b.dataset.mode === name;
     b.classList.toggle('on', on);
     b.setAttribute('aria-selected', on);
+    if (on && b.scrollIntoView) b.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   });
   if (mode.enter) mode.enter();
   buildPanel();
@@ -1617,6 +1918,7 @@ addEventListener('keydown', e => {
     case '3': setMode('particles'); break;
     case '4': setMode('lasers'); break;
     case '5': setMode('cloth'); break;
+    case '6': setMode('blocks'); break;
   }
 });
 
