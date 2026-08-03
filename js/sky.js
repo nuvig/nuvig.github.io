@@ -30,8 +30,11 @@ const REFRESH_MS = 5 * 60 * 1000;
 const state = {
   metars: {},          // metar station id -> parsed metar or {error}
   tafs: {},            // taf station id -> {issued, periods} or {error}
+  history: {},         // metar station id -> [{ms, m}] ascending, or {error}
   sel: HOME.id,        // selected airport id
   preview: null,       // {cond, timeMs, label} — TAF period or custom METAR
+  offsetMin: 0,        // ±12 h timeline offset in minutes (0 = live)
+  playing: false,
 };
 
 /* =============================== utils =================================== */
@@ -816,7 +819,9 @@ function cachedSun(ms, lat, lon) {
 
 function frame() {
   requestAnimationFrame(frame);
-  if (document.hidden || !active) return;
+  if (document.hidden) return;
+  densFrame(performance.now());
+  if (!active) return;
   if (needResize) resizeScene();
   if (!sceneW) return;
   const ms = active.timeMs || Date.now();
@@ -908,6 +913,273 @@ function decodeToken(tok, i, inRmk) {
 
 function stationOf(id) { return STATIONS.find((a) => a.id === id) || HOME; }
 
+/* ====================== ±12 h timeline (scrub / play) ==================== */
+// Past half: real archived observations from api.weather.gov. Future half:
+// the prevailing (FM/BECMG) state of the nearest TAF. Sun/moon always follow
+// the scrubbed clock.
+
+const HIST_MS = 12.5 * 3600000;
+
+async function loadHistory(stId) {
+  if (state.history[stId]) return;
+  state.history[stId] = []; // claim the slot so parallel calls don't double-fetch
+  try {
+    const end = new Date().toISOString();
+    const start = new Date(Date.now() - HIST_MS).toISOString();
+    const d = await fetchJSON(`${NWS}/stations/${stId}/observations?start=${start}&end=${end}&limit=250`);
+    const arr = [];
+    for (const f of d.features || []) {
+      const p = f.properties;
+      if (!p.rawMessage) continue;
+      arr.push({ ms: +new Date(p.timestamp), m: parseMetar(p.rawMessage, p.timestamp) });
+    }
+    arr.sort((a, b) => a.ms - b.ms);
+    state.history[stId] = arr;
+  } catch (e) {
+    state.history[stId] = { error: e.message };
+  }
+}
+
+function timelineAt(ms) {
+  const apt = stationOf(state.sel);
+  const cur = state.metars[apt.metarStation];
+  const curOk = cur && !cur.error;
+  if (ms <= Date.now() + 15 * 60000) {
+    // most recent observation at or before the scrubbed time
+    const h = state.history[apt.metarStation];
+    let best = null;
+    if (Array.isArray(h)) for (const o of h) { if (o.ms <= ms + 5 * 60000) best = o; else break; }
+    if (best) return { cond: sceneCond(best.m), src: `${apt.metarStation} obs ${fmtTime(best.ms)}` };
+    if (curOk) return { cond: sceneCond(cur), src: `${apt.metarStation} latest obs` };
+    return { cond: sceneCond({ clear: true }), src: 'no observation available' };
+  }
+  const tst = TAF_STATIONS[0]; // nearest TAF field
+  const taf = state.tafs[tst.id];
+  if (taf && !taf.error) {
+    let best = null;
+    for (const tile of tafTiles(taf)) {
+      if ((tile.ind === '' || tile.ind === 'BECMG') && tile.begin && +tile.begin <= ms) best = tile;
+    }
+    if (best && best.end && ms <= +best.end + 6 * 3600000) {
+      return { cond: sceneCond(best.m), src: `${tst.id} TAF prevailing (nearest TAF — KANP has none)` };
+    }
+  }
+  if (curOk) return { cond: sceneCond(cur), src: 'holding the current obs — no TAF coverage out here' };
+  return { cond: sceneCond({ clear: true }), src: 'no data' };
+}
+
+function fmtOffset(min) {
+  const a = Math.abs(round(min));
+  const h = Math.floor(a / 60), m = a % 60;
+  return `${min < 0 ? '−' : '+'}${h}h${String(m).padStart(2, '0')}m`;
+}
+
+function setOffset(min, fromPlay) {
+  min = clamp(min, -720, 720);
+  state.offsetMin = min;
+  $('time-slider').value = round(min);
+  if (!fromPlay && Math.abs(min) < 3) { // snap the hand-dragged slider to live
+    state.offsetMin = 0;
+    $('time-slider').value = 0;
+    stopPlay();
+    updateTimeBar(null, null);
+    applyScene();
+    return;
+  }
+  // scrubbing cancels any TAF/pasted preview
+  if (state.preview) {
+    state.preview = null;
+    $('preview-banner').style.display = 'none';
+    document.querySelectorAll('.taf-tile.sel').forEach((x) => x.classList.remove('sel'));
+  }
+  const ms = Date.now() + min * 60000;
+  const tl = timelineAt(ms);
+  const apt = stationOf(state.sel);
+  active = { cond: tl.cond, timeMs: ms, lat: apt.lat, lon: apt.lon, seed: hashStr(apt.id) };
+  $('scene-err').style.display = 'none';
+  $('scene-chip').style.display = 'flex';
+  $('chip-icao').textContent = apt.id;
+  $('chip-cat').textContent = tl.cond.cat;
+  $('chip-cat').style.background = CAT_COLORS[tl.cond.cat];
+  $('chip-age').textContent = `${fmtOffset(min)} · ${fmtTime(ms)}`;
+  const hasT = tl.cond.tempC != null;
+  $('scene-temp').style.display = hasT ? 'block' : 'none';
+  if (hasT) {
+    $('temp-big').textContent = `${round(cToF(tl.cond.tempC))}°F`;
+    $('temp-sub').textContent = `dew ${tl.cond.dewC != null ? round(cToF(tl.cond.dewC)) + '°' : '—'} · ${tl.cond.tempC}/${tl.cond.dewC ?? '—'} °C`;
+  }
+  updateDensity(tl.cond, tl.src);
+  updateTimeBar(tl.src, ms);
+}
+
+function updateTimeBar(src, ms) {
+  const off = state.offsetMin;
+  $('time-label').innerHTML = off === 0 ? '<b>now</b>' : `<b>${fmtOffset(off)}</b> · ${fmtTime(ms)}`;
+  $('time-src').textContent = off === 0 ? '' : src || '';
+  $('time-now-btn').style.display = off === 0 ? 'none' : 'inline-block';
+}
+
+/* -------- play: sweep −12 h → +12 h -------- */
+
+const PLAY_RATE = 75; // simulated minutes per real second (~19 s full sweep)
+let playLast = 0;
+
+function stepPlay(ts) {
+  if (!state.playing) return;
+  const dt = Math.min(0.1, (ts - playLast) / 1000);
+  playLast = ts;
+  let m = state.offsetMin + PLAY_RATE * dt;
+  if (m >= 720) { m = 720; setOffset(m, true); stopPlay(); return; }
+  setOffset(m, true);
+  requestAnimationFrame(stepPlay);
+}
+
+function startPlay() {
+  if (state.playing) return;
+  state.playing = true;
+  $('play-btn').textContent = '⏸ Pause';
+  // from "live" (or the far end), start the show at −12 h
+  if (state.offsetMin === 0 || state.offsetMin >= 715) setOffset(-720, true);
+  playLast = performance.now();
+  requestAnimationFrame(stepPlay);
+}
+
+function stopPlay() {
+  state.playing = false;
+  $('play-btn').textContent = '▶ Play';
+}
+
+/* ===================== air density module ================================ */
+// Two chambers of bouncing "molecules": a standard day (ISA sea level) vs
+// the conditions on screen. The dot-count difference is deliberately
+// exaggerated (DENS_AMP×) — the real few-percent change would be invisible.
+
+const DENS_BASE = 120;   // dots in the ISA chamber
+const DENS_AMP = 8;      // dramatization factor for the count difference
+
+const dens = {
+  canvas: null, ctx: null, W: 0, H: 0, needResize: true,
+  parts: [[], []],            // per-chamber dots {x, y, vx, vy}
+  target: [DENS_BASE, DENS_BASE],
+  tempsK: [288.15, 288.15],
+  hotC: [15, 15],             // display temp per chamber (drives dot color)
+  last: 0,
+};
+
+// air density kg/m³ from temp, dewpoint (humidity correction), altimeter, field elev
+function airDensity(tempC, dewC, altInHg, elevFt) {
+  const pa = elevFt + (29.92 - altInHg) * 1000;
+  const p = 1013.25 * Math.pow(1 - 6.87559e-6 * pa, 5.2559); // hPa at that PA
+  let tK = tempC + 273.15;
+  if (dewC != null) { // virtual temperature: moist air is LIGHTER
+    const e = 6.1078 * Math.pow(10, 7.5 * dewC / (237.3 + dewC));
+    tK = tK / (1 - (e / p) * (1 - 0.622));
+  }
+  return { rho: (p * 100) / (287.05 * tK), pa };
+}
+
+function updateDensity(cond, srcLabel) {
+  const read = $('dens-read');
+  if (!read) return;
+  const apt = stationOf(state.sel);
+  let c = cond, note = '';
+  if (!c || c.tempC == null || c.altInHg == null) {
+    // TAFs (and some previews) carry no temp/pressure — fall back to the obs
+    const live = state.metars[apt.metarStation];
+    if (live && !live.error && live.tempC != null && live.altInHg != null) {
+      c = live;
+      note = 'temp/pressure from the latest obs — TAFs don\'t forecast them';
+    } else {
+      read.innerHTML = '<div class="dkv"><span class="k">air density</span><span class="v">no observation</span></div>';
+      $('dens-verdict').textContent = '';
+      dens.target = [DENS_BASE, DENS_BASE];
+      dens.tempsK = [288.15, 288.15];
+      dens.hotC = [15, 15];
+      return;
+    }
+  }
+  const { rho, pa } = airDensity(c.tempC, c.dewC, c.altInHg, apt.elevFt);
+  const ratio = rho / 1.225;
+  const isa = 15 - 1.98 * (apt.elevFt / 1000);
+  const da = round((pa + 118.8 * (c.tempC - isa)) / 50) * 50;
+  dens.target = [DENS_BASE, round(DENS_BASE * clamp(1 + (ratio - 1) * DENS_AMP, 0.2, 1.8))];
+  dens.tempsK = [288.15, c.tempC + 273.15];
+  dens.hotC = [15, c.tempC];
+  const pct = (ratio * 100).toFixed(1);
+  read.innerHTML = `
+    <div class="dkv"><span class="k">air density</span><span class="v">${rho.toFixed(3)} kg/m³</span></div>
+    <div class="dkv"><span class="k">vs standard sea level</span><span class="v${ratio < 0.95 ? ' warn' : ''}">${pct}%</span></div>
+    <div class="dkv"><span class="k">pressure altitude</span><span class="v">${round(pa).toLocaleString()} ft</span></div>
+    <div class="dkv"><span class="k">density altitude</span><span class="v${da > 3000 ? ' warn' : ''}">${da.toLocaleString()} ft</span></div>
+    <div class="dkv"><span class="k">temp / ISA at ${esc(apt.id)}</span><span class="v">${c.tempC}° / ${isa.toFixed(0)}° C</span></div>`;
+  const feel = da <= apt.elevFt + 200
+    ? 'the airplane is performing at (or better than) book field-elevation numbers'
+    : `every surface that works the air — wing, prop, cylinders — is performing as if the field sat at ${da.toLocaleString()} ft`;
+  $('dens-verdict').innerHTML =
+    `<b>${esc(srcLabel || apt.metarStation + ' obs')}:</b> ${feel}.` +
+    (note ? ` <span style="color:#556">(${esc(note)})</span>` : '');
+}
+
+function densResize() {
+  const r = dens.canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dens.canvas.width = Math.max(1, round(r.width * dpr));
+  dens.canvas.height = Math.max(1, round(r.height * dpr));
+  dens.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dens.W = r.width; dens.H = r.height;
+  dens.needResize = false;
+}
+
+function densFrame(now) {
+  if (!dens.canvas) return;
+  if (dens.needResize) densResize();
+  const { ctx, W, H } = dens;
+  if (!W) return;
+  const dt = Math.min(0.05, (now - dens.last) / 1000 || 0.016);
+  dens.last = now;
+  const gap = 14, cw = (W - gap) / 2, top = 22, ch = H - top - 20;
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  const labels = ['STANDARD DAY — ISA SEA LEVEL', 'RIGHT NOW (dramatized)'];
+  for (let k = 0; k < 2; k++) {
+    const x0 = k * (cw + gap);
+    // chamber
+    ctx.fillStyle = '#10141b';
+    ctx.strokeStyle = '#333';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, top, cw, ch, 6); else ctx.rect(x0, top, cw, ch);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#889';
+    ctx.textAlign = 'left';
+    ctx.fillText(labels[k], x0 + 2, 13);
+    // grow/shrink toward the target count
+    const P = dens.parts[k];
+    if (P.length < dens.target[k] && Math.random() < 0.5) {
+      const a = Math.random() * Math.PI * 2;
+      P.push({ x: x0 + 6 + Math.random() * (cw - 12), y: top + 6 + Math.random() * (ch - 12), vx: Math.cos(a), vy: Math.sin(a) });
+    } else if (P.length > dens.target[k]) P.splice(0, Math.min(2, P.length - dens.target[k]));
+    // dot color: cool blue → hot orange with chamber temperature
+    const hot = clamp((dens.hotC[k] + 5) / 40, 0, 1);
+    ctx.fillStyle = css(mixC([122, 168, 216], [235, 140, 74], hot), 0.92);
+    const spd = 26 * Math.sqrt(dens.tempsK[k] / 288.15) * (0.7 + 0.3 * hot + (dens.hotC[k] > 25 ? 0.35 : 0));
+    for (const p of P) {
+      // gentle random walk + wall bounce
+      p.vx += (Math.random() - 0.5) * 0.35; p.vy += (Math.random() - 0.5) * 0.35;
+      const v = Math.hypot(p.vx, p.vy) || 1;
+      p.vx /= v; p.vy /= v;
+      p.x += p.vx * spd * dt; p.y += p.vy * spd * dt;
+      if (p.x < x0 + 4) { p.x = x0 + 4; p.vx = Math.abs(p.vx); }
+      if (p.x > x0 + cw - 4) { p.x = x0 + cw - 4; p.vx = -Math.abs(p.vx); }
+      if (p.y < top + 4) { p.y = top + 4; p.vy = Math.abs(p.vy); }
+      if (p.y > top + ch - 4) { p.y = top + ch - 4; p.vy = -Math.abs(p.vy); }
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.1, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#667';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${P.length} dots`, x0 + cw - 4, top + ch + 14);
+  }
+}
+
 function renderTabs() {
   const wrap = $('station-tabs');
   wrap.innerHTML = '';
@@ -920,6 +1192,7 @@ function renderTabs() {
       state.sel = a.id;
       state.preview = null;
       renderTabs();
+      loadHistory(a.metarStation).then(() => { if (state.offsetMin) setOffset(state.offsetMin, true); });
       applyScene();
     });
     wrap.appendChild(b);
@@ -1057,11 +1330,21 @@ function renderInfo(c, meta) {
     { VFR: 'ceiling > 3,000 ft and vis > 5 SM', MVFR: 'ceiling 1,000–3,000 ft or vis 3–5 SM', IFR: 'ceiling 500–999 ft or vis 1–2 SM', LIFR: 'ceiling < 500 ft or vis < 1 SM' }[c.cat]]);
   $('cond-grid').innerHTML = cards.map(([h, big, small]) =>
     `<div class="card"><h3>${h}</h3><div class="big">${big}</div><div class="small">${small || ''}</div></div>`).join('');
+
+  updateDensity(c, meta.chipLabel);
 }
 
 /* --------- pick what the scene shows (live obs or a preview) ------------ */
 
+function resetTimeline() {
+  stopPlay();
+  state.offsetMin = 0;
+  $('time-slider').value = 0;
+  updateTimeBar(null, null);
+}
+
 function applyScene() {
+  if (state.offsetMin) { setOffset(state.offsetMin, true); return; } // scrubbed view wins
   const apt = stationOf(state.sel);
   const err = $('scene-err');
   if (state.preview) {
@@ -1234,6 +1517,7 @@ function renderTafs() {
         `<div class="what">${esc(fmtTafShort(tile.m))}</div>`;
       el.appendChild(info);
       el.addEventListener('click', () => {
+        resetTimeline();
         document.querySelectorAll('.taf-tile.sel').forEach((x) => x.classList.remove('sel'));
         el.classList.add('sel');
         state.preview = {
@@ -1272,6 +1556,7 @@ function drawCustom() {
     errEl.textContent = 'Couldn\'t find any METAR groups in that — check the format (e.g. "KANP 271753Z 31008KT 10SM SCT045 24/12 A3005").';
     return;
   }
+  resetTimeline();
   document.querySelectorAll('.taf-tile.sel').forEach((x) => x.classList.remove('sel'));
   const id = raw.split(/\s+/)[0];
   state.preview = {
@@ -1309,7 +1594,9 @@ async function loadTafs() {
 
 async function loadAll() {
   $('update-time').textContent = 'updating…';
-  await Promise.all([loadMetars(), loadTafs()]);
+  const st = stationOf(state.sel).metarStation;
+  delete state.history[st]; // refetch so the past 12 h stays current
+  await Promise.all([loadMetars(), loadTafs(), loadHistory(st)]);
   if (!state.preview) applyScene();
   renderTafs();
   $('update-time').textContent = `updated ${fmtTime(Date.now())}`;
@@ -1326,10 +1613,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const m = state.metars[stationOf(state.sel).metarStation];
     if (m && !m.error) $('chip-age').textContent = `${ageMin(m.time)} min ago`;
   }, 30000);
+  dens.canvas = $('dens-canvas');
+  dens.ctx = dens.canvas.getContext('2d');
+  new ResizeObserver(() => { dens.needResize = true; }).observe(dens.canvas);
+  $('time-slider').addEventListener('input', () => { stopPlay(); setOffset(+$('time-slider').value); });
+  $('play-btn').addEventListener('click', () => (state.playing ? stopPlay() : startPlay()));
+  $('time-now-btn').addEventListener('click', () => { stopPlay(); setOffset(0); });
   $('refresh-btn').addEventListener('click', loadAll);
   $('preview-off').addEventListener('click', () => {
     state.preview = null;
     document.querySelectorAll('.taf-tile.sel').forEach((x) => x.classList.remove('sel'));
+    resetTimeline();
     applyScene();
   });
   $('custom-btn').addEventListener('click', drawCustom);
