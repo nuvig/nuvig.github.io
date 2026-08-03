@@ -760,6 +760,70 @@
       </div>
     </div>
 
+    <!-- ---- proximity events ---- -->
+    <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      Proximity events
+      <span style="font-weight:400;font-size:12px;color:#999;display:flex;align-items:center;gap:5px">
+        within
+        <input type="number" id="conflict-h" value="0.5" min="0.1" max="2" step="0.1"
+               style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                      padding:4px 7px;font-size:12px;width:52px;font-family:inherit"> nm &amp;
+        <input type="number" id="conflict-v" value="500" min="50" max="2000" step="50"
+               style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                      padding:4px 7px;font-size:12px;width:62px;font-family:inherit"> ft
+      </span>
+      <label style="font-weight:400;display:flex;align-items:center;gap:5px;font-size:12px;color:#999">
+        <input type="checkbox" id="conflict-near" checked> pattern area only (≤10 nm, ≤4,000 ft)
+      </label>
+      <button class="btn" id="conflict-load" style="padding:4px 12px;font-size:12px">Find events</button>
+    </div>
+    <div class="result-line" id="conflict-result">
+      Finds pairs of aircraft that were inside both thresholds at the same moment
+      (loss of separation / near miss), ranks them by closest point of approach, and
+      replays any event as an animated two-aircraft playback. Severity tiers:
+      <span style="color:#ef4444">critical</span> &lt; 500 ft &amp; 100 ft (NMAC scale) ·
+      <span style="color:#f0c040">close</span> &lt; 0.15 nm &amp; 200 ft ·
+      <span style="color:#8a94a0">proximity</span> = inside the thresholds.
+      Uses the date/day/hour filters above. Tracks are simplified and interpolated, so
+      distances are approximate — and aircraft without ADS-B are invisible here.
+    </div>
+
+    <div id="conflict-out" style="display:none">
+      <div class="section-title">Events <span style="font-weight:400;color:#555;font-size:12px">· click a row to replay it on the map · times local (<span id="conflict-tz">ET</span>)</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="conflict-table">
+          <thead><tr>
+            <th>Severity</th><th>Date &amp; time</th><th>Aircraft A</th><th>Aircraft B</th>
+            <th>CPA horiz</th><th>CPA vert (ft)</th><th>Alt A / B (ft)</th><th>Duration</th><th>Tags</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="conflict-table-note" style="font-size:11px;color:#555;margin-top:6px"></div>
+      </div>
+
+      <div class="section-title" id="conflict-anim-title" style="display:none">Replay <span style="font-weight:400;color:#555;font-size:12px">· × marks each aircraft's position at the closest point of approach</span></div>
+      <div class="card" id="conflict-anim" style="display:none">
+        <div id="conflict-map" style="height:420px;border-radius:8px"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn" id="conflict-play" style="padding:4px 14px;font-size:13px">▶</button>
+          <select id="conflict-speed"
+                  style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                         padding:4px 7px;font-size:12px;font-family:inherit">
+            <option value="1">1×</option>
+            <option value="5" selected>5×</option>
+            <option value="15">15×</option>
+          </select>
+          <input type="range" id="conflict-scrub" min="0" max="180" step="0.5" value="0"
+                 style="flex:1;min-width:160px">
+          <span id="conflict-clock" style="font-size:12px;color:#aaa;font-variant-numeric:tabular-nums"></span>
+        </div>
+        <div style="display:flex;gap:18px;margin-top:8px;font-size:13px;flex-wrap:wrap">
+          <span id="conflict-readout" style="color:#ccc"></span>
+          <span id="conflict-sep" style="color:#999"></span>
+        </div>
+      </div>
+    </div>
+
     <div id="study-charts" style="display:none">
       <div class="section-title" style="display:flex;align-items:center;gap:12px">
         <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
@@ -817,5 +881,6 @@
   <script src="js/kanp-ops.js"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>
+  <script src="js/kanp-conflict.js"></script>
 </body>
 </html>
