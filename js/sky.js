@@ -31,6 +31,9 @@ const state = {
   metars: {},          // metar station id -> parsed metar or {error}
   tafs: {},            // taf station id -> {issued, periods} or {error}
   history: {},         // metar station id -> [{ms, m}] ascending, or {error}
+  model: {},           // airport id -> Open-Meteo hourly {t,temp,dew,pmsl} or {error}
+  modelBias: { tb: 0, db: 0, ab: 0 },  // obs-minus-model at "now", decayed outward
+  densSeries: null,    // [{min, ms, da, rho, ratio, src, night}] across ±12 h
   sel: HOME.id,        // selected airport id
   preview: null,       // {cond, timeMs, label} — TAF period or custom METAR
   offsetMin: 0,        // ±12 h timeline offset in minutes (0 = live)
@@ -961,11 +964,40 @@ function timelineAt(ms) {
       if ((tile.ind === '' || tile.ind === 'BECMG') && tile.begin && +tile.begin <= ms) best = tile;
     }
     if (best && best.end && ms <= +best.end + 6 * 3600000) {
-      return { cond: sceneCond(best.m), src: `${tst.id} TAF prevailing (nearest TAF — KANP has none)` };
+      const cond = injectModelMet(sceneCond(best.m), ms);
+      return { cond, src: `${tst.id} TAF${cond.modelMet ? ' + model temp/pressure' : ''} (nearest TAF — ${HOME.id} has none)` };
     }
   }
-  if (curOk) return { cond: sceneCond(cur), src: 'holding the current obs — no TAF coverage out here' };
+  if (curOk) {
+    const held = sceneCond(cur);
+    const mv = modelAt(ms);
+    if (mv) { // no TAF out here — sky from the obs, air from the model
+      held.tempC = round(mv.tempC * 10) / 10;
+      held.dewC = mv.dewC != null ? round(mv.dewC * 10) / 10 : held.dewC;
+      held.altInHg = round(mv.altInHg * 100) / 100;
+      held.modelMet = true;
+      return { cond: held, src: 'sky held from current obs · temp/pressure from model' };
+    }
+    return { cond: held, src: 'holding the current obs — no TAF or model coverage' };
+  }
   return { cond: sceneCond({ clear: true }), src: 'no data' };
+}
+
+// TAFs never forecast temperature or pressure — fill those from the
+// bias-corrected model so the temp chip, cards and density stay honest.
+function injectModelMet(cond, ms) {
+  if (cond.tempC == null || cond.altInHg == null) {
+    const mv = modelAt(ms);
+    if (mv) {
+      if (cond.tempC == null) {
+        cond.tempC = round(mv.tempC * 10) / 10;
+        cond.dewC = mv.dewC != null ? round(mv.dewC * 10) / 10 : null;
+      }
+      if (cond.altInHg == null) cond.altInHg = round(mv.altInHg * 100) / 100;
+      cond.modelMet = true;
+    }
+  }
+  return cond;
 }
 
 function fmtOffset(min) {
@@ -997,20 +1029,24 @@ function setOffset(min, fromPlay) {
   const apt = stationOf(state.sel);
   active = { cond: tl.cond, timeMs: ms, lat: apt.lat, lon: apt.lon, seed: hashStr(apt.id) };
   $('scene-err').style.display = 'none';
-  $('scene-chip').style.display = 'flex';
-  $('chip-icao').textContent = apt.id;
-  $('chip-cat').textContent = tl.cond.cat;
-  $('chip-cat').style.background = CAT_COLORS[tl.cond.cat];
-  $('chip-age').textContent = `${fmtOffset(min)} · ${fmtTime(ms)}`;
-  const hasT = tl.cond.tempC != null;
-  $('scene-temp').style.display = hasT ? 'block' : 'none';
-  if (hasT) {
-    $('temp-big').textContent = `${round(cToF(tl.cond.tempC))}°F`;
-    $('temp-sub').textContent = `dew ${tl.cond.dewC != null ? round(cToF(tl.cond.dewC)) + '°' : '—'} · ${tl.cond.tempC}/${tl.cond.dewC ?? '—'} °C`;
+  // full info-panel re-render (summary, decoder, cards, density) is throttled
+  // to 15-min buckets so the play sweep doesn't thrash the DOM every frame
+  const sig = `${state.sel}|${tl.src}|${Math.floor(ms / 900000)}`;
+  if (sig !== lastScrubSig) {
+    lastScrubSig = sig;
+    renderInfo(tl.cond, {
+      chipLabel: apt.id,
+      ageText: `${fmtOffset(min)} · ${fmtTime(ms)}`,
+      summaryLead: `<b>${esc(apt.name)} at ${fmtTime(ms)} (${fmtOffset(min)}):</b>`,
+      atMs: ms,
+    });
+  } else {
+    $('chip-age').textContent = `${fmtOffset(min)} · ${fmtTime(ms)}`;
+    drawDensChart(ms); // keep the trend cursor gliding between full renders
   }
-  updateDensity(tl.cond, tl.src);
   updateTimeBar(tl.src, ms);
 }
+let lastScrubSig = '';
 
 function updateTimeBar(src, ms) {
   const off = state.offsetMin;
@@ -1054,17 +1090,230 @@ function stopPlay() {
 // the conditions on screen. The dot-count difference is deliberately
 // exaggerated (DENS_AMP×) — the real few-percent change would be invisible.
 
-const DENS_BASE = 120;   // dots in the ISA chamber
-const DENS_AMP = 8;      // dramatization factor for the count difference
+const DENS_BASE = 130;   // dots in the ISA chamber
+const DENS_AMP = 12;     // dramatization factor for the count difference
 
 const dens = {
   canvas: null, ctx: null, W: 0, H: 0, needResize: true,
+  chart: null, chartCtx: null,
   parts: [[], []],            // per-chamber dots {x, y, vx, vy}
   target: [DENS_BASE, DENS_BASE],
   tempsK: [288.15, 288.15],
   hotC: [15, 15],             // display temp per chamber (drives dot color)
+  labelRight: 'RIGHT NOW (dramatized)',
   last: 0,
 };
+
+/* ---- model data (Open-Meteo hourly, obs-bias-corrected) ----------------- */
+// Temp / dewpoint / MSL pressure for hours no METAR or TAF covers. The NWS
+// grid stays the source for weather.html's scoring; here the model only
+// fills temperature & pressure so density can be computed at any hour.
+
+async function loadModel(apt) {
+  if (state.model[apt.id] && !state.model[apt.id].error) return;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${apt.lat}&longitude=${apt.lon}` +
+      '&hourly=temperature_2m,dew_point_2m,pressure_msl&past_days=1&forecast_days=2' +
+      '&timeformat=unixtime&timezone=UTC';
+    const d = await fetchJSON(url);
+    state.model[apt.id] = {
+      t: d.hourly.time,
+      temp: d.hourly.temperature_2m,
+      dew: d.hourly.dew_point_2m,
+      pmsl: d.hourly.pressure_msl,
+    };
+  } catch (e) {
+    state.model[apt.id] = { error: e.message };
+  }
+}
+
+// linear interpolation between the model's hourly points, no bias
+function rawModelAt(ms) {
+  const mo = state.model[stationOf(state.sel).id];
+  if (!mo || mo.error) return null;
+  const s = ms / 1000;
+  let i = -1;
+  for (let k = 0; k < mo.t.length - 1; k++) { if (mo.t[k] <= s && s <= mo.t[k + 1]) { i = k; break; } }
+  if (i < 0) return null;
+  const f = (s - mo.t[i]) / (mo.t[i + 1] - mo.t[i]);
+  const L = (a) => (a[i] == null || a[i + 1] == null) ? null : a[i] + (a[i + 1] - a[i]) * f;
+  const temp = L(mo.temp), pmsl = L(mo.pmsl);
+  if (temp == null || pmsl == null) return null;
+  return { tempC: temp, dewC: L(mo.dew), altInHg: pmsl * 0.02953 };
+}
+
+// bias-corrected: anchored to the latest METAR, decaying over ±10 h
+function modelAt(ms) {
+  const v = rawModelAt(ms);
+  if (!v) return null;
+  const decay = Math.max(0, 1 - Math.abs(ms - Date.now()) / (10 * 3600000));
+  const b = state.modelBias;
+  v.tempC += b.tb * decay;
+  if (v.dewC != null) v.dewC = Math.min(v.dewC + b.db * decay, v.tempC);
+  v.altInHg += b.ab * decay;
+  return v;
+}
+
+// temp/dew/altimeter at any moment: real obs when one is close enough,
+// otherwise the corrected model. Returns null only with no data at all.
+function densAt(ms) {
+  const apt = stationOf(state.sel);
+  let tempC = null, dewC = null, alt = null, src = null;
+  if (ms <= Date.now() + 20 * 60000) {
+    const h = state.history[apt.metarStation];
+    let best = null;
+    if (Array.isArray(h)) {
+      for (const o of h) {
+        if (o.m.tempC == null || o.m.altInHg == null) continue;
+        if (Math.abs(o.ms - ms) <= 75 * 60000 && (!best || Math.abs(o.ms - ms) < Math.abs(best.ms - ms))) best = o;
+      }
+    }
+    const cur = state.metars[apt.metarStation];
+    if (cur && !cur.error && cur.tempC != null && cur.altInHg != null &&
+        Math.abs(+new Date(cur.time) - ms) <= 75 * 60000 &&
+        (!best || Math.abs(+new Date(cur.time) - ms) < Math.abs(best.ms - ms))) {
+      best = { ms: +new Date(cur.time), m: cur };
+    }
+    if (best) { tempC = best.m.tempC; dewC = best.m.dewC; alt = best.m.altInHg; src = 'obs'; }
+  }
+  if (src == null) {
+    const mv = modelAt(ms);
+    if (mv) { tempC = mv.tempC; dewC = mv.dewC; alt = mv.altInHg; src = 'model'; }
+  }
+  if (src == null) {
+    const cur = state.metars[apt.metarStation];
+    if (cur && !cur.error && cur.tempC != null && cur.altInHg != null) {
+      tempC = cur.tempC; dewC = cur.dewC; alt = cur.altInHg; src = 'held';
+    } else return null;
+  }
+  const { rho, pa } = airDensity(tempC, dewC, alt, apt.elevFt);
+  const isa = 15 - 1.98 * (apt.elevFt / 1000);
+  const da = pa + 118.8 * (tempC - isa);
+  return { tempC, dewC, altInHg: alt, rho, ratio: rho / 1.225, pa, da, src };
+}
+
+function buildDensSeries() {
+  const apt = stationOf(state.sel);
+  // anchor the model to the newest obs before sampling
+  const cur = state.metars[apt.metarStation];
+  state.modelBias = { tb: 0, db: 0, ab: 0 };
+  if (cur && !cur.error && cur.tempC != null) {
+    const mv = rawModelAt(+new Date(cur.time));
+    if (mv) {
+      const cl = (v) => clamp(v, -5, 5);
+      state.modelBias.tb = cl(cur.tempC - mv.tempC);
+      if (cur.dewC != null && mv.dewC != null) state.modelBias.db = cl(cur.dewC - mv.dewC);
+      if (cur.altInHg != null) state.modelBias.ab = clamp(cur.altInHg - mv.altInHg, -0.12, 0.12);
+    }
+  }
+  const now = Date.now();
+  const pts = [];
+  for (let min = -720; min <= 720; min += 30) {
+    const ms = now + min * 60000;
+    const d = densAt(ms);
+    if (!d) continue;
+    pts.push({ min, ms, da: d.da, rho: d.rho, ratio: d.ratio, src: d.src, night: sunState(ms, apt.lat, apt.lon).night });
+  }
+  state.densSeries = pts.length ? pts : null;
+}
+
+/* ---- density trend chart (±12 h, draggable) ----------------------------- */
+
+function drawDensChart(cursorMs) {
+  const cv = dens.chart;
+  if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cv.width !== round(r.width * dpr)) { cv.width = round(r.width * dpr); cv.height = round(r.height * dpr); }
+  const ctx = dens.chartCtx;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = r.width, H = r.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  const S = state.densSeries;
+  if (!S || S.length < 2) {
+    ctx.fillStyle = '#555'; ctx.textAlign = 'center';
+    ctx.fillText('density trend unavailable — waiting for data', W / 2, H / 2);
+    return;
+  }
+  const L = 40, R = 8, T = 12, B = 18;
+  const das = S.map((p) => p.da);
+  const lo = Math.min(0, Math.floor(Math.min(...das) / 500) * 500);
+  const hi = Math.max(3200, Math.ceil(Math.max(...das) / 500) * 500 + 300);
+  const x = (min) => L + ((min + 720) / 1440) * (W - L - R);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+
+  // night shading
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  for (let i = 0; i < S.length - 1; i++) {
+    if (S[i].night) ctx.fillRect(x(S[i].min), T, x(S[i + 1].min) - x(S[i].min) + 0.5, H - T - B);
+  }
+  // amber caution above 3,000 ft DA
+  if (y(3000) > T) {
+    ctx.fillStyle = 'rgba(245,158,11,0.07)';
+    ctx.fillRect(L, T, W - L - R, Math.max(0, y(3000) - T));
+    ctx.strokeStyle = 'rgba(245,158,11,0.45)'; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(L, y(3000)); ctx.lineTo(W - R, y(3000)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // gridlines + labels
+  ctx.textAlign = 'right';
+  for (let v = lo; v <= hi; v += 1000) {
+    ctx.strokeStyle = '#252525';
+    ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(W - R, y(v)); ctx.stroke();
+    ctx.fillStyle = '#555';
+    ctx.fillText(v === 0 ? '0' : (v / 1000) + 'k', L - 5, y(v) + 3);
+  }
+  ctx.textAlign = 'center';
+  for (let min = -720; min <= 720; min += 180) {
+    ctx.fillStyle = '#555';
+    ctx.fillText(min === 0 ? 'now' : fmtTime(Date.now() + min * 60000, { minute: undefined }).replace(' ', ''), x(min), H - 4);
+  }
+  // the trend line — solid blue where observed, dashed amber where modeled
+  for (let i = 0; i < S.length - 1; i++) {
+    const modeled = S[i].src !== 'obs' || S[i + 1].src !== 'obs';
+    ctx.strokeStyle = modeled ? '#f0c040' : '#4a9eff';
+    ctx.setLineDash(modeled ? [5, 4] : []);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x(S[i].min), y(S[i].da));
+    ctx.lineTo(x(S[i + 1].min), y(S[i + 1].da));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // "now" marker
+  ctx.strokeStyle = '#666'; ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.moveTo(x(0), T); ctx.lineTo(x(0), H - B); ctx.stroke();
+  ctx.setLineDash([]);
+  // daily peak
+  let pk = S[0];
+  for (const p of S) if (p.da > pk.da) pk = p;
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath(); ctx.arc(x(pk.min), y(pk.da), 3, 0, 7); ctx.fill();
+  ctx.textAlign = pk.min > 400 ? 'right' : 'left';
+  ctx.fillText(`peak ${(round(pk.da / 50) * 50).toLocaleString()} ft`, x(pk.min) + (pk.min > 400 ? -7 : 7), y(pk.da) - 6);
+  // cursor
+  const cMin = cursorMs == null ? null : (cursorMs - Date.now()) / 60000;
+  if (cMin != null && cMin >= -720 && cMin <= 720) {
+    let yc = null;
+    for (let i = 0; i < S.length - 1; i++) {
+      if (S[i].min <= cMin && cMin <= S[i + 1].min) {
+        const f = (cMin - S[i].min) / (S[i + 1].min - S[i].min);
+        yc = y(lerp(S[i].da, S[i + 1].da, f));
+        break;
+      }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath(); ctx.moveTo(x(cMin), T); ctx.lineTo(x(cMin), H - B); ctx.stroke();
+    if (yc != null) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(x(cMin), yc, 4, 0, 7); ctx.fill();
+    }
+  }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#4a9eff'; ctx.fillText('— observed', L + 4, T + 2);
+  ctx.fillStyle = '#f0c040'; ctx.fillText('- - model (obs-corrected)', L + 78, T + 2);
+}
 
 // air density kg/m³ from temp, dewpoint (humidity correction), altimeter, field elev
 function airDensity(tempC, dewC, altInHg, elevFt) {
@@ -1078,46 +1327,76 @@ function airDensity(tempC, dewC, altInHg, elevFt) {
   return { rho: (p * 100) / (287.05 * tK), pa };
 }
 
-function updateDensity(cond, srcLabel) {
+const DENS_SRC_WORD = {
+  obs: 'from the actual observation',
+  model: 'model forecast, corrected to the latest obs',
+  held: 'holding the latest obs (no model data)',
+};
+
+function updateDensity(cond, srcLabel, ms) {
   const read = $('dens-read');
   if (!read) return;
   const apt = stationOf(state.sel);
-  let c = cond, note = '';
-  if (!c || c.tempC == null || c.altInHg == null) {
-    // TAFs (and some previews) carry no temp/pressure — fall back to the obs
-    const live = state.metars[apt.metarStation];
-    if (live && !live.error && live.tempC != null && live.altInHg != null) {
-      c = live;
-      note = 'temp/pressure from the latest obs — TAFs don\'t forecast them';
-    } else {
-      read.innerHTML = '<div class="dkv"><span class="k">air density</span><span class="v">no observation</span></div>';
-      $('dens-verdict').textContent = '';
-      dens.target = [DENS_BASE, DENS_BASE];
-      dens.tempsK = [288.15, 288.15];
-      dens.hotC = [15, 15];
-      return;
-    }
+  const atMs = ms == null ? Date.now() : ms;
+  let vals = null, srcWord = null;
+  if (cond && cond.tempC != null && cond.altInHg != null && !cond.modelMet) {
+    vals = { tempC: cond.tempC, dewC: cond.dewC, altInHg: cond.altInHg };
+    srcWord = cond.raw ? 'from the actual observation' : 'from the conditions shown';
+  } else {
+    const d = densAt(atMs);
+    if (d) { vals = d; srcWord = DENS_SRC_WORD[d.src]; }
   }
-  const { rho, pa } = airDensity(c.tempC, c.dewC, c.altInHg, apt.elevFt);
+  if (!vals) {
+    read.innerHTML = '<div class="dkv"><span class="k">air density</span><span class="v">no data yet</span></div>';
+    $('dens-verdict').textContent = '';
+    dens.target = [DENS_BASE, DENS_BASE];
+    dens.tempsK = [288.15, 288.15];
+    dens.hotC = [15, 15];
+    drawDensChart(ms);
+    return;
+  }
+  const { rho, pa } = airDensity(vals.tempC, vals.dewC, vals.altInHg, apt.elevFt);
   const ratio = rho / 1.225;
   const isa = 15 - 1.98 * (apt.elevFt / 1000);
-  const da = round((pa + 118.8 * (c.tempC - isa)) / 50) * 50;
-  dens.target = [DENS_BASE, round(DENS_BASE * clamp(1 + (ratio - 1) * DENS_AMP, 0.2, 1.8))];
-  dens.tempsK = [288.15, c.tempC + 273.15];
-  dens.hotC = [15, c.tempC];
-  const pct = (ratio * 100).toFixed(1);
+  const da = round((pa + 118.8 * (vals.tempC - isa)) / 50) * 50;
+  dens.target = [DENS_BASE, round(DENS_BASE * clamp(1 + (ratio - 1) * DENS_AMP, 0.1, 2.2))];
+  dens.tempsK = [288.15, vals.tempC + 273.15];
+  dens.hotC = [15, vals.tempC];
+  dens.labelRight = (state.offsetMin && ms != null)
+    ? `AT ${fmtTime(ms).toUpperCase()} (dramatized)`
+    : 'RIGHT NOW (dramatized)';
+
+  const daCol = da <= 1500 ? '#22c55e' : da <= 3000 ? '#f0c040' : da <= 4500 ? '#f59e0b' : '#ef4444';
+  // deltas + trend context from the series
+  const nowD = densAt(Date.now());
+  let deltaRow = '';
+  if (state.offsetMin && nowD) {
+    const dd = round((da - nowD.da) / 50) * 50;
+    const col = dd > 0 ? '#f59e0b' : '#22c55e';
+    deltaRow = `<div class="dkv"><span class="k">vs right now</span><span class="v" style="color:${col}">${dd > 0 ? '+' : ''}${dd.toLocaleString()} ft ${dd > 0 ? '(worse)' : dd < 0 ? '(better)' : ''}</span></div>`;
+  }
+  let peakRow = '';
+  const S = state.densSeries;
+  if (S) {
+    let pk = null;
+    for (const p of S) if (p.min >= 0 && (!pk || p.da > pk.da)) pk = p;
+    if (pk) {
+      peakRow = `<div class="dkv"><span class="k">next 12 h peak</span><span class="v">${(round(pk.da / 50) * 50).toLocaleString()} ft · ${fmtTime(pk.ms, { minute: undefined })}</span></div>`;
+    }
+  }
   read.innerHTML = `
-    <div class="dkv"><span class="k">air density</span><span class="v">${rho.toFixed(3)} kg/m³</span></div>
-    <div class="dkv"><span class="k">vs standard sea level</span><span class="v${ratio < 0.95 ? ' warn' : ''}">${pct}%</span></div>
+    <div class="dens-big" style="color:${daCol}">${da.toLocaleString()}<span> ft DA</span></div>
+    <div class="dkv"><span class="k">air density</span><span class="v">${rho.toFixed(3)} kg/m³ · ${(ratio * 100).toFixed(1)}% of std</span></div>
+    ${deltaRow}
     <div class="dkv"><span class="k">pressure altitude</span><span class="v">${round(pa).toLocaleString()} ft</span></div>
-    <div class="dkv"><span class="k">density altitude</span><span class="v${da > 3000 ? ' warn' : ''}">${da.toLocaleString()} ft</span></div>
-    <div class="dkv"><span class="k">temp / ISA at ${esc(apt.id)}</span><span class="v">${c.tempC}° / ${isa.toFixed(0)}° C</span></div>`;
+    <div class="dkv"><span class="k">temp / ISA at ${esc(apt.id)}</span><span class="v">${round(vals.tempC)}° / ${isa.toFixed(0)}° C</span></div>
+    ${peakRow}`;
   const feel = da <= apt.elevFt + 200
-    ? 'the airplane is performing at (or better than) book field-elevation numbers'
-    : `every surface that works the air — wing, prop, cylinders — is performing as if the field sat at ${da.toLocaleString()} ft`;
+    ? 'the airplane performs at (or better than) book field-elevation numbers'
+    : `wing, prop and cylinders all behave as if the field sat at ${da.toLocaleString()} ft`;
   $('dens-verdict').innerHTML =
-    `<b>${esc(srcLabel || apt.metarStation + ' obs')}:</b> ${feel}.` +
-    (note ? ` <span style="color:#556">(${esc(note)})</span>` : '');
+    `<b>${esc(srcLabel || apt.metarStation)}</b> — ${feel}. <span style="color:#556">(${esc(srcWord)})</span>`;
+  drawDensChart(ms);
 }
 
 function densResize() {
@@ -1140,7 +1419,7 @@ function densFrame(now) {
   const gap = 14, cw = (W - gap) / 2, top = 22, ch = H - top - 20;
   ctx.clearRect(0, 0, W, H);
   ctx.font = '10px "Segoe UI", system-ui, sans-serif';
-  const labels = ['STANDARD DAY — ISA SEA LEVEL', 'RIGHT NOW (dramatized)'];
+  const labels = ['STANDARD DAY — ISA SEA LEVEL', dens.labelRight];
   for (let k = 0; k < 2; k++) {
     const x0 = k * (cw + gap);
     // chamber
@@ -1192,7 +1471,11 @@ function renderTabs() {
       state.sel = a.id;
       state.preview = null;
       renderTabs();
-      loadHistory(a.metarStation).then(() => { if (state.offsetMin) setOffset(state.offsetMin, true); });
+      Promise.all([loadHistory(a.metarStation), loadModel(a)]).then(() => {
+        buildDensSeries();
+        lastScrubSig = '';
+        if (state.offsetMin) setOffset(state.offsetMin, true); else applyScene();
+      });
       applyScene();
     });
     wrap.appendChild(b);
@@ -1292,7 +1575,7 @@ function renderInfo(c, meta) {
       rawEl.appendChild(sp);
     });
   } else {
-    rawEl.innerHTML = '<span class="faint">no raw METAR for this view (TAF preview)</span>';
+    rawEl.innerHTML = '<span class="faint">no raw METAR at this time — conditions are forecast (TAF prevailing + model temp/pressure)</span>';
   }
 
   // condition cards
@@ -1331,7 +1614,7 @@ function renderInfo(c, meta) {
   $('cond-grid').innerHTML = cards.map(([h, big, small]) =>
     `<div class="card"><h3>${h}</h3><div class="big">${big}</div><div class="small">${small || ''}</div></div>`).join('');
 
-  updateDensity(c, meta.chipLabel);
+  updateDensity(c, meta.chipLabel, meta.atMs != null ? meta.atMs : null);
 }
 
 /* --------- pick what the scene shows (live obs or a preview) ------------ */
@@ -1345,6 +1628,7 @@ function resetTimeline() {
 
 function applyScene() {
   if (state.offsetMin) { setOffset(state.offsetMin, true); return; } // scrubbed view wins
+  lastScrubSig = ''; // any live/preview render invalidates the scrub panels
   const apt = stationOf(state.sel);
   const err = $('scene-err');
   if (state.preview) {
@@ -1594,9 +1878,11 @@ async function loadTafs() {
 
 async function loadAll() {
   $('update-time').textContent = 'updating…';
-  const st = stationOf(state.sel).metarStation;
-  delete state.history[st]; // refetch so the past 12 h stays current
-  await Promise.all([loadMetars(), loadTafs(), loadHistory(st)]);
+  const apt = stationOf(state.sel);
+  delete state.history[apt.metarStation]; // refetch so the past 12 h stays current
+  delete state.model[apt.id];
+  await Promise.all([loadMetars(), loadTafs(), loadHistory(apt.metarStation), loadModel(apt)]);
+  buildDensSeries();
   if (!state.preview) applyScene();
   renderTafs();
   $('update-time').textContent = `updated ${fmtTime(Date.now())}`;
@@ -1616,6 +1902,19 @@ document.addEventListener('DOMContentLoaded', () => {
   dens.canvas = $('dens-canvas');
   dens.ctx = dens.canvas.getContext('2d');
   new ResizeObserver(() => { dens.needResize = true; }).observe(dens.canvas);
+  dens.chart = $('dens-chart');
+  dens.chartCtx = dens.chart.getContext('2d');
+  const chartScrub = (ev) => {
+    const r = dens.chart.getBoundingClientRect();
+    const f = clamp((ev.clientX - r.left - 40) / (r.width - 40 - 8), 0, 1);
+    stopPlay();
+    setOffset(round((f * 1440 - 720) / 5) * 5);
+  };
+  let chartDrag = false;
+  dens.chart.addEventListener('pointerdown', (e) => { chartDrag = true; dens.chart.setPointerCapture(e.pointerId); chartScrub(e); });
+  dens.chart.addEventListener('pointermove', (e) => { if (chartDrag) chartScrub(e); });
+  dens.chart.addEventListener('pointerup', () => { chartDrag = false; });
+  drawDensChart(null);
   $('time-slider').addEventListener('input', () => { stopPlay(); setOffset(+$('time-slider').value); });
   $('play-btn').addEventListener('click', () => (state.playing ? stopPlay() : startPlay()));
   $('time-now-btn').addEventListener('click', () => { stopPlay(); setOffset(0); });
