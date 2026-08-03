@@ -786,6 +786,8 @@
       <span style="color:#8a94a0">proximity</span> = inside the thresholds.
       Uses the date/day/hour filters above. Tracks are simplified and interpolated, so
       distances are approximate — and aircraft without ADS-B are invisible here.
+      Targets with no registration (anonymized "~" hexes) are skipped — they are
+      usually TIS-B ghosts of an aircraft already tracked.
     </div>
 
     <div id="conflict-out" style="display:none">
@@ -881,6 +883,6 @@
   <script src="js/kanp-ops.js"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>
-  <script src="js/kanp-conflict.js"></script>
+  <script src="js/kanp-conflict.js?v=2"></script>
 </body>
 </html>

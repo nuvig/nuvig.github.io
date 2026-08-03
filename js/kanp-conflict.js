@@ -104,6 +104,10 @@ const KANPConflict = (() => {
   function prep(tracks) {
     const preps = [];
     for (const t of tracks) {
+      // Targets with no registration (anonymized '~'-prefixed TIS-B/ADS-R
+      // hexes) are usually ghost duplicates of an aircraft already in the
+      // data — pairing one against its own ghost fabricates a "near miss".
+      if (!t.reg) continue;
       const segs = [];
       let cur = null;
       for (const p of t.points || []) {
