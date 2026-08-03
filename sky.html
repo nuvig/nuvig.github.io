@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>METAR Sky — the current weather, drawn live</title>
+  <meta name="description" content="A live painting of the current METAR: sun, moon and stars in the right place, cloud decks at their reported bases, rain, snow, fog and lightning, a windsock showing the wind — plus a token-by-token METAR decoder and TAF timelines you can preview.">
+  <link rel="canonical" href="https://jesselevine.net/sky.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/sky.html">
+  <meta property="og:title" content="METAR Sky — the current weather, drawn live">
+  <meta property="og:description" content="A live painting of the current METAR: clouds at their reported bases, precipitation, fog, lightning, a windsock — plus a decoder and TAF previews.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #888; margin: 4px 0 16px; font-size: 14px; max-width: 720px; }
+
+    /* ---- station tabs + status ---- */
+    .top-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 10px; font-size: 13px; color: #888;
+    }
+    .st-tab {
+      background: #1a1a1a; border: 1px solid #333; color: #aaa;
+      padding: 5px 12px; border-radius: 6px; cursor: pointer;
+      font: inherit; font-size: 13px;
+    }
+    .st-tab:hover { border-color: #4a9eff; color: #ddd; }
+    .st-tab.sel { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .top-bar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .btn {
+      background: #333; color: #ddd; border: 1px solid #444;
+      font-size: 13px; padding: 5px 12px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #444; }
+
+    /* ---- the scene ---- */
+    #scene-wrap {
+      position: relative; border: 1px solid #333; border-radius: 12px;
+      overflow: hidden; background: #0a0f1e;
+    }
+    #scene { display: block; width: 100%; aspect-ratio: 21 / 9; }
+    @media (max-width: 640px) { #scene { aspect-ratio: 4 / 3; } }
+    .scene-chip {
+      position: absolute; top: 10px; left: 12px;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(10, 14, 24, 0.55); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+      padding: 5px 10px; font-size: 13px; color: #eee;
+    }
+    .scene-chip .icao { font-weight: 700; letter-spacing: 0.03em; }
+    .scene-chip .age { color: #9aa; font-size: 11px; }
+    .cat-chip {
+      display: inline-block; padding: 0 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #111;
+    }
+    #scene-temp {
+      position: absolute; top: 10px; right: 12px;
+      background: rgba(10, 14, 24, 0.55); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+      padding: 4px 12px; text-align: right; color: #fff;
+    }
+    #scene-temp .t { font-size: 22px; font-weight: 600; line-height: 1.15; }
+    #scene-temp .d { font-size: 11px; color: #aab; }
+    #preview-banner {
+      display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 10px; max-width: calc(100% - 24px);
+      background: rgba(29, 58, 95, 0.85); border: 1px solid #4a9eff; border-radius: 8px;
+      padding: 6px 12px; font-size: 13px; color: #cfe6ff;
+      display: none; align-items: center; gap: 10px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    #preview-banner button {
+      background: none; border: 1px solid #4a9eff; color: #cfe6ff;
+      border-radius: 5px; padding: 1px 8px; cursor: pointer; font-size: 12px; flex-shrink: 0;
+    }
+    #scene-err {
+      display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+      color: #888; font-size: 14px; text-align: center; padding: 20px;
+    }
+
+    #summary { font-size: 15px; color: #ddd; margin: 14px 2px 4px; line-height: 1.55; }
+    #summary .beacon-note { color: #f0c040; font-size: 13px; }
+
+    /* ---- decoder ---- */
+    .section-title {
+      font-size: 15px; font-weight: 600; color: #ccc;
+      margin: 26px 0 8px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .sub { font-weight: 400; font-size: 12px; color: #555; }
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin-bottom: 0;
+    }
+    #decode-raw { display: flex; flex-wrap: wrap; gap: 5px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+    .tok {
+      background: #222; border: 1px solid #383838; border-radius: 5px;
+      padding: 2px 7px; cursor: pointer; color: #ccc;
+    }
+    .tok:hover, .tok.sel { border-color: #4a9eff; color: #fff; }
+    .tok.rmk { color: #777; background: #1d1d1d; }
+    #tok-explain { margin-top: 10px; font-size: 13.5px; color: #9ec5f0; min-height: 1.4em; }
+    #tok-explain b { color: #cfe6ff; }
+
+    /* ---- condition cards ---- */
+    .cond-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 10px; margin-top: 10px;
+    }
+    .cond-grid .card { padding: 10px 14px; }
+    .cond-grid h3 {
+      margin: 0 0 4px; font-size: 11px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .cond-grid .big { font-size: 20px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+    .cond-grid .small { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.45; }
+
+    /* ---- TAF timelines ---- */
+    .taf-card { margin-top: 12px; }
+    .taf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .taf-head .icao { font-weight: 700; color: #ddd; }
+    .taf-head .iss { font-size: 12px; color: #666; }
+    .taf-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+    .taf-tile {
+      flex: 0 0 168px; background: #161616; border: 1px solid #333; border-radius: 8px;
+      padding: 6px; cursor: pointer; transition: border-color 0.15s;
+    }
+    .taf-tile:hover, .taf-tile.sel { border-color: #4a9eff; }
+    .taf-tile canvas { display: block; width: 100%; border-radius: 5px; }
+    .taf-tile .when { font-size: 11.5px; color: #aaa; margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+    .taf-tile .ind { color: #f0c040; font-weight: 600; font-size: 10px; }
+    .taf-tile .what { font-size: 11px; color: #777; margin-top: 2px; line-height: 1.4; word-break: break-word; }
+    .catdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .apt-err { color: #b66; font-size: 13px; }
+    .taf-hint { font-size: 12px; color: #555; margin: 6px 2px 0; }
+
+    /* ---- custom METAR ---- */
+    #custom-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    #custom-raw {
+      flex: 1 1 380px; background: #111; border: 1px solid #383838; color: #ddd;
+      border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+    }
+    #custom-raw:focus { outline: none; border-color: #4a9eff; }
+    #custom-err { color: #b66; font-size: 12.5px; margin-top: 6px; }
+    .examples { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .examples button {
+      background: #222; border: 1px solid #383838; color: #888; border-radius: 5px;
+      padding: 2px 9px; font-size: 12px; cursor: pointer;
+    }
+    .examples button:hover { border-color: #4a9eff; color: #ddd; }
+
+    footer { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>METAR Sky</h1>
+    <p class="subtitle">The current observation, drawn as a living scene — the sun and moon where they
+      really are, cloud decks at their reported bases, the precipitation and visibility the METAR calls,
+      and a windsock flying the actual wind. Click any code below the picture to decode it, or click a
+      TAF period to preview the forecast sky.</p>
+  </header>
+
+  <main>
+    <div class="top-bar">
+      <span id="station-tabs"></span>
+      <span class="right">
+        <span id="update-time" class="faint"></span>
+        <button class="btn" id="refresh-btn">↻ Refresh</button>
+      </span>
+    </div>
+
+    <div id="scene-wrap">
+      <canvas id="scene"></canvas>
+      <div class="scene-chip" id="scene-chip" style="display:none">
+        <span class="icao" id="chip-icao"></span>
+        <span class="cat-chip" id="chip-cat"></span>
+        <span class="age" id="chip-age"></span>
+      </div>
+      <div id="scene-temp" style="display:none">
+        <div class="t" id="temp-big"></div>
+        <div class="d" id="temp-sub"></div>
+      </div>
+      <div id="preview-banner"><span id="preview-label"></span><button id="preview-off">✕ back to now</button></div>
+      <div id="scene-err"></div>
+    </div>
+
+    <p id="summary"></p>
+
+    <div class="section-title">The raw METAR, decoded <span class="sub">click a code group</span></div>
+    <div class="card">
+      <div id="decode-raw"></div>
+      <div id="tok-explain">Click any group above to see what it means.</div>
+    </div>
+
+    <div class="section-title">Conditions</div>
+    <div class="cond-grid" id="cond-grid"></div>
+
+    <div class="section-title">TAF preview <span class="sub">click a period to draw that forecast in the scene · nearest TAF fields — KANP has no TAF</span></div>
+    <div id="tafs"></div>
+    <p class="taf-hint">FM = new prevailing conditions from that time. TEMPO / PROB tiles show the prevailing
+      forecast <i>with</i> the temporary conditions layered on.</p>
+
+    <div class="section-title">Draw any METAR</div>
+    <div class="card">
+      <div id="custom-row">
+        <input id="custom-raw" type="text" spellcheck="false"
+          placeholder="Paste any raw METAR — e.g. KOSH 271853Z 24012G22KT 3SM +TSRA BR BKN008CB OVC020 24/22 A2965">
+        <button class="btn" id="custom-btn">Draw it</button>
+      </div>
+      <div id="custom-err"></div>
+      <div class="examples" id="examples"></div>
+    </div>
+  </main>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation Tools</a>
+
+  <footer>
+    <p>Observations &amp; TAFs from the National Weather Service (api.weather.gov) · directions °true ·
+      © Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/sky.js?v=1"></script>
+</body>
+</html>
