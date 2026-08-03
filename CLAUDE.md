@@ -59,7 +59,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   `getTracks()` / `getStats()` data routing. Live polls every 3 s against the Pi (`PI_POLL_MS`,
   matching the collector) and every 60 s against snapshots (`POLL_MS`, which only change hourly).
   KANP = 38.9422, -76.5684, 60 nm radius (from `SITE.tracker`).
-- `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD overlays.
+- `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD
+  overlays, and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
+  left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
+  Live grid and Study grid don't set it).
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
   by airborne context before/after into arrival / departure / go-around, attributed to runway 12 or 30.
@@ -123,7 +126,11 @@ classified there, check all three.
 
 - `pi/` — Raspberry Pi backend, Python 3 **stdlib only** (`collector.py`, `server.py`, `exporter.py`,
   `trackutil.py`, `gitutil.py`, `atc.py`, `install.sh`, systemd units).
-  **The exporter must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
+  The collector tries the public feeds in order (adsb.lol → adsb.fi → airplanes.live) and
+  **treats an empty-but-200 response as a degraded feed, not empty sky** — it moves on to the next
+  feed and warns on a sustained all-feeds-empty run. Don't "simplify" that away: on 2026-08-01
+  adsb.lol served empty 200s for 11 h and the then-first-well-formed-wins logic silently lost the
+  data. **The exporter must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
   orphans the previous commit's blobs locally every run, and without pruning `.git` grows without
   bound (it hit 5.7 GB against 301 MB of data on the real Pi). Weather archiving used to live
   here (`wxarchive.py`) but moved to the wxarchive GitHub Action so the Pi stores no weather
@@ -137,10 +144,11 @@ classified there, check all three.
 
 ## Data flow (tracker)
 
-Pi is the sole pipeline: `collector.py` polls airplanes.live every 3 s → SQLite `/var/lib/kanp/kanp.db`
-→ `server.py` serves API + page on port 8787 (LAN HTTP): `/api/status`, `/api/tracks`, `/api/stats`,
-`/api/aircraft`, `/api/export.csv`, `/api/site-traffic`, `/api/atc/*`. `exporter.py` (hourly systemd
-timer) pushes simplified per-day JSON snapshots to the **`traffic-data` branch** (single amended commit;
+Pi is the sole pipeline: `collector.py` polls the public ADS-B feeds every 3 s → SQLite
+`/var/lib/kanp/kanp.db` → `server.py` serves API + page on port 8787 (LAN HTTP): `/api/status`,
+`/api/tracks`, `/api/stats`, `/api/aircraft`, `/api/export.csv`, `/api/site-traffic`, `/api/atc/*`.
+`exporter.py` (systemd timer — hourly in the repo unit, but the real Pi runs it every 15 min via a
+local `override.conf` drop-in) pushes simplified per-day JSON snapshots to the **`traffic-data` branch** (single amended commit;
 `tracks/index.json` lists days). Track simplification is Douglas-Peucker in a local tangent plane
 (`pi/trackutil.py`), shared by the exporter and the API; point tuples are
 `[ts, lat, lon, alt, gs, on_ground]` everywhere.

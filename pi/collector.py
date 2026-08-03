@@ -146,6 +146,7 @@ def fetch_aircraft():
         return data.get("ac") or data.get("aircraft") or []
 
     last_err = None
+    empty = None
     for url in API_FEEDS:
         try:
             data = _fetch_json(url)
@@ -153,8 +154,19 @@ def fetch_aircraft():
             last_err = e
             continue
         if "ac" in data or "aircraft" in data:
-            return data.get("ac") or data.get("aircraft") or []
-        last_err = ValueError(f"{url}: no ac/aircraft key in response")
+            ac = data.get("ac") or data.get("aircraft") or []
+            if ac:
+                return ac
+            # A well-formed 200 with zero aircraft is almost certainly a
+            # degraded feed, not empty sky — 60 nm around KANP includes BWI
+            # and DCA. Keep trying the other feeds before believing it
+            # (2026-08-01: adsb.lol served empty 200s for 11 h and masked
+            # the healthy feeds behind it).
+            empty = ac
+        else:
+            last_err = ValueError(f"{url}: no ac/aircraft key in response")
+    if empty is not None:
+        return empty
     raise last_err or RuntimeError("no ADS-B feed reachable")
 
 
@@ -281,6 +293,7 @@ def main():
 
     last_prune = 0
     errors = 0
+    empty_polls = 0
     while running:
         started = time.time()
         now = int(started)
@@ -288,6 +301,18 @@ def main():
             aircraft = fetch_aircraft()
             n = store(db, aircraft, now)
             errors = 0
+            # Empty sky never actually happens here (BWI/DCA are in radius) —
+            # a sustained run of empty 200s means every feed is degraded, and
+            # it must not stay silent (it left no journal trace on 2026-08-01).
+            if aircraft:
+                if empty_polls >= 20:
+                    log.info("aircraft data resumed after %d empty polls", empty_polls)
+                empty_polls = 0
+            else:
+                empty_polls += 1
+                if empty_polls == 20 or empty_polls % 1200 == 0:
+                    log.warning("all feeds returning empty responses (%d polls in a row)",
+                                empty_polls)
             log.debug("stored %d/%d aircraft", n, len(aircraft))
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
                 ConnectionError, json.JSONDecodeError) as e:

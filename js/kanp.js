@@ -577,6 +577,28 @@ KANP.renderGrid = function (canvas, grid, opts = {}) {
     const label = h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`;
     ctx.fillText(label, PAD_L + h * cellW + cellW / 2, PAD_T + 7 * cellH + 5);
   });
+
+  // Trailing-window grids (opts.now): only today's row mixes ages — left of
+  // the current time is fresh, right of it is the same weekday a week ago.
+  // Draw a "now" line at that boundary in today's row.
+  if (opts.now) {
+    const t = new Date();
+    const d = (t.getDay() + 6) % 7;
+    const x = PAD_L + (t.getHours() + t.getMinutes() / 60) * cellW;
+    const y = PAD_T + d * cellH;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 2);
+    ctx.lineTo(x, y + cellH + 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px sans-serif';
+    ctx.textBaseline = 'middle';
+    const right = t.getHours() < 12;         // put the label where there's room
+    ctx.textAlign = right ? 'left' : 'right';
+    ctx.fillText('now', x + (right ? 4 : -4), y + cellH / 2);
+  }
 };
 
 // Hover a heat-grid cell → floating tooltip with the day, hour and value.
@@ -701,7 +723,8 @@ KANP.initHeatPanel = function (cfg) {
     empty.style.display = 'none';
     canvas.style.display = 'block';
     label.textContent = d.label;
-    KANP.renderGrid(canvas, d.grid, { unit: KANP.HEAT_METRICS[metric].unit });
+    KANP.renderGrid(canvas, d.grid,
+      { unit: KANP.HEAT_METRICS[metric].unit, now: cfg.markNow });
   };
 
   const select = async btn => {

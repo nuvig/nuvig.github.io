@@ -204,7 +204,7 @@ const KANPHistory = (() => {
       labelId: 'hist-grid-label', titleId: 'hist-grid-title',
       titleAll: 'Past 7 days', titleGa: 'Past 7 days, GA traffic',
       titleKanp: 'Past 7 days, KANP traffic only',
-      range: weekRange,
+      range: weekRange, markNow: true,
     });
     try {
       const { start, end } = weekRange();

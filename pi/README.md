@@ -17,12 +17,19 @@ starts two services:
 
 | service | what it does |
 |---|---|
-| `kanp-collector` | polls airplanes.live every 3 s, writes `/var/lib/kanp/kanp.db` |
+| `kanp-collector` | polls the public ADS-B feeds (adsb.lol → adsb.fi → airplanes.live, first non-empty answer wins) every 3 s, writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
 Then open `http://<pi-ip>:8787/` — the tracker served from the Pi itself,
 with the History Map and Traffic Study tabs talking to the local database.
+
+A feed answering HTTP 200 with an *empty* aircraft list is treated as
+degraded, not as empty sky (60 nm around KANP always contains BWI/DCA
+traffic), and the next feed is tried; a sustained all-feeds-empty run is
+logged to the journal. Both behaviors exist because on 2026-08-01 adsb.lol
+served empty 200s for 11 hours and silently masked the healthy feeds —
+11 hours of data lost with no journal trace.
 
 To update later: `git pull && sudo bash pi/install.sh`.
 
