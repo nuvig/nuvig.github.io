@@ -87,6 +87,21 @@
       color: #888; font-size: 14px; text-align: center; padding: 20px;
     }
 
+    /* ---- ±12 h timeline ---- */
+    #time-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-top: 10px; padding: 8px 12px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      font-size: 13px; color: #888;
+    }
+    #play-btn { min-width: 40px; }
+    #time-slider { flex: 1 1 220px; accent-color: #4a9eff; height: 18px; }
+    #time-label { color: #ddd; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #time-label b { color: #fff; }
+    #time-src { font-size: 11.5px; color: #556; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    #time-now-btn { display: none; }
+    .tick-row { display: flex; justify-content: space-between; width: 100%; font-size: 10px; color: #444; margin-top: -6px; padding: 0 2px; }
+
     #summary { font-size: 15px; color: #ddd; margin: 14px 2px 4px; line-height: 1.55; }
     #summary .beacon-note { color: #f0c040; font-size: 13px; }
 
@@ -123,6 +138,17 @@
     }
     .cond-grid .big { font-size: 20px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
     .cond-grid .small { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.45; }
+
+    /* ---- density module ---- */
+    #dens-flex { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
+    #dens-canvas { flex: 1 1 420px; min-width: 260px; height: 230px; border-radius: 8px; }
+    #dens-read { flex: 0 1 250px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+    .dkv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 2px 0; }
+    .dkv .k { color: #777; }
+    .dkv .v { color: #ddd; font-variant-numeric: tabular-nums; text-align: right; }
+    .dkv .v.warn { color: #f59e0b; }
+    #dens-verdict { font-size: 12.5px; color: #9ec5f0; margin-top: 8px; line-height: 1.5; }
+    #dens-note { font-size: 11.5px; color: #555; margin-top: 10px; line-height: 1.5; }
 
     /* ---- TAF timelines ---- */
     .taf-card { margin-top: 12px; }
@@ -167,8 +193,9 @@
     <h1>METAR Sky</h1>
     <p class="subtitle">The current observation, drawn as a living scene — the sun and moon where they
       really are, cloud decks at their reported bases, the precipitation and visibility the METAR calls,
-      and a windsock flying the actual wind. Click any code below the picture to decode it, or click a
-      TAF period to preview the forecast sky.</p>
+      and a windsock flying the actual wind. Drag or play the timeline to sweep ±12 hours (real past
+      observations behind you, the nearest TAF ahead), click any code below the picture to decode it,
+      and watch the air-molecule chamber thin out as the day heats up.</p>
   </header>
 
   <main>
@@ -195,6 +222,15 @@
       <div id="scene-err"></div>
     </div>
 
+    <div id="time-bar">
+      <button class="btn" id="play-btn" title="sweep the scene from −12 h to +12 h">▶ Play</button>
+      <input type="range" id="time-slider" min="-720" max="720" step="5" value="0"
+        aria-label="time offset, minutes from now">
+      <span id="time-label"><b>now</b></span>
+      <button class="btn" id="time-now-btn">● live</button>
+      <span id="time-src"></span>
+    </div>
+
     <p id="summary"></p>
 
     <div class="section-title">The raw METAR, decoded <span class="sub">click a code group</span></div>
@@ -205,6 +241,20 @@
 
     <div class="section-title">Conditions</div>
     <div class="cond-grid" id="cond-grid"></div>
+
+    <div class="section-title">The air itself <span class="sub">what the wing, prop and engine are actually working with</span></div>
+    <div class="card">
+      <div id="dens-flex">
+        <canvas id="dens-canvas"></canvas>
+        <div id="dens-read"></div>
+      </div>
+      <div id="dens-verdict"></div>
+      <div id="dens-note">Each dot is an air molecule — sort of. A real cubic meter holds ~2.5 × 10²⁵ of them, and
+        today's count differs from a standard day by only a few percent, so the difference in dots is drawn
+        <b>≈8× exaggerated</b> to make it visible. Dot speed scales with temperature (that part is real physics:
+        warmer molecules move faster, spread out, and leave fewer of them inside your wing's span and your
+        cylinders' intake stroke). Density falls → lift, thrust and horsepower fall with it.</div>
+    </div>
 
     <div class="section-title">TAF preview <span class="sub">click a period to draw that forecast in the scene · nearest TAF fields — KANP has no TAF</span></div>
     <div id="tafs"></div>
@@ -231,6 +281,6 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/sky.js?v=1"></script>
+  <script src="js/sky.js?v=2"></script>
 </body>
 </html>
