@@ -118,9 +118,14 @@ classified there, check all three.
   Open-Meteo GFS grid — air-mass fill, isobars/H-L, fronts detected from 850 hPa temp gradients
   signed by advection, wind particles, RainViewer radar at "now" / model precip at other hours,
   and a rule-based precip-cause diagnosis at DC; the LWX AFD reader with jargon tooltips; a
-  change log that word-diffs successive AFD issuances plus a forecast-drift card; and a
+  change log that word-diffs successive AFD issuances (every entry collapsed on load) plus a
+  forecast-drift card; and a
   verification card comparing the morning forecast against KDCA METARs, explaining busts from
-  the hindcast (CAPE/CIN, front position). History (change-log depth, drift/verification
+  the hindcast (CAPE/CIN, front position). The drift card is a 7-day strip centered on today
+  (`DRIFT_SPAN`): behind today it verifies — archived METAR high, plus the overnight low read
+  from the **next** day's pre-09:00 obs, since the NWS "low" for day D is D+1's minimum —
+  against the first forecast snapshot archived that morning; today and ahead it diffs the live
+  forecast against the baseline snapshot. History (change-log depth, drift/verification
   baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
   while the archive is empty. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
