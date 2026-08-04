@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DC Forecast Discussion — air masses, fronts &amp; the reasoning behind the forecast</title>
-  <meta name="description" content="The NWS Baltimore/Washington forecast discussion for the DC area, decoded: a live synoptic map of air masses, fronts and pressure systems, plus a change log showing how the forecast — and the forecasters' reasoning — evolved between issuances.">
+  <meta name="description" content="The NWS Baltimore/Washington forecast discussion for the DC area, decoded: a headline that says what the big story is, a live synoptic map of air masses, fronts and pressure systems, plus a change log showing how the forecast — and the forecasters' reasoning — evolved between issuances.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -72,6 +72,61 @@
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
       padding: 14px 16px; margin-bottom: 0;
     }
+
+    /* ---- the big story (headline card) ---- */
+    .headline {
+      position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #1b2330 0%, #191d22 55%, #1a1a1a 100%);
+      border: 1px solid #34435c; border-radius: 10px;
+      padding: 14px 18px 15px; margin-bottom: 10px;
+    }
+    .headline::before {
+      content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+      background: linear-gradient(90deg, #4a9eff, #7c5cff 48%, #f59e0b);
+    }
+    .hl-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 9px; }
+    .hl-kick {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #4a9eff;
+    }
+    .hl-kick.red   { color: #ff8f8f; }
+    .hl-kick.amber { color: #f5c168; }
+    .hl-stamp { font-size: 11px; color: #5a6570; margin-left: auto; }
+    .hl-title {
+      margin: 0; font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(21px, 3.6vw, 29px); line-height: 1.16; font-weight: 700;
+      color: #f2f5f8; letter-spacing: -0.005em;
+    }
+    .hl-deck { margin: 9px 0 0; font-size: 14px; line-height: 1.6; color: #a3b0bd; max-width: 70ch; }
+    .hl-alert {
+      display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
+      border: 1px solid; border-radius: 6px; padding: 4px 10px; margin: 0 6px 9px 0;
+    }
+    .hl-alert.red   { border-color: #7f2b2b; color: #ffb4b4; background: #2a1616; }
+    .hl-alert.amber { border-color: #7a5a1c; color: #f7cf88; background: #251e12; }
+    .hl-alert .win { color: #98a3ae; }
+    .hl-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+      gap: 8px; margin-top: 14px;
+    }
+    .hl-stat { background: #14191f; border: 1px solid #263039; border-radius: 6px; padding: 7px 10px; }
+    .hl-stat .lab {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: #6d7d8c;
+    }
+    .hl-stat .val { font-size: 18px; color: #e6ecf2; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .hl-stat .sub { font-size: 11px; color: #64717d; margin-top: 1px; }
+    .hl-more { margin-top: 13px; display: flex; flex-direction: column; gap: 6px; }
+    .hl-more:empty { display: none; }
+    .hl-more .item { font-size: 12.5px; color: #8b96a1; line-height: 1.55; }
+    .hl-more .item b { color: #c8d1da; font-weight: 600; }
+    .hl-more .tag {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #6f8296; border: 1px solid #2c3946;
+      border-radius: 4px; padding: 1px 5px; margin-right: 7px; vertical-align: 1px;
+      text-decoration: none; white-space: nowrap;
+    }
+    .hl-more a.tag:hover { color: #cfe6ff; border-color: #4a9eff; }
     .muted { color: #888; }
     .faint { color: #555; }
     .num-mono { font-variant-numeric: tabular-nums; }
@@ -216,7 +271,7 @@
 
   <h1>DC Forecast Discussion</h1>
   <p class="subtitle">
-    Every forecast is a story. This page follows DC's through all four acts ·
+    Every forecast is a story. Here's DC's — the headline first, then all four acts ·
     <a href="/weather.html">weather hub →</a> ·
     <a href="/skew-t.html">skew-t →</a>
   </p>
@@ -233,6 +288,20 @@
     <span class="faint" id="status-check"></span>
     <button class="btn secondary" id="refresh-btn" style="margin-left:auto">Refresh now</button>
   </div>
+
+  <!-- ============ THE BIG STORY ============ -->
+  <section class="headline" id="headline" aria-live="polite">
+    <div class="hl-head">
+      <span class="hl-kick" id="hl-kick">The big story</span>
+      <span class="hl-stamp" id="hl-stamp"></span>
+    </div>
+    <div id="hl-alerts"></div>
+    <h2 class="hl-title" id="hl-title">Reading the pattern…</h2>
+    <p class="hl-deck" id="hl-deck">Pulling the model grid, the NWS forecast and the latest discussion
+      together to work out what today's one thing is.</p>
+    <div class="hl-stats" id="hl-stats"></div>
+    <div class="hl-more" id="hl-more"></div>
+  </section>
 
   <!-- ============ ACT I — SYNOPTIC MAP ============ -->
   <div class="chapter" id="setup">
@@ -329,6 +398,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=5"></script>
+  <script src="js/discussion.js?v=6"></script>
 </body>
 </html>

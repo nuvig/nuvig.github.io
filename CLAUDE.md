@@ -106,8 +106,15 @@ classified there, check all three.
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,
   TAFs, radar. See the hard constraints section below.
-- `discussion.html` + `js/discussion.js` — DC Forecast Discussion, laid out as a four-act story
-  (I setup / II reasoning / III revisions / IV verdict): a synoptic canvas built from an
+- `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
+  ("the big story") and then laid out as a four-act story
+  (I setup / II reasoning / III revisions / IV verdict). The headline engine scores candidate
+  stories — active NWS alerts, convection, a frontal passage, a rain episode, heat, cold, wind,
+  fog, a quiet pattern — off the same sources the acts use (`buildStories()`; alerts come from
+  `api.weather.gov/alerts/active`, everything else is derived at DC from the GFS grid and the NWS
+  daily forecast). Highest score leads, the rest become the "also" lines, and it degrades source by
+  source: no grid → forecast + alerts, no NWS → model only, nothing → the AFD's own KEY MESSAGES.
+  Below it: a synoptic canvas built from an
   Open-Meteo GFS grid — air-mass fill, isobars/H-L, fronts detected from 850 hPa temp gradients
   signed by advection, wind particles, RainViewer radar at "now" / model precip at other hours,
   and a rule-based precip-cause diagnosis at DC; the LWX AFD reader with jargon tooltips; a
