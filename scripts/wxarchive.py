@@ -66,7 +66,12 @@ TAF_STATIONS = [s for s in os.environ.get("WX_TAFS", "KMTN,KBWI,KDCA").split(","
 GRID_HOURS = int(os.environ.get("WX_GRID_HOURS", "48"))
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 # Keep at most ~9 forecast snapshots/day: skip if the last one is fresher.
-SNAP_GAP_S = int(os.environ.get("WX_SNAP_GAP_S", "9000"))  # 2.5 h
+# Minimum spacing between kept snapshots. GitHub's scheduler is best-effort:
+# measured over 68 h this workflow's hourly cron actually fired every ~2.4 h
+# (29 of ~68 runs; worst gap 4.3 h). A throttle near that cadence threw away
+# runs we did get, so keep it well under it — the binding constraint is how
+# often Actions runs us, not how often we are willing to write.
+SNAP_GAP_S = int(os.environ.get("WX_SNAP_GAP_S", "2400"))  # 40 min
 
 
 def log(msg):
