@@ -128,6 +128,36 @@
     }
     .hl-stat .val { font-size: 18px; color: #e6ecf2; font-variant-numeric: tabular-nums; margin-top: 2px; }
     .hl-stat .sub { font-size: 11px; color: #64717d; margin-top: 1px; }
+    /* the office's own "what changed", and a per-day outlook that is never
+       silent about a day — silence reads as "threat gone" */
+    .hl-changed {
+      margin-top: 12px; padding: 8px 11px; font-size: 13px; line-height: 1.55;
+      color: #cbd5de; background: #1a2029; border-left: 2px solid #f59e0b; border-radius: 0 5px 5px 0;
+    }
+    .hl-changed:empty { display: none; }
+    .hl-changed .lab {
+      display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #d3a04a; margin-bottom: 3px;
+    }
+    .hl-changed .more-link { color: #4a9eff; text-decoration: none; white-space: nowrap; }
+    .hl-changed .more-link:hover { text-decoration: underline; }
+    .hl-outlook { margin-top: 12px; }
+    .hl-outlook:empty { display: none; }
+    .ol-head {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #6d7d8c; margin-bottom: 5px;
+    }
+    .ol-row {
+      display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+      font-size: 12.5px; padding: 4px 0; border-top: 1px solid #232a33;
+    }
+    .ol-row .d { width: 78px; flex-shrink: 0; color: #d5dde5; font-weight: 600; }
+    .ol-row .w { color: #b3bec8; flex: 1 1 200px; }
+    .ol-row .chg { color: #6f7a85; font-size: 11.5px; }
+    .ol-row.same .chg { color: #5f8a6d; }
+    .ol-row.moved .chg { color: #d3a04a; }
+    .ol-row.flip { background: #241d12; margin: 0 -8px; padding: 5px 8px; border-radius: 4px; }
+    .ol-row.flip .chg { color: #f5b942; font-weight: 600; }
     .hl-more { margin-top: 13px; display: flex; flex-direction: column; gap: 6px; }
     .hl-more:empty { display: none; }
     .hl-more .item { font-size: 12.5px; color: #8b96a1; line-height: 1.55; }
@@ -273,6 +303,8 @@
     .drift-row .nums { color: #b9c3cc; }
     .drift-row .nums b { color: #e4eaf0; font-weight: 600; }
     .drift-row .cmp { color: #7c8792; }
+    .drift-row .wx { color: #93a2b1; }
+    .drift-row.today .wx { color: #cfdae4; }
     .drift-row .up { color: #f59e0b; }
     .drift-row .down { color: #4a9eff; }
     /* past days are settled history — muted; today is the one you're standing on */
@@ -327,7 +359,9 @@
     <h2 class="hl-title" id="hl-title">Reading the pattern…</h2>
     <p class="hl-deck" id="hl-deck">Pulling the model grid, the NWS forecast and the latest discussion
       together to work out what today's one thing is.</p>
+    <div class="hl-changed" id="hl-changed"></div>
     <div class="hl-stats" id="hl-stats"></div>
+    <div class="hl-outlook" id="hl-outlook"></div>
     <div class="hl-more" id="hl-more"></div>
   </section>
 
@@ -437,6 +471,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=7"></script>
+  <script src="js/discussion.js?v=8"></script>
 </body>
 </html>

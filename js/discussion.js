@@ -580,7 +580,10 @@ function driftCell(date, base, cur) {
   if (!c) return { nums: '', cmp: '<span class="faint">beyond the forecast window</span>' };
   const nums = `${c.hi != null ? `high <b>${c.hi}°</b>` : ''}` +
     `${c.hi != null && c.lo != null ? ' · ' : ''}${c.lo != null ? `low ${c.lo}°` : ''}` +
-    `${c.pop != null ? ` · ${c.pop}%` : ''}`;
+    `${c.pop != null ? ` · ${c.pop}%` : ''}` +
+    // the wording matters more than the numbers for a go/no-go — "unchanged"
+    // next to a bare 64% never says the 64% is thunderstorms
+    `${c.short ? ` · <span class="wx">${esc(c.short)}</span>` : ''}`;
   const b = base && base.days[date];
   if (!b) return { nums, cmp: '<span class="faint">no earlier forecast to compare</span>', c, b: null };
   const bits = [];
@@ -2165,6 +2168,70 @@ function afdKeyMessages() {
   return list.slice(0, 2).map((t) => (t.length > 190 ? t.slice(0, 187).replace(/\s\S*$/, '') + '…' : t));
 }
 
+/* ---------------- what's moved since the morning forecast ---------------- */
+/* A go/no-go gets made in the morning and lived with all day. These two
+   functions exist so the card can never go quiet about a day it mentioned
+   earlier: silence reads as "threat's gone", which is exactly the wrong
+   message when the forecast hasn't budged. */
+
+const CONVECTIVE = /thunder|t-?storm/i;
+
+/* The forecast as it stood at the start of today — the version a morning
+   decision was made against. */
+function morningSnap() {
+  const snaps = (ARC.todayFc && ARC.todayFc.snaps) || [];
+  return snaps.length ? { at: snaps[0].t * 1000, days: snaps[0].days || {} } : null;
+}
+
+/* Today + the next two days, each with the forecast wording and whether it
+   has moved since that morning snapshot. Never returns "nothing to say". */
+function outlook(n = 3) {
+  const today = localDay(Date.now());
+  const m = morningSnap();
+  const when = m ? fmtTime(new Date(m.at), { hour: 'numeric', minute: '2-digit' }) : '';
+  const rows = [];
+  for (let k = 0; k < n; k++) {
+    const date = shiftDay(today, k);
+    const c = (FC.days && FC.days[date]) || null;
+    if (!c) continue;
+    const b = m ? m.days[date] : null;
+    const row = { date, k, c, state: 'nobase', note: 'no morning forecast archived to compare' };
+    if (b) {
+      const wasT = CONVECTIVE.test(b.short || ''), isT = CONVECTIVE.test(c.short || '');
+      const dPop = (c.pop != null && b.pop != null) ? c.pop - b.pop : 0;
+      if (wasT !== isT) {
+        row.state = 'flip';
+        row.note = isT
+          ? `storms added since ${when} — they weren't in the morning forecast`
+          : `storms dropped since ${when} — the morning forecast had “${b.short}”`;
+      } else if (c.short && b.short && c.short !== b.short) {
+        row.state = 'moved';
+        row.note = `was “${b.short}”${b.pop != null ? ` ${b.pop}%` : ''} at ${when}`;
+      } else if (Math.abs(dPop) >= 15) {
+        row.state = 'moved';
+        row.note = `chance was ${b.pop}% at ${when}`;
+      } else {
+        row.state = 'same';
+        row.note = `unchanged since ${when}`;
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* The office's own account of what moved — the honest answer to "why is this
+   different from this morning?". */
+function afdWhatChanged() {
+  const secs = AFD.parsed.get(AFD.newestId) || [];
+  const s = secs.find((x) => /^(WHAT HAS CHANGED|UPDATE)/.test(x.name));
+  if (!s) return null;
+  const t = normText(s.body);
+  const m = t.match(/^(?:.*?[.!?](?=\s|$)\s*){1,2}/);
+  const out = (m ? m[0] : t).trim();
+  return out.length > 300 ? out.slice(0, 297).replace(/\s\S*$/, '') + '…' : out;
+}
+
 function firstSentence(t, max = 175) {
   const m = String(t).match(/^.*?[.!?](?=\s|$)/);
   let out = m ? m[0] : String(t);
@@ -2201,6 +2268,24 @@ function renderHeadline(lead, tiles, extras) {
   $('hl-stats').innerHTML = tiles.map((t) =>
     `<div class="hl-stat"><div class="lab">${esc(t.lab)}</div><div class="val">${esc(t.val)}</div>` +
     `${t.sub ? `<div class="sub">${esc(t.sub)}</div>` : ''}</div>`).join('');
+
+  const changed = afdWhatChanged();
+  $('hl-changed').innerHTML = changed
+    ? `<span class="lab">What the office says changed</span>${esc(changed)} ` +
+      `<a class="more-link" href="#reasoning">read the discussion ↓</a>`
+    : '';
+
+  const days = outlook();
+  $('hl-outlook').innerHTML = days.length
+    ? `<div class="ol-head">Planning days — and whether they've moved since this morning</div>` +
+      days.map((r) => {
+        const label = r.k === 0 ? 'Today' : r.k === 1 ? 'Tomorrow'
+          : fmtTime(new Date(r.date + 'T12:00:00'), { weekday: 'long' });
+        const wx = `${r.c.short || '—'}${r.c.pop != null ? ` · ${r.c.pop}%` : ''}`;
+        return `<div class="ol-row ${esc(r.state)}"><span class="d">${esc(label)}</span>` +
+          `<span class="w">${esc(wx)}</span><span class="chg">${esc(r.note)}</span></div>`;
+      }).join('')
+    : '';
 
   $('hl-more').innerHTML = extras.map((x) => {
     const tag = x.href
