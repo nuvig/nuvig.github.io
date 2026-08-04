@@ -139,10 +139,13 @@ classified there, check all three.
   baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
   while the archive is empty. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
-- `js/discussion-avn.js` — the aviation layer on `discussion.html`: the three TAFs around KANP
-  (KMTN/KBWI/KDCA — **KANP has no TAF**), the NWS hourly grid at the field, and "what moved in the
-  TAF and why". TAFs are IWXXM XML via DOMParser exactly as `weather.js` does them (visibility
-  decoded from the fixed SM table, never by dividing by 1609). The change comparison needs no
+- `js/discussion-avn.js` — the aviation layer on `discussion.html`: the NWS hourly grid at the
+  field (with a "vs this morning" column from the archive) and "what moved in the TAF and why".
+  **TAFs are fetched but deliberately not displayed** — `weather.html` already decodes them and a
+  second decoder here only crowded Act II; they exist here as the evidence behind the change
+  block. KANP has no TAF, so the terminals watched are KMTN/KBWI/KDCA. IWXXM XML via DOMParser
+  exactly as `weather.js` does it (visibility decoded from the fixed SM table, never by dividing
+  by 1609). The change comparison needs no
   archive: `/stations/{id}/tafs` returns a *collection*, so `loadTafPair()` diffs the newest
   issuance against the oldest one still on the wire from today. Both issuances are flattened to
   one entry per hour before diffing — change groups never line up otherwise. The "why" (

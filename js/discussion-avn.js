@@ -1,13 +1,13 @@
 /* Aviation layer for discussion.html
    ---------------------------------------------------------------------------
-   The AFD is prose and the model is fields; neither is what you brief a flight
-   from. This module adds the two products that are — the TAFs around KANP and
-   the NWS hourly grid at the field — and, when a TAF moves between issuances,
-   the atmospheric reason it moved, read off the same GFS grid the synoptic map
-   already loaded.
+   Two things: the NWS hourly grid at the field (the go/no-go table, with a
+   column comparing each hour against this morning's archived snapshot), and —
+   when a TAF moves between issuances — the atmospheric reason it moved.
 
-   KANP has no TAF of its own (see CLAUDE.md), so the terminals shown are the
-   three that do: KMTN, KBWI, KDCA. Loaded after discussion.js and uses its
+   The TAFs are fetched but deliberately NOT displayed: weather.html already
+   decodes them, and a second decoder here only crowded the discussion. They
+   are here as evidence, to detect the change. KANP has no TAF of its own, so
+   the terminals watched are KMTN/KBWI/KDCA. Loaded after discussion.js, uses its
    globals: fetchJSON, esc, fmtTime, $, NWS, TZ, SITE, plus syn/gridXY/
    baseField/pointAt for the model read. All directions °true. */
 
@@ -237,41 +237,27 @@ function modelAt(ms) {
    clause is tied to a number the model actually carries. */
 function whyThunder(ms, gone) {
   const m = modelAt(ms);
-  if (!m) return 'The GFS window this page loads does not reach that hour, so there is no model read to offer.';
+  if (!m) return 'That hour is outside the GFS window this page loads.';
   const cap = m.cin == null ? null : Math.abs(m.cin);
   const hr = +new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false })
     .format(new Date(ms));
-  const bits = [];
-
-  if (gone) {
-    if (m.cape < 300) {
-      bits.push(`CAPE at the field is only ~${Math.round(m.cape / 50) * 50} J/kg at that hour — ` +
-        'the lift is still there but there is no buoyancy left to turn it into a storm, so it falls out as rain.');
-    } else if (cap != null && cap >= 75) {
-      bits.push(`Fuel without a way in: ~${Math.round(m.cape / 100) * 100} J/kg of CAPE under about ` +
-        `${Math.round(cap / 10) * 10} J/kg of inhibition (DC point sounding). Nothing gets a surface parcel to its LFC.`);
-    } else {
-      bits.push(`CAPE runs ~${Math.round(m.cape / 100) * 100} J/kg with little inhibition, so the ingredients ` +
-        'are marginal rather than absent — this is a confidence call, not a clean no.');
-    }
-    if (hr <= 11 || hr >= 22) {
-      bits.push('Overnight storms here are elevated — they ride the low-level jet up over the frontal surface ' +
-        'and decay as it weakens toward dawn, which is when a TS group usually comes out of the TAF.');
-    }
-    if (m.precip >= 0.2) {
-      bits.push(`The rain itself does not go away: the model still has ~${m.precip.toFixed(1)} mm/hr at that hour.`);
-    }
-  } else {
-    bits.push(`CAPE builds to ~${Math.round(m.cape / 100) * 100} J/kg` +
-      `${cap != null ? ` against only ~${Math.round(cap / 10) * 10} J/kg of inhibition` : ''} — ` +
-      'enough for surface parcels to reach their level of free convection.');
-    if (m.precip >= 0.2) bits.push(`Model precip at the field is ~${m.precip.toFixed(1)} mm/hr in the same hour.`);
+  const night = hr <= 11 || hr >= 22;
+  if (!gone) {
+    return `CAPE builds to ~${Math.round(m.cape / 100) * 100} J/kg` +
+      `${cap != null ? ` against ~${Math.round(cap / 10) * 10} J/kg of inhibition` : ''}.`;
   }
-  if (m.spread <= 1.5) {
-    bits.push(`The column is saturated (spread ${Math.max(0, Math.round(m.spread * 9 / 5))}°F), ` +
-      'so ceilings are the binding constraint either way.');
+  if (m.cape < 300) {
+    return `CAPE only ~${Math.round(m.cape / 50) * 50} J/kg by then — ` +
+      (night
+        ? 'elevated overnight storms decay as the low-level jet weakens toward dawn, so the lift stays and the buoyancy goes.'
+        : 'the lift stays, the buoyancy goes, and it falls out as rain.');
   }
-  return bits.join(' ');
+  if (cap != null && cap >= 75) {
+    return `~${Math.round(m.cape / 100) * 100} J/kg of CAPE under ~${Math.round(cap / 10) * 10} J/kg ` +
+      'of inhibition (DC point sounding) — capped.';
+  }
+  return `~${Math.round(m.cape / 100) * 100} J/kg of CAPE with little inhibition — marginal, so a ` +
+    'confidence call rather than a clean no.';
 }
 
 /* ------------------------------ rendering -------------------------------- */
@@ -281,33 +267,6 @@ const fmtCeil = (ft) => (ft == null ? '—' : `${Math.round(ft / 100) * 100}′`
 const fmtVisSM = (v) => (v == null ? '—' : v >= 6 ? 'P6' : v < 1 ? v.toFixed(2).replace(/0$/, '') : String(Math.round(v * 2) / 2));
 const hourLbl = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
 
-function renderTafs() {
-  const host = $('avn-tafs');
-  host.innerHTML = AVN.stations.map((st) => {
-    const rec = AVN.tafs[st.id];
-    if (!rec || rec.err) {
-      return `<div class="taf-card"><div class="taf-head"><b>${esc(st.id)}</b></div>` +
-        `<div class="faint">${esc((rec && rec.err) || 'no TAF')}</div></div>`;
-    }
-    const rows = rec.cur.periods.map((p) => {
-      const ceil = ceilingOf(p), cat = category(ceil, p.visSM);
-      const wind = p.windKt == null ? 'calm'
-        : `${String(Math.round((p.windDir || 0) / 10) * 10).padStart(3, '0')}°${p.windKt}` +
-          `${p.gustKt ? `G${p.gustKt}` : ''}kt`;
-      return `<div class="taf-row"><span class="ind">${esc(p.indicator)}</span>` +
-        `<span class="when">${esc(hourLbl(p.begin))}–${esc(hourLbl(p.end))}</span>` +
-        `<span class="cat ${catClass(cat)}">${cat}</span>` +
-        `<span class="det">${esc(fmtCeil(ceil))} · ${esc(fmtVisSM(p.visSM))}SM · ${esc(wind)}` +
-        `${p.wx.length ? ` · <b>${esc(p.wx.join(' '))}</b>` : ''}</span></div>`;
-    }).join('');
-    return `<div class="taf-card"><div class="taf-head"><b>${esc(st.id)}</b>` +
-      `<span class="faint">${esc(st.label)} · issued ${esc(fmtTime(new Date(rec.cur.issued), { hour: 'numeric', minute: '2-digit' }))}</span></div>` +
-      rows + '</div>';
-  }).join('');
-}
-
-/* What this hour looked like in the first grid snapshot archived today —
-   blank when nothing moved, which is most hours. */
 function gridWas(t, cat, ts) {
   if (!AVN.base || typeof WXA === 'undefined') return '';
   const ceil = WXA.gridAt(AVN.base, 'ceil', t);
@@ -327,7 +286,7 @@ function renderFieldGrid() {
   const start = Math.floor(now / 3600000) * 3600000;
   const rows = [];
   const tsDrops = [];
-  for (let t = start; t <= start + 30 * 3600000; t += 3600000) {
+  for (let t = start; t <= start + 24 * 3600000; t += 3600000) {
     const ceil = AVN.grid.ceil.get(t) ?? null;
     const vis = AVN.grid.vis.get(t) ?? null;
     if (ceil == null && vis == null && !AVN.grid.tempC.has(t)) continue;
@@ -441,7 +400,6 @@ AVN.init = async function init() {
     $('avn-grid').innerHTML = `<span class="err">Hourly grid failed: ${esc(e.message)}</span>`;
   }));
   await Promise.all(jobs);
-  renderTafs();
   if (AVN.grid) renderFieldGrid();
   renderTafChanges();
 };
