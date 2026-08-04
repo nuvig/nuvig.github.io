@@ -115,13 +115,15 @@ classified there, check all three.
   daily forecast). Highest score leads, the rest become the "also" lines, and it degrades source by
   source: no grid → forecast + alerts, no NWS → model only, nothing → the AFD's own KEY MESSAGES.
   **The card must never go quiet about a day it could have mentioned** — a reader who cancelled a
-  flight on the morning forecast reads silence as "threat gone". So under the scored story sit two
-  fixed elements that do not depend on scoring: the AFD's own `WHAT HAS CHANGED` section
-  (`afdWhatChanged()`), and a today/+1/+2 strip (`outlook()`) naming each day's forecast wording and
-  comparing it with the **first archived forecast snapshot of today** (`morningSnap()`) — flagging
-  `flip` when convection appears or disappears, and saying "unchanged since 2:40 AM" out loud when
-  it hasn't moved. Same reason the drift card's future rows print `short` alongside the numbers:
-  "unchanged" next to a bare 64% never tells you the 64% is thunderstorms.
+  flight on the morning forecast reads silence as "threat gone". The scored story stays in the
+  headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes"); everything that
+  isn't the headline sits with the act it belongs to: runner-up stories under the Act I map,
+  KEY MESSAGES above the Act II reader, and the today/+1/+2 comparison (`outlook()` →
+  "Since this morning", Act III) naming each day's forecast wording against the **first archived
+  forecast snapshot of today** (`morningSnap()`) — flagging `flip` when convection appears or
+  disappears, and saying "unchanged since 2:40 AM" out loud when it hasn't moved. Same reason the
+  drift rows print `short` next to the numbers: "unchanged" beside a bare 64% never tells you the
+  64% is thunderstorms. **Keep page copy terse** — label, fact, done.
   Below it: a synoptic canvas built from an
   Open-Meteo GFS grid — air-mass fill, isobars/H-L, fronts detected from 850 hPa temp gradients
   signed by advection, wind particles, RainViewer radar at "now" / model precip at other hours,

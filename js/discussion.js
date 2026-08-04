@@ -212,7 +212,10 @@ function renderBody(body) {
   }).join('');
 }
 
-const OPEN_BY_DEFAULT = /^(SYNOPSIS|UPDATE|KEY MESSAGES|NEAR TERM)/;
+/* AVIATION is open by default too: it is the section written for pilots —
+   ceilings, visibility and timing by field — and it answers most go/no-go
+   questions without hunting through the rest. */
+const OPEN_BY_DEFAULT = /^(SYNOPSIS|UPDATE|KEY MESSAGES|NEAR TERM|AVIATION)/;
 
 function renderDiscussion(item, secs) {
   const issued = new Date(item.issuanceTime);
@@ -601,7 +604,6 @@ function renderDrift(base, cur, baseSrc, past) {
   const host = $('drift-body');
   const today = localDay(Date.now());
   const rows = [];
-  let bigShift = null;              // biggest single move, for the headline card
   let anyPast = false;
 
   for (let k = -DRIFT_SPAN; k <= DRIFT_SPAN; k++) {
@@ -614,19 +616,8 @@ function renderDrift(base, cur, baseSrc, past) {
       `<span class="day">${esc(fmtDay(date))}</span><span class="rel">${esc(rel)}</span>` +
       `<span class="nums">${cell.nums}</span><span class="cmp">${cell.cmp}</span></div>`);
 
-    if (k < 0) { anyPast = anyPast || !!cell.nums; continue; }
-    if (!cell.b) continue;
-    const dHi = (cell.c.hi != null && cell.b.hi != null) ? cell.c.hi - cell.b.hi : 0;
-    const dPop = (cell.c.pop != null && cell.b.pop != null) ? cell.c.pop - cell.b.pop : 0;
-    const mag = Math.max(Math.abs(dHi) * 5, Math.abs(dPop));   // 1° ≈ 5 points of PoP
-    if (mag >= 20 && (!bigShift || mag > bigShift.mag)) {
-      const parts = [];
-      if (Math.abs(dHi) >= 3) parts.push(`high ${dHi > 0 ? 'up' : 'down'} ${Math.abs(dHi)}° to ${cell.c.hi}°`);
-      if (Math.abs(dPop) >= 15) parts.push(`precip chance ${dPop > 0 ? 'up' : 'down'} to ${cell.c.pop}%`);
-      if (parts.length) bigShift = { mag, text: `${fmtDay(date)}: ${parts.join(', ')} since the earlier forecast.` };
-    }
+    if (k < 0) anyPast = anyPast || !!cell.nums;
   }
-  HL.drift = bigShift;
 
   const baseNote = base
     ? `Ahead of today: compared with the forecast ${baseSrc === 'site archive'
@@ -1625,7 +1616,7 @@ async function loadVerification() {
    input is optional — whatever loaded is what the headline is built from.
    =========================================================================== */
 
-const HL = { alerts: [], drift: null };
+const HL = { alerts: [] };
 const SEV_RANK = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1 };
 
 /* Active NWS alerts for the DC point. Optional: on failure the headline is
@@ -2241,7 +2232,7 @@ function firstSentence(t, max = 175) {
 
 /* -------------------------------- render --------------------------------- */
 
-function renderHeadline(lead, tiles, extras) {
+function renderHeadline(lead, tiles, alsos, keyMsgs) {
   $('hl-title').textContent = lead.headline;
   $('hl-deck').textContent = lead.deck;
   $('hl-stamp').textContent =
@@ -2271,28 +2262,30 @@ function renderHeadline(lead, tiles, extras) {
 
   const changed = afdWhatChanged();
   $('hl-changed').innerHTML = changed
-    ? `<span class="lab">What the office says changed</span>${esc(changed)} ` +
-      `<a class="more-link" href="#reasoning">read the discussion ↓</a>`
+    ? `<span class="lab">LWX changes</span>${esc(changed)} ` +
+      `<a class="more-link" href="#reasoning">full discussion ↓</a>`
     : '';
 
+  /* Detail lives with the act it belongs to, not in the headline. */
   const days = outlook();
-  $('hl-outlook').innerHTML = days.length
-    ? `<div class="ol-head">Planning days — and whether they've moved since this morning</div>` +
-      days.map((r) => {
-        const label = r.k === 0 ? 'Today' : r.k === 1 ? 'Tomorrow'
-          : fmtTime(new Date(r.date + 'T12:00:00'), { weekday: 'long' });
-        const wx = `${r.c.short || '—'}${r.c.pop != null ? ` · ${r.c.pop}%` : ''}`;
-        return `<div class="ol-row ${esc(r.state)}"><span class="d">${esc(label)}</span>` +
-          `<span class="w">${esc(wx)}</span><span class="chg">${esc(r.note)}</span></div>`;
-      }).join('')
-    : '';
+  $('since-morning').innerHTML = days.length
+    ? days.map((r) => {
+      const label = r.k === 0 ? 'Today' : r.k === 1 ? 'Tomorrow'
+        : fmtTime(new Date(r.date + 'T12:00:00'), { weekday: 'long' });
+      const wx = `${r.c.short || '—'}${r.c.pop != null ? ` · ${r.c.pop}%` : ''}`;
+      return `<div class="ol-row ${esc(r.state)}"><span class="d">${esc(label)}</span>` +
+        `<span class="w">${esc(wx)}</span><span class="chg">${esc(r.note)}</span></div>`;
+    }).join('')
+    : '<span class="faint" style="font-size:13px">No forecast loaded to compare.</span>';
 
-  $('hl-more').innerHTML = extras.map((x) => {
-    const tag = x.href
-      ? `<a class="tag" href="${esc(x.href)}">${esc(x.tag)}</a>`
-      : `<span class="tag">${esc(x.tag)}</span>`;
-    return `<div class="item">${tag}${x.title ? `<b>${esc(x.title)}</b> — ` : ''}${esc(x.text)}</div>`;
-  }).join('');
+  $('also-stories').innerHTML = alsos.length
+    ? `<div class="sn-head">Also in play</div>` + alsos.map((x) =>
+      `<div class="item"><b>${esc(x.title)}</b> — ${esc(x.text)}</div>`).join('')
+    : '';
+  $('key-messages').innerHTML = keyMsgs.length
+    ? `<div class="sn-head">Key messages · NWS ${esc(OFFICE)}</div>` + keyMsgs.map((t) =>
+      `<div class="item">${esc(t)}</div>`).join('')
+    : '';
 }
 
 function buildHeadline() {
@@ -2310,18 +2303,13 @@ function buildHeadline() {
         : { headline: 'Headline unavailable', deck: 'None of the sources this page reads came back — try refreshing.' };
     }
 
-    const extras = [];
+    const alsos = [];
     for (const st of stories.slice(1)) {
-      if (extras.length >= 3 || st.score < 40) break;
+      if (alsos.length >= 3 || st.score < 40) break;
       if (st.alert) continue;          // already shown as a pill above the headline
-      extras.push({ tag: 'Also', title: st.headline, text: firstSentence(st.deck) });
+      alsos.push({ title: st.headline, text: firstSentence(st.deck) });
     }
-    for (const km of keyMsgs) {
-      if (km !== lead.deck) extras.push({ tag: `NWS ${OFFICE}`, href: '#reasoning', text: km });
-    }
-    if (HL.drift) extras.push({ tag: 'Shift', href: '#revisions', text: HL.drift.text });
-
-    renderHeadline(lead, headlineStats(s), extras.slice(0, 5));
+    renderHeadline(lead, headlineStats(s), alsos, keyMsgs.filter((km) => km !== lead.deck));
   } catch (e) {
     $('hl-title').textContent = 'Headline unavailable';
     $('hl-deck').textContent = `Couldn't assemble it: ${e.message}. Everything below still stands on its own.`;

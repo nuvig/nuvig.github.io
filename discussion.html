@@ -141,12 +141,15 @@
     }
     .hl-changed .more-link { color: #4a9eff; text-decoration: none; white-space: nowrap; }
     .hl-changed .more-link:hover { text-decoration: underline; }
-    .hl-outlook { margin-top: 12px; }
-    .hl-outlook:empty { display: none; }
-    .ol-head {
+    /* blocks that used to crowd the headline, now next to the act they belong to */
+    .side-note { margin: 8px 0 0; }
+    .side-note:empty { display: none; }
+    .sn-head {
       font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-      color: #6d7d8c; margin-bottom: 5px;
+      color: #6d7d8c; margin-bottom: 4px;
     }
+    .side-note .item { font-size: 12.5px; color: #8b96a1; line-height: 1.55; padding: 2px 0; }
+    .side-note .item b { color: #c8d1da; font-weight: 600; }
     .ol-row {
       display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
       font-size: 12.5px; padding: 4px 0; border-top: 1px solid #232a33;
@@ -361,8 +364,6 @@
       together to work out what today's one thing is.</p>
     <div class="hl-changed" id="hl-changed"></div>
     <div class="hl-stats" id="hl-stats"></div>
-    <div class="hl-outlook" id="hl-outlook"></div>
-    <div class="hl-more" id="hl-more"></div>
   </section>
 
   <!-- ============ ACT I — SYNOPTIC MAP ============ -->
@@ -407,6 +408,7 @@
     </div>
     <div id="syn-err"></div>
   </div>
+  <div class="side-note" id="also-stories"></div>
 
   <!-- ============ ACT II — THE DISCUSSION ============ -->
   <div class="chapter" id="reasoning">
@@ -418,6 +420,7 @@
         tooltips. <span class="meta" id="afd-issued"></span></p>
     </details>
   </div>
+  <div class="side-note" id="key-messages"></div>
   <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
 
   <!-- ============ ACT III — THE REVISIONS ============ -->
@@ -433,6 +436,11 @@
         show the reasoning itself being revised — open an issuance to read one. New issuances
         are picked up every 10 minutes.</p>
     </details>
+  </div>
+
+  <div class="card" id="since-card" style="margin-bottom:8px">
+    <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em">Since this morning</h3>
+    <div id="since-morning"></div>
   </div>
 
   <div class="card" id="drift-card" style="margin-bottom:8px">
@@ -471,6 +479,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=8"></script>
+  <script src="js/discussion.js?v=9"></script>
 </body>
 </html>
