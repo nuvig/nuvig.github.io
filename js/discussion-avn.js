@@ -261,69 +261,146 @@ function whyThunder(ms, gone) {
 }
 
 /* ------------------------------ rendering -------------------------------- */
-
 const catClass = (c) => `cat-${c.toLowerCase()}`;
-const fmtCeil = (ft) => (ft == null ? '—' : `${Math.round(ft / 100) * 100}′`);
-const fmtVisSM = (v) => (v == null ? '—' : v >= 6 ? 'P6' : v < 1 ? v.toFixed(2).replace(/0$/, '') : String(Math.round(v * 2) / 2));
 const hourLbl = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
 
-function gridWas(t, cat, ts) {
-  if (!AVN.base || typeof WXA === 'undefined') return '';
-  const ceil = WXA.gridAt(AVN.base, 'ceil', t);
-  const vis = WXA.gridAt(AVN.base, 'vis', t);
-  if (ceil === undefined && vis === undefined) return '';
-  const wasCat = category(ceil ?? null, vis ?? null);
-  const wasTs = /thunder/i.test(WXA.gridAt(AVN.base, 'wx', t) || '');
-  if (wasTs !== ts) return wasTs ? '<b class="drop">was TS</b>' : '<b class="add">TS added</b>';
-  if (wasCat !== cat) return `<span class="was">was ${wasCat}</span>`;
-  return '';
+/* Sunrise/sunset (NOAA sunrise equation), anchored on the calendar day at the
+   field, not the viewer's timezone — same rule as weather.js solarTimes().
+   Checked against a published sunrise: 06:11 EDT, 2026-08-05. */
+const RAD = Math.PI / 180;
+function sunTimes(lat, lon, dateStr) {
+  const jd = Date.parse(dateStr + 'T00:00:00Z') / 86400000 + 2440587.5;
+  const n = Math.ceil(jd - 2451545.0 + 0.0008);
+  const Js = n - lon / 360;
+  const M = (357.5291 + 0.98560028 * Js) % 360;
+  const C = 1.9148 * Math.sin(M * RAD) + 0.02 * Math.sin(2 * M * RAD) + 0.0003 * Math.sin(3 * M * RAD);
+  const L = (M + C + 180 + 102.9372) % 360;
+  const Jt = 2451545.0 + Js + 0.0053 * Math.sin(M * RAD) - 0.0069 * Math.sin(2 * L * RAD);
+  const decl = Math.asin(Math.sin(L * RAD) * Math.sin(23.44 * RAD));
+  const cosH = (Math.sin(-0.833 * RAD) - Math.sin(lat * RAD) * Math.sin(decl)) /
+               (Math.cos(lat * RAD) * Math.cos(decl));
+  if (cosH > 1 || cosH < -1) return null;
+  const ms = (J) => (J - 2440587.5) * 86400000;
+  const H = Math.acos(cosH) / RAD;
+  return { rise: ms(Jt - H / 360), set: ms(Jt + H / 360) };
+}
+
+const solarCache = new Map();
+function isDaylight(t) {
+  const day = localDay(t);
+  if (!solarCache.has(day)) solarCache.set(day, sunTimes(AVN.field.lat, AVN.field.lon, day));
+  const s = solarCache.get(day);
+  return s ? t >= s.rise && t <= s.set : true;
+}
+
+/* One entry per hour for the next 24 h, including what moved since this
+   morning's archived snapshot. */
+function buildHours() {
+  const start = Math.floor(Date.now() / 3600000) * 3600000;
+  const out = [];
+  for (let t = start; t <= start + 24 * 3600000; t += 3600000) {
+    const ceil = AVN.grid.ceil.get(t) ?? null;
+    const vis = AVN.grid.vis.get(t) ?? null;
+    if (ceil == null && vis == null && !AVN.grid.tempC.has(t)) continue;
+    const wx = AVN.grid.wx.get(t) || [];
+    const ts = wx.some((w) => /thunder/i.test(w.wx));
+    const h = {
+      t, ceil, vis, ts, wx,
+      cat: category(ceil, vis),
+      spd: AVN.grid.spd.get(t), gst: AVN.grid.gst.get(t), dir: AVN.grid.dir.get(t),
+      pop: AVN.grid.pop.get(t), tC: AVN.grid.tempC.get(t), dC: AVN.grid.dewC.get(t),
+      day: isDaylight(t),
+      was: null,
+    };
+    if (AVN.base && typeof WXA !== 'undefined') {
+      const bc = WXA.gridAt(AVN.base, 'ceil', t), bv = WXA.gridAt(AVN.base, 'vis', t);
+      if (bc !== undefined || bv !== undefined) {
+        const wasTs = /thunder/i.test(WXA.gridAt(AVN.base, 'wx', t) || '');
+        const wasCat = category(bc ?? null, bv ?? null);
+        if (wasTs !== ts) h.was = wasTs ? 'lost the thunder mention' : 'gained a thunder mention';
+        else if (wasCat !== h.cat) h.was = `was ${wasCat}`;
+      }
+    }
+    out.push(h);
+  }
+  return out;
+}
+
+const CAT_RANK = { VFR: 0, MVFR: 1, IFR: 2, LIFR: 3 };
+const numbersOf = (h) =>
+  `${h.ceil == null ? 'no ceiling' : `${Math.round(h.ceil / 100) * 100} ft`} / ` +
+  `${h.vis == null ? '—' : h.vis >= 6 ? 'P6' : Math.round(h.vis * 2) / 2} SM`;
+
+/* The interpretation — where the windows are, in a sentence or two. */
+function windowSummary(hours) {
+  if (!hours.length) return '';
+  const now = hours[0];
+  let out = `<b class="${catClass(now.cat)}">${now.cat} now</b>`;
+  const change = hours.find((h) => h.cat !== now.cat);
+  out += change
+    ? `, ${CAT_RANK[change.cat] > CAT_RANK[now.cat] ? 'down to' : 'up to'} ` +
+      `<b class="${catClass(change.cat)}">${change.cat}</b> at ${esc(hourLbl(change.t))}.`
+    : `, and holding for the next 24 h.`;
+
+  const worst = hours.reduce((a, h) => (CAT_RANK[h.cat] > CAT_RANK[a.cat] ? h : a), hours[0]);
+  if (CAT_RANK[worst.cat] > CAT_RANK[now.cat]) {
+    const run = hours.filter((h) => h.cat === worst.cat);
+    out += ` Worst <b class="${catClass(worst.cat)}">${worst.cat}</b> ` +
+      `${esc(hourLbl(run[0].t))}–${esc(hourLbl(run[run.length - 1].t + 3600000))}, ` +
+      `${esc(numbersOf(worst))}.`;
+    const back = hours.find((h) => h.t > worst.t && h.cat === 'VFR');
+    if (back) out += ` VFR again from ${esc(hourLbl(back.t))}.`;
+  }
+  const moved = hours.filter((h) => h.was && /thunder/.test(h.was));
+  if (moved.length) {
+    out += ` <span class="tl-moved">${moved.length} hour${moved.length > 1 ? 's' : ''} ` +
+      `${esc(moved[0].was)} since this morning.</span>`;
+  }
+  return out;
+}
+
+function readoutFor(h) {
+  const wind = h.spd == null || h.spd < 1 ? 'calm'
+    : `${String(Math.round((h.dir || 0) / 10) * 10).padStart(3, '0')}°T ${Math.round(h.spd)} kt` +
+      `${h.gst && h.gst - h.spd >= 5 ? ` G${Math.round(h.gst)}` : ''}`;
+  const wx = h.wx.map((w) => w.wx).filter((w, i, a) => a.indexOf(w) === i).join(', ');
+  return `<b>${esc(fmtTime(new Date(h.t), { weekday: 'short', hour: 'numeric' }))}</b> · ` +
+    `<b class="${catClass(h.cat)}">${h.cat}</b> · ${esc(numbersOf(h))} · ${esc(wind)} · ` +
+    `${h.pop ?? '—'}% precip · ${h.tC == null ? '—' : Math.round(h.tC * 9 / 5 + 32)}°/` +
+    `${h.dC == null ? '—' : Math.round(h.dC * 9 / 5 + 32)}° dp` +
+    `${wx ? ` · ${esc(wx)}` : ''}${h.was ? ` · <span class="tl-moved">${esc(h.was)}</span>` : ''}`;
 }
 
 function renderFieldGrid() {
   const host = $('avn-grid');
   if (!AVN.grid) { host.innerHTML = '<span class="faint">Grid unavailable.</span>'; return; }
-  const now = Date.now();
-  const start = Math.floor(now / 3600000) * 3600000;
-  const rows = [];
-  const tsDrops = [];
-  for (let t = start; t <= start + 24 * 3600000; t += 3600000) {
-    const ceil = AVN.grid.ceil.get(t) ?? null;
-    const vis = AVN.grid.vis.get(t) ?? null;
-    if (ceil == null && vis == null && !AVN.grid.tempC.has(t)) continue;
-    const cat = category(ceil, vis);
-    const spd = AVN.grid.spd.get(t), gst = AVN.grid.gst.get(t), dir = AVN.grid.dir.get(t);
-    const wx = AVN.grid.wx.get(t) || [];
-    const ts = wx.some((w) => /thunder/i.test(w.wx));
-    const tC = AVN.grid.tempC.get(t), dC = AVN.grid.dewC.get(t);
-    const wind = spd == null || spd < 1 ? 'calm'
-      : `${String(Math.round((dir || 0) / 10) * 10).padStart(3, '0')}/${Math.round(spd)}` +
-        `${gst && gst - spd >= 5 ? `G${Math.round(gst)}` : ''}`;
-    const was = gridWas(t, cat, ts);
-    if (/was TS/.test(was) && t > now) tsDrops.push(t);
-    rows.push(
-      `<tr${t <= now ? ' class="past"' : ''}>` +
-      `<td class="h">${esc(fmtTime(new Date(t), { weekday: 'short', hour: 'numeric' }))}</td>` +
-      `<td class="${catClass(cat)}">${cat}</td>` +
-      `<td>${esc(fmtCeil(ceil))}</td><td>${esc(fmtVisSM(vis))}</td>` +
-      `<td>${esc(wind)}</td>` +
-      `<td>${AVN.grid.pop.get(t) ?? '—'}%</td>` +
-      `<td>${tC == null ? '—' : Math.round(tC * 9 / 5 + 32)}°/${dC == null ? '—' : Math.round(dC * 9 / 5 + 32)}°</td>` +
-      `<td class="wx">${ts ? '<b class="ts">TS</b> ' : ''}${esc(wx.map((w) => w.wx).filter((w, i, a) => a.indexOf(w) === i).join(', '))}</td>` +
-      `<td class="was-col">${was}</td>` +
-      '</tr>');
-  }
-  const note = AVN.base
-    ? `<div class="drift-note">Last column compares each hour with the first grid snapshot ` +
-      `archived today (${esc(fmtTime(new Date(AVN.base.t * 1000), { hour: 'numeric', minute: '2-digit' }))}). ` +
-      (tsDrops.length
-        ? `Thunder came out of ${tsDrops.length} hour(s): ${esc(whyThunder(tsDrops[0], true))}`
-        : 'Blank means that hour has not moved.')
-    : '<div class="drift-note">No grid snapshot archived earlier today yet — ' +
-      'the comparison column fills in once the hourly archive has a baseline.';
+  const hours = buildHours();
+  if (!hours.length) { host.innerHTML = '<span class="faint">No grid data for the next 24 h.</span>'; return; }
+
+  const cells = hours.map((h, i) =>
+    `<div class="tl-cell ${catClass(h.cat)}${h.day ? '' : ' night'}${h.was ? ' moved' : ''}" ` +
+    `data-i="${i}"><span class="mk">${h.ts ? '⚡' : (h.pop >= 50 || h.wx.length) ? '·' : ''}</span></div>`
+  ).join('');
+  const axis = hours.map((h, i) =>
+    `<div class="tl-tick">${i % 3 === 0 ? esc(hourLbl(h.t).replace(' ', '')) : ''}</div>`).join('');
+
   host.innerHTML =
-    `<table class="avn-table"><thead><tr><th>hour</th><th>cat</th><th>ceil</th><th>vis</th>` +
-    `<th>wind °T/kt</th><th>precip</th><th>t/dp</th><th>grid weather</th><th>vs this morning</th></tr></thead>` +
-    `<tbody>${rows.join('')}</tbody></table>${note}</div>`;
+    `<div class="tl-sum">${windowSummary(hours)}</div>` +
+    `<div class="tl-strip" id="tl-strip">${cells}</div>` +
+    `<div class="tl-axis">${axis}</div>` +
+    `<div class="tl-read" id="tl-read">${readoutFor(hours[0])}</div>` +
+    `<div class="tl-key"><b class="cat-vfr">VFR</b> <b class="cat-mvfr">MVFR</b> ` +
+    `<b class="cat-ifr">IFR</b> <b class="cat-lifr">LIFR</b> · ⚡ thunder in the grid · ` +
+    `dim = night · amber bar = moved since this morning</div>`;
+
+  const strip = $('tl-strip'), read = $('tl-read');
+  const show = (e) => {
+    const cell = e.target.closest('.tl-cell');
+    if (cell) read.innerHTML = readoutFor(hours[+cell.dataset.i]);
+  };
+  strip.addEventListener('mousemove', show);
+  strip.addEventListener('click', show);
+  strip.addEventListener('mouseleave', () => { read.innerHTML = readoutFor(hours[0]); });
 }
 
 /* What moved between the last two TAF issuances, and why. */
