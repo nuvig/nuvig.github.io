@@ -2232,7 +2232,7 @@ function firstSentence(t, max = 175) {
 
 /* -------------------------------- render --------------------------------- */
 
-function renderHeadline(lead, tiles, alsos, keyMsgs) {
+function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
   $('hl-title').textContent = lead.headline;
   $('hl-deck').textContent = lead.deck;
   $('hl-stamp').textContent =
@@ -2282,10 +2282,79 @@ function renderHeadline(lead, tiles, alsos, keyMsgs) {
     ? `<div class="sn-head">Also in play</div>` + alsos.map((x) =>
       `<div class="item"><b>${esc(x.title)}</b> — ${esc(x.text)}</div>`).join('')
     : '';
-  $('key-messages').innerHTML = keyMsgs.length
-    ? `<div class="sn-head">Key messages · NWS ${esc(OFFICE)}</div>` + keyMsgs.map((t) =>
-      `<div class="item">${esc(t)}</div>`).join('')
-    : '';
+  renderBigPicture(keyMsgs);
+  renderAtmos(atmosSeries);
+}
+
+/* ---------------------- Act II: the story, then the physics -------------- */
+
+/* The office's own framing, trimmed: the synopsis in a sentence or two, then
+   its key messages as bullets. Not the whole product — that sits collapsed at
+   the bottom of the act. */
+function renderBigPicture(keyMsgs) {
+  const secs = AFD.parsed.get(AFD.newestId) || [];
+  const pick = secs.find((x) => /^SYNOPSIS/.test(x.name))
+    || secs.find((x) => /^(UPDATE|WHAT HAS CHANGED|NEAR TERM)/.test(x.name)) || secs[0];
+  const lead = pick ? firstSentence(normText(pick.body), 260) : '';
+  $('big-picture').innerHTML = lead
+    ? esc(lead) + keyMsgs.map((t) => `<div class="km">${esc(t)}</div>`).join('')
+    : '<span class="faint" style="font-size:13px">No discussion loaded.</span>';
+}
+
+/* The six numbers the story rests on, at DC, next 24 h. Value plus what it
+   means in two or three words — no paragraphs. */
+function renderAtmos(s) {
+  const host = $('atmos');
+  if (!s) { host.innerHTML = '<span class="faint" style="font-size:13px">Model grid unavailable.</span>'; return; }
+  const cells = [];
+  const add = (lab, val, say, hot) => cells.push({ lab, val, say, hot });
+
+  const cape = peakIn(s, 'cape', 24);
+  if (cape) {
+    add('Instability', `${fmtJ(cape.v)} J/kg`,
+      cape.v >= 2000 ? `big fuel, peaks ${clockPhrase(cape.at)}`
+        : cape.v >= 1000 ? `storm fuel, peaks ${clockPhrase(cape.at)}`
+        : cape.v >= 400 ? 'enough for showers' : 'nothing to work with',
+      cape.v >= 1500);
+  }
+  const cap = capStrength(s, s.now, Math.min(s.t.length - 1, s.now + 24));
+  if (cap.have) {
+    add('Cap', `−${Math.round(cap.mag / 10) * 10} J/kg`,
+      cap.mag >= 75 ? 'lid holds storms down' : cap.mag <= 25 ? 'nothing holding it back' : 'weak lid');
+  }
+  const t850 = s.t850[s.now];
+  const t850b = s.t850[Math.min(s.t.length - 1, s.now + 24)];
+  if (Number.isFinite(t850) && Number.isFinite(t850b)) {
+    const d = t850b - t850;
+    add('Air mass', `${t850.toFixed(0)} °C`,
+      Math.abs(d) < 2 ? 'same air all day'
+        : `${d < 0 ? 'colder' : 'warmer'} by ${Math.abs(d).toFixed(0)}° in 24 h`);
+  }
+  const spread = s.t2m[s.now] - s.td[s.now];
+  if (Number.isFinite(spread)) {
+    const f = Math.max(0, Math.round(spread * 9 / 5));
+    add('Moisture', `${f}°F spread`,
+      f <= 2 ? 'saturated — ceilings first' : f <= 8 ? 'moist' : 'dry column', f <= 2);
+  }
+  const tm = Math.max(0, s.now - 3), tp = Math.min(s.t.length - 1, s.now + 3);
+  const dP = s.mslp[tp] - s.mslp[tm];
+  if (Number.isFinite(dP)) {
+    add('Pressure', `${dP >= 0 ? '+' : ''}${dP.toFixed(1)} hPa/6h`,
+      dP <= -1.5 ? 'system still deepening' : dP >= 1.5 ? 'high building in' : 'steady');
+  }
+  const f = nearestFront(s.now);
+  const { low } = centersNear(s.now);
+  if (f && f.km < 400) {
+    add('Forcing', `${asNm(f.km)} nm ${f.dir}`, `${f.adv < 0 ? 'cold' : 'warm'} front`);
+  } else if (low) {
+    add('Forcing', `${asNm(low.km)} nm ${low.dir}`, 'surface low');
+  } else {
+    add('Forcing', 'none near', 'no boundary in reach');
+  }
+
+  host.innerHTML = cells.map((c) =>
+    `<div class="atmos-cell${c.hot ? ' hot' : ''}"><div class="lab">${esc(c.lab)}</div>` +
+    `<div class="val">${esc(c.val)}</div><div class="say">${esc(c.say)}</div></div>`).join('');
 }
 
 function buildHeadline() {
@@ -2309,7 +2378,7 @@ function buildHeadline() {
       if (st.alert) continue;          // already shown as a pill above the headline
       alsos.push({ title: st.headline, text: firstSentence(st.deck) });
     }
-    renderHeadline(lead, headlineStats(s), alsos, keyMsgs.filter((km) => km !== lead.deck));
+    renderHeadline(lead, headlineStats(s), alsos, keyMsgs.filter((km) => km !== lead.deck), s);
   } catch (e) {
     $('hl-title').textContent = 'Headline unavailable';
     $('hl-deck').textContent = `Couldn't assemble it: ${e.message}. Everything below still stands on its own.`;

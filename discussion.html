@@ -295,6 +295,32 @@
     .diff .ell { color: #555; padding: 0 6px; }
     .log-unchanged { font-size: 12px; color: #555; margin-top: 8px; }
 
+    /* ---- act II: the story, then the numbers under it ---- */
+    #big-picture { font-size: 14px; line-height: 1.6; color: #c3ccd5; }
+    #big-picture .km { font-size: 13px; color: #97a3ae; margin-top: 7px; padding-left: 14px; position: relative; }
+    #big-picture .km::before { content: "—"; position: absolute; left: 0; color: #4a9eff; }
+    .atmos-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px;
+    }
+    .atmos-cell { background: #14191f; border: 1px solid #263039; border-radius: 6px; padding: 7px 10px; }
+    .atmos-cell .lab {
+      font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: #6d7d8c;
+    }
+    .atmos-cell .val { font-size: 17px; color: #e6ecf2; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .atmos-cell .say { font-size: 11.5px; color: #7f8b96; margin-top: 1px; }
+    .atmos-cell.hot .val { color: #f5b942; }
+    details.afd-full { padding: 0; }
+    details.afd-full > summary {
+      cursor: pointer; list-style: none; padding: 11px 16px; font-size: 13px;
+      font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: .06em;
+    }
+    details.afd-full > summary::-webkit-details-marker { display: none; }
+    details.afd-full > summary::after { content: " ▸"; color: #5d7791; }
+    details.afd-full[open] > summary::after { content: " ▾"; }
+    details.afd-full > summary:hover { color: #cfe6ff; }
+    details.afd-full > summary .meta { text-transform: none; letter-spacing: 0; font-weight: 400; color: #5a6570; }
+    details.afd-full #afd-sections { padding: 0 16px 14px; }
+
     /* ---- aviation: TAFs, the field grid, and what moved ---- */
     .card-h3 {
       margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
@@ -450,20 +476,31 @@
   <div class="chapter" id="reasoning">
     <span class="kick">Act II · The reasoning</span>
     <details>
-      <summary><h2>The forecasters, in their own words</h2></summary>
-      <p class="deck">The Area Forecast Discussion from NWS Baltimore/Washington — the humans behind
-        the forecast explaining what they expect and why. Dotted terms carry plain-English
-        tooltips. <span class="meta" id="afd-issued"></span></p>
+      <summary><h2>What the forecasters see</h2></summary>
+      <p class="deck">The story LWX is telling, the atmosphere behind it, and the hour-by-hour at
+        the field. Their full discussion is at the bottom — dotted terms carry plain-English
+        tooltips.</p>
     </details>
   </div>
-  <div class="side-note" id="key-messages"></div>
+  <div class="card" id="bigpic-card" style="margin-bottom:8px">
+    <h3 class="card-h3">The big picture</h3>
+    <div id="big-picture"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card" id="atmos-card" style="margin-bottom:8px">
+    <h3 class="card-h3">The atmosphere behind it</h3>
+    <div class="atmos-grid" id="atmos"></div>
+  </div>
 
   <div class="card" id="fieldgrid-card" style="margin-bottom:8px">
     <h3 class="card-h3">Hour by hour at KANP</h3>
     <div id="avn-grid"><span class="muted" style="font-size:13px">Loading…</span></div>
   </div>
 
-  <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
+  <details class="card afd-full">
+    <summary>Full discussion <span class="meta" id="afd-issued"></span></summary>
+    <div id="afd-sections"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </details>
 
   <!-- ============ ACT III — THE REVISIONS ============ -->
   <div class="chapter" id="revisions">
@@ -527,7 +564,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=10"></script>
+  <script src="js/discussion.js?v=11"></script>
   <script src="js/discussion-avn.js?v=3"></script>
 </body>
 </html>

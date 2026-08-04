@@ -118,7 +118,7 @@ classified there, check all three.
   flight on the morning forecast reads silence as "threat gone". The scored story stays in the
   headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes"); everything that
   isn't the headline sits with the act it belongs to: runner-up stories under the Act I map,
-  KEY MESSAGES above the Act II reader, and the today/+1/+2 comparison (`outlook()` →
+  the distilled story + physics in Act II, and the today/+1/+2 comparison (`outlook()` →
   "Since this morning", Act III) naming each day's forecast wording against the **first archived
   forecast snapshot of today** (`morningSnap()`) — flagging `flip` when convection appears or
   disappears, and saying "unchanged since 2:40 AM" out loud when it hasn't moved. Same reason the
