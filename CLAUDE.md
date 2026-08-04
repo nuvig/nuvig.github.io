@@ -36,6 +36,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   referenced from any HTML.
 - `tools.html` — the Aviation Tools hub; the categorized index of the explainers below. The homepage
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**.
+- `changelog.html` + `js/changelog.js` — site changelog rendered live from the GitHub commits API
+  (CORS-open, unauthenticated, ~60 req/hr/IP). Queries `main` only, so the hourly `wx: archive …`
+  commits and the `traffic-data` snapshot branch don't drown the list. Linked from both the homepage
+  and `tools.html`.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
@@ -69,11 +73,16 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `js/kanp-climb.js` — Traffic Study sub-tool: climb-out comparison. Extracts the initial climb from
   each departure and plots altitude gained vs distance from liftoff (density-altitude comparisons).
   Altitudes are ADS-B barometric — fine for day-to-day gradient comparison, not true geometric gradient.
+- `js/kanp-conflict.js` — Traffic Study sub-tool: proximity events. Interpolates every airborne track
+  onto a shared 10 s timeline, finds candidate pairs with a (time × 1.5 nm cell) hash, refines at 1 s
+  for contiguous in-threshold runs, and replays an event as an animated two-aircraft map playback.
+  Both data sources serve Douglas-Peucker-simplified tracks, so CPA figures come from interpolated
+  straight segments — approximate, not evidentiary, and the page copy says so. Keep that caveat.
 - `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Converts positions into a
   runway frame (`along` / signed `cross`) and ranks approaches by lateral precision and glidepath angle.
 - `js/kanp-static.js` — GitHub-snapshot fallback data source (see Data flow).
 
-Both sub-tools mirror `kanp-ops.js` detection logic — if you change how a field contact is
+The climb-out and straight-in sub-tools mirror `kanp-ops.js` detection logic — if you change how a field contact is
 classified there, check all three.
 
 ### Aviation explainers (self-contained, no backend)
@@ -99,6 +108,27 @@ classified there, check all three.
   geometry, wind-aware full-figure simulation.
 - `airlab.html` + `js/airlab.js` — Air Lab: atmosphere column, pressure/density altitude (NWS method,
   humidity), air-parcel stability sim, IAS→TAS→GS wind triangle.
+- `instruments.html` + `js/instruments.js` — Instrument Errors: pitot-static blockage sim (plumbing
+  diagram driving live ASI/altimeter/VSI), altimeter pressure & cold-temperature error against an
+  obstacle, heading-indicator earth-rate drift and attitude-indicator false climb, and a magnetic
+  compass you fly through dip / UNOS turning / ANDS acceleration errors. No dependencies; sections are
+  namespaced by id prefix (`#ps-`, `#alt-`, `#gy-`/`#ai-`, `#mc-`).
+- `skew-t.html` + `js/skewt.js` + `js/skewt-obs.js` — Skew-T Explorer. `skewt.js` fetches Open-Meteo
+  pressure-level forecasts (21 levels, 72 hourly steps) and renders a canvas Skew-T log-p with parcel
+  analysis; thermodynamics are Bolton (1980), and CAPE/CIN carry no virtual-temperature correction
+  (stated in the UI — don't quietly "fix" the numbers without changing the copy). It exposes
+  `window.SkewTCore`, which `skewt-obs.js` reuses for observed soundings: the SPC SHARP gif viewer
+  with an explain-on-hover overlay backed by real RAOB data from the Iowa Environmental Mesonet
+  (CORS-open). Hover regions are fractional coordinates against the gif's fixed 1180×826 layout, so
+  they scale with the displayed image — re-measure them if SPC changes the layout.
+- `sky.html` + `js/sky.js` — METAR Sky: the current observation painted as an animated canvas scene
+  (sky color from real NOAA solar math anchored to the airport TZ, cloud decks at their reported
+  bases, precip/fog/lightning from the present-weather groups, windsock on the actual wind), plus a
+  token-by-token METAR decoder, an air-density molecule module, a ±12 h scrub/play timeline, TAF
+  timelines drawn as clickable mini-scenes, and a paste-any-METAR box. The renderer is a pure
+  deterministic function of (conditions, sun, t) — that's what lets the same code paint the live
+  scene, the static TAF thumbnails and previews. Same no-CORS rule as `weather.html`:
+  `api.weather.gov` only, never aviationweather.gov.
 - `knowledge.html` + `js/knowledge.js` — Aviation Knowledge Map: expandable canvas concept graph with
   dashed cross-links. See the build pipeline below.
 
