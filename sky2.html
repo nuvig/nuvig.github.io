@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>METAR Sky II — stand at the field and look around</title>
+  <meta name="description" content="The current observation rendered as a place you can stand in and look around: real sun, moon, planet and star positions, cloud decks in true perspective at their reported bases, precipitation and fog by distance — plus a runway wind brief, density-altitude performance, VFR legality and a token-by-token METAR decoder.">
+  <link rel="canonical" href="https://jesselevine.net/sky2.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/sky2.html">
+  <meta property="og:title" content="METAR Sky II — stand at the field and look around">
+  <meta property="og:description" content="A pannable 360° view of the current weather: true celestial positions, cloud decks in perspective, and the numbers that matter before you fly.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #888; margin: 4px 0 16px; font-size: 14px; max-width: 760px; }
+
+    /* ---- top bar ---- */
+    .top-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 10px; font-size: 13px; color: #888;
+    }
+    .st-tab {
+      background: #1a1a1a; border: 1px solid #333; color: #aaa;
+      padding: 5px 12px; border-radius: 6px; cursor: pointer;
+      font: inherit; font-size: 13px;
+    }
+    .st-tab:hover { border-color: #4a9eff; color: #ddd; }
+    .st-tab.sel { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .top-bar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .btn {
+      background: #333; color: #ddd; border: 1px solid #444;
+      font-size: 13px; padding: 5px 12px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #444; }
+    .btn.mini { padding: 3px 9px; font-size: 12px; background: #222; border-color: #3a3a3a; color: #9aa; }
+    .btn.mini:hover { border-color: #4a9eff; color: #ddd; background: #262626; }
+    .btn.mini.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+
+    /* ---- the scene ---- */
+    #scene-wrap {
+      position: relative; border: 1px solid #333; border-radius: 12px;
+      overflow: hidden; background: #0a0f1e;
+    }
+    #scene {
+      display: block; width: 100%; aspect-ratio: 21 / 9;
+      cursor: grab; touch-action: none; user-select: none;
+    }
+    #scene.dragging { cursor: grabbing; }
+    @media (max-width: 700px) { #scene { aspect-ratio: 4 / 3; } }
+    .scene-chip {
+      position: absolute; top: 10px; left: 12px;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(10, 14, 24, 0.55); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+      padding: 5px 10px; font-size: 13px; color: #eee;
+    }
+    .scene-chip .icao { font-weight: 700; letter-spacing: 0.03em; }
+    .scene-chip .age { color: #9aa; font-size: 11px; }
+    .cat-chip {
+      display: inline-block; padding: 0 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #111;
+    }
+    #scene-temp {
+      position: absolute; top: 10px; right: 12px;
+      background: rgba(10, 14, 24, 0.55); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+      padding: 4px 12px; text-align: right; color: #fff;
+    }
+    #scene-temp .t { font-size: 22px; font-weight: 600; line-height: 1.15; }
+    #scene-temp .d { font-size: 11px; color: #aab; }
+
+    /* view controls sit along the bottom of the picture */
+    #view-bar {
+      position: absolute; left: 10px; right: 10px; bottom: 8px;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      font-size: 12px; color: #b9c4d4;
+    }
+    #view-bar .grp {
+      display: flex; align-items: center; gap: 5px;
+      background: rgba(10, 14, 24, 0.5); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 3px 6px;
+    }
+    #view-bar button {
+      background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cfd8e6; border-radius: 5px; padding: 2px 8px; font: inherit; font-size: 11.5px; cursor: pointer;
+    }
+    #view-bar button:hover { background: rgba(74, 158, 255, 0.25); border-color: #4a9eff; }
+    #view-bar button.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    #hud-look { font-variant-numeric: tabular-nums; color: #dfe6f0; min-width: 118px; }
+    #hud-note { color: #8fa3bd; font-size: 11px; }
+    #drag-hint {
+      position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%);
+      background: rgba(10, 14, 24, 0.6); border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px; padding: 7px 14px; font-size: 13px; color: #dbe4f0;
+      pointer-events: none; transition: opacity 0.5s;
+    }
+    #preview-banner {
+      display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      top: 52px; max-width: calc(100% - 24px);
+      background: rgba(29, 58, 95, 0.85); border: 1px solid #4a9eff; border-radius: 8px;
+      padding: 6px 12px; font-size: 13px; color: #cfe6ff;
+      align-items: center; gap: 10px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    #preview-banner button {
+      background: none; border: 1px solid #4a9eff; color: #cfe6ff;
+      border-radius: 5px; padding: 1px 8px; cursor: pointer; font-size: 12px; flex-shrink: 0;
+    }
+    #scene-err {
+      display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+      color: #888; font-size: 14px; text-align: center; padding: 20px;
+    }
+
+    /* ---- ±12 h timeline ---- */
+    #time-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-top: 10px; padding: 8px 12px 4px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px 8px 0 0;
+      border-bottom: 0; font-size: 13px; color: #888;
+    }
+    #play-btn { min-width: 40px; }
+    #time-slider { flex: 1 1 220px; accent-color: #4a9eff; height: 18px; }
+    #time-label { color: #ddd; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #time-label b { color: #fff; }
+    #time-src { font-size: 11.5px; color: #556; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    #time-now-btn { display: none; }
+    #ribbon-wrap {
+      background: #1a1a1a; border: 1px solid #333; border-top: 0;
+      border-radius: 0 0 8px 8px; padding: 0 12px 8px;
+    }
+    #cat-ribbon { display: block; width: 100%; height: 52px; cursor: crosshair; touch-action: none; }
+
+    #summary { font-size: 15px; color: #ddd; margin: 14px 2px 4px; line-height: 1.55; }
+    #summary .beacon-note { color: #f0c040; font-size: 13px; }
+
+    /* ---- section furniture ---- */
+    .section-title {
+      font-size: 15px; font-weight: 600; color: #ccc;
+      margin: 26px 0 8px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .sub { font-weight: 400; font-size: 12px; color: #555; }
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin-bottom: 0;
+    }
+
+    /* ---- flight brief ---- */
+    #brief-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 10px;
+    }
+    #brief-grid .card { padding: 12px 14px; }
+    #brief-grid h3 {
+      margin: 0 0 8px; font-size: 11px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    #rwy-canvas { display: block; width: 100%; height: 132px; }
+    .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }
+    .kv .k { color: #777; }
+    .kv .v { color: #ddd; font-variant-numeric: tabular-nums; text-align: right; }
+    .kv .v.warn { color: #f59e0b; }
+    .kv .v.bad { color: #ef4444; }
+    .kv .v.good { color: #22c55e; }
+    .verdict { font-size: 12.5px; line-height: 1.5; margin-top: 8px; color: #9ec5f0; }
+    .verdict.bad { color: #f0a0a0; }
+    .verdict.warn { color: #f0c88a; }
+    .brief-note { font-size: 11.5px; color: #555; margin-top: 8px; line-height: 1.5; }
+
+    /* ---- decoder ---- */
+    #decode-raw { display: flex; flex-wrap: wrap; gap: 5px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+    .tok {
+      background: #222; border: 1px solid #383838; border-radius: 5px;
+      padding: 2px 7px; cursor: pointer; color: #ccc;
+    }
+    .tok:hover, .tok.sel { border-color: #4a9eff; color: #fff; }
+    .tok.rmk { color: #777; background: #1d1d1d; }
+    #tok-explain { margin-top: 10px; font-size: 13.5px; color: #9ec5f0; min-height: 1.4em; }
+    #tok-explain b { color: #cfe6ff; }
+
+    /* ---- condition cards ---- */
+    .cond-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 10px; margin-top: 10px;
+    }
+    .cond-grid .card { padding: 10px 14px; }
+    .cond-grid h3 {
+      margin: 0 0 4px; font-size: 11px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .cond-grid .big { font-size: 20px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+    .cond-grid .small { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.45; }
+
+    /* ---- density module ---- */
+    #dens-flex { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
+    #dens-canvas { flex: 1 1 400px; min-width: 250px; height: 210px; border-radius: 8px; }
+    #dens-read { flex: 0 1 260px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+    .dens-big { font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+    .dens-big span { font-size: 14px; font-weight: 600; color: #888; }
+    #dens-chart { display: block; width: 100%; height: 150px; margin-top: 14px; cursor: crosshair; touch-action: none; }
+    #dens-note { font-size: 11.5px; color: #555; margin-top: 10px; line-height: 1.5; }
+
+    /* ---- TAF ---- */
+    .taf-card { margin-top: 12px; }
+    .taf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .taf-head .icao { font-weight: 700; color: #ddd; }
+    .taf-head .iss { font-size: 12px; color: #666; }
+    .taf-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+    .taf-tile {
+      flex: 0 0 168px; background: #161616; border: 1px solid #333; border-radius: 8px;
+      padding: 6px; cursor: pointer; transition: border-color 0.15s;
+    }
+    .taf-tile:hover, .taf-tile.sel { border-color: #4a9eff; }
+    .taf-tile canvas { display: block; width: 100%; border-radius: 5px; }
+    .taf-tile .when { font-size: 11.5px; color: #aaa; margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+    .taf-tile .ind { color: #f0c040; font-weight: 600; font-size: 10px; }
+    .taf-tile .what { font-size: 11px; color: #777; margin-top: 2px; line-height: 1.4; word-break: break-word; }
+    .catdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .apt-err { color: #b66; font-size: 13px; }
+    .taf-hint { font-size: 12px; color: #555; margin: 6px 2px 0; }
+
+    /* ---- custom METAR ---- */
+    #custom-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    #custom-raw {
+      flex: 1 1 380px; background: #111; border: 1px solid #383838; color: #ddd;
+      border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+    }
+    #custom-raw:focus { outline: none; border-color: #4a9eff; }
+    #custom-err { color: #b66; font-size: 12.5px; margin-top: 6px; }
+    .examples { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .examples button {
+      background: #222; border: 1px solid #383838; color: #888; border-radius: 5px;
+      padding: 2px 9px; font-size: 12px; cursor: pointer;
+    }
+    .examples button:hover { border-color: #4a9eff; color: #ddd; }
+
+    footer { margin-top: 40px; }
+
+    /* On a phone the picture is small — the overlay has to stop competing
+       with it: one scrollable row of controls, no secondary readouts. */
+    @media (max-width: 700px) {
+      #view-bar { left: 6px; right: 6px; bottom: 6px; gap: 4px; font-size: 11px; flex-wrap: nowrap; overflow-x: auto; }
+      #view-bar .grp { padding: 2px 5px; flex: 0 0 auto; }
+      #view-bar button { padding: 2px 6px; font-size: 11px; white-space: nowrap; }
+      #hud-look { min-width: 0; }
+      #hud-note-wrap, #view-bar .grp:has(#labels-chk) { display: none; }
+      #drag-hint { font-size: 12px; padding: 5px 10px; }
+      .scene-chip { font-size: 11.5px; padding: 4px 8px; top: 8px; left: 8px; }
+      #scene-temp { top: 8px; right: 8px; padding: 3px 8px; }
+      #scene-temp .t { font-size: 17px; }
+      #scene-temp .d { font-size: 10px; }
+      #preview-banner { top: 44px; font-size: 12px; padding: 4px 9px; }
+      #cat-ribbon { height: 46px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>METAR Sky II</h1>
+    <p class="subtitle">Version one drew the weather. This one puts you on the field and lets you
+      <b>look around</b>. Drag the picture to turn 360°, and everything holds its real bearing: the sun and
+      moon at their true altitude and azimuth, the actual stars and planets that are up right now, cloud
+      decks in true perspective — an overcast at 900 ft really does close over your head and run to the
+      horizon — the windsock streaming the reported wind, and the runway under your feet. Below the picture:
+      what those numbers mean before you fly.</p>
+  </header>
+
+  <main>
+    <div class="top-bar">
+      <span id="station-tabs"></span>
+      <span class="right">
+        <span id="update-time" class="faint"></span>
+        <button class="btn" id="refresh-btn">↻ Refresh</button>
+      </span>
+    </div>
+
+    <div id="scene-wrap">
+      <canvas id="scene"></canvas>
+      <div class="scene-chip" id="scene-chip" style="display:none">
+        <span class="icao" id="chip-icao"></span>
+        <span class="cat-chip" id="chip-cat"></span>
+        <span class="age" id="chip-age"></span>
+      </div>
+      <div id="scene-temp" style="display:none">
+        <div class="t" id="temp-big"></div>
+        <div class="d" id="temp-sub"></div>
+      </div>
+      <div id="preview-banner"><span id="preview-label"></span><button id="preview-off">✕ back to now</button></div>
+      <div id="drag-hint">drag to look around · scroll to zoom</div>
+      <div id="view-bar">
+        <span class="grp"><span id="hud-look">—</span></span>
+        <span class="grp" id="view-presets"></span>
+        <span class="grp"><label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="labels-chk" checked style="accent-color:#4a9eff"> sky labels</label></span>
+        <span class="grp" id="hud-note-wrap"><span id="hud-note"></span></span>
+      </div>
+      <div id="scene-err"></div>
+    </div>
+
+    <div id="time-bar">
+      <button class="btn" id="play-btn" title="sweep the scene from −12 h to +12 h">▶ Play</button>
+      <input type="range" id="time-slider" min="-720" max="720" step="5" value="0"
+        aria-label="time offset, minutes from now">
+      <span id="time-label"><b>now</b></span>
+      <button class="btn" id="time-now-btn">● live</button>
+      <span id="time-src"></span>
+    </div>
+    <div id="ribbon-wrap"><canvas id="cat-ribbon"></canvas></div>
+
+    <p id="summary"></p>
+
+    <div class="section-title">The brief <span class="sub">what these conditions actually do to the airplane</span></div>
+    <div id="brief-grid"></div>
+
+    <div class="section-title">The raw METAR, decoded <span class="sub">click a code group</span></div>
+    <div class="card">
+      <div id="decode-raw"></div>
+      <div id="tok-explain">Click any group above to see what it means.</div>
+    </div>
+
+    <div class="section-title">Conditions</div>
+    <div class="cond-grid" id="cond-grid"></div>
+
+    <div class="section-title">The air itself <span class="sub">what the wing, prop and engine are working with</span></div>
+    <div class="card">
+      <div id="dens-flex">
+        <canvas id="dens-canvas"></canvas>
+        <div id="dens-read"></div>
+      </div>
+      <canvas id="dens-chart"></canvas>
+      <div id="dens-note">Each dot is an air molecule — sort of. A real cubic meter holds ~2.5 × 10²⁵ of them, and
+        the count rarely differs from a standard day by more than a few percent, so the difference in dots is drawn
+        <b>≈12× exaggerated</b> to make it visible. Dot speed scales with temperature (that part is real physics:
+        warmer molecules move faster, spread out, and leave fewer of them inside your wing's span and your
+        cylinders' intake stroke). The trend chart is <b>drag-to-scrub</b> and drives the whole page: solid
+        segments come from real observations, dashed from the Open-Meteo model interpolated hourly and corrected
+        to the latest METAR.</div>
+    </div>
+
+    <div class="section-title">TAF preview <span class="sub">click a period to fly the scene forward · nearest TAF fields — KANP has no TAF</span></div>
+    <div id="tafs"></div>
+    <p class="taf-hint">FM = new prevailing conditions from that time. TEMPO / PROB tiles show the prevailing
+      forecast <i>with</i> the temporary conditions layered on.</p>
+
+    <div class="section-title">Draw any METAR</div>
+    <div class="card">
+      <div id="custom-row">
+        <input id="custom-raw" type="text" spellcheck="false"
+          placeholder="Paste any raw METAR — e.g. KOSH 271853Z 24012G22KT 3SM +TSRA BR BKN008CB OVC020 24/22 A2965">
+        <button class="btn" id="custom-btn">Draw it</button>
+      </div>
+      <div id="custom-err"></div>
+      <div class="examples" id="examples"></div>
+    </div>
+  </main>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation Tools</a>
+
+  <footer>
+    <p>Observations &amp; TAFs from the National Weather Service (api.weather.gov) · temperature/pressure between
+      obs from Open-Meteo · celestial positions computed locally (Meeus low-precision) · directions °true ·
+      © Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/sky2.js?v=1"></script>
+</body>
+</html>
