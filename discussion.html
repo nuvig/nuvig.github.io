@@ -264,14 +264,30 @@
 
     /* ---- forecast drift ---- */
     .drift-row {
-      display: flex; gap: 12px; align-items: baseline; padding: 5px 0;
+      display: flex; gap: 10px; align-items: baseline; padding: 5px 0;
       border-bottom: 1px solid #242424; font-size: 13px; flex-wrap: wrap;
     }
     .drift-row:last-child { border-bottom: none; }
     .drift-row .day { width: 96px; flex-shrink: 0; color: #ccc; font-weight: 600; }
-    .drift-row .delta { color: #999; }
+    .drift-row .rel { width: 72px; flex-shrink: 0; font-size: 11px; color: #5f6c78; }
+    .drift-row .nums { color: #b9c3cc; }
+    .drift-row .nums b { color: #e4eaf0; font-weight: 600; }
+    .drift-row .cmp { color: #7c8792; }
     .drift-row .up { color: #f59e0b; }
     .drift-row .down { color: #4a9eff; }
+    /* past days are settled history — muted; today is the one you're standing on */
+    .drift-row.past .nums { color: #97a1aa; }
+    .drift-row.past .nums b { color: #c3ccd4; }
+    .drift-row.today {
+      /* margin + border + padding cancel out, so the day column stays aligned */
+      background: #16202b; border-left: 2px solid #4a9eff; border-bottom: none;
+      margin: 3px -10px; padding: 8px 10px 8px 8px; border-radius: 0 5px 5px 0;
+    }
+    .drift-row.today .day { color: #eaf1f7; }
+    .drift-row.today .rel {
+      color: #4a9eff; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .drift-row.today .nums b { color: #fff; }
     .drift-note { font-size: 11.5px; color: #555; margin-top: 8px; }
 
     footer.sources { margin-top: 28px; font-size: 11px; color: #555; line-height: 1.7; }
@@ -376,14 +392,17 @@
     <details>
       <summary><h2>How the story gets rewritten</h2></summary>
       <p class="deck">A forecast never stands still — each new discussion quietly rewrites the last.
-        The drift card tracks how DC's daily numbers have shifted; below it, word-level diffs
+        The drift card puts today in the middle: three days back, what KDCA actually recorded
+        against what was called for; three days ahead, how the numbers have moved since the
+        earlier forecast. Below it, word-level diffs
         (<span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span>)
-        show the reasoning itself being revised. New issuances are picked up every 10 minutes.</p>
+        show the reasoning itself being revised — open an issuance to read one. New issuances
+        are picked up every 10 minutes.</p>
     </details>
   </div>
 
   <div class="card" id="drift-card" style="margin-bottom:8px">
-    <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em">Forecast drift — daily numbers for DC</h3>
+    <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em">Forecast drift — DC, three days back and three ahead</h3>
     <div id="drift-body"><span class="muted" style="font-size:13px">Loading…</span></div>
   </div>
 
@@ -418,6 +437,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=6"></script>
+  <script src="js/discussion.js?v=7"></script>
 </body>
 </html>

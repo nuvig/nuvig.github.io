@@ -356,7 +356,6 @@ async function buildChangelog(list) {
   const lastSeen = +localStorage.getItem('dcwx_last_seen') || 0;
   await Promise.all(items.map((it) => afdText(it).catch(() => null)));
   host.innerHTML = '';
-  let openUsed = false;
   for (let i = 0; i < items.length - 1; i++) {
     const cur = items[i], prev = items[i + 1];
     const curText = AFD.texts.get(cur.id), prevText = AFD.texts.get(prev.id);
@@ -371,8 +370,7 @@ async function buildChangelog(list) {
     if (!AFD.parsed.has(prev.id)) AFD.parsed.set(prev.id, parseAfd(prevText));
     const diff = diffIssuances(AFD.parsed.get(prev.id), AFD.parsed.get(cur.id));
     const isNew = lastSeen && new Date(cur.issuanceTime).getTime() > lastSeen;
-    host.appendChild(renderLogEntry(cur, diff, isNew, !openUsed));
-    openUsed = true;
+    host.appendChild(renderLogEntry(cur, diff, isNew, false));   // all collapsed on load
   }
   localStorage.setItem('dcwx_last_seen', String(new Date(items[0].issuanceTime).getTime()));
   if (ARC.index && Array.isArray(ARC.index.afd) && ARC.index.afd.length) {
@@ -427,6 +425,74 @@ async function checkForNew() {
 
 const DRIFT_KEY = 'dcwx_fc_snaps';
 const DRIFT_MIN_GAP = 2 * 3600 * 1000;   // min age gap between kept snapshots
+const DRIFT_SPAN = 3;                    // days shown either side of today
+
+/* Calendar-day arithmetic on 'YYYY-MM-DD' strings — noon-anchored so DST
+   transitions can't skip or repeat a date. */
+function shiftDay(dateStr, k) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + k);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Temperature °C from a raw METAR: the RMK T-group (tenths) when it's there,
+   else the main T/Td group. */
+function metarTempC(raw) {
+  const t = String(raw).match(/\bT([01])(\d{3})([01])(\d{3})\b/);
+  if (t) return (t[1] === '1' ? -1 : 1) * (+t[2] / 10);
+  const m = String(raw).replace(/\bRMK\b.*$/, '').match(/\s(M?\d{2})\/(M?\d{2})\s/);
+  if (!m) return null;
+  return m[1].startsWith('M') ? -+m[1].slice(1) : +m[1];
+}
+
+function dayHighF(metars) {
+  let hi = null;
+  for (const [, raw] of metars || []) {
+    const c = metarTempC(raw);
+    if (c == null) continue;
+    const f = Math.round(degF(c));
+    if (hi == null || f > hi) hi = f;
+  }
+  return hi;
+}
+
+/* The night that *began* on day D bottoms out in D+1's small hours — which is
+   also what the NWS "low" for D means, so the two line up. */
+function overnightLowF(nextDayMetars) {
+  let lo = null;
+  for (const [t, raw] of nextDayMetars || []) {
+    if (localHour(t * 1000) >= 9) continue;
+    const c = metarTempC(raw);
+    if (c == null) continue;
+    const f = Math.round(degF(c));
+    if (lo == null || f < lo) lo = f;
+  }
+  return lo;
+}
+
+/* Days behind us, from the site archive: what was forecast that morning and
+   what KDCA actually recorded. Missing files just leave gaps in the strip. */
+async function loadPastDays() {
+  const out = new Map();
+  if (!ARCHIVE || !ARC.index) return out;
+  const today = localDay(Date.now());
+  const fcDays = ARC.index.forecast_days || [];
+  const obsDays = ARC.index.obs_days || [];
+  const jobs = [];
+  for (let k = -DRIFT_SPAN; k <= 0; k++) {     // today included: it holds the overnight low for −1
+    const date = shiftDay(today, k);
+    const rec = { date, fc: null, obs: null };
+    out.set(date, rec);
+    if (k < 0 && fcDays.includes(date)) {
+      jobs.push(fetchJSON(`${ARCHIVE}/forecast/${date}.json`).then((d) => { rec.fc = d; }).catch(() => {}));
+    }
+    if (obsDays.includes(date)) {
+      jobs.push(fetchJSON(`${ARCHIVE}/obs/${date}.json`).then((d) => { rec.obs = d; }).catch(() => {}));
+    }
+  }
+  await Promise.all(jobs);
+  return out;
+}
 
 /* Latest NWS daily forecast for DC, kept around so the headline engine can
    quote the official numbers instead of re-deriving them from the model. */
@@ -466,7 +532,7 @@ async function loadDrift() {
   } else {
     baseline = [...snaps].reverse().find((s) => now - s.at > DRIFT_MIN_GAP) || null;
   }
-  renderDrift(baseline, { at: now, days }, baseSrc);
+  renderDrift(baseline, { at: now, days }, baseSrc, await loadPastDays());
   if (!snaps.length || now - snaps[snaps.length - 1].at > DRIFT_MIN_GAP) {
     snaps.push({ at: now, days });
     while (snaps.length > 10) snaps.shift();
@@ -479,41 +545,95 @@ function fmtDay(dateStr) {
   return fmtTime(d, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function renderDrift(base, cur, baseSrc) {
+const driftArrow = (d) => d > 0 ? `<span class="up">↑${d}</span>` : `<span class="down">↓${-d}</span>`;
+
+/* A day already behind us: what verified at KDCA, against what that morning's
+   forecast had called for. */
+function verifiedCell(date, past) {
+  const rec = past && past.get(date);
+  const snaps = (rec && rec.fc && rec.fc.snaps) || [];
+  const fc = snaps.length ? snaps[0].days[date] : null;
+  const hi = rec && rec.obs ? dayHighF(rec.obs.metars) : null;
+  const next = past && past.get(shiftDay(date, 1));
+  const lo = next && next.obs ? overnightLowF(next.obs.metars) : null;
+
+  if (hi == null && lo == null && !fc) return { nums: '', cmp: '<span class="faint">not in the site archive yet</span>' };
+
+  const nums = hi != null || lo != null
+    ? `${hi != null ? `high <b>${hi}°</b>` : ''}${hi != null && lo != null ? ' · ' : ''}${lo != null ? `low ${lo}°` : ''} observed`
+    : `<span class="faint">no obs archived</span>`;
+  if (!fc) return { nums, cmp: '<span class="faint">no forecast on record for that day</span>' };
+
+  const bits = [];
+  if (hi != null && fc.hi != null) {
+    const d = hi - fc.hi;
+    bits.push(d === 0 ? `called ${fc.hi}° — spot on` : `called ${fc.hi}° ${driftArrow(d)}`);
+  } else if (fc.hi != null) bits.push(`called ${fc.hi}°`);
+  if (lo != null && fc.lo != null && lo !== fc.lo) bits.push(`low called ${fc.lo}° ${driftArrow(lo - fc.lo)}`);
+  return { nums, cmp: bits.join(' · ') };
+}
+
+/* Today or ahead: the current numbers, and how they've moved since the
+   baseline forecast. */
+function driftCell(date, base, cur) {
+  const c = cur.days[date];
+  if (!c) return { nums: '', cmp: '<span class="faint">beyond the forecast window</span>' };
+  const nums = `${c.hi != null ? `high <b>${c.hi}°</b>` : ''}` +
+    `${c.hi != null && c.lo != null ? ' · ' : ''}${c.lo != null ? `low ${c.lo}°` : ''}` +
+    `${c.pop != null ? ` · ${c.pop}%` : ''}`;
+  const b = base && base.days[date];
+  if (!b) return { nums, cmp: '<span class="faint">no earlier forecast to compare</span>', c, b: null };
+  const bits = [];
+  if (c.hi != null && b.hi != null && c.hi !== b.hi) bits.push(`was ${b.hi}° ${driftArrow(c.hi - b.hi)}`);
+  if (c.lo != null && b.lo != null && c.lo !== b.lo) bits.push(`low was ${b.lo}° ${driftArrow(c.lo - b.lo)}`);
+  if (c.pop != null && b.pop != null && Math.abs(c.pop - b.pop) >= 5) bits.push(`precip was ${b.pop}% ${driftArrow(c.pop - b.pop)}`);
+  if (c.short && b.short && c.short !== b.short) bits.push(`“${esc(b.short)}” → “${esc(c.short)}”`);
+  return { nums, cmp: bits.length ? bits.join(' · ') : '<span class="faint">unchanged</span>', c, b };
+}
+
+/* Seven days with today in the middle: three verified behind, three forecast
+   ahead. Past rows come from the site archive, the rest from the live NWS
+   forecast against an earlier snapshot of it. */
+function renderDrift(base, cur, baseSrc, past) {
   const host = $('drift-body');
-  if (!base) {
-    host.innerHTML = '<span class="muted" style="font-size:13px">Baseline saved — revisit later and this card will show how the daily forecast for DC has shifted since.</span>';
-    return;
-  }
+  const today = localDay(Date.now());
   const rows = [];
   let bigShift = null;              // biggest single move, for the headline card
-  for (const date of Object.keys(cur.days).sort()) {
-    const c = cur.days[date], b = base.days[date];
-    if (!b) continue;
-    const deltas = [];
-    const arrow = (d) => d > 0 ? `<span class="up">↑${d}</span>` : `<span class="down">↓${-d}</span>`;
-    if (c.hi != null && b.hi != null && c.hi !== b.hi) deltas.push(`high ${c.hi}° (was ${b.hi}° ${arrow(c.hi - b.hi)})`);
-    if (c.lo != null && b.lo != null && c.lo !== b.lo) deltas.push(`low ${c.lo}° (was ${b.lo}° ${arrow(c.lo - b.lo)})`);
-    if (c.pop != null && b.pop != null && Math.abs(c.pop - b.pop) >= 5) deltas.push(`precip ${c.pop}% (was ${b.pop}% ${arrow(c.pop - b.pop)})`);
-    if (c.short && b.short && c.short !== b.short) deltas.push(`“${esc(b.short)}” → “${esc(c.short)}”`);
-    rows.push(`<div class="drift-row"><span class="day">${esc(fmtDay(date))}</span>` +
-      `<span class="delta">${deltas.length ? deltas.join(' · ') : '<span class="faint">no change</span>'}</span></div>`);
+  let anyPast = false;
 
-    const dHi = (c.hi != null && b.hi != null) ? c.hi - b.hi : 0;
-    const dPop = (c.pop != null && b.pop != null) ? c.pop - b.pop : 0;
+  for (let k = -DRIFT_SPAN; k <= DRIFT_SPAN; k++) {
+    const date = shiftDay(today, k);
+    const rel = k === 0 ? 'today' : k === -1 ? 'yesterday' : k === 1 ? 'tomorrow'
+      : k < 0 ? `${-k} days ago` : `in ${k} days`;
+    const cell = k < 0 ? verifiedCell(date, past) : driftCell(date, base, cur);
+    rows.push(
+      `<div class="drift-row${k === 0 ? ' today' : k < 0 ? ' past' : ''}">` +
+      `<span class="day">${esc(fmtDay(date))}</span><span class="rel">${esc(rel)}</span>` +
+      `<span class="nums">${cell.nums}</span><span class="cmp">${cell.cmp}</span></div>`);
+
+    if (k < 0) { anyPast = anyPast || !!cell.nums; continue; }
+    if (!cell.b) continue;
+    const dHi = (cell.c.hi != null && cell.b.hi != null) ? cell.c.hi - cell.b.hi : 0;
+    const dPop = (cell.c.pop != null && cell.b.pop != null) ? cell.c.pop - cell.b.pop : 0;
     const mag = Math.max(Math.abs(dHi) * 5, Math.abs(dPop));   // 1° ≈ 5 points of PoP
     if (mag >= 20 && (!bigShift || mag > bigShift.mag)) {
       const parts = [];
-      if (Math.abs(dHi) >= 3) parts.push(`high ${dHi > 0 ? 'up' : 'down'} ${Math.abs(dHi)}° to ${c.hi}°`);
-      if (Math.abs(dPop) >= 15) parts.push(`precip chance ${dPop > 0 ? 'up' : 'down'} to ${c.pop}%`);
+      if (Math.abs(dHi) >= 3) parts.push(`high ${dHi > 0 ? 'up' : 'down'} ${Math.abs(dHi)}° to ${cell.c.hi}°`);
+      if (Math.abs(dPop) >= 15) parts.push(`precip chance ${dPop > 0 ? 'up' : 'down'} to ${cell.c.pop}%`);
       if (parts.length) bigShift = { mag, text: `${fmtDay(date)}: ${parts.join(', ')} since the earlier forecast.` };
     }
   }
   HL.drift = bigShift;
-  host.innerHTML = (rows.join('') || '<span class="faint" style="font-size:13px">No overlapping days to compare yet.</span>') +
-    `<div class="drift-note">compared with the forecast ${baseSrc === 'site archive'
-      ? `from the site archive (${esc(timeAgo(new Date(base.at)))})`
-      : `saved on this device ${esc(timeAgo(new Date(base.at)))}`}</div>`;
+
+  const baseNote = base
+    ? `Ahead of today: compared with the forecast ${baseSrc === 'site archive'
+        ? `from the site archive (${esc(timeAgo(new Date(base.at)))})`
+        : `saved on this device ${esc(timeAgo(new Date(base.at)))}`}.`
+    : 'Ahead of today: baseline saved — revisit later and these rows will show how the forecast has shifted since.';
+  const pastNote = anyPast
+    ? ` Behind it: what ${OBS_STATION} actually recorded, against the forecast standing that morning.`
+    : ' Past days fill in as the site archive accumulates.';
+  host.innerHTML = rows.join('') + `<div class="drift-note">${baseNote}${pastNote}</div>`;
 }
 
 /* ===========================================================================
