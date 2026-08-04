@@ -2347,6 +2347,13 @@ async function init() {
   loadVerification().catch((e) => {
     $('verify-body').innerHTML = `<span class="err">Verification failed: ${esc(e.message)}</span>`;
   });
+  /* TAFs + the hourly grid at the field (js/discussion-avn.js). Runs after the
+     synoptic grid so its "why did the TAF move" read has model fields to use. */
+  if (typeof AVN !== 'undefined') {
+    AVN.init().catch((e) => {
+      $('avn-changes').innerHTML = `<span class="err">Aviation layer failed: ${esc(e.message)}</span>`;
+    });
+  }
   if (done.length === jobs.length) {
     const issued = AFD.list[0] ? fmtIssued(new Date(AFD.list[0].issuanceTime)) : '';
     setStatus('green', `Discussion issued ${issued} · ${OFFICE}`);

@@ -295,6 +295,51 @@
     .diff .ell { color: #555; padding: 0 6px; }
     .log-unchanged { font-size: 12px; color: #555; margin-top: 8px; }
 
+    /* ---- aviation: TAFs, the field grid, and what moved ---- */
+    .card-h3 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    .taf-card { border-top: 1px solid #262626; padding: 7px 0; }
+    .taf-card:first-child { border-top: none; padding-top: 0; }
+    .taf-head { font-size: 13px; color: #ddd; margin-bottom: 3px; }
+    .taf-head .faint { margin-left: 8px; font-size: 11.5px; }
+    .taf-row {
+      display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap;
+      font-size: 12.5px; padding: 1px 0;
+    }
+    .taf-row .ind { width: 46px; flex-shrink: 0; color: #6d7d8c; font-size: 11px; }
+    .taf-row .when { width: 104px; flex-shrink: 0; color: #9aa5af; }
+    .taf-row .cat { width: 44px; flex-shrink: 0; font-weight: 700; }
+    .taf-row .det { color: #b3bec8; }
+    .taf-row .det b { color: #f5b942; }
+    .cat-vfr  { color: #4ec87a; }
+    .cat-mvfr { color: #58a6ff; }
+    .cat-ifr  { color: #ef6b6b; }
+    .cat-lifr { color: #d879e8; }
+    .avn-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+      font-variant-numeric: tabular-nums; display: block; overflow-x: auto;
+    }
+    .avn-table th {
+      text-align: left; font-weight: 600; color: #6d7d8c; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px 5px 0;
+      border-bottom: 1px solid #2b2b2b; white-space: nowrap;
+    }
+    .avn-table td { padding: 3px 8px 3px 0; color: #b9c3cc; white-space: nowrap; }
+    .avn-table tr.past td { opacity: .45; }
+    .avn-table td.h { color: #d5dde5; font-weight: 600; }
+    .avn-table td.wx { color: #8b96a1; white-space: normal; }
+    .avn-table .ts { color: #f5b942; }
+    .chg-block { border-top: 1px solid #262626; padding: 8px 0; }
+    .chg-block:first-child { border-top: none; padding-top: 0; }
+    .chg-head { font-size: 13px; color: #ddd; margin-bottom: 4px; }
+    .chg-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+    .chg-row .when { width: 118px; flex-shrink: 0; color: #9aa5af; }
+    .chg-row .what { color: #cfd7df; font-weight: 600; }
+    .chg-row .what.ts { color: #f5b942; }
+    .chg-why { font-size: 12.5px; color: #8b96a1; line-height: 1.55; margin: 2px 0 6px 128px; }
+
     /* ---- forecast drift ---- */
     .drift-row {
       display: flex; gap: 10px; align-items: baseline; padding: 5px 0;
@@ -421,6 +466,17 @@
     </details>
   </div>
   <div class="side-note" id="key-messages"></div>
+
+  <div class="card" id="taf-card" style="margin-bottom:8px">
+    <h3 class="card-h3">Terminal forecasts — KANP has none, these are the three around it</h3>
+    <div id="avn-tafs"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card" id="fieldgrid-card" style="margin-bottom:8px">
+    <h3 class="card-h3">Hour by hour at KANP — the NWS grid every app renders</h3>
+    <div id="avn-grid"><span class="muted" style="font-size:13px">Loading…</span></div>
+  </div>
+
   <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
 
   <!-- ============ ACT III — THE REVISIONS ============ -->
@@ -436,6 +492,11 @@
         show the reasoning itself being revised — open an issuance to read one. New issuances
         are picked up every 10 minutes.</p>
     </details>
+  </div>
+
+  <div class="card" id="tafchg-card" style="margin-bottom:8px">
+    <h3 class="card-h3">What moved in the TAF — and why</h3>
+    <div id="avn-changes"><span class="muted" style="font-size:13px">Loading…</span></div>
   </div>
 
   <div class="card" id="since-card" style="margin-bottom:8px">
@@ -479,6 +540,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=9"></script>
+  <script src="js/discussion.js?v=10"></script>
+  <script src="js/discussion-avn.js?v=1"></script>
 </body>
 </html>
