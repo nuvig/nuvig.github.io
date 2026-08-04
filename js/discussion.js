@@ -415,6 +415,7 @@ async function checkForNew() {
     AFD.parsed.set(list[0].id, secs);
     renderDiscussion(list[0], secs);
     await buildChangelog(list);
+    buildHeadline();
     setStatus('green', `New discussion issued ${fmtIssued(new Date(list[0].issuanceTime))}`);
     document.title = '● ' + document.title.replace(/^● /, '');
   } catch (e) { /* transient — try again next cycle */ }
@@ -426,6 +427,10 @@ async function checkForNew() {
 
 const DRIFT_KEY = 'dcwx_fc_snaps';
 const DRIFT_MIN_GAP = 2 * 3600 * 1000;   // min age gap between kept snapshots
+
+/* Latest NWS daily forecast for DC, kept around so the headline engine can
+   quote the official numbers instead of re-deriving them from the model. */
+const FC = { days: null, periods: [], at: 0 };
 
 async function loadDrift() {
   let fcUrl = localStorage.getItem('dcwx_fc_url');
@@ -444,6 +449,9 @@ async function loadDrift() {
     const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
     if (pop != null) day.pop = Math.max(day.pop ?? 0, pop);
   }
+  FC.days = days;
+  FC.periods = fc.properties.periods || [];
+  FC.at = Date.now();
   const now = Date.now();
   let snaps = [];
   try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* reset */ }
@@ -478,6 +486,7 @@ function renderDrift(base, cur, baseSrc) {
     return;
   }
   const rows = [];
+  let bigShift = null;              // biggest single move, for the headline card
   for (const date of Object.keys(cur.days).sort()) {
     const c = cur.days[date], b = base.days[date];
     if (!b) continue;
@@ -489,7 +498,18 @@ function renderDrift(base, cur, baseSrc) {
     if (c.short && b.short && c.short !== b.short) deltas.push(`“${esc(b.short)}” → “${esc(c.short)}”`);
     rows.push(`<div class="drift-row"><span class="day">${esc(fmtDay(date))}</span>` +
       `<span class="delta">${deltas.length ? deltas.join(' · ') : '<span class="faint">no change</span>'}</span></div>`);
+
+    const dHi = (c.hi != null && b.hi != null) ? c.hi - b.hi : 0;
+    const dPop = (c.pop != null && b.pop != null) ? c.pop - b.pop : 0;
+    const mag = Math.max(Math.abs(dHi) * 5, Math.abs(dPop));   // 1° ≈ 5 points of PoP
+    if (mag >= 20 && (!bigShift || mag > bigShift.mag)) {
+      const parts = [];
+      if (Math.abs(dHi) >= 3) parts.push(`high ${dHi > 0 ? 'up' : 'down'} ${Math.abs(dHi)}° to ${c.hi}°`);
+      if (Math.abs(dPop) >= 15) parts.push(`precip chance ${dPop > 0 ? 'up' : 'down'} to ${c.pop}%`);
+      if (parts.length) bigShift = { mag, text: `${fmtDay(date)}: ${parts.join(', ')} since the earlier forecast.` };
+    }
   }
+  HL.drift = bigShift;
   host.innerHTML = (rows.join('') || '<span class="faint" style="font-size:13px">No overlapping days to compare yet.</span>') +
     `<div class="drift-note">compared with the forecast ${baseSrc === 'site archive'
       ? `from the site archive (${esc(timeAgo(new Date(base.at)))})`
@@ -1468,6 +1488,642 @@ async function loadVerification() {
 }
 
 /* ===========================================================================
+   The big story — headline engine
+   ---------------------------------------------------------------------------
+   The rest of the page answers "what is the atmosphere doing?" in detail. This
+   answers "what is the one thing worth knowing?" — a lead headline, a deck that
+   says why, the numbers behind it, and the runners-up.
+
+   Candidate stories (active alerts, convection, a frontal passage, a rain
+   episode, heat, cold, wind, fog, or a quiet pattern) are each scored from data
+   the page already has: NWS alerts + the daily forecast for DC, the GFS grid
+   behind the synoptic map, and the office's own KEY MESSAGES when it writes
+   them. Highest score leads; the runners-up become the "also" lines. Every
+   input is optional — whatever loaded is what the headline is built from.
+   =========================================================================== */
+
+const HL = { alerts: [], drift: null };
+const SEV_RANK = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1 };
+
+/* Active NWS alerts for the DC point. Optional: on failure the headline is
+   built from the model and the forecast alone. */
+async function loadAlerts() {
+  try {
+    const d = await fetchJSON(`${NWS}/alerts/active?point=${DC.lat},${DC.lon}`);
+    const feats = d.features || d['@graph'] || [];
+    HL.alerts = feats
+      .map((f) => (f && f.properties) || f)
+      .filter((p) => p && p.event)
+      .sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0));
+  } catch (e) { HL.alerts = []; }
+}
+
+/* The "* WHAT..." bullet of an alert, which is the human-readable core of it. */
+function alertWhat(a) {
+  const desc = String(a.description || '').replace(/\s+/g, ' ').trim();
+  const what = desc.match(/\*\s*WHAT\.{3}\s*(.+?)(?:\s*\*\s*[A-Z]+\.{3}|$)/);
+  let t = (what ? what[1] : desc) || String(a.headline || '');
+  if (t && !/[a-z]/.test(t)) t = t.charAt(0) + t.slice(1).toLowerCase();   // de-shout
+  if (t.length > 240) t = t.slice(0, 237).replace(/\s\S*$/, '') + '…';
+  return t || `${a.event} in effect for the DC area.`;
+}
+
+/* ---------------------------- time phrasing ------------------------------ */
+
+const HOUR24 = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false });
+const localHour = (ms) => +HOUR24.format(new Date(ms));
+const dayOffset = (ms) => Math.round(
+  (Date.parse(localDay(ms) + 'T00:00:00Z') - Date.parse(localDay(Date.now()) + 'T00:00:00Z')) / 86400000);
+
+function partOfDay(h) {
+  return h < 5 ? 'overnight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'tonight';
+}
+
+/* "this afternoon" · "tonight" · "tomorrow morning" · "Thursday evening" */
+function whenPhrase(ms) {
+  const d = dayOffset(ms), p = partOfDay(localHour(ms));
+  if (d <= 0) return p === 'overnight' ? 'before dawn' : p === 'tonight' ? 'tonight' : `this ${p}`;
+  if (d === 1) return p === 'overnight' ? 'overnight' : p === 'tonight' ? 'tomorrow night' : `tomorrow ${p}`;
+  const wd = fmtTime(new Date(ms), { weekday: 'long' });
+  return p === 'tonight' ? `${wd} night` : `${wd} ${p}`;
+}
+
+/* "4 PM" · "4 PM tomorrow" · "4 PM Thursday" */
+function clockPhrase(ms) {
+  const d = dayOffset(ms), t = fmtTime(new Date(ms), { hour: 'numeric' });
+  if (d <= 0) return t;
+  if (d === 1) return `${t} tomorrow`;
+  return `${t} ${fmtTime(new Date(ms), { weekday: 'long' })}`;
+}
+
+function spanPhrase(a, b) {
+  const hm = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
+  const tag = (ms) => {
+    const d = dayOffset(ms);
+    return d <= 0 ? '' : d === 1 ? ' tomorrow' : ` ${fmtTime(new Date(ms), { weekday: 'long' })}`;
+  };
+  if (a === b) return `around ${hm(a)}${tag(a)}`;
+  if (dayOffset(a) === dayOffset(b)) return `${hm(a)}–${hm(b)}${tag(a)}`;
+  return `${hm(a)}${tag(a)} to ${hm(b)}${tag(b)}`;
+}
+
+/* ------------------------------ small math ------------------------------- */
+
+const degF = (c) => c * 9 / 5 + 32;
+const dir8 = (deg) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+const fmtJ = (v) => (Math.round(v / 100) * 100).toLocaleString('en-US');
+
+function rhFrom(tC, tdC) {           // Magnus
+  const e = (x) => Math.exp(17.625 * x / (243.04 + x));
+  return Math.max(1, Math.min(100, 100 * e(tdC) / e(tC)));
+}
+
+function heatIndexF(tF, rh) {        // NWS Rothfusz regression + the two adjustments
+  if (tF < 80) return tF;
+  let hi = -42.379 + 2.04901523 * tF + 10.14333127 * rh - 0.22475541 * tF * rh
+    - 6.83783e-3 * tF * tF - 5.481717e-2 * rh * rh + 1.22874e-3 * tF * tF * rh
+    + 8.5282e-4 * tF * rh * rh - 1.99e-6 * tF * tF * rh * rh;
+  if (rh < 13 && tF <= 112) hi -= ((13 - rh) / 4) * Math.sqrt((17 - Math.abs(tF - 95)) / 17);
+  else if (rh > 85 && tF <= 87) hi += ((rh - 85) / 10) * ((87 - tF) / 5);
+  return hi;
+}
+
+/* Crosswind component at KANP for a given wind, on whichever runway end is
+   into it — the number a pilot reading this page actually wants. */
+function crosswindKANP(dirDeg, kt) {
+  const rw = SITE.tracker.runway;
+  let best = null;
+  [rw.axisTrue, (rw.axisTrue + 180) % 360].forEach((hdg, k) => {
+    const d = ((dirDeg - hdg + 540) % 360) - 180;
+    if (!best || Math.abs(d) < Math.abs(best.d)) best = { d, name: rw.names[k] };
+  });
+  return { kt: Math.round(Math.abs(kt * Math.sin(best.d * Math.PI / 180))), rwy: best.name };
+}
+
+/* --------------------------- the DC time series -------------------------- */
+
+/* Everything the engine reasons about, pulled out of the synoptic grid at DC
+   (CAPE/CIN from the better-resolved point call when it loaded). */
+function dcSeries() {
+  if (!syn.ready || !syn.times.length) return null;
+  const g = gridXY(DC.lat, DC.lon);
+  const at = (name, i) => {
+    const v = bilinear(baseField(name, i), g.gx, g.gy);
+    return Number.isFinite(v) ? v : NaN;
+  };
+  const s = { t: syn.times, t2m: [], td: [], t850: [], pr: [], cape: [], cin: [], spd: [], dir: [], mslp: [] };
+  for (let i = 0; i < syn.times.length; i++) {
+    const t2 = at('temperature_2m', i), t85 = at('temperature_850hPa', i);
+    s.t2m.push(t2);
+    s.td.push(at('dew_point_2m', i));
+    s.t850.push(Number.isNaN(t85) ? t2 : t85);
+    const p = at('precipitation', i);
+    s.pr.push(Number.isNaN(p) ? 0 : Math.max(0, p));
+    s.spd.push(at('wind_speed_10m', i));
+    s.dir.push(windDirAt(i, g.gx, g.gy));
+    s.mslp.push(at('pressure_msl', i));
+    const ptc = pointAt('cape', syn.times[i]);
+    const grc = at('cape', i);
+    s.cape.push(ptc != null ? ptc : (Number.isNaN(grc) ? 0 : Math.max(0, grc)));
+    s.cin.push(pointAt('cin', syn.times[i]));
+  }
+  s.now = synNowIndex();
+  return s;
+}
+
+/* Contiguous wet stretches (≥0.1 mm/hr, single dry hours bridged) from `from`
+   onward, each with its total, peak rate and peak CAPE. */
+function precipEpisodes(s, from) {
+  const out = [];
+  let cur = null, gap = 0;
+  for (let i = Math.max(0, from); i < s.t.length; i++) {
+    if (s.pr[i] >= 0.1) {
+      if (!cur) { cur = { i0: i, i1: i, total: 0, peak: 0, cape: 0 }; }
+      cur.i1 = i; gap = 0;
+    } else if (cur && ++gap > 1) {
+      out.push(cur); cur = null; gap = 0;
+    }
+    if (cur) {
+      cur.total += s.pr[i];
+      cur.peak = Math.max(cur.peak, s.pr[i]);
+      cur.cape = Math.max(cur.cape, s.cape[i] || 0);
+    }
+  }
+  if (cur) out.push(cur);
+  return out
+    .filter((e) => e.total >= 0.5 || e.peak >= 0.4)
+    .map((e) => Object.assign(e, { t0: s.t[e.i0], t1: s.t[e.i1] }));
+}
+
+/* Strongest convective inhibition in a window, as a magnitude (Open-Meteo
+   reports CIN negative; take the absolute value so either sign works). */
+function capStrength(s, i0, i1) {
+  let mag = 0, have = false;
+  for (let i = Math.max(0, i0); i <= i1 && i < s.t.length; i++) {
+    const c = s.cin[i];
+    if (Number.isFinite(c)) { have = true; mag = Math.max(mag, Math.abs(c)); }
+  }
+  return { have, mag };
+}
+
+/* The sharpest 6-hour 850 hPa temperature change ahead — an air mass swap,
+   i.e. a front crossing DC — with the hour it actually happens. */
+function frontalPassage(s, iEnd) {
+  let best = null;
+  for (let i = s.now; i + 6 <= iEnd; i++) {
+    const d = s.t850[i + 6] - s.t850[i];
+    if (!Number.isFinite(d)) continue;
+    if (!best || Math.abs(d) > Math.abs(best.d)) best = { i, d };
+  }
+  if (!best || Math.abs(best.d) < 2.5) return null;
+  let k = best.i;                                   // steepest single hour inside it
+  for (let i = best.i; i < best.i + 6; i++) {
+    const step = s.t850[i + 1] - s.t850[i];
+    if (Math.sign(step) === Math.sign(best.d) && Math.abs(step) > Math.abs(s.t850[k + 1] - s.t850[k])) k = i;
+  }
+  return { at: s.t[k + 1], d: best.d, cold: best.d < 0, i0: best.i, i1: best.i + 6 };
+}
+
+/* Nearest pressure centers to DC at a given model hour. */
+function centersNear(i, maxKm = 800) {
+  let low = null, high = null;
+  for (const m of findExtrema(i)) {
+    const lat = SYN.LAT_N - m.y * SYN.DLAT, lon = SYN.LON_W + m.x * SYN.DLON;
+    const d = kmBetween(DC.lat, DC.lon, lat, lon);
+    if (d.km > maxKm) continue;
+    const rec = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), v: m.v };
+    if (m.type === 'L' && (!low || d.km < low.km)) low = rec;
+    if (m.type === 'H' && (!high || d.km < high.km)) high = rec;
+  }
+  return { low, high };
+}
+
+const asNm = (km) => Math.round(km * 0.54 / 10) * 10;
+
+/* Short "what's driving it" clause for a given model hour. */
+function mechanismAt(i) {
+  const f = nearestFront(i);
+  if (f && f.km < 300) {
+    const kind = f.adv < 0 ? 'cold' : 'warm';
+    return f.km < 70 ? `a ${kind} front right overhead` : `a ${kind} front ~${asNm(f.km)} nm ${f.dir}`;
+  }
+  const { low } = centersNear(i);
+  return low ? `a surface low ~${asNm(low.km)} nm ${low.dir}` : null;
+}
+
+/* ------------------------- forecast-number lookups ----------------------- */
+
+function modelExtreme(s, dayKey, kind) {
+  let best = null;
+  for (let i = s.now; i < s.t.length; i++) {
+    if (localDay(s.t[i]) !== dayKey || !Number.isFinite(s.t2m[i])) continue;
+    const f = degF(s.t2m[i]);
+    if (best == null || (kind === 'max' ? f > best : f < best)) best = f;
+  }
+  return best == null ? null : Math.round(best);
+}
+
+/* The daytime high that still matters: today's until late afternoon, then
+   tomorrow's. NWS number when there is one, model otherwise. */
+function daytimeHigh(s) {
+  const now = Date.now();
+  const past = localHour(now) >= 16;
+  const key = localDay(past ? now + 86400000 : now);
+  const label = past ? 'tomorrow' : 'today';
+  const fd = FC.days && FC.days[key];
+  if (fd && fd.hi != null) return { f: fd.hi, label, key, src: 'NWS forecast' };
+  const m = s && modelExtreme(s, key, 'max');
+  return m == null ? null : { f: m, label, key, src: 'GFS' };
+}
+
+function upcomingLow(s) {
+  const now = Date.now(), h = localHour(now);
+  const label = h < 6 ? 'by dawn' : 'tonight';
+  for (const k of (h < 6 ? [localDay(now - 86400000), localDay(now)] : [localDay(now)])) {
+    const fd = FC.days && FC.days[k];
+    if (fd && fd.lo != null) return { f: fd.lo, label, src: 'NWS forecast' };
+  }
+  if (!s) return null;
+  let lo = null;
+  for (let i = s.now; i < s.t.length && s.t[i] <= now + 18 * 3600e3; i++) {
+    if (Number.isFinite(s.t2m[i])) lo = lo == null ? degF(s.t2m[i]) : Math.min(lo, degF(s.t2m[i]));
+  }
+  return lo == null ? null : { f: Math.round(lo), label, src: 'GFS' };
+}
+
+function peakHeatIndex(s, dayKey) {
+  let best = null;
+  for (let i = s.now; i < s.t.length; i++) {
+    if (localDay(s.t[i]) !== dayKey) continue;
+    if (!Number.isFinite(s.t2m[i]) || !Number.isFinite(s.td[i])) continue;
+    const tF = degF(s.t2m[i]);
+    const hi = heatIndexF(tF, rhFrom(s.t2m[i], s.td[i]));
+    if (!best || hi > best.hi) best = { hi, tF, dpF: degF(s.td[i]) };
+  }
+  return best;
+}
+
+function peakIn(s, key, hours) {
+  const end = Date.now() + hours * 3600e3;
+  let best = null;
+  for (let i = s.now; i < s.t.length && s.t[i] <= end; i++) {
+    const v = s[key][i];
+    if (Number.isFinite(v) && (!best || v > best.v)) best = { v, i, at: s.t[i] };
+  }
+  return best;
+}
+
+/* Overnight radiation-fog window: spread closing with the wind going calm. */
+function fogWindow(s) {
+  for (let i = s.now; i < s.t.length; i++) {
+    const h = localHour(s.t[i]);
+    if (h > 9 || h < 1) continue;
+    const spread = s.t2m[i] - s.td[i];
+    if (!Number.isFinite(spread) || spread > 1.2 || !(s.spd[i] <= 5)) continue;
+    return { at: s.t[i], spreadF: Math.max(1, Math.round(spread * 9 / 5)), kt: Math.max(1, Math.round(s.spd[i])) };
+  }
+  return null;
+}
+
+/* ------------------------------ the stories ------------------------------ */
+
+/* The grid runs out to +49 h; something two days out shouldn't outrank what
+   happens this afternoon just because it's bigger. */
+function leadTimePenalty(ms) {
+  const h = (ms - Date.now()) / 3600e3;
+  return h > 30 ? 14 : h > 18 ? 7 : 0;
+}
+
+function buildStories(s) {
+  const now = Date.now();
+  const today = localDay(now), tmr = localDay(now + 86400000);
+  const fcDay = (k) => (FC.days && FC.days[k]) || null;
+  const stories = [];
+
+  /* --- active alerts: the office has already decided this is the story --- */
+  for (const a of HL.alerts.slice(0, 3)) {
+    const rank = SEV_RANK[a.severity] || 1;
+    const startMs = Date.parse(a.onset || a.effective || '');
+    const endMs = Date.parse(a.ends || a.expires || '');
+    let when = '';
+    if (Number.isFinite(startMs) && startMs > now + 30 * 60000) when = ` from ${clockPhrase(startMs)}`;
+    if (Number.isFinite(endMs) && endMs > now) when += `${when ? ' to ' : ' until '}${clockPhrase(endMs)}`;
+    stories.push({
+      key: `alert:${a.event}`,
+      score: 58 + rank * 11,
+      headline: `${a.event}${when}`,
+      deck: alertWhat(a),
+      alert: a,
+    });
+  }
+
+  const eps = s ? precipEpisodes(s, s.now) : [];
+  const ep = eps[0];
+
+  /* --- convection vs. plain rain --- */
+  if (ep) {
+    const inches = ep.total / 25.4;
+    const span = spanPhrase(ep.t0, ep.t1);
+    const mech = mechanismAt(ep.i0);
+    if (ep.cape >= 900) {
+      const cap = capStrength(s, ep.i0, ep.i1);
+      const capNote = !cap.have ? ''
+        : cap.mag >= 75 ? ` A cap worth ${Math.round(cap.mag / 10) * 10} J/kg has to erode first, so timing is the whole question.`
+        : cap.mag <= 25 ? ' Next to nothing is capping the column — whatever fires, fires early.' : '';
+      stories.push({
+        key: 'convection',
+        score: 64 + (ep.cape >= 2000 ? 16 : ep.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - leadTimePenalty(ep.t0),
+        headline: `Thunderstorms ${whenPhrase(ep.t0)}`,
+        deck: `The model builds ${fmtJ(ep.cape)} J/kg of CAPE over DC and breaks precip out ${span}` +
+          `${mech ? `, with ${mech}` : ''}. Peak rate near ${ep.peak.toFixed(1)} mm/hr — about ` +
+          `${inches.toFixed(2)}″ if a cell tracks over the district.${capNote}`,
+      });
+    } else {
+      const heavy = inches >= 0.75, trace = inches < 0.15;
+      stories.push({
+        key: 'rain',
+        score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - leadTimePenalty(ep.t0),
+        headline: heavy ? `Soaking rain ${whenPhrase(ep.t0)}`
+          : trace ? `A few showers ${whenPhrase(ep.t0)}` : `Rain ${whenPhrase(ep.t0)}`,
+        deck: `Steady, largely stratiform precip ${span}${mech ? ` as ${mech} works in` : ''} — ` +
+          `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`} at DC in the GFS, peaking near ` +
+          `${ep.peak.toFixed(1)} mm/hr. Little instability to work with, so wet rather than stormy.`,
+      });
+    }
+  }
+
+  /* --- air-mass change --- */
+  if (s) {
+    const fp = frontalPassage(s, s.t.length - 1);
+    if (fp) {
+      const w0 = dir8(s.dir[fp.i0]), w1 = dir8(s.dir[Math.min(s.t.length - 1, fp.i1)]);
+      const shift = w0 !== w1 ? ` Surface wind swings ${w0} → ${w1}.` : '';
+      const hiA = fcDay(today), hiB = fcDay(tmr);
+      const swing = (hiA && hiA.hi != null && hiB && hiB.hi != null)
+        ? ` Highs go ${hiA.hi}° today → ${hiB.hi}° tomorrow.` : '';
+      stories.push({
+        key: 'front',
+        score: 48 + Math.min(22, Math.round(Math.abs(fp.d) * 3.5)) - leadTimePenalty(fp.at),
+        headline: fp.cold ? `Cold front crosses ${whenPhrase(fp.at)}` : `Warm front lifts through ${whenPhrase(fp.at)}`,
+        deck: `850 hPa temperatures ${fp.cold ? 'fall' : 'climb'} ${Math.abs(fp.d).toFixed(1)} °C in six hours ` +
+          `around ${clockPhrase(fp.at)} — the air mass itself changing, not just the sky.${shift}${swing}`,
+      });
+    }
+  }
+
+  /* --- heat --- */
+  const hot = daytimeHigh(s);
+  if (hot && hot.f != null) {
+    const hix = s ? peakHeatIndex(s, hot.key) : null;
+    const muggy = hix && hix.hi - hot.f >= 4;
+    let score = hot.f >= 97 ? 82 : hot.f >= 93 ? 64 : hot.f >= 88 ? 44 : 0;
+    if (score && muggy) score += 6;
+    if (score) {
+      stories.push({
+        key: 'heat',
+        score,
+        headline: hot.f >= 97 ? `Dangerous heat — ${hot.f}° ${hot.label}`
+          : hot.f >= 93 ? `Heat peaks near ${hot.f}° ${hot.label}`
+          : `Warm and humid — ${hot.f}° ${hot.label}`,
+        deck: `${hot.src === 'NWS forecast' ? 'NWS has' : 'The model has'} a high of ${hot.f}° for DC ${hot.label}` +
+          `${muggy ? `, and with dewpoints near ${Math.round(hix.dpF)}° the heat index runs to about ${Math.round(hix.hi)}°` : ''}. ` +
+          'Density altitude goes up with it, so plan on longer takeoff rolls and a lazier climb out of KANP.',
+      });
+    }
+  }
+
+  /* --- cold --- */
+  const lo = upcomingLow(s);
+  if (lo && lo.f != null && lo.f <= 33) {
+    stories.push({
+      key: 'cold',
+      score: lo.f <= 15 ? 76 : lo.f <= 25 ? 58 : 50,
+      headline: lo.f <= 20 ? `Hard freeze ${lo.label} — low near ${lo.f}°` : `Freezing ${lo.label} — low near ${lo.f}°`,
+      deck: `${lo.src === 'NWS forecast' ? 'NWS' : 'The model'} bottoms DC out at ${lo.f}° ${lo.label}. ` +
+        'Frost on the wings and a cold-soaked airframe — allow for the preheat and a longer runup.',
+    });
+  }
+  if (hot && hot.f != null && hot.f <= 38) {
+    stories.push({
+      key: 'coldday',
+      score: 56,
+      headline: `Cold day — high only ${hot.f}° ${hot.label}`,
+      deck: `The air mass never really warms ${hot.label}: ${hot.src === 'NWS forecast' ? 'NWS' : 'the model'} ` +
+        `holds the high at ${hot.f}°, so anything that falls has a good chance of staying frozen.`,
+    });
+  }
+
+  /* --- wind --- */
+  if (s) {
+    const w = peakIn(s, 'spd', 24);
+    if (w && w.v >= 16) {
+      const xw = crosswindKANP(s.dir[w.i], w.v);
+      stories.push({
+        key: 'wind',
+        score: (w.v >= 25 ? 62 : w.v >= 20 ? 48 : 40) - leadTimePenalty(w.at),
+        headline: `${w.v >= 25 ? 'Strong' : 'Breezy'} ${dir8(s.dir[w.i])} wind ${whenPhrase(w.at)}`,
+        deck: `Sustained ${Math.round(w.v)} kt from ${String(Math.round(s.dir[w.i] / 10) * 10).padStart(3, '0')}°T ` +
+          `around ${clockPhrase(w.at)} — roughly ${xw.kt} kt of crosswind on runway ${xw.rwy} at KANP, gusts on top of that.`,
+      });
+    }
+  }
+
+  /* --- fog --- */
+  if (s) {
+    const fog = fogWindow(s);
+    if (fog) {
+      stories.push({
+        key: 'fog',
+        score: 44 - leadTimePenalty(fog.at),
+        headline: `Fog likely ${whenPhrase(fog.at)}`,
+        deck: `Temperature and dewpoint close to within ${fog.spreadF}°F with wind under ${fog.kt} kt near ` +
+          `${clockPhrase(fog.at)} — the textbook radiation-fog setup. Expect IFR or worse at the outlying ` +
+          'fields until the sun burns it off.',
+      });
+    }
+  }
+
+  /* --- quiet: the fallback that leads on most days --- */
+  if (s) {
+    const { high, low } = centersNear(s.now);
+    const end = s.t[s.t.length - 1];
+    const center = high ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${asNm(high.km)} nm ${high.dir}`} ` +
+      `(${Math.round(high.v)} hPa) has the region subsiding` : low ? 'No organized forcing is close enough to matter' : '';
+    stories.push({
+      key: 'quiet',
+      score: eps.length ? 12 : 30,
+      headline: eps.length ? 'Nothing dominant in the pattern' : 'Quiet pattern — nothing to dodge',
+      deck: `${eps.length ? 'Beyond the precip above, the model has no other' : 'The model has no'} organized ` +
+        `weather at DC through ${whenPhrase(end)}.${center ? ` ${center} — sinking air, dry column, good flying.` : ''}`,
+    });
+  }
+
+  /* --- last resort: quote the forecast itself --- */
+  const fd = fcDay(today);
+  if (fd && fd.short) {
+    stories.push({
+      key: 'nws',
+      score: 18,
+      headline: fd.short,
+      deck: `The NWS forecast for DC today: ${fd.short.toLowerCase()}` +
+        `${fd.hi != null ? `, high near ${fd.hi}°` : ''}${fd.lo != null ? `, low ${fd.lo}°` : ''}` +
+        `${fd.pop != null ? `, ${fd.pop}% chance of precip` : ''}.`,
+    });
+  }
+
+  const best = new Map();
+  for (const st of stories) {
+    if (!best.has(st.key) || best.get(st.key).score < st.score) best.set(st.key, st);
+  }
+  return [...best.values()].sort((a, b) => b.score - a.score);
+}
+
+/* --------------------------- the numbers row ----------------------------- */
+
+function headlineStats(s) {
+  const now = Date.now();
+  const tiles = [];
+  const hot = daytimeHigh(s);
+  if (hot && hot.f != null) {
+    const hix = s ? peakHeatIndex(s, hot.key) : null;
+    tiles.push({
+      lab: `High ${hot.label}`,
+      val: `${hot.f}°`,
+      sub: hix && hix.hi - hot.f >= 4 ? `feels like ${Math.round(hix.hi)}°` : hot.src,
+    });
+  }
+  const lo = upcomingLow(s);
+  if (lo && lo.f != null) tiles.push({ lab: `Low ${lo.label}`, val: `${lo.f}°`, sub: lo.src });
+
+  const fd = (FC.days && FC.days[localDay(now)]) || null;
+  const eps = s ? precipEpisodes(s, s.now) : [];
+  const total = eps.reduce((a, e) => a + e.total, 0) / 25.4;
+  tiles.push({
+    lab: 'Precip',
+    val: fd && fd.pop != null ? `${fd.pop}%` : eps.length ? `${total.toFixed(2)}″` : 'none',
+    sub: eps.length ? `~${total.toFixed(2)}″ from ${clockPhrase(eps[0].t0)}` : 'nothing in the model',
+  });
+
+  if (s) {
+    const w = peakIn(s, 'spd', 12);
+    const nowSpd = s.spd[s.now], nowDir = s.dir[s.now];
+    if (Number.isFinite(nowSpd)) {
+      tiles.push({
+        lab: 'Wind now',
+        val: `${dir8(nowDir)} ${Math.round(nowSpd)} kt`,
+        sub: w && w.v - nowSpd >= 3 ? `${Math.round(w.v)} kt by ${clockPhrase(w.at)}` : `${String(Math.round(nowDir / 10) * 10).padStart(3, '0')}°T`,
+      });
+    }
+    const cp = peakIn(s, 'cape', 24);
+    if (cp && cp.v >= 400) {
+      const cap = capStrength(s, cp.i - 2, cp.i + 2);
+      tiles.push({
+        lab: 'Storm fuel',
+        val: `${fmtJ(cp.v)} J/kg`,
+        sub: !cap.have ? `peak ${clockPhrase(cp.at)}`
+          : cap.mag >= 50 ? `cap −${Math.round(cap.mag / 10) * 10} J/kg`
+          : cap.mag <= 25 ? 'uncapped' : `peak ${clockPhrase(cp.at)}`,
+      });
+    }
+  }
+  return tiles.slice(0, 5);
+}
+
+/* ------------------------------ AFD extras ------------------------------- */
+
+/* The office writes KEY MESSAGES only when something is going on — when it
+   does, those bullets are literally its own headlines. */
+function afdKeyMessages() {
+  const secs = AFD.parsed.get(AFD.newestId) || [];
+  const sec = secs.find((x) => /KEY MESSAGES/.test(x.name));
+  if (!sec) return [];
+  const body = sec.body.replace(/\r/g, '');
+  const bullets = body.split(/\n(?=\s*[-*•]\s)/)
+    .map((b) => normText(b).replace(/^[-*•]\s*/, '').replace(/^\d+[).]\s*/, ''))
+    .filter((b) => b.length > 20);
+  const list = bullets.length ? bullets : [normText(body)];
+  return list.slice(0, 2).map((t) => (t.length > 190 ? t.slice(0, 187).replace(/\s\S*$/, '') + '…' : t));
+}
+
+function firstSentence(t, max = 175) {
+  const m = String(t).match(/^.*?[.!?](?=\s|$)/);
+  let out = m ? m[0] : String(t);
+  if (out.length > max) out = out.slice(0, max - 1).replace(/\s\S*$/, '') + '…';
+  return out;
+}
+
+/* -------------------------------- render --------------------------------- */
+
+function renderHeadline(lead, tiles, extras) {
+  $('hl-title').textContent = lead.headline;
+  $('hl-deck').textContent = lead.deck;
+  $('hl-stamp').textContent =
+    `as of ${fmtTime(new Date(), { hour: 'numeric', minute: '2-digit' })} · GFS + NWS ${OFFICE}`;
+
+  /* When an alert is itself the lead, the kicker carries the warning and the
+     pill row drops it — no point printing the same watch twice. */
+  const kick = $('hl-kick');
+  const leadRank = lead.alert ? (SEV_RANK[lead.alert.severity] || 1) : 0;
+  kick.className = 'hl-kick' + (leadRank >= 3 ? ' red' : leadRank ? ' amber' : '');
+  kick.textContent = leadRank ? '⚠ Active alert · the big story' : 'The big story';
+
+  $('hl-alerts').innerHTML = HL.alerts
+    .filter((a) => a !== lead.alert)
+    .slice(0, 3)
+    .map((a) => {
+      const rank = SEV_RANK[a.severity] || 1;
+      const end = Date.parse(a.ends || a.expires || '');
+      const win = Number.isFinite(end) && end > Date.now()
+        ? `<span class="win">until ${esc(clockPhrase(end))}</span>` : '';
+      return `<span class="hl-alert ${rank >= 3 ? 'red' : 'amber'}">⚠ <b>${esc(a.event)}</b>${win}</span>`;
+    }).join('');
+
+  $('hl-stats').innerHTML = tiles.map((t) =>
+    `<div class="hl-stat"><div class="lab">${esc(t.lab)}</div><div class="val">${esc(t.val)}</div>` +
+    `${t.sub ? `<div class="sub">${esc(t.sub)}</div>` : ''}</div>`).join('');
+
+  $('hl-more').innerHTML = extras.map((x) => {
+    const tag = x.href
+      ? `<a class="tag" href="${esc(x.href)}">${esc(x.tag)}</a>`
+      : `<span class="tag">${esc(x.tag)}</span>`;
+    return `<div class="item">${tag}${x.title ? `<b>${esc(x.title)}</b> — ` : ''}${esc(x.text)}</div>`;
+  }).join('');
+}
+
+function buildHeadline() {
+  try {
+    const s = syn.ready ? dcSeries() : null;
+    const stories = buildStories(s);
+    const keyMsgs = afdKeyMessages();
+    let lead = stories[0];
+    if (!lead) {                       // model, forecast and alerts all missing
+      const secs = AFD.parsed.get(AFD.newestId) || [];
+      const sec = secs.find((x) => /^(SYNOPSIS|UPDATE|WHAT HAS CHANGED)/.test(x.name)) || secs[0];
+      const text = keyMsgs[0] || (sec ? firstSentence(normText(sec.body), 280) : '');
+      lead = text
+        ? { headline: 'Straight from the forecast office', deck: text }
+        : { headline: 'Headline unavailable', deck: 'None of the sources this page reads came back — try refreshing.' };
+    }
+
+    const extras = [];
+    for (const st of stories.slice(1)) {
+      if (extras.length >= 3 || st.score < 40) break;
+      if (st.alert) continue;          // already shown as a pill above the headline
+      extras.push({ tag: 'Also', title: st.headline, text: firstSentence(st.deck) });
+    }
+    for (const km of keyMsgs) {
+      if (km !== lead.deck) extras.push({ tag: `NWS ${OFFICE}`, href: '#reasoning', text: km });
+    }
+    if (HL.drift) extras.push({ tag: 'Shift', href: '#revisions', text: HL.drift.text });
+
+    renderHeadline(lead, headlineStats(s), extras.slice(0, 5));
+  } catch (e) {
+    $('hl-title').textContent = 'Headline unavailable';
+    $('hl-deck').textContent = `Couldn't assemble it: ${e.message}. Everything below still stands on its own.`;
+  }
+}
+
+/* ===========================================================================
    init
    =========================================================================== */
 
@@ -1475,6 +2131,7 @@ async function init() {
   setStatus('yellow', 'Loading…');
   $('status-check').textContent = 'checks for new discussions every 10 min';
   await loadArchive();   // internal try/catch — the page works without it
+  const alerts = loadAlerts();   // never rejects; the headline waits on it below
   const jobs = [
     loadAfd().then(() => 'afd').catch((e) => {
       $('afd-sections').innerHTML = `<div class="card err">Couldn't load the discussion: ${esc(e.message)}</div>`;
@@ -1492,6 +2149,8 @@ async function init() {
     }),
   ];
   const done = (await Promise.all(jobs)).filter(Boolean);
+  await alerts;
+  buildHeadline();
   loadVerification().catch((e) => {
     $('verify-body').innerHTML = `<span class="err">Verification failed: ${esc(e.message)}</span>`;
   });
@@ -1503,7 +2162,10 @@ async function init() {
   } else {
     setStatus('red', 'All sources failed — try refreshing');
   }
-  setInterval(checkForNew, CHECK_MS);
+  setInterval(() => {
+    loadAlerts().then(buildHeadline);   // keeps the alert strip live between issuances
+    checkForNew();
+  }, CHECK_MS);
 }
 
 $('refresh-btn').addEventListener('click', () => location.reload());
