@@ -44,9 +44,21 @@
     }
     .chapter h2 { margin: 4px 0 6px; font-size: 20px; color: #e8e8e8; }
     .chapter .deck {
-      margin: 0; font-size: 13.5px; color: #8a959f; line-height: 1.55; max-width: 72ch;
+      margin: 0 0 2px; font-size: 13.5px; color: #8a959f; line-height: 1.55; max-width: 72ch;
     }
     .chapter .deck .meta { color: #5a6570; }
+    /* the act title toggles its own note — collapsed until you ask for it */
+    .chapter > details > summary { cursor: pointer; list-style: none; user-select: none; }
+    .chapter > details > summary::-webkit-details-marker { display: none; }
+    /* caret rides with the title text, so it stays put when the title wraps */
+    .chapter > details > summary h2::after {
+      content: "▸"; display: inline-block; font-size: 13px; color: #5d7791;
+      margin-left: 9px; vertical-align: 1px; transition: transform .12s, color .12s;
+    }
+    .chapter > details[open] > summary h2::after { transform: rotate(90deg); }
+    .chapter > details > summary:hover h2,
+    .chapter > details > summary:focus-visible h2 { color: #cfe6ff; }
+    .chapter > details > summary:hover h2::after { color: #4a9eff; }
 
     .status-bar {
       display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -306,11 +318,13 @@
   <!-- ============ ACT I — SYNOPTIC MAP ============ -->
   <div class="chapter" id="setup">
     <span class="kick">Act I · The setup</span>
-    <h2>What's moving the air</h2>
-    <p class="deck">The stage the forecast plays out on: a model surface analysis rebuilt live in
-      your browser — air masses, fronts, highs and lows, wind. Scrub the timeline to watch the
-      pattern evolve; hover anywhere for numbers. The note under the map reads the pattern and
-      says why it is (or isn't) raining at DC.</p>
+    <details>
+      <summary><h2>What's moving the air</h2></summary>
+      <p class="deck">The stage the forecast plays out on: a model surface analysis rebuilt live in
+        your browser — air masses, fronts, highs and lows, wind. Scrub the timeline to watch the
+        pattern evolve; hover anywhere for numbers. The note under the map reads the pattern and
+        says why it is (or isn't) raining at DC.</p>
+    </details>
   </div>
   <div class="card">
     <div id="syn-wrap">
@@ -347,21 +361,25 @@
   <!-- ============ ACT II — THE DISCUSSION ============ -->
   <div class="chapter" id="reasoning">
     <span class="kick">Act II · The reasoning</span>
-    <h2>The forecasters, in their own words</h2>
-    <p class="deck">The Area Forecast Discussion from NWS Baltimore/Washington — the humans behind
-      the forecast explaining what they expect and why. Dotted terms carry plain-English
-      tooltips. <span class="meta" id="afd-issued"></span></p>
+    <details>
+      <summary><h2>The forecasters, in their own words</h2></summary>
+      <p class="deck">The Area Forecast Discussion from NWS Baltimore/Washington — the humans behind
+        the forecast explaining what they expect and why. Dotted terms carry plain-English
+        tooltips. <span class="meta" id="afd-issued"></span></p>
+    </details>
   </div>
   <div id="afd-sections"><div class="card"><span class="muted" style="font-size:13px">Loading the latest discussion…</span></div></div>
 
   <!-- ============ ACT III — THE REVISIONS ============ -->
   <div class="chapter" id="revisions">
     <span class="kick">Act III · The revisions</span>
-    <h2>How the story gets rewritten</h2>
-    <p class="deck">A forecast never stands still — each new discussion quietly rewrites the last.
-      The drift card tracks how DC's daily numbers have shifted; below it, word-level diffs
-      (<span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span>)
-      show the reasoning itself being revised. New issuances are picked up every 10 minutes.</p>
+    <details>
+      <summary><h2>How the story gets rewritten</h2></summary>
+      <p class="deck">A forecast never stands still — each new discussion quietly rewrites the last.
+        The drift card tracks how DC's daily numbers have shifted; below it, word-level diffs
+        (<span style="color:#8fdba9">added</span> / <span style="color:#e08a8a">removed</span>)
+        show the reasoning itself being revised. New issuances are picked up every 10 minutes.</p>
+    </details>
   </div>
 
   <div class="card" id="drift-card" style="margin-bottom:8px">
@@ -374,9 +392,11 @@
   <!-- ============ ACT IV — VERIFICATION ============ -->
   <div class="chapter" id="verdict">
     <span class="kick">Act IV · The verdict</span>
-    <h2>Did it come true?</h2>
-    <p class="deck">This morning's forecast against what KDCA's METARs actually recorded — and when
-      they disagree, the model's own hindcast of where the day went sideways.</p>
+    <details>
+      <summary><h2>Did it come true?</h2></summary>
+      <p class="deck">This morning's forecast against what KDCA's METARs actually recorded — and when
+        they disagree, the model's own hindcast of where the day went sideways.</p>
+    </details>
   </div>
   <div class="card">
     <div id="verify-body"><span class="muted" style="font-size:13px">Loading…</span></div>
