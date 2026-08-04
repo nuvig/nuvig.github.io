@@ -18,6 +18,7 @@ const AVN = {
   stations: SITE.weather.tafStations,
   tafs: {},          // id -> { cur, prev, err }
   grid: null,        // hourly series at the field
+  base: null,        // this morning's archived grid snapshot, when there is one
 };
 
 /* ------------------------------- IWXXM ---------------------------------- */
@@ -305,12 +306,27 @@ function renderTafs() {
   }).join('');
 }
 
+/* What this hour looked like in the first grid snapshot archived today —
+   blank when nothing moved, which is most hours. */
+function gridWas(t, cat, ts) {
+  if (!AVN.base || typeof WXA === 'undefined') return '';
+  const ceil = WXA.gridAt(AVN.base, 'ceil', t);
+  const vis = WXA.gridAt(AVN.base, 'vis', t);
+  if (ceil === undefined && vis === undefined) return '';
+  const wasCat = category(ceil ?? null, vis ?? null);
+  const wasTs = /thunder/i.test(WXA.gridAt(AVN.base, 'wx', t) || '');
+  if (wasTs !== ts) return wasTs ? '<b class="drop">was TS</b>' : '<b class="add">TS added</b>';
+  if (wasCat !== cat) return `<span class="was">was ${wasCat}</span>`;
+  return '';
+}
+
 function renderFieldGrid() {
   const host = $('avn-grid');
   if (!AVN.grid) { host.innerHTML = '<span class="faint">Grid unavailable.</span>'; return; }
   const now = Date.now();
   const start = Math.floor(now / 3600000) * 3600000;
   const rows = [];
+  const tsDrops = [];
   for (let t = start; t <= start + 30 * 3600000; t += 3600000) {
     const ceil = AVN.grid.ceil.get(t) ?? null;
     const vis = AVN.grid.vis.get(t) ?? null;
@@ -323,6 +339,8 @@ function renderFieldGrid() {
     const wind = spd == null || spd < 1 ? 'calm'
       : `${String(Math.round((dir || 0) / 10) * 10).padStart(3, '0')}/${Math.round(spd)}` +
         `${gst && gst - spd >= 5 ? `G${Math.round(gst)}` : ''}`;
+    const was = gridWas(t, cat, ts);
+    if (/was TS/.test(was) && t > now) tsDrops.push(t);
     rows.push(
       `<tr${t <= now ? ' class="past"' : ''}>` +
       `<td class="h">${esc(fmtTime(new Date(t), { weekday: 'short', hour: 'numeric' }))}</td>` +
@@ -332,12 +350,21 @@ function renderFieldGrid() {
       `<td>${AVN.grid.pop.get(t) ?? '—'}%</td>` +
       `<td>${tC == null ? '—' : Math.round(tC * 9 / 5 + 32)}°/${dC == null ? '—' : Math.round(dC * 9 / 5 + 32)}°</td>` +
       `<td class="wx">${ts ? '<b class="ts">TS</b> ' : ''}${esc(wx.map((w) => w.wx).filter((w, i, a) => a.indexOf(w) === i).join(', '))}</td>` +
+      `<td class="was-col">${was}</td>` +
       '</tr>');
   }
+  const note = AVN.base
+    ? `<div class="drift-note">Last column compares each hour with the first grid snapshot ` +
+      `archived today (${esc(fmtTime(new Date(AVN.base.t * 1000), { hour: 'numeric', minute: '2-digit' }))}). ` +
+      (tsDrops.length
+        ? `Thunder came out of ${tsDrops.length} hour(s): ${esc(whyThunder(tsDrops[0], true))}`
+        : 'Blank means that hour has not moved.')
+    : '<div class="drift-note">No grid snapshot archived earlier today yet — ' +
+      'the comparison column fills in once the hourly archive has a baseline.';
   host.innerHTML =
     `<table class="avn-table"><thead><tr><th>hour</th><th>cat</th><th>ceil</th><th>vis</th>` +
-    `<th>wind °T/kt</th><th>precip</th><th>t/dp</th><th>grid weather</th></tr></thead>` +
-    `<tbody>${rows.join('')}</tbody></table>`;
+    `<th>wind °T/kt</th><th>precip</th><th>t/dp</th><th>grid weather</th><th>vs this morning</th></tr></thead>` +
+    `<tbody>${rows.join('')}</tbody></table>${note}</div>`;
 }
 
 /* What moved between the last two TAF issuances, and why. */
@@ -403,6 +430,9 @@ function renderTafChanges() {
 /* --------------------------------- init ---------------------------------- */
 
 AVN.init = async function init() {
+  if (typeof WXA !== 'undefined') {
+    AVN.base = await WXA.firstSnap('grid', localDay(Date.now()));
+  }
   const jobs = AVN.stations.map(async (st) => {
     try { AVN.tafs[st.id] = await loadTafPair(st.id); }
     catch (e) { AVN.tafs[st.id] = { err: `unavailable (${e.message})` }; }

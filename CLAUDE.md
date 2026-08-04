@@ -151,10 +151,24 @@ classified there, check all three.
   grid table prints the NWS `weather` array verbatim — **that array is what drives the
   thunderstorm icon in every app rendering this data**, so it is the honest answer to "why is
   there no TS symbol". Same `ceilingHeight` −30.48 m sentinel rule as weather.html.
-- `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives LWX
-  AFDs, DC daily-forecast snapshots and KDCA METARs into `data/wx/` on `main` (stdlib only; the
-  workflow commits, no Pi involved). Its forecast digest mirrors `js/discussion.js` `loadDrift()`
-  — change both together.
+- `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
+  site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
+  involved). **Day-forward: one file per stream per local day, never rewritten**, so history
+  accumulates from whenever a stream was added and nothing is retroactive.
+  Streams: `afd/` (every LWX issuance) · `forecast/` (DC daily digests) · `obs/` (KDCA METARs) ·
+  `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
+  KMTN/KBWI/KDCA issuance, decoded from IWXXM) · `alerts/` · `model/` (GFS CAPE/CIN/precip at the
+  field). `git add data/wx` in the workflow picks up new streams automatically.
+  Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
+  Growth is roughly 40 KB/day (~15 MB/year).
+- **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
+  weather source.** `latest.json` is the current state of every stream in one same-origin
+  document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,
+  `firstSnap(stream, date)` (the morning baseline a go/no-go was made against) and
+  `gridAt(snap, field, ms)`. Every call resolves to `null` rather than throwing, so a page can
+  read the archive first and fall back to the live NWS API. `discussion.html` uses it for the
+  hourly grid's "vs this morning" column; other pages can adopt it incrementally instead of
+  each calling NWS themselves. Requires `js/site-config.js` first.
 
 ### Backends
 
