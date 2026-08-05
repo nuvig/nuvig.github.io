@@ -887,14 +887,34 @@ const RECENT_S = 300;         // "current" = last fix within 5 min of the newest
 let liveMap, heatLayer, aircraftLayer, pollTimer;
 
 function initLive() {
-  liveMap = L.map('map', { layers: [] }).setView([KANP.LAT, KANP.LON], 8);
+  // Fixed circular scope: the container is a circle (CSS) and the view is
+  // locked to frame exactly the 60 nm collection ring — no pan, no zoom, no
+  // controls (Leaflet corner controls would sit outside the circle's clip;
+  // attribution lives in the HTML credit line under the map instead).
+  liveMap = L.map('map', {
+    zoomControl: false, attributionControl: false,
+    dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+    touchZoom: false, boxZoom: false, keyboard: false,
+    zoomSnap: 0,
+  }).setView([KANP.LAT, KANP.LON], 8);
   window._liveMap = liveMap;
 
-  const bases = KANP.baseLayers();
-  const overlays = KANP.overlayLayers();
-  bases['Dark'].addTo(liveMap);
-  const layersCtl = L.control.layers(bases, overlays, { position: 'topright' }).addTo(liveMap);
-  KANP.addOpacitySliders(layersCtl, overlays);
+  KANP.baseLayers()['Dark'].addTo(liveMap);
+
+  // frame the data ring exactly; re-fit whenever the container resizes
+  // (invalidateSize fires 'resize'). Skip while the tab is hidden — a
+  // zero-size container makes getBoundsZoom nonsense.
+  const fitRing = () => {
+    const sz = liveMap.getSize();
+    if (sz.x < 10 || sz.y < 10) return;
+    liveMap.fitBounds(
+      L.latLng(KANP.LAT, KANP.LON).toBounds(KANP.SEARCH_NM * 1852 * 2),
+      { padding: [0, 0], animate: false });
+  };
+  fitRing();
+  liveMap.on('resize', fitRing);
+  new ResizeObserver(() => liveMap.invalidateSize())
+    .observe(document.getElementById('map'));
 
   KANP.addAirport(liveMap);
 
@@ -1070,7 +1090,7 @@ function renderFromStorage() {
 // files are big, so the computed grid is cached in localStorage and reused
 // for an hour (the snapshots update hourly anyway).
 // ---------------------------------------------------------------------------
-KANP.GRID_CACHE_KEY = 'kanp_alltime_grid_v1';
+KANP.GRID_CACHE_KEY = 'kanp_alltime_grid_v2';   // v2: adds the summary block
 const ALL_TIME_DAYS = 60;
 let livePanel = null;
 
@@ -1092,6 +1112,7 @@ async function loadAllTimeGrid() {
     const cached = JSON.parse(localStorage.getItem(KANP.GRID_CACHE_KEY) || 'null');
     if (cached && Date.now() - cached.at < 3_600_000) {
       livePanel.setAll({ grid: cached.grid, label: cached.label });
+      if (cached.sum) renderLiveSummary(cached.sum);
       return;
     }
   } catch { /* bad cache — refetch */ }
@@ -1103,10 +1124,12 @@ async function loadAllTimeGrid() {
     const labelTxt =
       `${Number(s.totals.aircraft).toLocaleString()} aircraft · ` +
       `${Number(s.totals.samples).toLocaleString()} reports · ${KANP.sourceLabel(s)}`;
+    const sum = summarizeStats(s);
     livePanel.setAll({ grid, label: labelTxt });
+    renderLiveSummary(sum);
     try {
       localStorage.setItem(KANP.GRID_CACHE_KEY,
-        JSON.stringify({ at: Date.now(), grid, label: labelTxt }));
+        JSON.stringify({ at: Date.now(), grid, label: labelTxt, sum }));
     } catch { /* storage full — fine, just uncached */ }
   } catch (e) {
     document.getElementById('no-history').textContent =
@@ -1117,6 +1140,68 @@ async function loadAllTimeGrid() {
 
 function renderTemporalGrid() {
   if (livePanel) livePanel.render();
+}
+
+// ---------------------------------------------------------------------------
+// Live-tab summary of everything collected in the stats window: headline
+// totals plus busiest day / peak hour / top types / most-logged airframe.
+// Distilled from the same getStats() response as the heat grid (both the Pi
+// API and the snapshot fallback return daily, types and top_aircraft), and
+// cached alongside it.
+// ---------------------------------------------------------------------------
+function summarizeStats(s) {
+  const daily = s.daily || [];
+  let busiest = null;
+  for (const d of daily) if (!busiest || d.ac > busiest.ac) busiest = d;
+
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const hr = n => n === 0 ? '12am' : n < 12 ? `${n}am` : n === 12 ? '12pm' : `${n - 12}pm`;
+  let peak = null;
+  (s.grid_unique_aircraft || []).forEach((row, d) => row.forEach((v, h) => {
+    if (v > 0 && (!peak || v > peak.v)) peak = { v, d, h };
+  }));
+
+  const types = (s.types || []).filter(t => t.type && t.type !== '?').slice(0, 5);
+  const top = (s.top_aircraft || [])[0] || null;
+
+  return {
+    aircraft: s.totals.aircraft,
+    samples: s.totals.samples,
+    days: daily.length,
+    perDay: daily.length ? Math.round(s.totals.aircraft / daily.length) : null,
+    busiest: busiest ? { d: busiest.d, ac: busiest.ac } : null,
+    peak: peak ? { label: `${DAYS[peak.d]} ${hr(peak.h)}`, v: peak.v } : null,
+    types: types.map(t => `${t.type} ×${t.ac}`).join(' · '),
+    top: top ? { name: top.reg || top.hex, type: top.type || null,
+                 samples: top.samples } : null,
+  };
+}
+
+function renderLiveSummary(sum) {
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  set('ls-aircraft', Number(sum.aircraft).toLocaleString());
+  set('ls-samples', Number(sum.samples).toLocaleString());
+  set('ls-days', String(sum.days));
+  set('ls-perday', sum.perDay != null ? sum.perDay.toLocaleString() : '–');
+  if (sum.busiest) {
+    const day = new Date(sum.busiest.d + 'T12:00:00')
+      .toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    set('ls-busiest', sum.busiest.ac.toLocaleString());
+    set('ls-busiest-lbl', `busiest day (${day})`);
+  }
+  if (sum.peak) {
+    set('ls-peak', sum.peak.label);
+    set('ls-peak-lbl', `peak hour · ${sum.peak.v.toLocaleString()} aircraft`);
+  }
+  const extra = [];
+  if (sum.types) extra.push(`Top types: ${sum.types}`);
+  if (sum.top) {
+    extra.push(`Most logged: ${sum.top.name}` +
+      `${sum.top.type ? ` (${sum.top.type})` : ''} · ` +
+      `${Number(sum.top.samples).toLocaleString()} reports`);
+  }
+  document.getElementById('ls-extra').textContent = extra.join('   ·   ');
+  document.getElementById('live-summary').style.display = '';
 }
 
 function setStatus(color, text) {

@@ -82,6 +82,15 @@
       background: #0b0b0b;
     }
     #hist-map { height: 560px; }
+    /* Live map is a fixed circular scope: a circle exactly framing the 60 nm
+       data ring (view locked in js/kanp.js — no pan/zoom, no controls). */
+    #map {
+      height: auto;
+      aspect-ratio: 1 / 1;
+      width: min(100%, 520px);
+      margin: 12px auto;
+      border-radius: 50%;
+    }
 
     .status-bar {
       display: flex;
@@ -425,6 +434,22 @@
     </div>
 
     <div id="map"></div>
+    <div style="text-align:center;font-size:10px;color:#555;margin:-4px 0 12px">
+      60 nm data ring · map &copy; <a href="https://www.openstreetmap.org/copyright" style="color:#555">OpenStreetMap</a> &copy; <a href="https://carto.com/" style="color:#555">CARTO</a>
+    </div>
+
+    <div class="section-title">Collected data summary — last 60 days</div>
+    <div id="live-summary" style="display:none">
+      <div class="stat-cards" style="margin-top:0">
+        <div class="stat-card"><div class="num" id="ls-aircraft">–</div><div class="lbl">unique aircraft</div></div>
+        <div class="stat-card"><div class="num" id="ls-samples">–</div><div class="lbl">position reports</div></div>
+        <div class="stat-card"><div class="num" id="ls-days">–</div><div class="lbl">days of data</div></div>
+        <div class="stat-card"><div class="num" id="ls-perday">–</div><div class="lbl">aircraft / day (avg)</div></div>
+        <div class="stat-card"><div class="num" id="ls-busiest">–</div><div class="lbl" id="ls-busiest-lbl">busiest day</div></div>
+        <div class="stat-card"><div class="num" id="ls-peak">–</div><div class="lbl" id="ls-peak-lbl">peak hour</div></div>
+      </div>
+      <div class="result-line" id="ls-extra" style="margin-top:0"></div>
+    </div>
 
     <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="live-grid-title">All collected traffic — hour of day × day of week</span>
@@ -877,7 +902,7 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js"></script>
-  <script src="js/kanp.js"></script>
+  <script src="js/kanp.js?v=2"></script>
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js"></script>

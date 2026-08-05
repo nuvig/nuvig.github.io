@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Water Machine — a living water-cycle &amp; weather simulation</title>
+<meta name="description" content="An interactive cross-section of the water cycle: evaporation, latent heat, adiabatic cooling, cloud formation at the LCL, rain shadow, sea breeze and the pressure picture — all simulated live.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌦️</text></svg>">
+<style>
+:root{
+  --ink:#0d1524;
+  --glass:rgba(10,16,30,.72);
+  --glass-brd:rgba(255,255,255,.14);
+  --paper:#f3ecdc;
+  --amber:#f4b860;
+  --sky:#8fd0ff;
+  --rain:#9cc8f0;
+  --mono:"Cascadia Code","Consolas",ui-monospace,monospace;
+  --serif:Georgia,"Times New Roman",serif;
+  --sans:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#0a1120;font-family:var(--sans);color:var(--paper)}
+canvas#world{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:crosshair}
+
+/* ---------- masthead ---------- */
+header.masthead{position:fixed;top:14px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:5;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+header.masthead h1{font-family:var(--serif);font-weight:400;font-size:clamp(20px,3.4vw,34px);letter-spacing:.14em;text-transform:uppercase}
+header.masthead h1 b{color:var(--amber);font-weight:400}
+header.masthead p{font-size:12px;letter-spacing:.28em;text-transform:uppercase;opacity:.75;margin-top:2px}
+#clock{font-family:var(--mono);font-size:13px;margin-top:6px;color:var(--amber);letter-spacing:.1em}
+
+/* ---------- shared panel ---------- */
+.panel{position:fixed;background:var(--glass);border:1px solid var(--glass-brd);border-radius:10px;
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);box-shadow:0 8px 30px rgba(0,0,0,.35);z-index:6}
+.panel h2{font-family:var(--serif);font-weight:400;font-size:13px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--amber);padding:10px 14px 8px;border-bottom:1px solid var(--glass-brd)}
+
+/* ---------- journal ---------- */
+#journal{left:16px;bottom:96px;width:315px;max-height:34vh;display:flex;flex-direction:column}
+#journal-list{overflow-y:auto;padding:8px 14px 12px;font-size:12.5px;line-height:1.5;scrollbar-width:thin}
+#journal-list .e{margin-bottom:8px;opacity:.92}
+#journal-list .e time{font-family:var(--mono);color:var(--amber);font-size:11px;margin-right:6px}
+#journal-list .e.dim{opacity:.55}
+
+/* ---------- instruments ---------- */
+#instruments{right:16px;top:16px;width:262px;max-height:calc(100vh - 128px);overflow-y:auto;scrollbar-width:thin}
+#instruments section{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07)}
+#instruments section:last-child{border-bottom:0}
+.gauge-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px}
+.gauge-grid .g{display:flex;flex-direction:column}
+.gauge-grid .g span{opacity:.6;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.gauge-grid .g b{font-family:var(--mono);font-weight:400;font-size:14px;color:#fff}
+.ebar{margin:7px 0}
+.ebar label{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.8;margin-bottom:3px}
+.ebar label b{font-family:var(--mono);font-weight:400;color:#fff;text-transform:none;letter-spacing:0}
+.ebar .track{height:6px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden}
+.ebar .fill{height:100%;width:0%;border-radius:3px;transition:width .5s ease}
+#eb-sun .fill{background:linear-gradient(90deg,#f4b860,#ffdf9e)}
+#eb-evap .fill{background:linear-gradient(90deg,#3e8fd4,#9cd2ff)}
+#eb-cond .fill{background:linear-gradient(90deg,#c96a9a,#ffb3d3)}
+#eb-rain .fill{background:linear-gradient(90deg,#4aa8a0,#a8e6df)}
+canvas#profile{display:block;width:100%;height:210px;border-radius:6px;background:rgba(255,255,255,.04)}
+#parcel-card{font-size:12px;line-height:1.55;font-family:var(--mono)}
+#parcel-card .ph{color:var(--amber)}
+#parcel-card .hint{font-family:var(--sans);opacity:.6;font-style:italic}
+
+/* ---------- controls ---------- */
+#controls{left:50%;transform:translateX(-50%);bottom:14px;display:flex;align-items:center;gap:16px;
+  padding:10px 18px;flex-wrap:wrap;justify-content:center;max-width:min(96vw,900px)}
+.ctl{display:flex;flex-direction:column;gap:2px;min-width:110px}
+.ctl label{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.12em;text-transform:uppercase;opacity:.75}
+.ctl label output{font-family:var(--mono);color:var(--amber);letter-spacing:0}
+input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:rgba(255,255,255,.18);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--amber);border:2px solid #1a2233;cursor:pointer}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--amber);border:2px solid #1a2233;cursor:pointer}
+button.btn{background:rgba(255,255,255,.08);color:var(--paper);border:1px solid var(--glass-brd);border-radius:7px;
+  padding:7px 13px;font-size:12px;letter-spacing:.08em;cursor:pointer;font-family:var(--sans)}
+button.btn:hover{background:rgba(255,255,255,.16)}
+button.btn.on{background:var(--amber);color:#1a1206;border-color:var(--amber)}
+#playpause{font-family:var(--mono);width:40px}
+
+/* ---------- physics drawer ---------- */
+#drawer{position:fixed;inset:0;z-index:20;background:rgba(6,10,20,.88);backdrop-filter:blur(12px);
+  overflow-y:auto;display:none;padding:48px 20px 80px}
+#drawer.open{display:block}
+#drawer article{max-width:660px;margin:0 auto;font-size:15px;line-height:1.7}
+#drawer h2{font-family:var(--serif);font-weight:400;font-size:30px;color:var(--amber);margin-bottom:6px;letter-spacing:.04em}
+#drawer h3{font-family:var(--serif);font-weight:400;font-size:20px;color:var(--amber);margin:30px 0 8px}
+#drawer p{margin-bottom:12px;opacity:.94}
+#drawer .fig{font-family:var(--mono);font-size:13.5px;background:rgba(255,255,255,.06);border-left:3px solid var(--amber);
+  padding:10px 14px;border-radius:0 6px 6px 0;margin:10px 0}
+#drawer-close{position:fixed;top:18px;right:22px;font-size:26px;background:none;border:none;color:var(--paper);cursor:pointer}
+#drawer em{color:#ffd9a0;font-style:normal}
+#drawer a{color:var(--sky)}
+
+/* ---------- mobile ---------- */
+#chips{display:none;position:fixed;top:12px;right:12px;z-index:7;gap:6px}
+@media (max-width:900px){
+  #chips{display:flex;left:50%;transform:translateX(-50%);right:auto;top:118px}
+  #instruments,#journal{display:none}
+  #instruments.show,#journal.show{display:flex;flex-direction:column}
+  #instruments.show{left:12px;right:12px;width:auto;top:160px;max-height:55vh}
+  #journal.show{left:12px;right:12px;width:auto;bottom:130px}
+  header.masthead p{display:none}
+  #controls{gap:10px;padding:8px 10px}
+  .ctl{min-width:90px}
+}
+</style>
+</head>
+<body>
+
+<canvas id="world"></canvas>
+
+<header class="masthead">
+  <h1>The <b>Water</b> Machine</h1>
+  <p>a living cross-section of the water cycle</p>
+  <div id="clock">day 1 · 09:00</div>
+</header>
+
+<div id="chips">
+  <button class="btn" id="chip-inst">Instruments</button>
+  <button class="btn" id="chip-jour">Journal</button>
+</div>
+
+<div class="panel" id="journal">
+  <h2>Field journal</h2>
+  <div id="journal-list"></div>
+</div>
+
+<aside class="panel" id="instruments">
+  <h2>Instruments</h2>
+  <section>
+    <div class="gauge-grid">
+      <div class="g"><span>Sea surface</span><b id="g-sea">—</b></div>
+      <div class="g"><span>Land surface</span><b id="g-land">—</b></div>
+      <div class="g"><span>Pressure · sea</span><b id="g-psea">—</b></div>
+      <div class="g"><span>Pressure · land</span><b id="g-pland">—</b></div>
+      <div class="g"><span>Cloud base (LCL)</span><b id="g-lcl">—</b></div>
+      <div class="g"><span>Freezing level</span><b id="g-frz">—</b></div>
+    </div>
+  </section>
+  <section>
+    <div class="ebar" id="eb-sun"><label>Solar input <b id="v-sun">0</b></label><div class="track"><div class="fill"></div></div></div>
+    <div class="ebar" id="eb-evap"><label>Latent heat uptake <b id="v-evap">0</b></label><div class="track"><div class="fill"></div></div></div>
+    <div class="ebar" id="eb-cond"><label>Latent heat release <b id="v-cond">0</b></label><div class="track"><div class="fill"></div></div></div>
+    <div class="ebar" id="eb-rain"><label>Water returned <b id="v-rain">0</b></label><div class="track"><div class="fill"></div></div></div>
+  </section>
+  <section>
+    <canvas id="profile" width="230" height="210"></canvas>
+  </section>
+  <section id="parcel-card">
+    <span class="hint">Click any particle to follow one gram of water through the cycle.</span>
+  </section>
+</aside>
+
+<footer class="panel" id="controls">
+  <button class="btn" id="playpause" title="play / pause time">❚❚</button>
+  <div class="ctl"><label>Time of day <output id="o-time">09:00</output></label>
+    <input type="range" id="s-time" min="0" max="24" step="0.05" value="9"></div>
+  <div class="ctl"><label>Humidity <output id="o-hum">55%</output></label>
+    <input type="range" id="s-hum" min="20" max="95" step="1" value="55"></div>
+  <div class="ctl"><label>Wind <output id="o-wind">10 kt</output></label>
+    <input type="range" id="s-wind" min="-15" max="40" step="1" value="10"></div>
+  <div class="ctl"><label>Sea temp <output id="o-sea">20°C</output></label>
+    <input type="range" id="s-sea" min="4" max="30" step="1" value="20"></div>
+  <button class="btn" id="t-press" title="show the pressure picture">Pressure</button>
+  <button class="btn on" id="t-labels" title="show LCL / freezing-level lines">Labels</button>
+  <button class="btn" id="t-about">Physics ⓘ</button>
+</footer>
+
+<div id="drawer">
+  <button id="drawer-close" aria-label="close">✕</button>
+  <article>
+    <h2>How the machine works</h2>
+    <p>Everything on this page is one particle system: each dot is a nominal <em>one gram of water</em>, and it obeys a
+    simplified but honest version of atmospheric thermodynamics. Nothing is scripted — clouds flatten at the
+    condensation level, rain falls on the windward slope, and fog forms on cold nights because the physics says so.</p>
+
+    <h3>Latent heat — the cycle's currency</h3>
+    <p>Evaporating one gram of water costs about <em>2,260 joules</em>. That energy doesn't vanish — it hides in the
+    vapor as <em>latent heat</em> and travels with it. When the vapor later condenses into a cloud droplet, the same
+    2,260 J is released, warming the surrounding air. This is why the sea surface cools as it evaporates
+    (watch the "latent heat uptake" bar), and why growing clouds get an extra buoyant kick the moment condensation
+    begins (the "latent heat release" bar). A thunderstorm is a machine for moving ocean heat into the upper atmosphere.</p>
+    <div class="fig">evaporation: water + 2,260 J → vapor&nbsp;&nbsp;·&nbsp;&nbsp;condensation: vapor → water + 2,260 J</div>
+
+    <h3>Why cloud bases are flat</h3>
+    <p>A rising parcel of dry air cools at almost exactly <em>9.8&nbsp;°C per kilometre</em> (the dry adiabatic lapse rate) —
+    not by mixing with cold air, but because it expands into lower pressure. Its dew point falls much more slowly
+    (~2&nbsp;°C/km). The two meet at a predictable altitude, the <em>lifted condensation level</em>:</p>
+    <div class="fig">LCL ≈ 125 m × (T − T<sub>dew</sub>)</div>
+    <p>Every parcel that starts near the surface saturates at nearly the same height — so the bottoms of the clouds line
+    up along it. Drag the humidity slider: moist air (small T−T<sub>d</sub>) puts the cloud base low; dry air pushes it high.
+    The dashed line in the scene marks the current LCL.</p>
+
+    <h3>Lapse rates and instability</h3>
+    <p>The environment in this model cools with height at <em>6.5&nbsp;°C/km</em>. A dry parcel cooling at 9.8 loses its
+    warmth advantage quickly — it rises only as far as its initial surface heating carries it. But once condensation
+    begins, latent heat release slows the parcel's cooling to about <em>6&nbsp;°C/km</em> (the moist adiabatic rate) —
+    slightly <em>less</em> than the environment. The parcel stays warmer than its surroundings and accelerates: this is
+    conditional instability, and it's why afternoon cumulus over hot land can suddenly bloom into towers while morning
+    parcels fizzle below the LCL.</p>
+
+    <h3>The pressure picture</h3>
+    <p>Press the <em>Pressure</em> button. Land heats and cools fast; the sea barely moves. On a sunny afternoon the warm
+    column over land expands, so pressure surfaces aloft bulge upward — and surface pressure under the warm column
+    falls a few hectopascals (a <em>thermal low</em>). Air near the surface then flows from the cooler high (sea) toward
+    the warmer low (land): the <em>sea breeze</em>, with a weak return flow aloft. At night the land cools below the sea
+    temperature and the circulation reverses into a land breeze. The isobar bulges drawn on screen are vertically
+    exaggerated so you can see them.</p>
+
+    <h3>Mountains: forced lift and the rain shadow</h3>
+    <p>Wind hitting the mountain has nowhere to go but up. That forced (orographic) lift pushes moist air through its
+    LCL whether it's buoyant or not — so with any onshore wind the windward slope wears a cap of cloud and takes the
+    rain. Descending the far side, the now-dried air warms at the full dry rate, arriving warmer and drier than it left:
+    the <em>rain shadow</em>, and the reason foehn/chinook winds are warm. Set wind to ~20&nbsp;kt and watch the two sides
+    of the mountain live in different climates.</p>
+
+    <h3>Night: fog and the reverse cycle</h3>
+    <p>After sunset the land radiates its heat away. If it cools to the dew point, vapor condenses right at the surface —
+    <em>radiation fog</em>, which is just a cloud whose LCL reached the ground. High humidity and calm, clear nights make
+    it easiest. At sunrise the fog "burns off": the sun re-supplies the latent heat that condensation released.</p>
+
+    <h3>What the model simplifies</h3>
+    <p>This is a teaching model: 2-D, a fixed 6.5&nbsp;°C/km environment, no Coriolis, cartoon microphysics (droplets
+    become rain by crowding, not true collision–coalescence), and pressure drawn from column temperature alone.
+    The numbers quoted — 2,260&nbsp;J/g, 9.8 and ~6&nbsp;°C/km, LCL ≈ 125&nbsp;m×(T−T<sub>d</sub>) — are the real ones.</p>
+  </article>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= canvas setup ================= */
+const cv = document.getElementById('world');
+const cx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  seaY = H * 0.80;
+  MPP = 10000 / seaY;              // metres per pixel (10 km at top of screen)
+  coastX = W * 0.38;
+  buildTerrain();
+}
+window.addEventListener('resize', resize);
+
+/* ================= constants & state ================= */
+const L_VAP = 2260;                 // J per gram, vaporisation
+const LAPSE_ENV = 6.5, LAPSE_DRY = 9.8, LAPSE_MOIST = 6.0;  // °C per km
+let seaY = 0, MPP = 1, coastX = 0;
+
+const S = {
+  t: 9,               // hours 0..24
+  day: 1,
+  playing: true,
+  speed: 240,         // sim seconds per real second (4 min/s → full day in 6 real min)
+  hum: 55,            // % RH control
+  windKt: 10,
+  seaT: 20,
+  landT: 16,
+  airBase: 18,        // temp of air at sea level
+  showPressure: false,
+  showLabels: true,
+};
+
+/* energy ledger: event counts per real second, exp-smoothed */
+const E = { sun: 0, cnt: { evap: 0, cond: 0, rain: 0 }, s: { evap: 0, cond: 0, rain: 0 }, max: { evap: 1, cond: 1, rain: 1 } };
+/* once-per-day journal events */
+let flags = {};
+const TROP = 9000;   // tropopause, metres
+
+/* ================= terrain ================= */
+let terrainY = null;   // Float32Array of ground y-pixel per x-pixel
+let terrainE = null;   // elevation in metres
+function elevAtFrac(f) {
+  if (f < 0.38) return 0;
+  let e = 0;
+  e += smooth(0.38, 0.46, f) * 130;                                // coastal rise
+  e += Math.max(0, Math.sin((f - 0.44) * 22)) * 70 * smooth(0.44, 0.5, f) * (1 - smooth(0.6, 0.68, f)); // foothills
+  e += 2500 * Math.exp(-Math.pow((f - 0.72) / 0.075, 2));          // the mountain
+  e += smooth(0.8, 0.95, f) * 40;                                  // lee plain
+  return e;
+}
+function smooth(a, b, x) { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+function buildTerrain() {
+  terrainY = new Float32Array(W + 2);
+  terrainE = new Float32Array(W + 2);
+  for (let x = 0; x <= W + 1; x++) {
+    const e = elevAtFrac(x / W);
+    terrainE[x] = e;
+    terrainY[x] = seaY - e / MPP;
+  }
+}
+const gY = x => terrainY[Math.max(0, Math.min(W, Math.round(x)))];
+const gE = x => terrainE[Math.max(0, Math.min(W, Math.round(x)))];
+const altOf = y => Math.max(0, (seaY - y) * MPP);       // metres above sea level
+const yOf = alt => seaY - alt / MPP;
+
+/* ================= environment ================= */
+const envT = alt => S.airBase - LAPSE_ENV * Math.min(alt, TROP) / 1000;   // isothermal above the tropopause
+const sunElev = () => Math.sin(Math.PI * (S.t - 6) / 12);     // >0 during 06–18
+const insolation = () => Math.max(0, sunElev());
+function surfAirT(x) {  // near-surface air temp at column x (drives pressure picture)
+  const blend = smooth(coastX - 40, coastX + 60, x);
+  const t0 = S.seaT * (1 - blend) + S.landT * blend;
+  return t0 - LAPSE_ENV * gE(x) / 1000;
+}
+const psfc = x => 1013 - (surfAirT(x) - 15) * 0.8;
+const dewSurf = () => S.airBase - (100 - S.hum) / 5;          // simple RH→Td
+const lclM = () => Math.max(60, 125 * (S.airBase - dewSurf()));
+const frzM = () => Math.max(0, S.airBase / LAPSE_ENV * 1000);
+
+function stepEnvironment(dtSim) {
+  const sun = insolation();
+  const eqLand = 6 + (S.seaT - 15) * 0.25 + sun * 26;
+  const tau = (eqLand > S.landT ? 1500 : 5400);               // heats fast, cools slow (sim s)
+  S.landT += (eqLand - S.landT) * Math.min(1, dtSim / tau);
+  S.airBase += ((S.seaT * 0.45 + S.landT * 0.55) - S.airBase) * Math.min(1, dtSim / 2400);
+  E.sun = E.sun * 0.95 + sun * 100 * 0.05;
+}
+function breezeAt(x, alt) {  // sea-breeze u (px/frame) from land–sea contrast
+  const b = Math.max(-1.1, Math.min(1.1, (S.landT - S.seaT) * 0.05));
+  if (alt < 800)  return b * (1 - alt / 800);
+  if (alt > 1400 && alt < 3600) return -b * 0.5;
+  return 0;
+}
+function windAt(x, alt) {
+  const u = S.windKt * 0.045 * (0.55 + Math.min(1.5, alt / 3500));
+  return u + breezeAt(x, alt);
+}
+
+/* ================= particles ================= */
+/* states: vapor, droplet, rain, snow, runoff */
+const MAXP = 460;
+const parts = [];
+let pid = 0;
+function spawnVapor(x, y, source) {
+  if (parts.length >= MAXP) {
+    // recycle the oldest idle vapor (mixed out)
+    let idx = -1, best = Infinity;
+    for (let i = 0; i < parts.length; i++)
+      if (parts[i].st === 'vapor' && parts[i].born < best) { best = parts[i].born; idx = i; }
+    if (idx >= 0) parts.splice(idx, 1); else return null;
+  }
+  const t0 = surfAirT(x);
+  const heat = (x > coastX ? insolation() * 4.5 : 1.2);       // superadiabatic surface kick
+  const p = {
+    id: ++pid, st: 'vapor', x, y, vx: 0, vy: 0,
+    T: t0 + 1.5 + heat + Math.random() * 1.5,
+    Td: dewSurf() + (Math.random() - 0.5) * 1.6,
+    born: simClock, size: 1.4 + Math.random() * 1.2, grow: 0, src: source
+  };
+  parts.push(p);
+  E.cnt.evap++;
+  if (track && track.dead) note(`A new gram of water lifts off ${source}. It absorbed ${fmt(L_VAP)} J of the ${source === 'the sea' ? "ocean's" : "surface's"} heat to get airborne.`, true);
+  return p;
+}
+function condense(p) {
+  p.st = 'droplet'; p.grow = 0; p.condAlt = altOf(p.y);
+  p.size = 9 + Math.random() * 9;
+  E.cnt.cond++;
+  const a0 = altOf(p.y);
+  if (!flags.cu && !p.fog && a0 > 200 && insolation() > 0.05) {
+    flags.cu = true;
+    note(`The first cumulus of the day pops at ${fmt(a0)} m — right at the LCL (${fmt(lclM())} m). Watch the flat cloud base build along the dashed line.`);
+  }
+  if (p === track) note(`#${p.id} saturated at ${fmt(altOf(p.y))} m — condensation! Its ${fmt(L_VAP)} J of latent heat is released, warming the young cloud and boosting its rise.`);
+}
+function makePrecip(p) {
+  const freezing = envT(altOf(p.y)) < 0;
+  p.st = freezing ? 'snow' : 'rain';
+  p.size = freezing ? 3 : 2;
+  if (freezing && !flags.snow) { flags.snow = true; note(`Snow is forming aloft — the cloud tops have climbed above the freezing level (${fmt(frzM())} m).`); }
+  if (p === track) note(`#${p.id} grew heavy by bumping into its neighbours and falls as ${freezing ? 'snow' : 'rain'} from ${fmt(altOf(p.y))} m.`);
+}
+
+const cellW = 52;
+let grid = new Map();
+function hashDroplets() {
+  grid.clear();
+  for (const p of parts) if (p.st === 'droplet') {
+    const k = (p.x / cellW | 0) + ':' + (p.y / cellW | 0);
+    grid.set(k, (grid.get(k) || 0) + 1);
+  }
+}
+const neigh = p => grid.get((p.x / cellW | 0) + ':' + (p.y / cellW | 0)) || 0;
+
+function stepParticles(dtSim) {
+  hashDroplets();
+  const sun = insolation();
+  let runoffN = 0, fogN = 0;
+  for (const p of parts) { if (p.st === 'runoff') runoffN++; else if (p.fog) fogN++; }
+  // --- sources ---
+  const rh = S.hum / 100;
+  const evapRate = Math.max(0.06, (0.25 + sun * 0.9) * (S.seaT / 20) * (1.25 - rh));
+  if (Math.random() < evapRate) spawnVapor(Math.random() * (coastX - 20) + 5, seaY - 3, 'the sea');
+  if (sun > 0.15 && Math.random() < evapRate * 0.3) {          // transpiration + lakes
+    const x = coastX + Math.random() * (W - coastX) * 0.9;
+    spawnVapor(x, gY(x) - 4, 'the land (transpiration)');
+  }
+  // radiation fog at night
+  if (sun <= 0 && S.landT <= dewSurf() + 0.5 && fogN < 55 && Math.random() < 0.25) {
+    const x = coastX + 30 + Math.random() * (W - coastX - 60);
+    const p = spawnVapor(x, gY(x) - 6, 'the land');
+    if (p) { p.T = p.Td - 0.5; p.fog = true; condense(p); p.size = 7;
+      if (!flags.fog) { flags.fog = true; note('The land has cooled to its dew point — radiation fog condenses right at the surface. A cloud whose base reached the ground.'); } }
+  }
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    const alt = altOf(p.y);
+    const Te = envT(alt);
+    const u = windAt(p.x, alt);
+
+    if (p.st === 'vapor') {
+      const buoy = -0.0018 * (p.T - Te);
+      p.vy = (p.vy + buoy) * 0.985 + (Math.random() - 0.5) * 0.05;
+      p.vx = (p.vx + (u - p.vx) * 0.05) + (Math.random() - 0.5) * 0.08;
+      // orographic lift near the ground
+      const gyH = gY(p.x);
+      if (p.y > gyH - 120 / 1) {
+        const slope = (gY(p.x + 8) - gY(p.x - 8)) / 16;
+        p.vy += u * slope * 1.3;
+      }
+      const dy = p.vy, dAlt = -dy * MPP;
+      p.T -= LAPSE_DRY * dAlt / 1000;
+      p.T += (Te - p.T) * 0.0006;                    // entrainment
+      p.Td -= 2.0 * dAlt / 1000;
+      p.x += p.vx; p.y += dy;
+      if (p.y > gyH - 2) { p.y = gyH - 2; p.vy = Math.min(0, p.vy); }
+      if (p.T <= p.Td) condense(p);
+    }
+    else if (p.st === 'droplet') {
+      const buoy = -0.0018 * (p.T - Te) - 0.008;      // slight settle
+      p.vy = (p.vy + buoy) * 0.97 + (Math.random() - 0.5) * 0.04;
+      p.vx = (p.vx + (u - p.vx) * 0.04) + (Math.random() - 0.5) * 0.05;
+      const dAlt = -p.vy * MPP;
+      p.T -= LAPSE_MOIST * dAlt / 1000;               // latent heat slows the cooling
+      p.T += (Te - p.T) * 0.0015;                     // entrainment of environmental air
+      p.x += p.vx; p.y += p.vy;
+      const gyH = gY(p.x);
+      if (p.y > gyH - 6) { p.y = gyH - 6; p.vy = 0; }  // hill fog / cap cloud
+      p.grow += dtSim * (0.4 + neigh(p) * 0.25);
+      if (!p.fog && p.grow > 900 && neigh(p) >= 5 && Math.random() < 0.012) makePrecip(p);
+      // lone droplets at the cloud edge mix with drier air and evaporate
+      if (!p.fog && neigh(p) <= 2 && Math.random() < (neigh(p) <= 1 ? 0.012 : 0.004)) {
+        p.st = 'vapor'; p.T = envT(alt) - 0.3; p.size = 1.6; p.grow = 0;
+        E.cnt.evap++;
+        if (p === track) note(`#${p.id} mixed with drier air at the cloud edge and evaporated — vapor again, carrying its ${fmt(L_VAP)} J back aboard.`);
+      }
+      if (p.fog && sun > 0.25 && Math.random() < 0.02) {   // fog burns off
+        parts.splice(i, 1);
+        if (p === track) note(`The morning sun re-supplies #${p.id}'s latent heat — the fog droplet evaporates. Burn-off.`);
+        continue;
+      }
+    }
+    else if (p.st === 'rain' || p.st === 'snow') {
+      const vt = p.st === 'rain' ? 2.4 : 0.8;
+      p.vy += (vt - p.vy) * 0.06;
+      p.vx += (u * (p.st === 'snow' ? 1 : 0.5) - p.vx) * 0.05;
+      p.x += p.vx; p.y += p.vy;
+      if (p.st === 'snow' && envT(altOf(p.y)) > 1.5) { p.st = 'rain'; if (p === track) note(`#${p.id} melts into rain crossing the freezing level (${fmt(frzM())} m). Melting absorbed 334 J.`); }
+      // virga: rain evaporating into dry sub-cloud air
+      if (p.st === 'rain' && S.hum < 45 && Math.random() < 0.004) {
+        p.st = 'vapor'; p.T = envT(altOf(p.y)) - 2; p.Td = dewSurf(); p.size = 2;
+        E.cnt.evap++;
+        if (p === track) note(`#${p.id} evaporated before reaching the ground — virga. The evaporation chilled the air beneath the cloud.`);
+        continue;
+      }
+      const gyH = gY(p.x);
+      if (p.y >= gyH - 1) {
+        E.cnt.rain++;
+        if (!flags.rain) { flags.rain = true; note(`First precipitation of the day reaches the ground${p.x > coastX ? (p.x < W * 0.72 ? ' — on the windward slope, where the lift is' : ' on the lee side') : ', over the sea'}.`); }
+        if (gE(p.x) <= 0 || p.x < coastX) {
+          if (p === track) note(`#${p.id} splashes home into the sea at ${clockStr()} — the loop closes. Total round trip: ${fmt((simClock - p.born) / 60)} sim-minutes.`);
+          parts.splice(i, 1); continue;
+        }
+        if (Math.random() < 0.4 || runoffN > 110) {   // infiltration (all of it once the ground is saturated with runoff)
+          aquifer += 1;
+          if (p === track) note(`#${p.id} soaks into the ground — groundwater now, feeding streams between rains.`);
+          parts.splice(i, 1); continue;
+        }
+        p.st = 'runoff'; p.vy = 0; p.vx = 0;
+        if (p === track) note(`#${p.id} lands on the ${p.x < W * 0.72 ? 'windward' : 'lee'} slope and starts running downhill.`);
+      }
+    }
+    else if (p.st === 'runoff') {
+      const dl = gY(p.x - 4), dr = gY(p.x + 4);
+      const dir = dl > dr ? -1 : 1;                   // toward lower ground (larger y)
+      const slope = Math.abs(dl - dr) / 8;
+      p.vx += dir * (0.05 + slope * 0.5); p.vx *= 0.9;
+      p.x += p.vx; p.y = gY(p.x) - 1.5;
+      p.stall = Math.abs(p.vx) < 0.12 ? (p.stall || 0) + dtSim : 0;
+      if (p.stall > 1500) {                           // pooled water soaks in
+        aquifer++;
+        if (p === track) note(`#${p.id} pools in a hollow and soaks into the ground — groundwater now.`);
+        parts.splice(i, 1); continue;
+      }
+      if (p.x < coastX || gE(p.x) <= 0) {
+        if (p === track) note(`#${p.id} trickles back into the sea. The cycle is complete.`);
+        parts.splice(i, 1); continue;
+      }
+      if (p.x > W - 4) {                              // off the lee edge → rivers
+        if (p === track) note(`#${p.id} joins a lee-side river flowing off the map — rivers return it to the sea eventually.`);
+        parts.splice(i, 1); continue;
+      }
+    }
+    // ceiling
+    if (p.y < 8) { p.y = 8; p.vy = Math.abs(p.vy) * 0.2; }
+    if (p.x < -30 || p.x > W + 30) { parts.splice(i, 1); continue; }
+  }
+  // aquifer baseflow: seeps back out near the coast as surface water (counted, not drawn)
+  if (aquifer > 0 && Math.random() < 0.01) aquifer--;
+}
+let aquifer = 0;
+
+/* ================= tracking & journal ================= */
+let track = null;
+let trace = [];
+const jl = document.getElementById('journal-list');
+function clockStr() { return String(Math.floor(S.t)).padStart(2, '0') + ':' + String(Math.floor(S.t % 1 * 60)).padStart(2, '0'); }
+function fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+function note(msg, dim) {
+  const d = document.createElement('div');
+  d.className = 'e' + (dim ? ' dim' : '');
+  d.innerHTML = `<time>${clockStr()}</time>${msg}`;
+  jl.appendChild(d);
+  while (jl.children.length > 40) jl.removeChild(jl.firstChild);
+  jl.scrollTop = jl.scrollHeight;
+}
+function setTrack(p) {
+  track = p; trace = [];
+  if (p) note(`Now following parcel #${p.id} — currently ${p.st === 'vapor' ? 'invisible vapor carrying ' + fmt(L_VAP) + ' J of latent heat' : 'a ' + p.st} at ${fmt(altOf(p.y))} m.`);
+}
+cv.addEventListener('pointerdown', ev => {
+  const x = ev.clientX, y = ev.clientY;
+  let best = null, bd = 45;
+  for (const p of parts) {
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  if (best) { setTrack(best); return; }
+  if (y > seaY && x < coastX) {          // stir the sea → evaporation burst
+    for (let i = 0; i < 6; i++) spawnVapor(x + (Math.random() - 0.5) * 60, seaY - 3, 'the sea');
+    note('You stirred the sea — a burst of evaporation. Each gram lifted off with 2,260 J of borrowed heat.');
+  } else if (y > gY(x) - 30) {           // poke the ground → thermal
+    for (let i = 0; i < 4; i++) {
+      const p = spawnVapor(x + (Math.random() - 0.5) * 30, gY(x) - 5, 'a thermal you triggered');
+      if (p) p.T += 3;
+    }
+    note('You triggered a thermal — a bubble of extra-warm air breaks away from the ground.');
+  }
+});
+
+/* ================= energy ledger UI ================= */
+function updateInstruments() {
+  const set = (id, v) => document.getElementById(id).textContent = v;
+  set('g-sea', S.seaT.toFixed(1) + ' °C');
+  set('g-land', S.landT.toFixed(1) + ' °C');
+  set('g-psea', psfc(coastX * 0.4).toFixed(1) + ' hPa');
+  set('g-pland', psfc(W * 0.55).toFixed(1) + ' hPa');
+  set('g-lcl', fmt(lclM()) + ' m');
+  set('g-frz', fmt(frzM()) + ' m');
+  for (const k of ['evap', 'cond', 'rain']) E.max[k] = Math.max(E.max[k], E.s[k]);
+  bar('eb-sun', 'v-sun', E.sun, 100, insolation() > 0 ? fmt(E.sun) + ' %' : 'night');
+  bar('eb-evap', 'v-evap', E.s.evap, E.max.evap, fmt(E.s.evap * L_VAP) + ' J/s');
+  bar('eb-cond', 'v-cond', E.s.cond, E.max.cond, fmt(E.s.cond * L_VAP) + ' J/s');
+  bar('eb-rain', 'v-rain', E.s.rain, E.max.rain, E.s.rain.toFixed(1) + ' g/s');
+  // parcel card
+  const pc = document.getElementById('parcel-card');
+  if (track && !parts.includes(track)) { track.dead = true; }
+  if (track && !track.dead) {
+    const a = altOf(track.y);
+    pc.innerHTML =
+      `parcel <span class="ph">#${track.id}</span> · <span class="ph">${track.st}</span><br>` +
+      `alt&nbsp;&nbsp;${fmt(a)} m<br>` +
+      `T&nbsp;&nbsp;&nbsp;&nbsp;${track.T.toFixed(1)} °C&nbsp;&nbsp;(env ${envT(a).toFixed(1)})<br>` +
+      `Td&nbsp;&nbsp;&nbsp;${track.Td.toFixed(1)} °C<br>` +
+      `latent heat ${track.st === 'vapor' ? 'aboard: ' + fmt(L_VAP) + ' J' : 'released ✓'}`;
+  } else if (track) {
+    pc.innerHTML = `parcel <span class="ph">#${track.id}</span> finished its journey.<br><span class="hint">Click another particle to follow it.</span>`;
+  }
+}
+function bar(eb, vl, v, max, label) {
+  document.querySelector('#' + eb + ' .fill').style.width = Math.min(100, v / Math.max(1e-6, max) * 100) + '%';
+  document.getElementById(vl).textContent = label;
+}
+
+/* ================= profile chart ================= */
+const pcv = document.getElementById('profile'), pcx = pcv.getContext('2d');
+function drawProfile() {
+  const w = pcv.width, h = pcv.height;
+  pcx.clearRect(0, 0, w, h);
+  const tMin = -40, tMax = 42, aMax = 8000;
+  const X = t => (t - tMin) / (tMax - tMin) * (w - 34) + 30;
+  const Y = a => h - 18 - a / aMax * (h - 30);
+  pcx.font = '9px monospace'; pcx.fillStyle = 'rgba(243,236,220,.55)';
+  pcx.strokeStyle = 'rgba(255,255,255,.12)'; pcx.lineWidth = 1;
+  for (let a = 0; a <= aMax; a += 2000) {
+    pcx.beginPath(); pcx.moveTo(28, Y(a)); pcx.lineTo(w - 4, Y(a)); pcx.stroke();
+    pcx.fillText((a / 1000) + 'k', 4, Y(a) + 3);
+  }
+  for (let t = -40; t <= 40; t += 20) pcx.fillText(t + '°', X(t) - 6, h - 5);
+  // environment temp
+  pcx.strokeStyle = '#f4b860'; pcx.lineWidth = 1.5; pcx.beginPath();
+  pcx.moveTo(X(envT(0)), Y(0)); pcx.lineTo(X(envT(aMax)), Y(aMax)); pcx.stroke();
+  // surface dew point line (constant-ish mixing ratio)
+  pcx.strokeStyle = 'rgba(156,200,240,.8)'; pcx.setLineDash([4, 3]); pcx.beginPath();
+  pcx.moveTo(X(dewSurf()), Y(0)); pcx.lineTo(X(dewSurf() - 2 * aMax / 1000), Y(aMax)); pcx.stroke();
+  pcx.setLineDash([]);
+  // LCL marker
+  const lcl = lclM();
+  if (lcl < aMax) {
+    pcx.strokeStyle = 'rgba(255,255,255,.35)'; pcx.setLineDash([2, 3]);
+    pcx.beginPath(); pcx.moveTo(28, Y(lcl)); pcx.lineTo(w - 4, Y(lcl)); pcx.stroke(); pcx.setLineDash([]);
+    pcx.fillStyle = 'rgba(255,255,255,.6)'; pcx.fillText('LCL', w - 26, Y(lcl) - 3);
+  }
+  // tracked parcel trace
+  if (track && !track.dead && trace.length > 1) {
+    pcx.strokeStyle = '#fff'; pcx.lineWidth = 1.6; pcx.beginPath();
+    trace.forEach((pt, i) => { const px = X(pt[0]), py = Y(pt[1]); i ? pcx.lineTo(px, py) : pcx.moveTo(px, py); });
+    pcx.stroke();
+    const last = trace[trace.length - 1];
+    pcx.fillStyle = '#fff'; pcx.beginPath(); pcx.arc(X(last[0]), Y(last[1]), 2.5, 0, 7); pcx.fill();
+  }
+  pcx.fillStyle = '#f4b860'; pcx.fillText('env T', X(envT(aMax)) + 4, Y(aMax) + 10);
+  pcx.fillStyle = 'rgba(156,200,240,.9)'; pcx.fillText('dew pt', X(dewSurf()) - 40, h - 24);
+}
+
+/* ================= rendering ================= */
+const stars = Array.from({length: 90}, () => [Math.random(), Math.random() * 0.7, Math.random()]);
+function lerpC(c1, c2, t) {
+  return '#' + [0, 1, 2].map(i => {
+    const a = parseInt(c1.substr(1 + i * 2, 2), 16), b = parseInt(c2.substr(1 + i * 2, 2), 16);
+    return Math.round(a + (b - a) * t).toString(16).padStart(2, '0');
+  }).join('');
+}
+function skyColors() {
+  const e = sunElev();
+  const night = ['#070b1a', '#12182e'], dawn = ['#33436b', '#e08a4e'], day = ['#5fa8dd', '#cfe9f7'];
+  let top, bot, light;
+  if (e <= -0.12) { top = night[0]; bot = night[1]; light = 0.12; }
+  else if (e < 0.12) { const t = (e + 0.12) / 0.24; top = lerpC(night[0], dawn[0], t); bot = lerpC(night[1], dawn[1], t); light = 0.12 + t * 0.4; }
+  else { const t = Math.min(1, (e - 0.12) / 0.5); top = lerpC(dawn[0], day[0], t); bot = lerpC(dawn[1], day[1], t); light = 0.52 + t * 0.48; }
+  return { top, bot, light, e };
+}
+function draw() {
+  const sky = skyColors();
+  const g = cx.createLinearGradient(0, 0, 0, seaY);
+  g.addColorStop(0, sky.top); g.addColorStop(1, sky.bot);
+  cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+  // stars
+  if (sky.light < 0.4) {
+    cx.fillStyle = `rgba(255,255,255,${(0.4 - sky.light) * 1.6})`;
+    for (const s of stars) { cx.globalAlpha = 0.3 + s[2] * 0.7 * (0.4 - sky.light) * 2.5; cx.fillRect(s[0] * W, s[1] * seaY, 1.3, 1.3); }
+    cx.globalAlpha = 1;
+  }
+  // sun
+  if (sky.e > -0.15) {
+    const sx = W * (S.t - 5.2) / 13.6, sy = seaY - sky.e * seaY * 0.95;
+    const sg = cx.createRadialGradient(sx, sy, 2, sx, sy, 60);
+    sg.addColorStop(0, 'rgba(255,236,180,1)'); sg.addColorStop(0.25, 'rgba(255,210,120,.8)'); sg.addColorStop(1, 'rgba(255,190,90,0)');
+    cx.fillStyle = sg; cx.beginPath(); cx.arc(sx, sy, 60, 0, 7); cx.fill();
+  }
+  drawPressure(sky);
+  // sea
+  const sg2 = cx.createLinearGradient(0, seaY, 0, H);
+  sg2.addColorStop(0, lerpC('#0c2c46', '#1d6ea8', sky.light));
+  sg2.addColorStop(1, lerpC('#06141f', '#0d3752', sky.light));
+  cx.fillStyle = sg2; cx.fillRect(0, seaY, coastX + 40, H - seaY);
+  cx.strokeStyle = `rgba(255,255,255,${0.12 + sky.light * 0.2})`; cx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    cx.beginPath();
+    for (let x = 0; x < coastX + 30; x += 6)
+      cx.lineTo(x, seaY + 4 + i * 9 + Math.sin(x * 0.05 + frame * 0.03 + i * 2) * 1.6);
+    cx.stroke();
+  }
+  // land
+  cx.beginPath(); cx.moveTo(coastX - 60, H);
+  for (let x = coastX - 60; x <= W; x += 3) cx.lineTo(x, gY(x));
+  cx.lineTo(W, H); cx.closePath();
+  const lg = cx.createLinearGradient(0, seaY - 2600 / MPP, 0, H);
+  lg.addColorStop(0, lerpC('#3a3f45', '#8b8f94', sky.light));
+  lg.addColorStop(0.45, lerpC('#22301f', '#4e7345', sky.light));
+  lg.addColorStop(1, lerpC('#141d12', '#2c4426', sky.light));
+  cx.fillStyle = lg; cx.fill();
+  // snowcap where terrain pokes above freezing level
+  const fz = frzM();
+  if (fz < 2400) {
+    cx.beginPath(); let started = false;
+    for (let x = coastX; x <= W; x += 3) {
+      if (gE(x) > fz + 100) { const y = gY(x); started ? cx.lineTo(x, y) : cx.moveTo(x, y); started = true; }
+      else if (started) { cx.lineTo(x, yOf(fz + 100)); }
+    }
+    cx.strokeStyle = `rgba(245,248,255,${0.5 + sky.light * 0.4})`; cx.lineWidth = 5; cx.stroke();
+  }
+  // trees
+  cx.fillStyle = lerpC('#101c0e', '#2f5426', sky.light);
+  for (const tx of treeXs) {
+    const ty = gY(tx);
+    cx.beginPath(); cx.moveTo(tx, ty - 13); cx.lineTo(tx - 5, ty); cx.lineTo(tx + 5, ty); cx.fill();
+  }
+  drawParticles(sky);
+  drawLabels(sky);
+}
+let treeXs = [];
+function seedTrees() {
+  treeXs = [];
+  for (let i = 0; i < 26; i++) {
+    const x = coastX + 30 + Math.random() * (W - coastX - 60);
+    if (gE(x) < 1600) treeXs.push(x);
+  }
+}
+function makePuff(rgb) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(32, 32, 3, 32, 32, 31);
+  r.addColorStop(0, `rgba(${rgb},.85)`); r.addColorStop(0.5, `rgba(${rgb},.38)`); r.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64); return c;
+}
+const puffW = makePuff('255,255,255'), puffS = makePuff('58,70,92');
+function drawParticles(sky) {
+  cx.save();
+  // cloud shadow pass (gives the puffs an underside)
+  cx.globalAlpha = 0.13;
+  for (const p of parts) if (p.st === 'droplet') {
+    const s = p.size * 2.2;
+    cx.drawImage(puffS, p.x + 3 - s, p.y + 7 - s, s * 2, s * 2);
+  }
+  // cloud body pass
+  cx.globalAlpha = 0.18 + sky.light * 0.14;
+  for (const p of parts) if (p.st === 'droplet') {
+    const s = p.size * 2.2;
+    cx.drawImage(puffW, p.x - s, p.y - s, s * 2, s * 2);
+  }
+  cx.globalAlpha = 1;
+  for (const p of parts) {
+    if (p.st === 'vapor') {
+      cx.globalAlpha = 0.3;
+      cx.fillStyle = lerpC('#8ea6c0', '#dceafc', sky.light);
+      cx.beginPath(); cx.arc(p.x, p.y, p.size, 0, 7); cx.fill();
+    } else if (p.st === 'rain') {
+      cx.globalAlpha = 0.7; cx.strokeStyle = '#9cc8f0'; cx.lineWidth = 1.1;
+      cx.beginPath(); cx.moveTo(p.x, p.y - 4); cx.lineTo(p.x - p.vx * 1.5, p.y + 3); cx.stroke();
+    } else if (p.st === 'snow') {
+      cx.globalAlpha = 0.85; cx.fillStyle = '#eef4ff';
+      cx.beginPath(); cx.arc(p.x, p.y, 1.6, 0, 7); cx.fill();
+    } else if (p.st === 'runoff') {
+      cx.globalAlpha = 0.8; cx.fillStyle = '#6db9e8';
+      cx.beginPath(); cx.arc(p.x, p.y, 1.6, 0, 7); cx.fill();
+    }
+  }
+  cx.globalAlpha = 1;
+  // tracked ring
+  if (track && !track.dead) {
+    cx.strokeStyle = '#f4b860'; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.arc(track.x, track.y, Math.max(9, track.size + 5), 0, 7); cx.stroke();
+    cx.font = '10px monospace'; cx.fillStyle = '#f4b860';
+    cx.fillText('#' + track.id, track.x + 12, track.y - 8);
+  }
+  cx.restore();
+}
+function drawLabels(sky) {
+  if (!S.showLabels) return;
+  cx.save();
+  cx.font = '10px monospace';
+  const yl = yOf(lclM());
+  if (yl > 40) {
+    cx.strokeStyle = 'rgba(255,255,255,.3)'; cx.setLineDash([5, 6]); cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(0, yl); cx.lineTo(W, yl); cx.stroke();
+    cx.fillStyle = 'rgba(255,255,255,.7)';
+    cx.fillText(`cloud base · LCL ≈ 125 m × (T−Td) = ${fmt(lclM())} m`, 12, yl - 5);
+  }
+  const yf = yOf(frzM());
+  if (yf > 40 && yf < seaY) {
+    cx.strokeStyle = 'rgba(160,200,255,.28)'; cx.setLineDash([2, 6]);
+    cx.beginPath(); cx.moveTo(0, yf); cx.lineTo(W, yf); cx.stroke();
+    cx.fillStyle = 'rgba(170,205,255,.7)';
+    cx.fillText(`freezing level · 0 °C at ${fmt(frzM())} m`, 12, yf - 5);
+  }
+  cx.setLineDash([]);
+  cx.restore();
+}
+function drawPressure(sky) {
+  if (!S.showPressure) return;
+  cx.save();
+  cx.font = '10px monospace';
+  // pressure surfaces, vertically exaggerated ×10
+  const levels = [900, 800, 700, 600, 500];
+  for (const p of levels) {
+    cx.beginPath();
+    for (let x = 0; x <= W; x += 10) {
+      const Tk = 273 + (surfAirT(x) * 0.7 + S.airBase * 0.3);
+      const zStd = 287 * 288 / 9.81 * Math.log(1013 / p);
+      const z = 287 * Tk / 9.81 * Math.log(1013 / p);
+      const y = yOf(zStd + (z - zStd) * 10);
+      x ? cx.lineTo(x, y) : cx.moveTo(x, y);
+    }
+    cx.strokeStyle = 'rgba(244,184,96,.35)'; cx.lineWidth = 1; cx.stroke();
+    const Tk0 = 273 + (surfAirT(6) * 0.7 + S.airBase * 0.3);
+    cx.fillStyle = 'rgba(244,184,96,.8)';
+    cx.fillText(p + ' hPa', 6, yOf(287 * Tk0 / 9.81 * Math.log(1013 / p)) - 3);
+  }
+  // surface H / L
+  const ps = psfc(coastX * 0.4), pl = psfc(W * 0.55);
+  cx.font = '22px Georgia'; cx.textAlign = 'center';
+  cx.fillStyle = ps > pl ? 'rgba(140,190,255,.9)' : 'rgba(255,150,150,.9)';
+  cx.fillText(ps > pl ? 'H' : 'L', coastX * 0.45, seaY - 14);
+  cx.fillStyle = pl >= ps ? 'rgba(140,190,255,.9)' : 'rgba(255,150,150,.9)';
+  cx.fillText(pl >= ps ? 'H' : 'L', W * 0.56, gY(W * 0.56) - 18);
+  cx.font = '10px monospace';
+  cx.fillStyle = 'rgba(255,255,255,.75)';
+  cx.fillText(ps.toFixed(1) + ' hPa', coastX * 0.45, seaY - 2);
+  cx.fillText(pl.toFixed(1) + ' hPa', W * 0.56, gY(W * 0.56) - 6);
+  cx.textAlign = 'left';
+  // breeze arrows near the surface
+  const b = breezeAt(coastX, 200);
+  if (Math.abs(b) > 0.08) {
+    cx.strokeStyle = 'rgba(255,255,255,.55)'; cx.fillStyle = 'rgba(255,255,255,.55)'; cx.lineWidth = 1.4;
+    for (let i = 0; i < 3; i++) {
+      const ax = coastX - 90 + i * 70, ay = seaY - 26 - i * 4;
+      arrow(ax, ay, ax + b * 46, ay);
+    }
+    const ra = -b * 0.5 * 40;
+    if (Math.abs(ra) > 3) { const ay2 = yOf(2400); arrow(W * 0.45, ay2, W * 0.45 + ra, ay2); }
+    cx.font = '10px monospace';
+    cx.fillText(b > 0 ? 'sea breeze → toward the thermal low' : '← land breeze (land now cooler)', coastX - 90, seaY - 44);
+  }
+  cx.fillStyle = 'rgba(255,255,255,.45)';
+  cx.fillText('pressure surfaces · vertical bulge exaggerated ×10', 12, 20);
+  cx.restore();
+}
+function arrow(x1, y1, x2, y2) {
+  cx.beginPath(); cx.moveTo(x1, y1); cx.lineTo(x2, y2); cx.stroke();
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  cx.beginPath(); cx.moveTo(x2, y2);
+  cx.lineTo(x2 - 6 * Math.cos(a - 0.45), y2 - 6 * Math.sin(a - 0.45));
+  cx.lineTo(x2 - 6 * Math.cos(a + 0.45), y2 - 6 * Math.sin(a + 0.45));
+  cx.fill();
+}
+
+/* ================= UI wiring ================= */
+const $ = id => document.getElementById(id);
+$('s-time').addEventListener('input', e => { S.t = +e.target.value; syncTime(); });
+$('s-hum').addEventListener('input', e => { S.hum = +e.target.value; $('o-hum').textContent = S.hum + '%'; });
+$('s-wind').addEventListener('input', e => { S.windKt = +e.target.value; $('o-wind').textContent = S.windKt + ' kt'; });
+$('s-sea').addEventListener('input', e => { S.seaT = +e.target.value; $('o-sea').textContent = S.seaT + '°C'; });
+$('playpause').addEventListener('click', () => { S.playing = !S.playing; $('playpause').textContent = S.playing ? '❚❚' : '▶'; });
+$('t-press').addEventListener('click', e => { S.showPressure = !S.showPressure; e.target.classList.toggle('on', S.showPressure); });
+$('t-labels').addEventListener('click', e => { S.showLabels = !S.showLabels; e.target.classList.toggle('on', S.showLabels); });
+$('t-about').addEventListener('click', () => $('drawer').classList.add('open'));
+$('drawer-close').addEventListener('click', () => $('drawer').classList.remove('open'));
+$('chip-inst').addEventListener('click', () => $('instruments').classList.toggle('show'));
+$('chip-jour').addEventListener('click', () => $('journal').classList.toggle('show'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('drawer').classList.remove('open'); });
+function syncTime() {
+  $('o-time').textContent = clockStr();
+  $('s-time').value = S.t;
+  $('clock').textContent = `day ${S.day} · ${clockStr()}`;
+}
+
+/* ================= main loop ================= */
+let frame = 0, last = performance.now(), simClock = 0, uiTimer = 0, secTimer = 0;
+let prevSunUp = true;
+function ambient() {
+  const up = insolation() > 0;
+  if (up !== prevSunUp) {
+    prevSunUp = up;
+    note(up ? 'Sunrise. Solar input resumes — the land will outrun the sea again and the daytime circulation rebuilds.'
+            : 'Sunset. Solar input stops; the land radiates its heat to space and cools quickly. The sea barely notices.');
+  }
+  const dT = S.landT - S.seaT;
+  if (!flags.seaBreeze && up && dT > 5) {
+    flags.seaBreeze = true;
+    note('The land is now several degrees warmer than the sea — surface pressure over land has fallen (a thermal low) and a sea breeze sets in. Press “Pressure” to watch it.');
+  }
+  if (!flags.landBreeze && !up && dT < -1.5) {
+    flags.landBreeze = true;
+    note('The land has cooled below the sea temperature — the circulation reverses into a gentle offshore land breeze.');
+  }
+}
+function loop(now) {
+  const dtReal = Math.min(0.05, (now - last) / 1000); last = now;
+  const dtSim = S.playing ? dtReal * S.speed : 0;
+  simClock += dtSim;
+  if (S.playing) {
+    S.t += dtSim / 3600;
+    if (S.t >= 24) { S.t -= 24; S.day++; flags = {}; note(`Day ${S.day} begins. The machine has been running all night on stored ocean heat.`); }
+  }
+  stepEnvironment(dtSim || dtReal * 2);
+  stepParticles(dtSim || 0.5);
+  if (track && !track.dead) {
+    const a = altOf(track.y);
+    if (!trace.length || Math.abs(trace[trace.length - 1][1] - a) > 60) trace.push([track.T, a]);
+    if (trace.length > 300) trace.shift();
+  }
+  draw();
+  secTimer += dtReal;
+  if (secTimer >= 1) {
+    for (const k of ['evap', 'cond', 'rain']) { E.s[k] = E.s[k] * 0.7 + (E.cnt[k] / secTimer) * 0.3; E.cnt[k] = 0; }
+    secTimer = 0;
+    ambient();
+  }
+  uiTimer += dtReal;
+  if (uiTimer > 0.25) { uiTimer = 0; updateInstruments(); drawProfile(); syncTime(); }
+  frame++;
+  requestAnimationFrame(loop);
+}
+
+/* ================= go ================= */
+resize();
+seedTrees();
+window.addEventListener('resize', seedTrees);
+note('Welcome. The sun is up, the sea is warm, and the machine is running. Click any particle to follow one gram of water around the cycle — or click the sea to stir up some evaporation.');
+// prime the scene with some vapor
+for (let i = 0; i < 40; i++) spawnVapor(Math.random() * coastX, seaY - 3 - Math.random() * 60, 'the sea');
+window.SIM = { S, parts, E };
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

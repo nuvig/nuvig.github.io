@@ -1,0 +1,4 @@
+# Local data mirrors and derived outputs — never commit (multi-GB, and this
+# repo is public + served by GitHub Pages).
+*
+!.gitignore
