@@ -330,24 +330,37 @@
     .cat-mvfr { color: #58a6ff; }
     .cat-ifr  { color: #ef6b6b; }
     .cat-lifr { color: #d879e8; }
-    .avn-table {
-      width: 100%; border-collapse: collapse; font-size: 12px;
-      font-variant-numeric: tabular-nums; display: block; overflow-x: auto;
+    /* hour strip: 24 h of flight category, read left to right */
+    .tl-sum { font-size: 13.5px; color: #b3bec8; line-height: 1.55; margin-bottom: 9px; }
+    .tl-sum b { font-weight: 700; }
+    .tl-moved { color: #f5b942; }
+    .tl-strip { display: flex; gap: 2px; cursor: crosshair; }
+    .tl-cell {
+      flex: 1 1 0; height: 34px; border-radius: 3px; position: relative;
+      display: flex; align-items: center; justify-content: center; min-width: 0;
     }
-    .avn-table th {
-      text-align: left; font-weight: 600; color: #6d7d8c; font-size: 10px;
-      text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px 5px 0;
-      border-bottom: 1px solid #2b2b2b; white-space: nowrap;
+    .tl-cell.cat-vfr  { background: #2f7d4f; }
+    .tl-cell.cat-mvfr { background: #2b5f9e; }
+    .tl-cell.cat-ifr  { background: #9e3b3b; }
+    .tl-cell.cat-lifr { background: #7d3a8c; }
+    .tl-cell.night::before {
+      content: ""; position: absolute; inset: 0; border-radius: 3px;
+      background: rgba(0,0,0,0.42);
     }
-    .avn-table td { padding: 3px 8px 3px 0; color: #b9c3cc; white-space: nowrap; }
-    .avn-table tr.past td { opacity: .45; }
-    .avn-table td.h { color: #d5dde5; font-weight: 600; }
-    .avn-table td.wx { color: #8b96a1; white-space: normal; }
-    .avn-table .ts { color: #f5b942; }
-    .avn-table td.was-col { color: #7c8792; }
-    .avn-table .was-col .was { color: #8fa3b6; }
-    .avn-table .was-col .drop { color: #f5b942; }
-    .avn-table .was-col .add { color: #ef6b6b; }
+    .tl-cell.moved { box-shadow: inset 0 -3px 0 #f5b942; }
+    .tl-cell .mk { position: relative; font-size: 11px; color: #fff; opacity: .92; }
+    .tl-cell:hover { outline: 1px solid #cfe6ff; }
+    .tl-axis { display: flex; gap: 2px; margin-top: 3px; }
+    .tl-tick {
+      flex: 1 1 0; min-width: 0; font-size: 9.5px; color: #6d7d8c;
+      text-align: left; white-space: nowrap;
+    }
+    .tl-read {
+      margin-top: 9px; font-size: 12.5px; color: #b9c3cc;
+      font-variant-numeric: tabular-nums; min-height: 18px;
+    }
+    .tl-key { margin-top: 7px; font-size: 11px; color: #5f6c78; }
+    .tl-key b { font-weight: 700; }
     .chg-block { border-top: 1px solid #262626; padding: 8px 0; }
     .chg-block:first-child { border-top: none; padding-top: 0; }
     .chg-head { font-size: 13px; color: #ddd; margin-bottom: 4px; }
@@ -565,6 +578,6 @@
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/discussion.js?v=11"></script>
-  <script src="js/discussion-avn.js?v=3"></script>
+  <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>

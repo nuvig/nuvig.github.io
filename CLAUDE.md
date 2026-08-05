@@ -140,7 +140,11 @@ classified there, check all three.
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
   while the archive is empty. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
 - `js/discussion-avn.js` — the aviation layer on `discussion.html`: the NWS hourly grid at the
-  field (with a "vs this morning" column from the archive) and "what moved in the TAF and why".
+  field as a 24 h flight-category strip — one cell per hour, night dimmed, a bolt where the grid
+  carries thunder, an amber bar where the hour moved since the morning snapshot, hover for the
+  numbers, and a one-line plain reading of where the windows are — plus "what moved in the TAF and
+  why". Sunrise/sunset is the NOAA sunrise equation anchored on the **field's** calendar day
+  (checked against a published 06:11 EDT sunrise), same rule as `weather.js` `solarTimes()`.
   **TAFs are fetched but deliberately not displayed** — `weather.html` already decodes them and a
   second decoder here only crowded Act II; they exist here as the evidence behind the change
   block. KANP has no TAF, so the terminals watched are KMTN/KBWI/KDCA. IWXXM XML via DOMParser
