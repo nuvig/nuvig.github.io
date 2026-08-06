@@ -1,0 +1,62 @@
+# Manual backfill of data/wx/ from historical archives (IEM / Open-Meteo).
+# Run from the Actions tab ("Run workflow") with a date range — no local
+# Python needed. See scripts/wxbackfill.py for what is and isn't
+# backfillable and why. Shares the wxarchive concurrency group so a backfill
+# never races the hourly archiver's push.
+
+name: Weather backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'First local day (YYYY-MM-DD)'
+        required: true
+      until:
+        description: 'Last local day (default: yesterday)'
+        required: false
+        default: ''
+      streams:
+        description: 'Streams: obs,afd,taf (+model, opt-in)'
+        required: false
+        default: 'obs,afd,taf'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wxarchive
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SINCE: ${{ inputs.since }}
+      UNTIL: ${{ inputs.until }}
+      STREAMS: ${{ inputs.streams }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Backfill from archives
+        run: |
+          args=(--since "$SINCE" --streams "$STREAMS")
+          [ -n "$UNTIL" ] && args+=(--until "$UNTIL")
+          python3 scripts/wxbackfill.py "${args[@]}"
+
+      - name: Commit archive
+        run: |
+          git config user.name  "wx-archive[bot]"
+          git config user.email "wx-archive[bot]@users.noreply.github.com"
+          git add data/wx
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "wx: backfill ${SINCE}..${UNTIL:-yesterday} (${STREAMS})"
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

@@ -2230,6 +2230,43 @@ function firstSentence(t, max = 175) {
   return out;
 }
 
+/* Where the model read and the office disagree, say so — the split is itself
+   a forecast signal, and staying quiet about it would read as agreement.
+   Compares the GFS precip/CAPE picture at DC (next 36 h) against the NWS
+   forecast wording + AFD key messages for today/tomorrow. Silent when they
+   agree or when either side is missing. */
+function renderSplit(s) {
+  const host = $('hl-split');
+  if (!host) return;
+  host.innerHTML = '';
+  if (!s || !FC.days) return;
+  const today = localDay(Date.now());
+  const fc = [FC.days[today], FC.days[shiftDay(today, 1)]].filter(Boolean);
+  if (!fc.length) return;
+  const officeTxt = fc.map((d) => d.short || '').join(' ') + ' ' + afdKeyMessages().join(' ');
+  const officeStorm = CONVECTIVE.test(officeTxt);
+  const officeWet = officeStorm || /rain|shower|drizzle|snow|sleet|ice/i.test(officeTxt)
+    || fc.some((d) => (d.pop || 0) >= 40);
+  const ep = precipEpisodes(s, s.now).find((e) => e.t0 <= Date.now() + 36 * 3600000);
+  const modelStorm = !!ep && ep.cape >= 900;
+  const modelWet = !!ep;
+  let msg = null;
+  if (officeStorm && !modelStorm) {
+    msg = 'LWX carries thunder that the GFS point read at DC doesn\'t build. ' +
+      'Weight the office — one model at one point misses mesoscale triggers.';
+  } else if (modelStorm && !officeStorm) {
+    msg = 'The GFS builds storm fuel at DC that the NWS forecast doesn\'t carry — ' +
+      'treat any storm line above as low-confidence until LWX picks it up.';
+  } else if (officeWet && !modelWet) {
+    msg = 'NWS carries precip the GFS point read at DC misses — believe the forecast ' +
+      'over the model\'s silence.';
+  } else if (modelWet && !officeWet) {
+    msg = 'The GFS paints precip at DC that the NWS forecast doesn\'t mention — ' +
+      'low-confidence precip.';
+  }
+  if (msg) host.innerHTML = `<span class="lab">Model vs LWX</span>${esc(msg)}`;
+}
+
 /* -------------------------------- render --------------------------------- */
 
 function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
@@ -2379,6 +2416,7 @@ function buildHeadline() {
       alsos.push({ title: st.headline, text: firstSentence(st.deck) });
     }
     renderHeadline(lead, headlineStats(s), alsos, keyMsgs.filter((km) => km !== lead.deck), s);
+    renderSplit(s);
   } catch (e) {
     $('hl-title').textContent = 'Headline unavailable';
     $('hl-deck').textContent = `Couldn't assemble it: ${e.message}. Everything below still stands on its own.`;
