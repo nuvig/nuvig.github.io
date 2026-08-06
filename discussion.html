@@ -141,6 +141,9 @@
     }
     .hl-changed .more-link { color: #4a9eff; text-decoration: none; white-space: nowrap; }
     .hl-changed .more-link:hover { text-decoration: underline; }
+    /* model-vs-office disagreement — cool blue so it never reads as an alert */
+    .hl-changed.split { border-left-color: #5b8fc4; }
+    .hl-changed.split .lab { color: #7aa7d6; }
     /* blocks that used to crowd the headline, now next to the act they belong to */
     .side-note { margin: 8px 0 0; }
     .side-note:empty { display: none; }
@@ -438,6 +441,7 @@
     <p class="hl-deck" id="hl-deck">Pulling the model grid, the NWS forecast and the latest discussion
       together to work out what today's one thing is.</p>
     <div class="hl-changed" id="hl-changed"></div>
+    <div class="hl-changed split" id="hl-split"></div>
     <div class="hl-stats" id="hl-stats"></div>
   </section>
 
@@ -577,7 +581,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=11"></script>
+  <script src="js/discussion.js?v=12"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>

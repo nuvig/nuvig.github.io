@@ -116,8 +116,10 @@ classified there, check all three.
   source: no grid → forecast + alerts, no NWS → model only, nothing → the AFD's own KEY MESSAGES.
   **The card must never go quiet about a day it could have mentioned** — a reader who cancelled a
   flight on the morning forecast reads silence as "threat gone". The scored story stays in the
-  headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes"); everything that
-  isn't the headline sits with the act it belongs to: runner-up stories under the Act I map,
+  headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes", and a
+  "Model vs LWX" line — `renderSplit()` — that speaks only when the GFS point read and the
+  NWS forecast/AFD disagree about precip or storms in the next 36 h, silent on agreement);
+  everything that isn't the headline sits with the act it belongs to: runner-up stories under the Act I map,
   the distilled story + physics in Act II, and the today/+1/+2 comparison (`outlook()` →
   "Since this morning", Act III) naming each day's forecast wording against the **first archived
   forecast snapshot of today** (`morningSnap()`) — flagging `flip` when convection appears or
@@ -168,6 +170,13 @@ classified there, check all three.
   field). `git add data/wx` in the workflow picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
   Growth is roughly 40 KB/day (~15 MB/year).
+- `scripts/wxbackfill.py` + `.github/workflows/wxbackfill.yml` — **manual** backfill of the
+  factual streams (`obs`/`afd`/`taf` from IEM's archives; `model` opt-in from Open-Meteo's
+  historical-forecast API) for a date range, run from the Actions tab or by hand. It never
+  touches an entry the live archiver captured and tags everything it writes (`bf`).
+  `forecast`/`grid` are deliberately **not** backfillable — no public archive preserves what
+  was predicted at the time, and substituting later data would poison drift/verification.
+  `--selftest` runs its fixture tests.
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,

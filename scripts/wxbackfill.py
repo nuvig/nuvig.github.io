@@ -1,0 +1,503 @@
+#!/usr/bin/env python3
+"""Backfill data/wx/ from historical archives (stdlib only, run by hand).
+
+The hourly archiver (scripts/wxarchive.py) only captures what is on the wire
+when it runs — GitHub's scheduler fires it every ~2.4 h in practice, and the
+archive only reaches back to when each stream was added. This script repairs
+the past for the streams where a trustworthy public archive exists:
+
+  obs   KDCA METARs        Iowa Environmental Mesonet (IEM) ASOS archive
+  afd   LWX discussions    IEM NWS text-product archive (AFOS pil AFDLWX)
+  taf   KMTN/KBWI/KDCA     IEM text-product archive (pils TAFMTN/TAFBWI/TAFDCA)
+                           — raw text incl. AMD amendments (Ogimet has the
+                           same data but rate-limits hard; IEM is the default)
+  model GFS CAPE/CIN/pr    Open-Meteo historical *forecast* API (what the
+                           model said at the time, not a reanalysis).
+                           Opt-in via --streams: less battle-tested.
+
+Deliberately NOT backfillable — no public archive preserves what was
+*predicted* at the time, and substituting later data would poison the
+drift/verification cards with forecasts nobody ever saw:
+
+  forecast   NWS point-forecast snapshots
+  grid       NWS hourly grid at the field
+  alerts     (an IEM archive exists, but the page only reads alerts live)
+
+Honesty rules, enforced here:
+  - never modify or replace an entry the live archiver captured
+  - never rewrite an existing AFD issuance file
+  - everything backfilled is tagged ("bf") so consumers can tell provenance
+  - backfilled TAF entries carry raw text (t/raw), not the decoded periods
+    the live archiver stores — the raw product is the ground truth anyway
+
+Usage:
+  python3 scripts/wxbackfill.py --since 2026-05-01 [--until 2026-08-05]
+      [--streams obs,afd,taf] [--dry-run]
+  python3 scripts/wxbackfill.py --selftest
+
+A 90-day afd+taf backfill is a few thousand polite requests (~0.5 s apart) —
+expect ~30 min. Reruns are cheap: anything already on disk is skipped before
+its text is fetched.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wxarchive as wxa
+
+IEM = "https://mesonet.agron.iastate.edu"
+OM_HIST = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+PAUSE_S = 0.5          # between requests — IEM asks for politeness
+UTC = datetime.timezone.utc
+
+# Injectable for --selftest; real transport below.
+def http_json(url):
+    _pause()
+    return wxa.fetch(url)
+
+
+def http_text(url):
+    _pause()
+    return wxa.fetch_text(url)
+
+
+_last_req = [0.0]
+
+def _pause():
+    dt = time.monotonic() - _last_req[0]
+    if dt < PAUSE_S:
+        time.sleep(PAUSE_S - dt)
+    _last_req[0] = time.monotonic()
+
+
+def days_between(since, until):
+    d, out = since, []
+    while d <= until:
+        out.append(d)
+        d += datetime.timedelta(days=1)
+    return out
+
+
+def local_day(epoch_s, tzinfo):
+    return f"{datetime.datetime.fromtimestamp(epoch_s, tzinfo):%Y-%m-%d}"
+
+
+def mark_bf(doc, added):
+    """Additive per-file provenance note: how many entries came from backfill."""
+    bf = doc.get("bf") or {"src": "iem", "n": 0}
+    bf["n"] += added
+    bf["at"] = int(time.time())
+    doc["bf"] = bf
+
+
+# ---------------------------------------------------------------------------
+# obs — IEM ASOS archive, one bulk CSV request for the whole range
+# ---------------------------------------------------------------------------
+
+def parse_asos_csv(text):
+    """IEM asos.py onlycomma CSV -> [(epoch, raw_metar)]. Pure."""
+    out = []
+    for line in text.splitlines():
+        parts = line.split(",", 2)
+        if len(parts) != 3 or parts[1] == "valid":
+            continue
+        _station, valid, raw = parts
+        raw = raw.strip()
+        if not raw or raw == "M":
+            continue
+        try:
+            t = datetime.datetime.strptime(valid.strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        out.append((int(t.replace(tzinfo=UTC).timestamp()), raw))
+    return out
+
+
+def merge_obs_day(doc, entries, tol_s=90):
+    """Add only observations the live archiver missed: anything within tol_s
+    of an existing timestamp is treated as already captured. Pure."""
+    have = sorted(m[0] for m in doc["metars"])
+    added = 0
+    for t, raw in sorted(entries):
+        if any(abs(t - h) <= tol_s for h in have):
+            continue
+        doc["metars"].append([t, raw])
+        have.append(t)
+        added += 1
+    if added:
+        doc["metars"].sort()
+        mark_bf(doc, added)
+    return added
+
+
+def backfill_obs(since, until, dry):
+    station = wxa.OBS_STATION
+    iem_id = station[1:] if len(station) == 4 and station.startswith("K") else station
+    end = until + datetime.timedelta(days=2)   # IEM end date is exclusive; pad
+    url = (f"{IEM}/cgi-bin/request/asos.py?station={iem_id}&data=metar"
+           f"&year1={since:%Y}&month1={since:%m}&day1={since:%d}"
+           f"&year2={end:%Y}&month2={end:%m}&day2={end:%d}"
+           "&tz=Etc/UTC&format=onlycomma&missing=M&trace=T"
+           "&report_type=3&report_type=4")
+    entries = parse_asos_csv(http_text(url))
+    tz = wxa.local_now().tzinfo
+    lo, hi = f"{since:%Y-%m-%d}", f"{until:%Y-%m-%d}"
+    by_day = {}
+    for t, raw in entries:
+        day = local_day(t, tz)
+        if lo <= day <= hi:
+            by_day.setdefault(day, []).append((t, raw))
+    total = 0
+    for day, ents in sorted(by_day.items()):
+        path = os.path.join(wxa.OBS_DIR, f"{day}.json")
+        doc = wxa.read_json(path, {"date": day, "station": station, "metars": []})
+        added = merge_obs_day(doc, ents)
+        if added and not dry:
+            wxa.write_json(path, doc)
+        if added:
+            wxa.log(f"obs {day}: +{added} METAR(s)")
+        total += added
+    wxa.log(f"obs: {total} METAR(s) backfilled ({len(entries)} fetched)")
+    return total
+
+
+# ---------------------------------------------------------------------------
+# afd + taf — IEM AFOS text-product archive
+# ---------------------------------------------------------------------------
+
+PRODUCT_ID_RE = re.compile(r"^(\d{12})-")
+
+
+def product_time(product_id):
+    """'202608061838-KLWX-FXUS61-AFDLWX' -> aware UTC datetime. Pure."""
+    m = PRODUCT_ID_RE.match(product_id or "")
+    if not m:
+        return None
+    try:
+        return datetime.datetime.strptime(m.group(1), "%Y%m%d%H%M").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def clean_product(text):
+    """Strip AFOS control chars; keep the WMO header lines the live archiver
+    also keeps (parity with NWS productText). Pure."""
+    text = text.replace("\x01", "").replace("\x03", "").replace("\r", "")
+    return text.strip("\n") + "\n"
+
+
+def list_products(pil, day):
+    data = http_json(f"{IEM}/api/1/nws/afos/list.json?pil={pil}&date={day:%Y-%m-%d}")
+    return [p.get("product_id") for p in (data.get("data") or []) if p.get("product_id")]
+
+
+def fetch_product(product_id):
+    return clean_product(http_text(f"{IEM}/api/1/nwstext/{product_id}"))
+
+
+def backfill_afd(since, until, dry):
+    added = 0
+    for day in days_between(since, until):
+        try:
+            pids = list_products(f"AFD{wxa.OFFICE}", day)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            wxa.log(f"afd {day:%Y-%m-%d}: {e}")
+            continue
+        for pid in pids:
+            t = product_time(pid)
+            if not t:
+                continue
+            path = os.path.join(wxa.AFD_DIR, f"{t:%Y}", f"afd-{t:%Y%m%d-%H%M}.json")
+            if os.path.exists(path):
+                continue                        # live capture wins, always
+            try:
+                text = fetch_product(pid)
+            except (urllib.error.URLError, OSError) as e:
+                wxa.log(f"afd {pid}: {e}")
+                continue
+            if not dry:
+                wxa.write_json(path, {
+                    "id": pid, "office": wxa.OFFICE,
+                    "issuanceTime": t.isoformat().replace("+00:00", "Z"),
+                    "productText": text, "bf": 1,
+                })
+            added += 1
+    wxa.log(f"afd: {added} issuance(s) backfilled")
+    return added
+
+
+def merge_taf_day(doc, station, t, raw):
+    """Append one backfilled raw-text TAF unless that issuance is already
+    there (live decoded or previously backfilled). Pure."""
+    if any(x["station"] == station and abs(x["t"] - t) <= 90 for x in doc["tafs"]):
+        return 0
+    doc["tafs"].append({"station": station, "t": t, "raw": raw, "bf": 1})
+    doc["tafs"].sort(key=lambda x: (x["t"], x["station"]))
+    mark_bf(doc, 1)
+    return 1
+
+
+def backfill_taf(since, until, dry):
+    tz = wxa.local_now().tzinfo
+    added = 0
+    for station in wxa.TAF_STATIONS:
+        pil = "TAF" + (station[1:] if len(station) == 4 else station)
+        for day in days_between(since, until):
+            try:
+                pids = list_products(pil, day)
+            except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+                wxa.log(f"taf {station} {day:%Y-%m-%d}: {e}")
+                continue
+            for pid in pids:
+                t = product_time(pid)
+                if not t:
+                    continue
+                epoch_s = int(t.timestamp())
+                day_key = local_day(epoch_s, tz)
+                path = os.path.join(wxa.TAF_DIR, f"{day_key}.json")
+                doc = wxa.read_json(path, {"date": day_key, "tafs": []})
+                if any(x["station"] == station and abs(x["t"] - epoch_s) <= 90
+                       for x in doc["tafs"]):
+                    continue                    # dedupe before fetching text
+                try:
+                    raw = fetch_product(pid)
+                except (urllib.error.URLError, OSError) as e:
+                    wxa.log(f"taf {pid}: {e}")
+                    continue
+                if merge_taf_day(doc, station, epoch_s, raw) and not dry:
+                    wxa.write_json(path, doc)
+                added += 1
+    wxa.log(f"taf: {added} issuance(s) backfilled")
+    return added
+
+
+# ---------------------------------------------------------------------------
+# model — Open-Meteo historical forecast API (opt-in)
+# ---------------------------------------------------------------------------
+
+def model_day_doc(day_str, field, hourly):
+    """One synthetic snap covering the local day — tagged bf, and only ever
+    written into a day file the live archiver never touched. Pure."""
+    times = hourly.get("time") or []
+    rnd = lambda arr: [None if v is None else round(v) for v in (arr or [])]
+    return {"date": day_str, "field": field, "snaps": [{
+        "t": times[0] if times else None,
+        "t0": times[0] if times else None,
+        "n": len(times),
+        "cape": rnd(hourly.get("cape")),
+        "cin": rnd(hourly.get("convective_inhibition")),
+        "pr": [None if v is None else round(v, 2)
+               for v in (hourly.get("precipitation") or [])],
+        "bf": 1,
+    }], "bf": {"src": "open-meteo", "n": 1, "at": int(time.time())}}
+
+
+def backfill_model(since, until, dry):
+    lat, lon = wxa.FIELD.split(",")
+    added = 0
+    for day in days_between(since, until):
+        day_str = f"{day:%Y-%m-%d}"
+        path = os.path.join(wxa.MODEL_DIR, f"{day_str}.json")
+        if os.path.exists(path):
+            continue                            # never mix into a live day
+        url = (f"{OM_HIST}?latitude={lat}&longitude={lon}"
+               "&hourly=cape,convective_inhibition,precipitation"
+               f"&start_date={day_str}&end_date={day_str}"
+               f"&timeformat=unixtime&timezone={urllib.parse.quote(wxa.TZ)}"
+               "&models=gfs_global")
+        try:
+            d = http_json(url)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            wxa.log(f"model {day_str}: {e}")
+            continue
+        doc = model_day_doc(day_str, wxa.FIELD, d.get("hourly") or {})
+        if not doc["snaps"][0]["n"]:
+            continue
+        if not dry:
+            wxa.write_json(path, doc)
+        added += 1
+    wxa.log(f"model: {added} day(s) backfilled")
+    return added
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+STREAMS = {"obs": backfill_obs, "afd": backfill_afd,
+           "taf": backfill_taf, "model": backfill_model}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Backfill data/wx/ from IEM / Open-Meteo archives.")
+    ap.add_argument("--since", help="first local day, YYYY-MM-DD")
+    ap.add_argument("--until", help="last local day (default: yesterday)")
+    ap.add_argument("--streams", default="obs,afd,taf",
+                    help="comma list of obs,afd,taf,model (default: obs,afd,taf)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="fetch and report, write nothing")
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the built-in unit tests and exit")
+    args = ap.parse_args(argv)
+
+    if args.selftest:
+        return run_selftest()
+    if not args.since:
+        ap.error("--since is required (or use --selftest)")
+
+    parse_day = lambda s: datetime.date.fromisoformat(s)
+    since = parse_day(args.since)
+    until = parse_day(args.until) if args.until else \
+        wxa.local_now().date() - datetime.timedelta(days=1)
+    if since > until:
+        ap.error(f"--since {since} is after --until {until}")
+
+    names = [s.strip() for s in args.streams.split(",") if s.strip()]
+    bad = [s for s in names if s not in STREAMS]
+    if bad:
+        ap.error(f"unknown stream(s): {', '.join(bad)} "
+                 f"(forecast/grid/alerts are not backfillable — see docstring)")
+
+    wxa.log(f"backfilling {', '.join(names)} for {since} .. {until}"
+            f"{' (dry run)' if args.dry_run else ''}")
+    failures = 0
+    for name in names:
+        try:
+            STREAMS[name](since, until, args.dry_run)
+        except (urllib.error.URLError, OSError, KeyError, ValueError,
+                json.JSONDecodeError) as e:
+            wxa.log(f"{name}: FAILED — {e}")
+            failures += 1
+    if not args.dry_run:
+        n = wxa.build_index()
+        wxa.log(f"index rebuilt: {n} AFD issuance(s) total")
+    return 1 if failures else 0
+
+
+# ---------------------------------------------------------------------------
+# --selftest — fixture tests for every pure part
+# ---------------------------------------------------------------------------
+
+def run_selftest():
+    import tempfile
+    import unittest
+
+    class Fixtures(unittest.TestCase):
+        def setUp(self):
+            self.tmp = tempfile.TemporaryDirectory()
+            root = self.tmp.name
+            self.saved = {k: getattr(wxa, k) for k in
+                          ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "GRID_DIR",
+                           "TAF_DIR", "ALERT_DIR", "MODEL_DIR")}
+            wxa.WX = root
+            for k in list(self.saved)[1:]:
+                setattr(wxa, k, os.path.join(root, k[:-4].lower()))
+
+        def tearDown(self):
+            for k, v in self.saved.items():
+                setattr(wxa, k, v)
+            self.tmp.cleanup()
+
+        def test_asos_csv(self):
+            csv = ("station,valid,metar\n"
+                   "DCA,2026-08-05 00:52,KDCA 050052Z 04008KT 10SM FEW250 28/17 A3003\n"
+                   "DCA,2026-08-05 01:13,KDCA 050113Z 05006KT 10SM RMK AO2, odd remark\n"
+                   "DCA,bad-time,KDCA nope\n"
+                   "DCA,2026-08-05 01:52,M\n")
+            got = parse_asos_csv(csv)
+            self.assertEqual(len(got), 2)
+            self.assertEqual(got[0][0], 1785891120)  # 2026-08-05 00:52Z
+            self.assertIn("odd remark", got[1][1])   # comma survives maxsplit
+
+        def test_obs_merge_no_clobber(self):
+            doc = {"date": "2026-08-05", "station": "KDCA",
+                   "metars": [[1000, "LIVE"], [2000, "LIVE2"]]}
+            added = merge_obs_day(doc, [(1030, "DUPE"), (1000, "DUPE"),
+                                        (3000, "NEW")], tol_s=90)
+            self.assertEqual(added, 1)
+            raws = [m[1] for m in doc["metars"]]
+            self.assertEqual(raws, ["LIVE", "LIVE2", "NEW"])
+            self.assertEqual(doc["bf"]["n"], 1)
+
+        def test_product_time(self):
+            t = product_time("202608061838-KLWX-FXUS61-AFDLWX")
+            self.assertEqual(t.isoformat(), "2026-08-06T18:38:00+00:00")
+            self.assertIsNone(product_time("garbage"))
+
+        def test_clean_product(self):
+            s = clean_product("\x01\r\n847 \r\nFXUS61 KLWX 061838\r\nAFDLWX\r\nBody\x03\n")
+            self.assertNotIn("\x01", s)
+            self.assertNotIn("\r", s)
+            self.assertIn("FXUS61 KLWX 061838", s)
+            self.assertTrue(s.endswith("Body\n"))
+
+        def test_taf_merge_dedupe(self):
+            doc = {"date": "2026-08-05", "tafs": [
+                {"station": "KBWI", "t": 5000, "periods": []}]}   # live decoded
+            self.assertEqual(merge_taf_day(doc, "KBWI", 5060, "RAW"), 0)
+            self.assertEqual(merge_taf_day(doc, "KDCA", 5060, "RAW"), 1)
+            self.assertEqual(merge_taf_day(doc, "KDCA", 5060, "RAW"), 0)
+            self.assertEqual([x["station"] for x in doc["tafs"]], ["KBWI", "KDCA"])
+            self.assertEqual(doc["tafs"][1].get("bf"), 1)
+
+        def test_afd_skips_existing(self):
+            t = product_time("202608061838-KLWX-FXUS61-AFDLWX")
+            path = os.path.join(wxa.AFD_DIR, f"{t:%Y}", f"afd-{t:%Y%m%d-%H%M}.json")
+            wxa.write_json(path, {"live": True})
+            calls = []
+            g_json, g_text = globals()["http_json"], globals()["http_text"]
+            globals()["http_json"] = lambda u: {"data": [
+                {"product_id": "202608061838-KLWX-FXUS61-AFDLWX"}]}
+            globals()["http_text"] = lambda u: calls.append(u) or "TEXT"
+            try:
+                n = backfill_afd(datetime.date(2026, 8, 6),
+                                 datetime.date(2026, 8, 6), dry=False)
+            finally:
+                globals()["http_json"], globals()["http_text"] = g_json, g_text
+            self.assertEqual(n, 0)
+            self.assertEqual(calls, [])          # text never fetched
+            self.assertEqual(wxa.read_json(path, None), {"live": True})
+
+        def test_model_day_doc(self):
+            doc = model_day_doc("2026-08-05", "38.9,-76.5", {
+                "time": [100, 200], "cape": [512.4, None],
+                "convective_inhibition": [-12.6, 0], "precipitation": [0.125, 2]})
+            snap = doc["snaps"][0]
+            self.assertEqual(snap["n"], 2)
+            self.assertEqual(snap["cape"], [512, None])
+            self.assertEqual(snap["pr"], [0.12, 2])
+            self.assertEqual(snap["bf"], 1)
+
+        def test_index_sees_backfill(self):
+            t = product_time("202601021200-KLWX-FXUS61-AFDLWX")
+            wxa.write_json(os.path.join(wxa.AFD_DIR, "2026",
+                                        "afd-20260102-1200.json"), {"bf": 1})
+            wxa.write_json(os.path.join(wxa.OBS_DIR, "2026-01-02.json"),
+                           {"date": "2026-01-02", "station": "KDCA", "metars": []})
+            n = wxa.build_index()
+            idx = wxa.read_json(os.path.join(wxa.WX, "index.json"), {})
+            self.assertEqual(n, 1)
+            self.assertEqual(idx["afd"][0]["t"], int(t.timestamp()))
+            self.assertIn("2026-01-02", idx["obs_days"])
+
+        def test_days_between(self):
+            got = days_between(datetime.date(2026, 1, 30), datetime.date(2026, 2, 2))
+            self.assertEqual(len(got), 4)
+
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
