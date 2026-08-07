@@ -10,8 +10,12 @@
 name: CTAF transcripts
 
 on:
-  schedule:
-    - cron: '9,39 * * * *'
+  # Parked 2026-08-06 — whisper accuracy wasn't up to Jesse's bar, and the
+  # page no longer displays transcripts (that display code lives in git
+  # history, commit 6b0460c). Restore the schedule + the page code together
+  # to re-enable; workflow_dispatch still allows a manual test run.
+  # schedule:
+  #   - cron: '9,39 * * * *'
   workflow_dispatch: {}
 
 permissions:

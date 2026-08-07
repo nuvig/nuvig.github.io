@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KANP CTAF 122.9 — Live Transmissions</title>
-  <meta name="description" content="Live and recorded transmissions on the KANP (Lee Airport, Annapolis MD) CTAF, 122.9 MHz, received on a local SDR — with transcripts and the ADS-B picture at the moment of each call.">
+  <meta name="description" content="Live and recorded transmissions on the KANP (Lee Airport, Annapolis MD) CTAF, 122.9 MHz, received on a local SDR — with the ADS-B picture at the moment of each call.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -237,8 +237,8 @@
     <div>
       <div class="eyebrow">Lee Airport &middot; Annapolis, MD &mdash; Unicom monitor</div>
       <h1>CTAF <span id="freq">122.9<small>MHz</small></span></h1>
-      <p class="subtitle">Live and recorded transmissions from a local SDR, with transcripts and the
-        ADS-B picture at the moment of each call. Times Eastern. Unofficial &mdash; not for operational use.</p>
+      <p class="subtitle">Live and recorded transmissions from a local SDR, matched to the ADS-B
+        picture at the moment of each call. Times Eastern. Unofficial &mdash; not for operational use.</p>
     </div>
     <button id="live-btn" aria-pressed="false"><span class="dot"></span><span id="live-label">Listen live</span></button>
   </header>
@@ -256,7 +256,7 @@
   </section>
 
   <div id="toolbar">
-    <input id="search" type="search" placeholder="Search transcripts, tail numbers, times&hellip;" autocomplete="off" aria-label="Search transmissions">
+    <input id="search" type="search" placeholder="Search tail numbers, times&hellip;" autocomplete="off" aria-label="Search transmissions">
     <span id="search-n" hidden></span>
   </div>
 
@@ -295,14 +295,12 @@ const LIVE_URL = HOST + "/kanp.mp3";  // continuous live stream
 const POLL_MS = 8000;
 const TZ = "America/New_York";        // the field's clock, not the viewer's
 const SNAP = "https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2";
-const TRANS = "data/ctaf";            // transcripts, committed by the ctaf-transcribe Action
 const FIELD = { lat: 38.9422, lon: -76.5684 };
 const RWY = { axisTrue: 107, names: ["12", "30"], lenNm: 2505 / 6076.12 };
 // who-was-flying gates: airborne within 6 nm below 3,000 MSL, or on the
 // surface within 2 nm. Interpolation follows kanp-conflict.js (240 s max gap).
 const MATCH = { nm: 6, ft: 3000, groundNm: 2, gapS: 240, edgeS: 25, windowS: 120 };
 const AC_COLORS = ["#4a9eff", "#f0c040", "#3ecf8e", "#e879a0", "#9a8cff", "#ff8a5c"];
-const ADVISORY_RE = /automated advisory|welcome to lee airport/i;
 
 const $ = s => document.querySelector(s);
 const listEl = $("#list"), statusEl = $("#status"), connEl = $("#conn"), player = $("#player");
@@ -322,7 +320,6 @@ let updatedAt = 0;
 let autoLoaded = false;
 const live = new Audio(); live.preload = "none";
 
-const transcripts = new Map();  // day -> {clips:{name:{text}}, at}
 const traffic = new Map();      // day -> {state, ac, coverage, ver}
 const matchCache = new Map();   // clip path -> {ver, list}
 let snapSummary = null;         // {newest, days:Set}
@@ -364,21 +361,6 @@ function card(dx, dy) {
   const b = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
   return CARDS[Math.round(b / 45) % 8];
 }
-
-// ===== transcripts (data/ctaf/, committed by the GitHub Action) =====
-async function ensureTranscripts(day) {
-  const e = transcripts.get(day);
-  const isToday = day === dayKey(Date.now());
-  if (e && (!isToday || Date.now() - e.at < 5 * 60e3)) return;
-  transcripts.set(day, { clips: e ? e.clips : null, at: Date.now() });
-  try {
-    const r = await fetch(`${TRANS}/${day}.json`, { cache: "no-cache" });
-    const j = r.ok ? await r.json() : { clips: {} };
-    transcripts.set(day, { clips: j.clips || {}, at: Date.now() });
-    renderList();
-  } catch { transcripts.set(day, { clips: e ? e.clips : {}, at: Date.now() }); }
-}
-const transcriptOf = c => transcripts.get(c.day)?.clips?.[c.name]?.text || null;
 
 // ===== traffic snapshots (same source kanp-static.js uses) =====
 async function loadSummary() {
@@ -507,7 +489,6 @@ function mapSVG(matches) {
 
 function detailHTML(c) {
   const day = traffic.get(c.day);
-  const advisory = ADVISORY_RE.test(transcriptOf(c) || "");
   let side;
   if (!day || day.state === "loading")
     side = `<div class="d-state"><span class="spin"></span>loading the day&rsquo;s ADS-B tracks&hellip;</div>`;
@@ -527,17 +508,15 @@ function detailHTML(c) {
         `<span class="d-nums">${nums}</span></div>`;
     }).join("");
     let note;
-    if (advisory)
-      note = "This is the field&rsquo;s automated SuperUnicom broadcast, not an aircraft call.";
-    else if (!matches.length && fresh)
+    if (!matches.length && fresh)
       note = "The ADS-B snapshot hasn&rsquo;t caught up to this moment yet (it exports every ~15 min) — check back shortly.";
     else if (!matches.length)
-      note = "No ADS-B returns within 6 nm at that moment — likely a non-equipped aircraft, or a call from farther out.";
+      note = "No ADS-B returns within 6 nm at that moment — likely a non-equipped aircraft, the field&rsquo;s automated advisory, or a call from farther out.";
     else
       note = "ADS-B-equipped aircraft only; positions interpolated between simplified track points.";
     side = (matches.length
       ? rows
-      : `<div class="d-state">${advisory ? "&#128266; Automated advisory" : "No aircraft matched"}</div>`)
+      : `<div class="d-state">No aircraft matched</div>`)
       + `<div class="d-note">${note}</div>`;
     return `<div class="detail"><div class="d-map">${mapSVG(matches)}</div>` +
       `<div class="d-side"><div class="d-title">On the ADS-B picture &middot; ${fmtTime(c.ts)}</div>${side}</div></div>`;
@@ -547,10 +526,9 @@ function detailHTML(c) {
 
 // ===== list =====
 function haystack(c) {
-  const tr = transcriptOf(c) || "";
   const m = matchCache.get(c.clip);
   const labels = m ? m.list.map(a => a.label + " " + a.type).join(" ") : "";
-  return (fmtTime(c.ts) + " " + dayLabel(c.day) + " " + tr + " " + labels).toLowerCase();
+  return (fmtTime(c.ts) + " " + dayLabel(c.day) + " " + labels).toLowerCase();
 }
 function renderList() {
   if (!clips.length) {
@@ -579,14 +557,11 @@ function renderList() {
       lastDay = c.day;
     }
     const sel = c.clip === selKey;
-    const tr = transcriptOf(c);
     const cached = matchCache.get(c.clip), tday = traffic.get(c.day);
     const matches = cached && tday && cached.ver === tday.ver ? cached.list
       : (tday && tday.state === "ready" ? matchClip(c) : null);
-    const advisory = ADVISORY_RE.test(tr || "");
     let chips = "";
-    if (advisory) chips += `<span class="chip adv">automated advisory</span>`;
-    if (matches && matches.length && !advisory) {
+    if (matches && matches.length) {
       chips += matches.slice(0, 3).map((m, i) =>
         `<span class="chip${m.mil ? " mil" : ""}" title="${esc(m.descr || m.type || "")}"><i class="cdot" style="background:${AC_COLORS[i % AC_COLORS.length]}"></i>${esc(m.label)}</span>`).join("");
       if (matches.length > 3) chips += `<span class="chip more">+${matches.length - 3}</span>`;
@@ -598,7 +573,6 @@ function renderList() {
       + `<span class="tmeta"><span class="ago">${fmtAgo(c.ts)}</span>`
       + `<span class="durbar"><i style="width:${Math.min(100, (c.dur || 0) / 20 * 100).toFixed(0)}%"></i></span>`
       + `<span class="dur">${(c.dur || 0).toFixed(1)}s</span></span>`
-      + (tr ? `<div class="tx-text${tr === "[noise]" ? " noise" : ""}">${tr === "[noise]" ? "unreadable / carrier only" : esc(tr)}</div>` : "")
       + (chips ? `<div class="tx-chips">${chips}</div>` : "")
       + `</div>`;
     if (sel) html += detailHTML(c);
@@ -628,7 +602,6 @@ function selectByKey(key, play) {
   const stale = tr && tr.state === "ready" && snapSummary &&
     c.ts > tr.coverage - 60 && snapSummary.newest > tr.coverage;
   ensureTraffic(c.day, stale);
-  ensureTranscripts(c.day);
   renderList();
   const row = listEl.querySelector(`.tx[data-key="${CSS.escape(key)}"]`);
   if (row) row.scrollIntoView({ block: "nearest" });
@@ -811,7 +784,6 @@ async function poll() {
     const firstLoad = clips.length === 0;
     clips = incoming;
     updatedAt = data.updated || Date.now() / 1000;
-    for (const day of new Set(clips.map(c => c.day))) ensureTranscripts(day);
     renderList();
     renderActivity();
     connEl.classList.remove("err"); connEl.classList.add("ok");
