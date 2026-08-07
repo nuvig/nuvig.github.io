@@ -140,7 +140,7 @@ classified there, check all three.
   forecast against the baseline snapshot. History (change-log depth, drift/verification
   baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
-  while the archive is empty. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+  for anything the archive lacks. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
 - `js/discussion-avn.js` — the aviation layer on `discussion.html`: the NWS hourly grid at the
   field as a 24 h flight-category strip — one cell per hour, night dimmed, a bolt where the grid
   carries thunder, an amber bar where the hour moved since the morning snapshot, hover for the
@@ -163,7 +163,8 @@ classified there, check all three.
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history
-  accumulates from whenever a stream was added and nothing is retroactive.
+  accumulates from whenever a stream was added; the only retroactive writes are wxbackfill's
+  (below), which fill gaps without touching live-captured entries.
   Streams: `afd/` (every LWX issuance) · `forecast/` (DC daily digests) · `obs/` (KDCA METARs) ·
   `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
   KMTN/KBWI/KDCA issuance, decoded from IWXXM) · `alerts/` · `model/` (GFS CAPE/CIN/precip at the
@@ -176,7 +177,10 @@ classified there, check all three.
   touches an entry the live archiver captured and tags everything it writes (`bf`).
   `forecast`/`grid` are deliberately **not** backfillable — no public archive preserves what
   was predicted at the time, and substituting later data would poison drift/verification.
-  `--selftest` runs its fixture tests.
+  `--selftest` runs its fixture tests. Backfilled TAF entries carry raw text (`t`/`raw`), not
+  the decoded `periods` the live archiver stores — consumers must handle both shapes.
+  **Coverage after the 2026-08-06 run:** `obs`/`afd`/`taf` reach back to 2026-05-01;
+  `forecast` starts 2026-07-30 and `grid`/`alerts`/`model` 2026-08-04 (live-only, by design).
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,
