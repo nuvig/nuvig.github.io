@@ -4,262 +4,875 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KANP CTAF 122.9 — Live Transmissions</title>
-  <meta name="description" content="Live and recorded transmissions on the KANP (Lee Airport, Annapolis MD) CTAF, 122.9 MHz, received on a local SDR.">
+  <meta name="description" content="Live and recorded transmissions on the KANP (Lee Airport, Annapolis MD) CTAF, 122.9 MHz, received on a local SDR — with transcripts and the ADS-B picture at the moment of each call.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <style>
     :root{
-      --bg:#0f0f10; --panel:#161616; --panel2:#1a1a1a; --line:#282828;
-      --text:#d8d8d8; --muted:#888; --dim:#555; --accent:#4a9eff; --live:#ff5c5c;
-      --sel-bg:#17222f; --sel-bd:#2a4a6a;
+      --bg:#0a0c10; --panel:#12161d; --panel2:#161b24; --line:#232b37; --line2:#2d3644;
+      --text:#dfe4ea; --muted:#939ca8; --faint:#5b6572;
+      --accent:#4a9eff; --accent-soft:#1c2c42; --live:#ff5c5c; --ok:#3ecf8e; --amber:#f0b64a;
+      --sel-bg:#131f2e; --sel-bd:#2a4a6a;
+      --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
     }
     *{box-sizing:border-box}
+    [hidden]{display:none !important}
+    html{scrollbar-gutter:stable}
     body{
-      margin:0; background:var(--bg); color:var(--text);
+      margin:0; color:var(--text);
+      background:var(--bg);
+      background-image:
+        radial-gradient(1100px 420px at 50% -180px, rgba(74,158,255,.09), transparent 65%),
+        linear-gradient(180deg,#0b0e13 0%, var(--bg) 340px);
+      background-repeat:no-repeat;
       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-      max-width:900px; margin:0 auto; padding:22px 18px 130px;
+      padding:22px 18px 150px;
     }
-    a{color:#aaa;text-decoration:none} a:hover{color:#ccc}
-    #back-link{display:inline-block;font-size:14px;color:#666;margin-bottom:14px}
-    #back-link:hover{color:#ccc}
-    h1{font-size:24px;margin:0 0 2px;letter-spacing:-.01em}
-    h1 .freq{color:var(--accent)}
-    .subtitle{color:#666;font-size:14px;margin:2px 0 18px}
+    #wrap{max-width:880px;margin:0 auto}
+    a{color:#9aa4b0;text-decoration:none} a:hover{color:#cdd5de}
+    #back-link{display:inline-block;font-size:14px;color:#666e79;margin-bottom:20px}
+    #back-link:hover{color:#cdd5de}
 
-    .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-    .btn{
-      background:var(--panel);border:1px solid var(--line);border-radius:8px;
-      color:var(--text);font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;
-      display:inline-flex;align-items:center;gap:8px;
+    /* ===== header ===== */
+    #hd{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+    .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+    h1{font:600 30px/1.1 inherit;margin:0;letter-spacing:-.01em;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+    #freq{
+      font-family:var(--mono);font-size:38px;font-weight:600;color:var(--accent);
+      text-shadow:0 0 22px rgba(74,158,255,.45);letter-spacing:.01em;
     }
-    .btn:hover{border-color:#3a3a3a;background:var(--panel2)}
-    .btn.live-on{border-color:var(--live);color:#fff}
-    .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
-    .btn.live-on .dot{background:var(--live);animation:pulse 1.6s infinite}
+    #freq small{font-size:13px;color:#5f7fa8;letter-spacing:.12em;margin-left:5px;text-shadow:none}
+    .subtitle{color:#79828e;font-size:13.5px;margin:8px 0 0;max-width:560px}
+
+    #live-btn{
+      flex:0 0 auto;display:inline-flex;align-items:center;gap:10px;cursor:pointer;
+      background:linear-gradient(180deg,#161c25,#12161d);color:var(--text);
+      border:1px solid var(--line2);border-radius:999px;padding:10px 18px;
+      font:600 14px/1 inherit;margin-top:4px;transition:border-color .15s, box-shadow .15s;
+    }
+    #live-btn:hover{border-color:#41506a}
+    #live-btn .dot{width:10px;height:10px;border-radius:50%;background:#4a5568;transition:background .15s}
+    #live-btn.on{border-color:var(--live);color:#fff;box-shadow:0 0 0 1px rgba(255,92,92,.25), 0 0 24px rgba(255,92,92,.18)}
+    #live-btn.on .dot{background:var(--live);animation:pulse 1.6s infinite}
     @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,92,92,.5)}70%{box-shadow:0 0 0 8px rgba(255,92,92,0)}100%{box-shadow:0 0 0 0 rgba(255,92,92,0)}}
-    #status{color:#666;font-size:13px;margin-bottom:10px}
-    #status.err{color:#d08770}
 
-    .daydiv{color:#555;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
-      margin:16px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line)}
-    .tx{
-      display:flex;gap:14px;padding:10px 12px;border-radius:8px;cursor:pointer;
-      border:1px solid transparent;align-items:baseline;
+    /* ===== status ===== */
+    #statusbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:#79828e;margin:10px 0 16px}
+    #conn{display:inline-flex;align-items:center;gap:7px}
+    #conn .dot{width:8px;height:8px;border-radius:50%;background:#4a5568}
+    #conn.ok .dot{background:var(--ok);box-shadow:0 0 8px rgba(62,207,142,.5)}
+    #conn.err .dot{background:var(--amber)}
+    #conn.err #status{color:#d08770}
+    .pill{
+      display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+      border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);background:rgba(255,255,255,.02);
     }
-    .tx:hover{background:#161616}
-    .tx.sel{background:var(--sel-bg);border-color:var(--sel-bd)}
-    .tx .play{color:var(--muted);width:16px;flex:0 0 auto}
-    .tx.sel .play{color:var(--accent)}
-    .tx .time{color:#bbb;font-size:14px;white-space:nowrap;width:78px;font-variant-numeric:tabular-nums}
-    .tx .ago{color:#666;font-size:13px;flex:1}
-    .tx .dur{color:#555;font-size:12px;white-space:nowrap;text-align:right}
-    .tx.new{animation:flash 1.2s ease-out}
-    @keyframes flash{from{background:#1d2a1d}to{background:transparent}}
-    .empty{color:#555;font-style:italic;padding:20px 4px}
+    .pill.ok{color:#8fd6b5;border-color:#22483a}
+    .pill.warn{color:#ecc98a;border-color:#5d4a22}
     .banner{
       display:flex;gap:10px;align-items:baseline;background:#241d12;
-      border:1px solid #6a4f22;border-radius:10px;padding:11px 14px;margin-bottom:14px;
+      border:1px solid #6a4f22;border-radius:12px;padding:11px 14px;margin:0 0 14px;
       color:#e0c48a;font-size:14px;
     }
     .banner b{color:#ffd89b}
     .banner a{color:#ffd89b;text-decoration:underline}
 
-    #player-bar{
-      position:fixed;left:0;right:0;bottom:0;background:#141414f2;
-      border-top:1px solid #2a2a2a;backdrop-filter:blur(6px);padding:10px 16px;
+    /* ===== cards ===== */
+    .card{
+      background:linear-gradient(180deg,#131820,#10141b);
+      border:1px solid var(--line);border-radius:14px;
+      box-shadow:0 6px 24px rgba(0,0,0,.35);
     }
-    #player-inner{max-width:900px;margin:0 auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-    #player-inner audio{flex:1;min-width:240px;height:38px}
-    #nowplaying{color:#888;font-size:13px;white-space:nowrap}
-    #player-inner label{color:#777;font-size:13px;user-select:none;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
-    .keys{color:#444;font-size:12px}
-    kbd{background:#222;border:1px solid #3a3a3a;border-radius:4px;padding:0 5px;font-size:11px;color:#999}
-    @media (max-width:640px){ .tx .ago{display:none} .keys{display:none} }
+    #activity{padding:12px 16px 8px;margin-bottom:14px}
+    .card-hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+      font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:2px}
+    #act-sum{letter-spacing:0;text-transform:none;font-size:12.5px;color:var(--muted)}
+    #act-strip svg{display:block;width:100%;height:64px}
+
+    /* ===== toolbar ===== */
+    #toolbar{display:flex;align-items:center;gap:12px;margin:0 0 6px}
+    #search{
+      flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      color:var(--text);font:inherit;font-size:14px;padding:8px 14px;outline:none;
+      transition:border-color .15s;
+    }
+    #search::placeholder{color:#525c68}
+    #search:focus{border-color:#3a5a86;box-shadow:0 0 0 3px rgba(74,158,255,.12)}
+    #search-n{font-size:12.5px;color:var(--faint);white-space:nowrap}
+
+    /* ===== list ===== */
+    .daydiv{
+      position:sticky;top:0;z-index:6;display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+      color:#8f99a5;font-size:12px;text-transform:uppercase;letter-spacing:.09em;
+      margin:20px 0 4px;padding:8px 4px 7px;border-bottom:1px solid var(--line);
+      background:rgba(10,12,16,.86);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    }
+    .daydiv .dstat{color:#525c68;letter-spacing:.02em;text-transform:none;font-size:12px}
+    .tx{
+      display:grid;grid-template-columns:34px 66px 1fr auto;gap:4px 12px;align-items:center;
+      padding:9px 10px;border-radius:10px;cursor:pointer;border:1px solid transparent;
+    }
+    .tx:hover{background:#12161d}
+    .tx:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+    .tx.sel{background:var(--sel-bg);border-color:var(--sel-bd);box-shadow:inset 2px 0 0 var(--accent)}
+    .tx.new{animation:flash 1.4s ease-out}
+    @keyframes flash{from{background:#14261a}to{background:transparent}}
+    .tx-play{
+      grid-row:1 / span 3;width:30px;height:30px;border-radius:50%;border:1px solid var(--line2);
+      background:transparent;color:#7f8b99;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
+    }
+    .tx-play svg{width:11px;height:11px;display:block;margin-left:1px}
+    .tx:hover .tx-play{border-color:#41506a;color:#c6d2e0}
+    .tx.sel .tx-play{background:var(--accent);border-color:var(--accent);color:#08121f}
+    .tx.playing .tx-play{background:var(--accent);border-color:var(--accent);color:#08121f}
+    .time{color:#c3cbd4;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tmeta{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+    .ago{color:#5b6572;font-size:12.5px;white-space:nowrap}
+    .durbar{width:64px;height:4px;border-radius:2px;background:#1d242e;overflow:hidden}
+    .durbar i{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,#2f5f9e,#4a9eff)}
+    .dur{color:#5b6572;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+    .tx-text{
+      grid-column:3 / span 2;font-size:13.5px;color:#a8b2be;line-height:1.45;
+      border-left:2px solid #263242;padding-left:10px;margin:1px 0;
+    }
+    .tx-text.noise{color:#525c68;font-style:italic;border-left-color:#1d242e}
+    .tx-chips{grid-column:3 / span 2;display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+    .chip{
+      display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-family:var(--mono);
+      background:#17202c;border:1px solid #2b3a50;color:#bcd6f5;border-radius:999px;padding:2px 9px;
+    }
+    .chip.mil{border-color:#5d4a22;color:#ecc98a}
+    .chip.adv{border-color:#2b4438;color:#8fd6b5;font-family:inherit}
+    .chip.more{color:#6f7a87;border-color:var(--line)}
+    .cdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+    .empty{color:#5b6572;font-style:italic;padding:26px 6px}
+
+    /* ===== who-was-flying detail ===== */
+    .detail{
+      display:flex;gap:16px;margin:4px 0 10px 44px;padding:14px;
+      background:linear-gradient(180deg,#111722,#0f131b);
+      border:1px solid var(--line);border-radius:14px;align-items:stretch;
+    }
+    .d-map{flex:0 0 218px}
+    .d-map svg{display:block;width:218px;height:218px;background:#0b0f15;border:1px solid #1d2530;border-radius:10px}
+    .d-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+    .d-title{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin-bottom:2px}
+    .d-ac{display:flex;align-items:baseline;gap:8px;font-size:13.5px;flex-wrap:wrap}
+    .d-ac b{font-family:var(--mono);font-weight:600;color:#d7e4f4;font-size:13px}
+    .d-type{color:#7f8b99;font-size:12px}
+    .d-nums{color:#93a0ae;font-size:12.5px;font-variant-numeric:tabular-nums}
+    .d-note{font-size:12px;color:#525c68;margin-top:auto;padding-top:8px;line-height:1.5}
+    .d-state{font-size:13px;color:#79828e;padding:4px 0}
+    .spin{
+      display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-2px;margin-right:7px;
+      border:2px solid #2b3a50;border-top-color:var(--accent);animation:spin 1s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ===== player ===== */
+    #player-bar{
+      position:fixed;left:0;right:0;bottom:0;z-index:20;
+      background:rgba(12,15,20,.92);border-top:1px solid #222a35;
+      backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));
+    }
+    #player-inner{max-width:880px;margin:0 auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .pbtn{
+      width:36px;height:36px;border-radius:50%;border:1px solid var(--line2);background:transparent;
+      color:#aeb9c6;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex:0 0 auto;
+    }
+    .pbtn:hover{border-color:#41506a;color:#e6edf5}
+    .pbtn svg{width:13px;height:13px;display:block}
+    .pbtn.big{width:44px;height:44px;background:var(--accent);border-color:var(--accent);color:#08121f}
+    .pbtn.big:hover{background:#61acff}
+    .pbtn.big svg{width:15px;height:15px;margin-left:1px}
+    .pbtn.big.pause svg{margin-left:0}
+    #wave-wrap{position:relative;flex:1;min-width:150px;height:44px}
+    #wave{position:absolute;inset:0;width:100%;height:100%;cursor:pointer;border-radius:6px}
+    #wave-hint{
+      position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+      color:#525c68;font-size:12.5px;pointer-events:none;
+    }
+    #live-eq{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:4px}
+    #live-eq i{width:4px;border-radius:2px;background:var(--live);animation:eq 1s ease-in-out infinite}
+    #live-eq i:nth-child(1){height:30%;animation-delay:-.9s}
+    #live-eq i:nth-child(2){height:65%;animation-delay:-.7s}
+    #live-eq i:nth-child(3){height:90%;animation-delay:-.45s}
+    #live-eq i:nth-child(4){height:55%;animation-delay:-.2s}
+    #live-eq i:nth-child(5){height:80%;animation-delay:-.65s}
+    #live-eq i:nth-child(6){height:45%;animation-delay:-.35s}
+    #live-eq i:nth-child(7){height:25%;animation-delay:-.1s}
+    @keyframes eq{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}
+    #nowplaying{color:#8a94a0;font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+    #pl-opts{display:flex;gap:14px}
+    #pl-opts label{color:#6f7a87;font-size:12.5px;user-select:none;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+    #pl-opts input{accent-color:var(--accent)}
+    .keys{color:#3d4650;font-size:12px;white-space:nowrap}
+    kbd{background:#1a212b;border:1px solid #2d3644;border-radius:4px;padding:0 5px;font-size:11px;color:#8a94a0}
+
+    @media (max-width:700px){
+      body{padding:16px 12px 170px}
+      #freq{font-size:32px}
+      h1{font-size:24px}
+      .ago{display:none}
+      .durbar{display:none}
+      .keys{display:none}
+      .tx{grid-template-columns:34px 62px 1fr auto;gap:3px 10px}
+      .detail{flex-direction:column;margin-left:0}
+      .d-map{flex-basis:auto}
+      .d-map svg{width:100%;height:auto;aspect-ratio:1}
+      #nowplaying{order:5}
+    }
+    @media (prefers-reduced-motion:reduce){
+      *{animation:none !important;transition:none !important}
+    }
   </style>
 </head>
 <body>
+<div id="wrap">
   <a id="back-link" href="/">&larr; jesselevine.net</a>
-  <h1>KANP CTAF <span class="freq">122.9</span></h1>
-  <p class="subtitle">Lee Airport · Annapolis, MD — live transmissions received on a local SDR.
-    Unofficial monitor, not for operational use.</p>
 
-  <div id="tuned-away" class="banner" style="display:none"></div>
+  <header id="hd">
+    <div>
+      <div class="eyebrow">Lee Airport &middot; Annapolis, MD &mdash; Unicom monitor</div>
+      <h1>CTAF <span id="freq">122.9<small>MHz</small></span></h1>
+      <p class="subtitle">Live and recorded transmissions from a local SDR, with transcripts and the
+        ADS-B picture at the moment of each call. Times Eastern. Unofficial &mdash; not for operational use.</p>
+    </div>
+    <button id="live-btn" aria-pressed="false"><span class="dot"></span><span id="live-label">Listen live</span></button>
+  </header>
 
-  <div class="bar">
-    <button id="live-btn" class="btn"><span class="dot"></span><span id="live-label">Listen live</span></button>
-    <span id="status">connecting&hellip;</span>
+  <div id="statusbar">
+    <span id="conn"><span class="dot"></span><span id="status">connecting&hellip;</span></span>
+    <span id="rx-state" class="pill" hidden></span>
+  </div>
+
+  <div id="tuned-away" class="banner" hidden></div>
+
+  <section id="activity" class="card" hidden>
+    <div class="card-hd"><span>Last 24 hours</span><span id="act-sum"></span></div>
+    <div id="act-strip"></div>
+  </section>
+
+  <div id="toolbar">
+    <input id="search" type="search" placeholder="Search transcripts, tail numbers, times&hellip;" autocomplete="off" aria-label="Search transmissions">
+    <span id="search-n" hidden></span>
   </div>
 
   <div id="list"><div class="empty">Loading transmissions&hellip;</div></div>
+</div>
 
-  <div id="player-bar">
-    <div id="player-inner">
-      <audio id="player" controls preload="none"></audio>
-      <span id="nowplaying">nothing selected</span>
-      <label><input type="checkbox" id="follow" checked> auto-play new</label>
-      <label><input type="checkbox" id="advance" checked> auto-advance</label>
-      <span class="keys"><kbd>j</kbd>/<kbd>k</kbd> older/newer &nbsp;<kbd>space</kbd> play/pause</span>
+<div id="player-bar">
+  <div id="player-inner">
+    <button class="pbtn" id="btn-prev" title="Older (j)" aria-label="Older transmission">
+      <svg viewBox="0 0 12 12" fill="currentColor"><path d="M8.5 1 3 6l5.5 5V1z"/></svg></button>
+    <button class="pbtn big" id="btn-play" title="Play / pause (space)" aria-label="Play or pause">
+      <svg id="ic-play" viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 1.2v9.6L10.5 6z"/></svg>
+      <svg id="ic-pause" viewBox="0 0 12 12" fill="currentColor" style="display:none"><path d="M2.2 1h2.6v10H2.2zM7.2 1h2.6v10H7.2z"/></svg></button>
+    <button class="pbtn" id="btn-next" title="Newer (k)" aria-label="Newer transmission">
+      <svg viewBox="0 0 12 12" fill="currentColor"><path d="M3.5 1 9 6l-5.5 5V1z"/></svg></button>
+    <div id="wave-wrap">
+      <canvas id="wave"></canvas>
+      <div id="live-eq" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="wave-hint">nothing selected</div>
     </div>
+    <span id="nowplaying"></span>
+    <div id="pl-opts">
+      <label><input type="checkbox" id="follow" checked> follow new</label>
+      <label><input type="checkbox" id="advance" checked> auto-advance</label>
+    </div>
+    <span class="keys"><kbd>j</kbd>/<kbd>k</kbd> older / newer &nbsp;<kbd>space</kbd> play</span>
   </div>
+  <audio id="player" preload="none"></audio>
+</div>
 
 <script>
-  // ===== config =====
-  const HOST = "https://jalpine.taila8f067.ts.net";
-  const BASE = HOST + "/ctaf";        // clip server (index.json + clips/)
-  const LIVE = HOST + "/kanp.mp3";    // continuous live stream
-  const POLL_MS = 8000;
+// ===== config (self-contained page: constants mirrored from js/site-config.js) =====
+const HOST = "https://jalpine.taila8f067.ts.net";
+const BASE = HOST + "/ctaf";          // clip server (index.json + clips/)
+const LIVE_URL = HOST + "/kanp.mp3";  // continuous live stream
+const POLL_MS = 8000;
+const TZ = "America/New_York";        // the field's clock, not the viewer's
+const SNAP = "https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2";
+const TRANS = "data/ctaf";            // transcripts, committed by the ctaf-transcribe Action
+const FIELD = { lat: 38.9422, lon: -76.5684 };
+const RWY = { axisTrue: 107, names: ["12", "30"], lenNm: 2505 / 6076.12 };
+// who-was-flying gates: airborne within 6 nm below 3,000 MSL, or on the
+// surface within 2 nm. Interpolation follows kanp-conflict.js (240 s max gap).
+const MATCH = { nm: 6, ft: 3000, groundNm: 2, gapS: 240, edgeS: 25, windowS: 120 };
+const AC_COLORS = ["#4a9eff", "#f0c040", "#3ecf8e", "#e879a0", "#9a8cff", "#ff8a5c"];
+const ADVISORY_RE = /automated advisory|welcome to lee airport/i;
 
-  const $ = s => document.querySelector(s);
-  const listEl = $("#list"), statusEl = $("#status"), player = $("#player");
-  const nowEl = $("#nowplaying"), liveBtn = $("#live-btn"), liveLabel = $("#live-label");
-  const followCb = $("#follow"), advanceCb = $("#advance");
+const $ = s => document.querySelector(s);
+const listEl = $("#list"), statusEl = $("#status"), connEl = $("#conn"), player = $("#player");
+const nowEl = $("#nowplaying"), liveBtn = $("#live-btn"), liveLabel = $("#live-label");
+const followCb = $("#follow"), advanceCb = $("#advance"), searchEl = $("#search");
+const waveCanvas = $("#wave"), waveHint = $("#wave-hint"), liveEq = $("#live-eq");
+const icPlay = $("#ic-play"), icPause = $("#ic-pause");
 
-  let clips = [];          // newest-first
-  let selTs = null;        // ts of selected clip
-  let maxTs = 0;           // newest ts seen (for "new" detection)
-  let liveMode = false;    // continuous stream playing
-  const live = new Audio();
-  live.preload = "none";
+// ===== state =====
+let clips = [];            // newest-first: {ts,dur,clip,day,name,_new}
+let visible = [];          // after search filter (render order)
+let selKey = null;         // clip path of the selection
+let maxTs = 0;
+let liveMode = false;
+let query = "";
+let updatedAt = 0;
+let autoLoaded = false;
+const live = new Audio(); live.preload = "none";
 
-  const pad = n => String(n).padStart(2, "0");
-  function fmtTime(ts){
-    const d = new Date(ts*1000);
-    return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+const transcripts = new Map();  // day -> {clips:{name:{text}}, at}
+const traffic = new Map();      // day -> {state, ac, coverage, ver}
+const matchCache = new Map();   // clip path -> {ver, list}
+let snapSummary = null;         // {newest, days:Set}
+const waveCache = new Map();    // clip path -> Float32Array
+let waveBins = null, waveTarget = null, actx = null;
+
+// ===== time (always the field's clock) =====
+const FMT_T = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const FMT_DAYKEY = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const FMT_HR = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hour12: true });
+const fmtTime = ts => FMT_T.format(ts * 1000);
+const dayKey = ms => FMT_DAYKEY.format(ms);
+function fmtAgo(ts) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+function dayLabel(day) {
+  if (day === dayKey(Date.now())) return "Today";
+  if (day === dayKey(Date.now() - 86400e3)) return "Yesterday";
+  const d = new Date(day + "T12:00:00Z");
+  return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "short", day: "numeric" });
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ===== geometry =====
+const COSLAT = Math.cos(FIELD.lat * Math.PI / 180);
+function distNm(lat, lon) {
+  const dx = (lon - FIELD.lon) * 60 * COSLAT, dy = (lat - FIELD.lat) * 60;
+  return Math.hypot(dx, dy);
+}
+function toXY(lat, lon) {  // nm east / north of the field
+  return [(lon - FIELD.lon) * 60 * COSLAT, (lat - FIELD.lat) * 60];
+}
+const CARDS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+function card(dx, dy) {
+  const b = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  return CARDS[Math.round(b / 45) % 8];
+}
+
+// ===== transcripts (data/ctaf/, committed by the GitHub Action) =====
+async function ensureTranscripts(day) {
+  const e = transcripts.get(day);
+  const isToday = day === dayKey(Date.now());
+  if (e && (!isToday || Date.now() - e.at < 5 * 60e3)) return;
+  transcripts.set(day, { clips: e ? e.clips : null, at: Date.now() });
+  try {
+    const r = await fetch(`${TRANS}/${day}.json`, { cache: "no-cache" });
+    const j = r.ok ? await r.json() : { clips: {} };
+    transcripts.set(day, { clips: j.clips || {}, at: Date.now() });
+    renderList();
+  } catch { transcripts.set(day, { clips: e ? e.clips : {}, at: Date.now() }); }
+}
+const transcriptOf = c => transcripts.get(c.day)?.clips?.[c.name]?.text || null;
+
+// ===== traffic snapshots (same source kanp-static.js uses) =====
+async function loadSummary() {
+  try {
+    const j = await (await fetch(`${SNAP}/summary.json`, { cache: "no-cache" })).json();
+    snapSummary = { newest: j.newest_position || 0, days: new Set((j.days || []).map(d => d.date)) };
+  } catch { /* keep the old one */ }
+}
+function ensureTraffic(day, force) {
+  const cur = traffic.get(day);
+  if (cur && !force && cur.state !== "error") return cur.done;
+  const e = { state: "loading", ac: [], coverage: 0, ver: (cur ? cur.ver : 0) + 1 };
+  traffic.set(day, e);
+  e.done = (async () => {
+    if (!snapSummary) await loadSummary();
+    if (snapSummary && !snapSummary.days.has(day)) { e.state = "missing"; renderList(); return; }
+    try {
+      const isToday = day === dayKey(Date.now());
+      const r = await fetch(`${SNAP}/days/${day}.json`, isToday ? { cache: "no-cache" } : undefined);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      e.ac = prefilter(j.tracks || []);
+      e.coverage = snapSummary ? snapSummary.newest : 0;
+      e.state = "ready";
+    } catch { e.state = "error"; }
+    renderList();
+  })();
+  return e.done;
+}
+// Keep only tracks that ever come near the field, as compact parallel arrays.
+function prefilter(tracks) {
+  const out = [];
+  for (const t of tracks) {
+    const pts = (t.points || []).slice().sort((a, b) => a[0] - b[0]);
+    if (!pts.some(p => (p[5] || p[3] == null || p[3] <= 4500) && distNm(p[1], p[2]) <= 10)) continue;
+    const n = pts.length, ts = new Array(n), la = new Array(n), lo = new Array(n),
+      al = new Array(n), gs = new Array(n), og = new Array(n);
+    for (let i = 0; i < n; i++) { const p = pts[i]; ts[i] = p[0]; la[i] = p[1]; lo[i] = p[2]; al[i] = p[3]; gs[i] = p[4]; og[i] = p[5] ? 1 : 0; }
+    out.push({ label: (t.reg || t.flight || String(t.hex || "?").toUpperCase()).trim(), type: t.type || "", descr: t.descr || "", mil: !!t.military, ts, la, lo, al, gs, og });
   }
-  function fmtAgo(ts){
-    const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
-    if (s < 60) return s+"s ago";
-    if (s < 3600) return Math.floor(s/60)+"m ago";
-    if (s < 86400) return Math.floor(s/3600)+"h ago";
-    return Math.floor(s/86400)+"d ago";
+  return out;
+}
+
+// Who was on the ADS-B picture at this instant? Positions are interpolated
+// between simplified track points (Douglas-Peucker output — straight legs
+// have sparse points, so bracketing gaps up to 240 s are legitimate).
+function matchClip(c) {
+  const day = traffic.get(c.day);
+  if (!day || day.state !== "ready") return null;
+  const hit = matchCache.get(c.clip);
+  if (hit && hit.ver === day.ver) return hit.list;
+  const t = c.ts, list = [];
+  for (const a of day.ac) {
+    const n = a.ts.length;
+    let lo = 0, hi = n;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (a.ts[m] < t) lo = m + 1; else hi = m; }
+    let i0 = -1, i1 = -1;
+    if (lo > 0 && lo < n && a.ts[lo] - a.ts[lo - 1] <= MATCH.gapS) { i0 = lo - 1; i1 = lo; }
+    else if (lo < n && a.ts[lo] - t <= MATCH.edgeS) { i0 = i1 = lo; }
+    else if (lo > 0 && t - a.ts[lo - 1] <= MATCH.edgeS) { i0 = i1 = lo - 1; }
+    if (i0 < 0) continue;
+    const f = i1 === i0 ? 0 : (t - a.ts[i0]) / (a.ts[i1] - a.ts[i0]);
+    const lat = a.la[i0] + (a.la[i1] - a.la[i0]) * f;
+    const lon = a.lo[i0] + (a.lo[i1] - a.lo[i0]) * f;
+    const alt = (a.al[i0] == null || a.al[i1] == null) ? (a.al[i1] ?? a.al[i0])
+      : a.al[i0] + (a.al[i1] - a.al[i0]) * f;
+    const gs = (a.gs[i0] == null || a.gs[i1] == null) ? (a.gs[i1] ?? a.gs[i0])
+      : a.gs[i0] + (a.gs[i1] - a.gs[i0]) * f;
+    const onGnd = !!(a.og[i0] && a.og[i1]);
+    const [x, y] = toXY(lat, lon);
+    const dist = Math.hypot(x, y);
+    const airborneHit = alt != null && !onGnd && alt <= MATCH.ft && dist <= MATCH.nm;
+    const surfaceHit = (onGnd || alt == null) && dist <= MATCH.groundNm;
+    if (!airborneHit && !surfaceHit) continue;
+    const seg = [];  // map trail: window around the call, plus the interpolated "now"
+    for (let i = 0; i < n; i++)
+      if (a.ts[i] >= t - MATCH.windowS && a.ts[i] <= t + MATCH.windowS) seg.push([a.ts[i], ...toXY(a.la[i], a.lo[i])]);
+    seg.push([t, x, y]);
+    seg.sort((p, q) => p[0] - q[0]);
+    let course = null;
+    if (i1 > i0) {
+      const [x0, y0] = toXY(a.la[i0], a.lo[i0]), [x1, y1] = toXY(a.la[i1], a.lo[i1]);
+      if (x1 !== x0 || y1 !== y0) course = Math.atan2(x1 - x0, y1 - y0) * 180 / Math.PI;
+    }
+    list.push({ label: a.label, type: a.type, descr: a.descr, mil: a.mil, alt, gs, dist, card: card(x, y), onGnd, x, y, seg, course });
   }
-  function dayLabel(ts){
-    const d = new Date(ts*1000), now = new Date();
-    const ymd = x => x.getFullYear()+"-"+pad(x.getMonth()+1)+"-"+pad(x.getDate());
-    const y = new Date(now); y.setDate(now.getDate()-1);
-    if (ymd(d) === ymd(now)) return "Today";
-    if (ymd(d) === ymd(y)) return "Yesterday";
-    return d.toLocaleDateString(undefined, {weekday:"long", month:"short", day:"numeric"});
+  list.sort((p, q) => p.dist - q.dist);
+  const capped = list.slice(0, 6);
+  matchCache.set(c.clip, { ver: day.ver, list: capped });
+  return capped;
+}
+
+// ===== who-was-flying panel =====
+function mapSVG(matches) {
+  const S = 100 / 4.5;                       // svg units per nm (viewBox ±110)
+  const px = v => (v * S).toFixed(1);
+  const parts = [];
+  parts.push(`<svg viewBox="-109 -109 218 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Aircraft positions around the field">`);
+  parts.push(`<circle r="${px(2)}" fill="none" stroke="#1d2733" stroke-width="1"/>`);
+  parts.push(`<circle r="${px(4)}" fill="none" stroke="#1d2733" stroke-width="1"/>`);
+  parts.push(`<text x="2" y="${-2 * S - 3}" fill="#3d4855" font-size="8">2 nm</text>`);
+  parts.push(`<text x="2" y="${-4 * S - 3}" fill="#3d4855" font-size="8">4 nm</text>`);
+  parts.push(`<path d="M-96 -88 l0 -14 M-96 -102 l-3.5 5 M-96 -102 l3.5 5" stroke="#4a5866" stroke-width="1.5" fill="none"/>`);
+  parts.push(`<text x="-99" y="-77" fill="#4a5866" font-size="9">N</text>`);
+  const rd = RWY.axisTrue * Math.PI / 180, hx = Math.sin(rd), hy = Math.cos(rd);
+  const hl = RWY.lenNm / 2 * S;
+  parts.push(`<line x1="${(-hx * hl).toFixed(1)}" y1="${(hy * hl).toFixed(1)}" x2="${(hx * hl).toFixed(1)}" y2="${(-hy * hl).toFixed(1)}" stroke="#5b6b7d" stroke-width="3" stroke-linecap="round"/>`);
+  parts.push(`<text x="${(-hx * (hl + 11)).toFixed(1)}" y="${(hy * (hl + 11) + 3).toFixed(1)}" fill="#5b6b7d" font-size="8" text-anchor="middle">${RWY.names[0]}</text>`);
+  parts.push(`<text x="${(hx * (hl + 11)).toFixed(1)}" y="${(-hy * (hl + 11) + 3).toFixed(1)}" fill="#5b6b7d" font-size="8" text-anchor="middle">${RWY.names[1]}</text>`);
+  matches.forEach((m, i) => {
+    const col = AC_COLORS[i % AC_COLORS.length];
+    if (m.seg.length > 1) {
+      const pl = m.seg.map(p => `${(p[1] * S).toFixed(1)},${(-p[2] * S).toFixed(1)}`).join(" ");
+      parts.push(`<polyline points="${pl}" fill="none" stroke="${col}" stroke-width="1.6" stroke-opacity=".8" stroke-linejoin="round"/>`);
+    }
+    const cx = (m.x * S).toFixed(1), cy = (-m.y * S).toFixed(1);
+    if (m.course != null)
+      parts.push(`<path d="M0 -5.2 L3.6 4.4 L0 2.4 L-3.6 4.4 Z" fill="${col}" transform="translate(${cx} ${cy}) rotate(${m.course.toFixed(0)})"/>`);
+    else
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="3.4" fill="${col}"/>`);
+    parts.push(`<text x="${+cx + 6}" y="${+cy - 5}" fill="${col}" font-size="8.5" font-family="ui-monospace,Consolas,monospace">${esc(m.label)}</text>`);
+  });
+  parts.push("</svg>");
+  return parts.join("");
+}
+
+function detailHTML(c) {
+  const day = traffic.get(c.day);
+  const advisory = ADVISORY_RE.test(transcriptOf(c) || "");
+  let side;
+  if (!day || day.state === "loading")
+    side = `<div class="d-state"><span class="spin"></span>loading the day&rsquo;s ADS-B tracks&hellip;</div>`;
+  else if (day.state === "missing")
+    side = `<div class="d-state">No ADS-B snapshot exists for this day.</div>`;
+  else if (day.state === "error")
+    side = `<div class="d-state">Couldn&rsquo;t load the ADS-B snapshot. <a href="#" data-retry="${esc(c.day)}">Retry</a></div>`;
+  else {
+    const matches = matchClip(c) || [];
+    const fresh = day.coverage && c.ts > day.coverage - 60;
+    const rows = matches.map((m, i) => {
+      const nums = m.onGnd || (m.alt != null && m.alt <= 100)
+        ? `on the field &middot; ${m.gs != null ? Math.round(m.gs) + " kt" : "stationary"}`
+        : `${m.dist.toFixed(1)} nm ${m.card} &middot; ${m.alt != null ? Math.round(m.alt).toLocaleString() + " ft" : "alt n/a"}${m.gs != null ? " &middot; " + Math.round(m.gs) + " kt" : ""}`;
+      return `<div class="d-ac"><i class="cdot" style="background:${AC_COLORS[i % AC_COLORS.length]}"></i>` +
+        `<b>${esc(m.label)}</b>${m.type ? `<span class="d-type">${esc(m.type)}</span>` : ""}` +
+        `<span class="d-nums">${nums}</span></div>`;
+    }).join("");
+    let note;
+    if (advisory)
+      note = "This is the field&rsquo;s automated SuperUnicom broadcast, not an aircraft call.";
+    else if (!matches.length && fresh)
+      note = "The ADS-B snapshot hasn&rsquo;t caught up to this moment yet (it exports every ~15 min) — check back shortly.";
+    else if (!matches.length)
+      note = "No ADS-B returns within 6 nm at that moment — likely a non-equipped aircraft, or a call from farther out.";
+    else
+      note = "ADS-B-equipped aircraft only; positions interpolated between simplified track points.";
+    side = (matches.length
+      ? rows
+      : `<div class="d-state">${advisory ? "&#128266; Automated advisory" : "No aircraft matched"}</div>`)
+      + `<div class="d-note">${note}</div>`;
+    return `<div class="detail"><div class="d-map">${mapSVG(matches)}</div>` +
+      `<div class="d-side"><div class="d-title">On the ADS-B picture &middot; ${fmtTime(c.ts)}</div>${side}</div></div>`;
+  }
+  return `<div class="detail"><div class="d-side"><div class="d-title">On the ADS-B picture &middot; ${fmtTime(c.ts)}</div>${side}</div></div>`;
+}
+
+// ===== list =====
+function haystack(c) {
+  const tr = transcriptOf(c) || "";
+  const m = matchCache.get(c.clip);
+  const labels = m ? m.list.map(a => a.label + " " + a.type).join(" ") : "";
+  return (fmtTime(c.ts) + " " + dayLabel(c.day) + " " + tr + " " + labels).toLowerCase();
+}
+function renderList() {
+  if (!clips.length) {
+    listEl.innerHTML = `<div class="empty">No transmissions recorded yet. This updates automatically when someone keys up on 122.9.</div>`;
+    visible = [];
+    return;
+  }
+  const terms = query.split(/\s+/).filter(Boolean);
+  visible = terms.length ? clips.filter(c => { const h = haystack(c); return terms.every(t => h.includes(t)); }) : clips;
+  const nEl = $("#search-n");
+  nEl.hidden = !terms.length;
+  if (terms.length) nEl.textContent = `${visible.length} of ${clips.length}`;
+  if (!visible.length) {
+    listEl.innerHTML = `<div class="empty">Nothing matches &ldquo;${esc(query)}&rdquo;.</div>`;
+    return;
   }
 
-  function render(){
-    if (!clips.length){
-      listEl.innerHTML = '<div class="empty">No transmissions recorded yet. This updates automatically when someone keys up on 122.9.</div>';
+  let html = "", lastDay = "";
+  for (const c of visible) {
+    if (c.day !== lastDay) {
+      const dayClips = visible.filter(x => x.day === c.day);
+      const secs = dayClips.reduce((s, x) => s + (x.dur || 0), 0);
+      const air = secs >= 60 ? `${Math.floor(secs / 60)} m ${Math.round(secs % 60)} s` : `${Math.round(secs)} s`;
+      html += `<div class="daydiv"><span>${esc(dayLabel(c.day))}</span>` +
+        `<span class="dstat">${dayClips.length} calls &middot; ${air} on air</span></div>`;
+      lastDay = c.day;
+    }
+    const sel = c.clip === selKey;
+    const tr = transcriptOf(c);
+    const cached = matchCache.get(c.clip), tday = traffic.get(c.day);
+    const matches = cached && tday && cached.ver === tday.ver ? cached.list
+      : (tday && tday.state === "ready" ? matchClip(c) : null);
+    const advisory = ADVISORY_RE.test(tr || "");
+    let chips = "";
+    if (advisory) chips += `<span class="chip adv">automated advisory</span>`;
+    if (matches && matches.length && !advisory) {
+      chips += matches.slice(0, 3).map((m, i) =>
+        `<span class="chip${m.mil ? " mil" : ""}" title="${esc(m.descr || m.type || "")}"><i class="cdot" style="background:${AC_COLORS[i % AC_COLORS.length]}"></i>${esc(m.label)}</span>`).join("");
+      if (matches.length > 3) chips += `<span class="chip more">+${matches.length - 3}</span>`;
+    }
+    html += `<div class="tx${sel ? " sel" : ""}${c._new ? " new" : ""}" data-key="${esc(c.clip)}" tabindex="0" role="button" aria-label="Play transmission at ${fmtTime(c.ts)}">`
+      + `<button class="tx-play" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 1.2v9.6L10.5 6z"/></svg></button>`
+      + `<span class="time">${fmtTime(c.ts)}</span>`
+      + `<span></span>`
+      + `<span class="tmeta"><span class="ago">${fmtAgo(c.ts)}</span>`
+      + `<span class="durbar"><i style="width:${Math.min(100, (c.dur || 0) / 20 * 100).toFixed(0)}%"></i></span>`
+      + `<span class="dur">${(c.dur || 0).toFixed(1)}s</span></span>`
+      + (tr ? `<div class="tx-text${tr === "[noise]" ? " noise" : ""}">${tr === "[noise]" ? "unreadable / carrier only" : esc(tr)}</div>` : "")
+      + (chips ? `<div class="tx-chips">${chips}</div>` : "")
+      + `</div>`;
+    if (sel) html += detailHTML(c);
+  }
+  listEl.innerHTML = html;
+}
+
+listEl.addEventListener("click", e => {
+  const retry = e.target.closest("[data-retry]");
+  if (retry) { e.preventDefault(); ensureTraffic(retry.dataset.retry, true); renderList(); return; }
+  const row = e.target.closest(".tx");
+  if (row) selectByKey(row.dataset.key, true);
+});
+listEl.addEventListener("keydown", e => {
+  if (e.key === "Enter") { const row = e.target.closest(".tx"); if (row) selectByKey(row.dataset.key, true); }
+});
+
+// ===== selection & playback =====
+function selectByKey(key, play) {
+  const c = clips.find(x => x.clip === key);
+  if (!c) return;
+  selKey = key;
+  if (liveMode) stopLive();
+  // If this clip is newer than the loaded snapshot and the exporter has
+  // pushed since, refetch the day so "who was flying" can catch up.
+  const tr = traffic.get(c.day);
+  const stale = tr && tr.state === "ready" && snapSummary &&
+    c.ts > tr.coverage - 60 && snapSummary.newest > tr.coverage;
+  ensureTraffic(c.day, stale);
+  ensureTranscripts(c.day);
+  renderList();
+  const row = listEl.querySelector(`.tx[data-key="${CSS.escape(key)}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+  player.src = BASE + "/" + c.clip;
+  if (play) player.play().catch(() => {});
+  waveBins = null;
+  loadWave(c);
+  updateNow();
+}
+function step(dir) {  // +1 = older, -1 = newer (over the filtered list)
+  if (!visible.length) return;
+  let i = visible.findIndex(x => x.clip === selKey);
+  i = i === -1 ? 0 : Math.min(visible.length - 1, Math.max(0, i + dir));
+  if (visible[i].clip === selKey) return;   // at the end — don't replay-loop
+  selectByKey(visible[i].clip, true);
+}
+player.addEventListener("ended", () => { if (advanceCb.checked) step(-1); });
+player.addEventListener("play", updatePlayIcon);
+player.addEventListener("pause", updatePlayIcon);
+player.addEventListener("timeupdate", () => { drawWave(); updateNow(); });
+function updatePlayIcon() {
+  const playing = (liveMode && !live.paused) || (!liveMode && !player.paused);
+  icPlay.style.display = playing ? "none" : "";
+  icPause.style.display = playing ? "" : "none";
+  $("#btn-play").classList.toggle("pause", playing);
+  const row = listEl.querySelector(".tx.sel");
+  if (row) row.classList.toggle("playing", !liveMode && !player.paused);
+}
+function updateNow() {
+  if (liveMode) { nowEl.textContent = "live · 122.9"; return; }
+  const c = clips.find(x => x.clip === selKey);
+  if (!c) { nowEl.textContent = ""; waveHint.style.display = ""; waveHint.textContent = "nothing selected"; return; }
+  waveHint.style.display = "none";
+  const pos = player.duration ? `${player.currentTime.toFixed(1)} / ${player.duration.toFixed(1)}s` : `${(c.dur || 0).toFixed(1)}s`;
+  nowEl.textContent = `${fmtTime(c.ts)} · ${pos}`;
+}
+$("#btn-prev").addEventListener("click", () => step(1));
+$("#btn-next").addEventListener("click", () => step(-1));
+$("#btn-play").addEventListener("click", () => {
+  if (liveMode) { stopLive(); return; }
+  if (!selKey && visible.length) { selectByKey(visible[0].clip, true); return; }
+  player.paused ? player.play().catch(() => {}) : player.pause();
+});
+
+// ===== waveform (real audio envelope, decoded on demand) =====
+async function loadWave(c) {
+  waveTarget = c.clip;
+  const cached = waveCache.get(c.clip);
+  if (cached) { waveBins = cached; drawWave(); return; }
+  drawWave();
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await (await fetch(BASE + "/" + c.clip)).arrayBuffer();
+    const ab = await actx.decodeAudioData(buf);
+    if (waveTarget !== c.clip) return;
+    const ch = ab.getChannelData(0), N = 150, bins = new Float32Array(N);
+    const stepN = Math.max(1, Math.floor(ch.length / N));
+    let max = 0;
+    for (let i = 0; i < N; i++) {
+      let m = 0;
+      const s = i * stepN, e = Math.min(ch.length, s + stepN);
+      for (let j = s; j < e; j += 4) { const v = Math.abs(ch[j]); if (v > m) m = v; }
+      bins[i] = m; if (m > max) max = m;
+    }
+    if (max > 0) for (let i = 0; i < N; i++) bins[i] /= max;
+    waveCache.set(c.clip, bins);
+    if (waveCache.size > 24) waveCache.delete(waveCache.keys().next().value);
+    waveBins = bins;
+    drawWave();
+  } catch { /* no waveform — progress still works via the buttons */ }
+}
+function drawWave() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = waveCanvas.getBoundingClientRect();
+  if (waveCanvas.width !== Math.round(r.width * dpr)) {
+    waveCanvas.width = Math.round(r.width * dpr);
+    waveCanvas.height = Math.round(r.height * dpr);
+  }
+  const ctx = waveCanvas.getContext("2d");
+  const W = waveCanvas.width, H = waveCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (liveMode || !selKey) return;
+  const prog = player.duration ? player.currentTime / player.duration : 0;
+  if (!waveBins) {  // decoding: quiet placeholder line
+    ctx.fillStyle = "#243040";
+    ctx.fillRect(0, H / 2 - dpr, W, 2 * dpr);
+    return;
+  }
+  const N = waveBins.length, bw = W / N;
+  for (let i = 0; i < N; i++) {
+    const h = Math.max(2 * dpr, waveBins[i] * (H * 0.86));
+    ctx.fillStyle = (i + 0.5) / N <= prog ? "#4a9eff" : "#33404f";
+    ctx.fillRect(i * bw + bw * 0.18, (H - h) / 2, bw * 0.64, h);
+  }
+}
+waveCanvas.addEventListener("click", e => {
+  if (liveMode || !player.duration) return;
+  const r = waveCanvas.getBoundingClientRect();
+  player.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * player.duration;
+  drawWave();
+});
+new ResizeObserver(() => drawWave()).observe(waveCanvas);
+
+// ===== live continuous stream =====
+function startLive() {
+  liveMode = true; selKey = null; renderList();
+  player.pause(); player.removeAttribute("src");
+  liveBtn.classList.add("on"); liveBtn.setAttribute("aria-pressed", "true");
+  liveLabel.textContent = "Live · stop";
+  liveEq.hidden = false; waveHint.style.display = "none";
+  nowEl.textContent = "live · 122.9";
+  live.src = LIVE_URL + "?t=" + Date.now();
+  live.play().then(updatePlayIcon).catch(() => { if (liveMode) liveLabel.textContent = "tap to allow audio"; });
+  drawWave(); updatePlayIcon();
+}
+function stopLive() {
+  liveMode = false; live.pause(); live.removeAttribute("src");
+  liveBtn.classList.remove("on"); liveBtn.setAttribute("aria-pressed", "false");
+  liveLabel.textContent = "Listen live";
+  liveEq.hidden = true;
+  if (!selKey) { waveHint.style.display = ""; waveHint.textContent = "nothing selected"; nowEl.textContent = ""; }
+  updatePlayIcon();
+}
+liveBtn.addEventListener("click", () => liveMode ? stopLive() : startLive());
+
+// ===== activity strip (last 24 h) =====
+function renderActivity() {
+  const box = $("#activity");
+  if (!clips.length) { box.hidden = true; return; }
+  const now = Date.now() / 1000, hourNow = Math.floor(now / 3600) * 3600;
+  const counts = new Array(24).fill(0);
+  for (const c of clips) {
+    const age = hourNow + 3600 - c.ts;
+    if (age <= 0 || age > 86400) continue;
+    const idx = 23 - Math.floor((hourNow + 3600 - c.ts - 1) / 3600);
+    if (idx >= 0 && idx < 24) counts[idx]++;
+  }
+  const total = counts.reduce((a, b) => a + b, 0);
+  box.hidden = false;
+  const max = Math.max(1, ...counts);
+  const BW = 17, GAP = 3, W = 24 * (BW + GAP) - GAP, H = 64, chartH = 44, base = 50;
+  const bars = [];
+  let busiest = -1;
+  counts.forEach((n, i) => { if (busiest < 0 || n > counts[busiest]) busiest = i; });
+  for (let i = 0; i < 24; i++) {
+    const x = i * (BW + GAP);
+    const hStart = hourNow - (23 - i) * 3600;
+    const label = FMT_HR.format(hStart * 1000).replace(" ", "").toLowerCase();
+    const h = counts[i] ? Math.max(3, counts[i] / max * chartH) : 1.5;
+    const col = counts[i] ? (i === 23 ? "#4a9eff" : "#2c517e") : "#1c232d";
+    bars.push(`<g><rect x="${x}" y="${base - h}" width="${BW}" height="${h}" rx="2" fill="${col}"></rect>` +
+      `<title>${label} — ${counts[i]} call${counts[i] === 1 ? "" : "s"}</title></g>`);
+    if (new Date(hStart * 1000).toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hour12: false }) % 6 === 0)
+      bars.push(`<text x="${x + BW / 2}" y="${H - 2}" fill="#4a5460" font-size="9" text-anchor="middle">${label}</text>`);
+  }
+  $("#act-strip").innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${bars.join("")}</svg>`;
+  const busyLbl = counts[busiest] ? FMT_HR.format((hourNow - (23 - busiest) * 3600) * 1000).replace(" ", "").toLowerCase() : null;
+  $("#act-sum").textContent = `${total} call${total === 1 ? "" : "s"}` + (busyLbl && counts[busiest] > 1 ? ` · busiest around ${busyLbl}` : "");
+}
+
+// ===== data polling =====
+const CLIP_PATH_RE = /^clips\/(\d{4}-\d{2}-\d{2})\/(.+)$/;
+async function poll() {
+  try {
+    const r = await fetch(BASE + "/index.json?t=" + Date.now());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    // One receiver serves both this page and scanner.html — keep only CTAF
+    // clips (clips recorded before the scanner existed have no freq field).
+    const isCtaf = c => !c.freq || Math.abs(parseFloat(String(c.freq).replace(/[Mm]$/, "")) - 122.9) < 0.0005;
+    const incoming = (data.clips || []).filter(isCtaf).sort((a, b) => b.ts - a.ts);
+    const prevMax = maxTs;
+    for (const c of incoming) {
+      const m = CLIP_PATH_RE.exec(c.clip || "");
+      c.day = m ? m[1] : dayKey(c.ts * 1000);
+      c.name = m ? m[2] : c.clip;
+      c._new = c.ts > prevMax && prevMax > 0;
+      if (c.ts > maxTs) maxTs = c.ts;
+    }
+    const firstLoad = clips.length === 0;
+    clips = incoming;
+    updatedAt = data.updated || Date.now() / 1000;
+    for (const day of new Set(clips.map(c => c.day))) ensureTranscripts(day);
+    renderList();
+    renderActivity();
+    connEl.classList.remove("err"); connEl.classList.add("ok");
+    statusEl.textContent = `${clips.length} transmission${clips.length === 1 ? "" : "s"} · updated ${fmtTime(updatedAt)}`;
+    if (firstLoad && !autoLoaded && !(navigator.connection && navigator.connection.saveData)) {
+      autoLoaded = true;  // preload today's ADS-B picture once, off the critical path
+      setTimeout(() => ensureTraffic(dayKey(Date.now())), 2500);
+    }
+    if (!firstLoad && followCb.checked && !liveMode) {
+      const newest = incoming[0];
+      if (newest && newest._new) selectByKey(newest.clip, true);
+    }
+  } catch (e) {
+    connEl.classList.add("err"); connEl.classList.remove("ok");
+    statusEl.textContent = `recorder offline — the receiver PC may be off (${e.message})`;
+  }
+}
+
+// The single receiver can be tuned away from 122.9 via scanner.html.
+// Say so plainly instead of just going silent.
+async function pollState() {
+  const banner = $("#tuned-away"), pill = $("#rx-state");
+  try {
+    const r = await fetch(BASE + "/api/state?t=" + Date.now());
+    const s = await r.json();
+    if (s.is_ctaf) {
+      banner.hidden = true;
+      pill.hidden = false; pill.className = "pill ok"; pill.textContent = "receiver on 122.9";
       return;
     }
-    let html = "", lastDay = "";
-    for (const c of clips){
-      const dl = dayLabel(c.ts);
-      if (dl !== lastDay){ html += '<div class="daydiv">'+dl+'</div>'; lastDay = dl; }
-      const sel = c.ts === selTs ? " sel" : "";
-      const isNew = c.ts > 0 && c._new ? " new" : "";
-      html += '<div class="tx'+sel+isNew+'" data-ts="'+c.ts+'">'
-            +   '<span class="play">&#9654;</span>'
-            +   '<span class="time">'+fmtTime(c.ts)+'</span>'
-            +   '<span class="ago">'+fmtAgo(c.ts)+'</span>'
-            +   '<span class="dur">'+c.dur.toFixed(1)+'s</span>'
-            + '</div>';
-    }
-    listEl.innerHTML = html;
-    listEl.querySelectorAll(".tx").forEach(el =>
-      el.addEventListener("click", () => selectByTs(parseFloat(el.dataset.ts), true)));
-  }
+    const f = parseFloat(String(s.freq).replace(/[Mm]$/, ""));
+    pill.hidden = false; pill.className = "pill warn"; pill.textContent = `tuned to ${f} MHz`;
+    banner.hidden = false;
+    banner.innerHTML = `<span>&#9888;</span><span>The receiver is currently tuned to <b>${f} MHz ${esc(String(s.mode || "").toUpperCase())}</b>, so <b>122.9 is not being monitored right now</b>. Live audio and new clips are from that frequency. <a href="/scanner.html">Open the scanner</a> to tune back.</span>`;
+  } catch { banner.hidden = true; pill.hidden = true; }
+}
 
-  function selectByTs(ts, play){
-    const c = clips.find(x => x.ts === ts);
-    if (!c) return;
-    selTs = ts;
-    if (liveMode) stopLive();
-    render();
-    const row = listEl.querySelector('.tx[data-ts="'+ts+'"]');
-    if (row) row.scrollIntoView({block:"nearest"});
-    nowEl.textContent = fmtTime(ts) + " · " + c.dur.toFixed(1) + "s";
-    player.src = BASE + "/" + c.clip;
-    if (play) player.play().catch(()=>{});
-  }
+// ===== search & keyboard =====
+let searchTimer = 0;
+searchEl.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { query = searchEl.value.trim().toLowerCase(); renderList(); }, 120);
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "j") { e.preventDefault(); step(1); }
+  else if (e.key === "k") { e.preventDefault(); step(-1); }
+  else if (e.key === " ") {
+    e.preventDefault();
+    if (liveMode) { stopLive(); return; }
+    player.paused ? player.play().catch(() => {}) : player.pause();
+  } else if (e.key === "/") { e.preventDefault(); searchEl.focus(); }
+});
 
-  function step(dir){ // dir +1 = older (down), -1 = newer (up)
-    if (!clips.length) return;
-    let i = clips.findIndex(x => x.ts === selTs);
-    if (i === -1) i = 0; else i += dir;
-    if (i < 0) i = 0;
-    if (i >= clips.length) i = clips.length - 1;
-    selectByTs(clips[i].ts, true);
-  }
-
-  player.addEventListener("ended", () => { if (advanceCb.checked) step(-1); }); // advance to newer
-
-  // ----- live continuous stream -----
-  function startLive(){
-    liveMode = true; selTs = null; render();
-    player.pause();
-    liveBtn.classList.add("live-on"); liveLabel.textContent = "Live · stop";
-    nowEl.textContent = "live stream";
-    live.src = LIVE + "?t=" + Date.now();
-    live.play().catch(()=>{ liveLabel.textContent = "tap to allow audio"; });
-  }
-  function stopLive(){
-    liveMode = false; live.pause(); live.removeAttribute("src");
-    liveBtn.classList.remove("live-on"); liveLabel.textContent = "Listen live";
-  }
-  liveBtn.addEventListener("click", () => liveMode ? stopLive() : startLive());
-
-  // ----- data polling -----
-  async function poll(){
-    try{
-      const r = await fetch(BASE + "/index.json?t=" + Date.now());
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const data = await r.json();
-      // One receiver serves both pages, so keep only CTAF clips here.
-      // Clips recorded before the scanner existed have no freq field — those
-      // are all CTAF.
-      const isCtaf = c => !c.freq || Math.abs(parseFloat(String(c.freq).replace(/[Mm]$/,"")) - 122.9) < 0.0005;
-      const incoming = (data.clips || []).filter(isCtaf).sort((a,b) => b.ts - a.ts);
-      const prevMax = maxTs;
-      for (const c of incoming){ c._new = c.ts > prevMax; if (c.ts > maxTs) maxTs = c.ts; }
-      const firstLoad = clips.length === 0;
-      clips = incoming;
-      render();
-      statusEl.classList.remove("err");
-      statusEl.textContent = clips.length + " transmission" + (clips.length===1?"":"s")
-        + " · updated " + fmtTime(data.updated || Date.now()/1000);
-      // auto-play newest new clip if following (and not already listening live)
-      if (!firstLoad && followCb.checked && !liveMode){
-        const newest = incoming[0];
-        if (newest && newest._new) selectByTs(newest.ts, true);
-      }
-    }catch(e){
-      statusEl.classList.add("err");
-      statusEl.textContent = "recorder offline — the receiver PC may be off ("+e.message+")";
-    }
-  }
-
-  document.addEventListener("keydown", e => {
-    if (e.target.tagName === "INPUT") return;
-    if (e.key === "j"){ e.preventDefault(); step(1); }
-    else if (e.key === "k"){ e.preventDefault(); step(-1); }
-    else if (e.key === " "){ e.preventDefault(); player.paused ? player.play().catch(()=>{}) : player.pause(); }
-  });
-
-  // The single receiver can be tuned away from 122.9 via scanner.html.
-  // Say so plainly instead of just going silent.
-  async function pollState(){
-    const el = document.getElementById("tuned-away");
-    try{
-      const r = await fetch(BASE + "/api/state?t=" + Date.now());
-      const s = await r.json();
-      if (s.is_ctaf){ el.style.display = "none"; return; }
-      const f = parseFloat(String(s.freq).replace(/[Mm]$/,""));
-      el.style.display = "";
-      el.innerHTML = "<span>&#9888;</span><span>The receiver is currently tuned to <b>" +
-        f + " MHz " + String(s.mode).toUpperCase() + "</b>, so <b>122.9 is not being " +
-        "monitored right now</b>. Live audio and new clips are from that frequency. " +
-        '<a href="/scanner.html">Open the scanner</a> to tune back.</span>';
-    }catch(e){ el.style.display = "none"; }
-  }
-
-  poll(); pollState();
-  setInterval(pollState, POLL_MS);
-  setInterval(poll, POLL_MS);
-  setInterval(() => { if (clips.length) render(); }, 30000); // refresh "ago" labels
+// ===== boot =====
+loadSummary();
+poll(); pollState();
+setInterval(poll, POLL_MS);
+setInterval(pollState, POLL_MS);
+setInterval(loadSummary, 5 * 60e3);
+setInterval(() => { if (clips.length) { renderList(); renderActivity(); } }, 30000);
 </script>
 </body>
 </html>

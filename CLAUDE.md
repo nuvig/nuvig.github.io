@@ -35,7 +35,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   so its ~13 KB never costs a normal visit. `js/sim.js` is loaded *only* this way — it is not
   referenced from any HTML.
 - `tools.html` — the Aviation Tools hub; the categorized index of the explainers below. The homepage
-  links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**.
+  links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**
+  (and a `<url>` in `sitemap.xml`).
+- `sitemap.xml` — hand-maintained XML sitemap, referenced from `robots.txt`. Public pages only:
+  `noindex` pages (`404`, `atc`, `scanner`, `bubbles`) and the deliberately unlinked
+  `glow` / `sky2` / `watercycle` are excluded on purpose. `lastmod` is the page's last commit date.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
@@ -69,12 +73,27 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `js/kanp-climb.js` — Traffic Study sub-tool: climb-out comparison. Extracts the initial climb from
   each departure and plots altitude gained vs distance from liftoff (density-altitude comparisons).
   Altitudes are ADS-B barometric — fine for day-to-day gradient comparison, not true geometric gradient.
-- `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Converts positions into a
-  runway frame (`along` / signed `cross`) and ranks approaches by lateral precision and glidepath angle.
+- `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Ranks approaches by lateral
+  precision and glidepath angle, working in the shared runway frame (`KANP.runwayFrame` in `kanp.js`):
+  `along` = nm from the field along the extended centerline, + on the approach side; signed `cross`
+  = nm off it, **+ to the left of the landing direction for either end**. That invariant is what lets
+  12 and 30 share one picture — don't "simplify" it to a raw bearing rotation.
+- `js/kanp-pattern.js` — Traffic Study sub-tool: pattern shape. Measures the downwind flown into
+  every landing/low approach (each lap counted once, attributed to the contact that follows it) and
+  plots the circuits as an equal-scale plan view plus downwind-width and pattern-altitude
+  distributions — "what a normal KANP pattern looks like" as numbers. Same runway frame as
+  `kanp-final.js`. Measurements integrate *along* each leg rather than averaging its points, because
+  Douglas-Peucker leaves a steady downwind as few as two fixes; pattern altitude is the leg's
+  **peak** over the abeam window, since a downwind is level and then descends.
+  **ADS-B altitude is pressure altitude**, so AGL is taken against the field's own pressure altitude
+  per hour, estimated from the low decile of what aircraft report *at the field* — deliberately not
+  `kanp-climb.js`'s ground-fix-only estimate, which is fine there (it only uses differences) but
+  degrades to charted elevation on the GitHub snapshots, where ground fixes carry no altitude. That
+  fallback silently reported real 1,000 ft patterns as ~600 on a 30.2 inHg day. Don't unify the two.
 - `js/kanp-static.js` — GitHub-snapshot fallback data source (see Data flow).
 
-Both sub-tools mirror `kanp-ops.js` detection logic — if you change how a field contact is
-classified there, check all three.
+The three sub-tools above mirror `kanp-ops.js` detection logic — if you change how a field contact
+is classified there, check all four.
 
 ### Aviation explainers (self-contained, no backend)
 
@@ -265,6 +284,22 @@ the rendering engine. Commit the regenerated JSON alongside the Markdown. Full g
   `/kanp.mp3`, `/api/state`, `/api/tune`, `/api/audio`) — not the Pi tracker API. That server's code is
   **not in this repo**; these two pages are self-contained HTML with the host hardcoded near the top of
   their inline `<script>`. They're unlinked from site navigation (scanner links to ctaf and back).
+- On top of the clip list, `ctaf.html` layers two joins (both optional — the page degrades to a plain
+  clip list when either source is missing). **Who was flying**: each clip is matched against the
+  traffic-data snapshots (same raw.githubusercontent source as `kanp-static.js`; the 3–4 MB day file
+  is fetched lazily per day and prefiltered to near-field tracks). Match gates: airborne ≤ 6 nm and
+  ≤ 3,000 ft MSL, or on the surface ≤ 2 nm, interpolating across ≤ 240 s gaps like `kanp-conflict.js`;
+  selected clips get a runway-frame mini-map of the ±2 min trails. Times render in the field's zone
+  (`America/New_York`, hardcoded — the page stays self-contained). **Transcripts** come from
+  `data/ctaf/YYYY-MM-DD.json` (same-origin; `clips` keyed by clip basename), written every 30 min by
+  `.github/workflows/ctaf-transcribe.yml` → `scripts/ctaf_transcribe.py`: polls the funnel's
+  `/ctaf/index.json`, transcribes new 122.9 clips with faster-whisper small.en, biased by
+  `pc/atc_vocab.txt`, Lee's SuperUnicom advisory phrasing, and the spoken tail numbers of snapshot
+  aircraft near the field (which is what fixes callsign digits). Day files persist after the SDR box
+  prunes its audio, so `data/ctaf/` accumulates a permanent text log of the frequency. Also runnable
+  by hand for backlog: `python scripts/ctaf_transcribe.py --model medium.en --max 400`. **This is our
+  own receiver — the LiveATC no-republish rule above does not apply to these clips**; it still applies
+  to everything `pi/atc.py` records.
 
 ## KANP operational facts (assume, don't infer)
 

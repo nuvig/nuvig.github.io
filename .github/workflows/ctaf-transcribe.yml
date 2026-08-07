@@ -1,0 +1,62 @@
+# CTAF transcripts — every 30 min, transcribe new 122.9 clips from the SDR
+# box's public funnel with faster-whisper and commit the text to data/ctaf/,
+# where ctaf.html reads it same-origin. Companion to wxarchive.yml (same
+# commit pattern); scripts/ctaf_transcribe.py is the shared logic and can
+# also be run by hand on the PC to chew backlog with a bigger model.
+#
+# Our own receiver's audio, not LiveATC — publishing these transcripts is
+# fine (pi/atc.py's LiveATC clips remain Pi-only, never exported).
+
+name: CTAF transcripts
+
+on:
+  schedule:
+    - cron: '9,39 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ctaf-transcribe
+  cancel-in-progress: false
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The whisper model download is ~500 MB — cache it between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: faster-whisper-small.en-v1
+
+      - name: Install faster-whisper
+        run: pip install --quiet faster-whisper
+
+      - name: Transcribe new clips
+        run: python scripts/ctaf_transcribe.py
+
+      - name: Commit transcripts
+        run: |
+          git config user.name  "ctaf-transcribe[bot]"
+          git config user.email "ctaf-transcribe[bot]@users.noreply.github.com"
+          git add data/ctaf
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "ctaf: transcripts $(date -u +'%Y-%m-%d %H:%MZ')"
+          # main may have moved while we ran — rebase our one commit and retry
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1
