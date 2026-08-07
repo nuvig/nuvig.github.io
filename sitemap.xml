@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Public pages only. A new page needs a <url> here as well as a card in tools.html.
+  Deliberately absent: 404.html, atc.html, scanner.html, bubbles.html (all noindex),
+  and the unlinked glow.html / sky2.html / watercycle.html.
+  lastmod is the page's last commit date - update it when you change the page.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <url>
+    <loc>https://jesselevine.net/</loc>
+    <lastmod>2026-07-28</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/tools.html</loc>
+    <lastmod>2026-08-04</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/kanp.html</loc>
+    <lastmod>2026-08-04</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/weather.html</loc>
+    <lastmod>2026-07-28</lastmod>
+  </url>
+
+  <!-- Procedures & charts -->
+  <url>
+    <loc>https://jesselevine.net/procedures.html</loc>
+    <lastmod>2026-07-28</lastmod>
+  </url>
+
+  <!-- Maneuvers & aerodynamics -->
+  <url>
+    <loc>https://jesselevine.net/eights.html</loc>
+    <lastmod>2026-07-21</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/power.html</loc>
+    <lastmod>2026-07-26</lastmod>
+  </url>
+
+  <!-- Atmosphere & performance -->
+  <url>
+    <loc>https://jesselevine.net/airlab.html</loc>
+    <lastmod>2026-07-27</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/skew-t.html</loc>
+    <lastmod>2026-07-27</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/sky.html</loc>
+    <lastmod>2026-08-03</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/discussion.html</loc>
+    <lastmod>2026-08-04</lastmod>
+  </url>
+
+  <!-- Systems & instruments -->
+  <url>
+    <loc>https://jesselevine.net/instruments.html</loc>
+    <lastmod>2026-07-28</lastmod>
+  </url>
+
+  <!-- Study & reference -->
+  <url>
+    <loc>https://jesselevine.net/knowledge.html</loc>
+    <lastmod>2026-07-28</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/changelog.html</loc>
+    <lastmod>2026-07-27</lastmod>
+  </url>
+
+</urlset>
