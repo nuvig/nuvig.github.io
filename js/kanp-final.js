@@ -82,16 +82,9 @@ const KANPFinal = (() => {
 
   // ---- extraction ----
   function extract(d, rwyName) {
-    // field → approach-side bearing: aircraft landing names[0] (course
-    // axisTrue) approach from the reciprocal side; names[1] from axisTrue.
-    const b = (rwyName === KANP.RWY.names[1]
-      ? KANP.RWY.axisTrue : KANP.RWY.axisTrue + 180) * Math.PI / 180;
-    const ux = Math.sin(b), uy = Math.cos(b);
-    const R_NM = 3440.065, r = Math.PI / 180;
-    const toXY = (lat, lon) => ({
-      x: (lon - KANP.LON) * r * R_NM * Math.cos(KANP.LAT * r),
-      y: (lat - KANP.LAT) * r * R_NM,
-    });
+    // along = nm out along this runway's final approach course, cross = signed
+    // offset from the extended centerline (+ = left of the landing direction).
+    const toFrame = KANP.runwayFrame(rwyName);
 
     const finals = [];
     for (const t of d.tracks) {
@@ -124,9 +117,7 @@ const KANPFinal = (() => {
         for (let k = s.i0 - 1; k >= 0; k--) {
           const p = pts[k];
           if (pts[k + 1][0] - p[0] > APPR_GAP_S) break;
-          const { x, y } = toXY(p[1], p[2]);
-          const along = x * ux + y * uy;
-          const cross = x * uy - y * ux;             // signed, nm
+          const { along, cross } = toFrame(p[1], p[2]);
           if (along > MAX_ALONG) break;
           if (along < 0.2) continue;                 // over/behind the field
           appr.push({ along, cross, alt: p[3], gs: p[4], ts: p[0] });

@@ -371,6 +371,29 @@ KANP.RWY = SITE.tracker.runway;
 // a field contact — only short final, the runway, and initial upwind do.
 KANP.OPS_GATES = SITE.tracker.opsGates;
 
+// Runway-relative frame: the two numbers the approach/pattern tools reason in,
+// for the named runway end (KANP.RWY.names).
+//   along  nm from the field along the extended centerline, POSITIVE on the
+//          approach side (where that runway's arrivals come from), negative
+//          off its departure end.
+//   cross  signed nm from the centerline, POSITIVE to the LEFT of the landing
+//          direction — and that holds for *either* end, so left traffic
+//          (KANP.RWY.pattern) sits at cross > 0 on both 12 and 30 and circuits
+//          to opposite ends stack into one picture.
+// Local tangent plane at the field: good to a few feet over pattern distances.
+// Used by kanp-final.js (straight-in ranking) and kanp-pattern.js.
+KANP.runwayFrame = function (rwyName) {
+  const b = (rwyName === KANP.RWY.names[1]
+    ? KANP.RWY.axisTrue : KANP.RWY.axisTrue + 180) * Math.PI / 180;
+  const ux = Math.sin(b), uy = Math.cos(b);
+  const R_NM = 3440.065, r = Math.PI / 180, cosLat = Math.cos(KANP.LAT * r);
+  return function (lat, lon) {
+    const x = (lon - KANP.LON) * r * R_NM * cosLat;   // east nm
+    const y = (lat - KANP.LAT) * r * R_NM;            // north nm
+    return { along: x * ux + y * uy, cross: x * uy - y * ux };
+  };
+};
+
 // Did this track ever touch the field? True for arrivals, departures and
 // pattern work alike — the test the "Lee traffic" filter uses.
 KANP.fieldContact = function (points) {

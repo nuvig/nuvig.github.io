@@ -785,6 +785,81 @@
       </div>
     </div>
 
+    <!-- ---- pattern shape ---- -->
+    <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      Pattern shape
+      <select id="pattern-rwy"
+              style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                     padding:4px 7px;font-size:12px;font-family:inherit">
+        <option value="" selected>Both runways</option>
+        <option value="30">RWY 30</option>
+        <option value="12">RWY 12</option>
+      </select>
+      <input type="text" id="pattern-reg" value="N3037E" placeholder="highlight reg"
+             style="background:#111;border:1px solid #3a3a3a;color:#ddd;border-radius:5px;
+                    padding:4px 7px;font-size:12px;width:90px;font-family:inherit">
+      <button class="btn" id="pattern-load" style="padding:4px 12px;font-size:12px">Analyze patterns</button>
+    </div>
+    <div class="result-line" id="pattern-result">
+      What a normal pattern here actually looks like: every downwind flown into a
+      landing or low approach, measured in the runway frame — how far out it was
+      flown and at what altitude. Circuits to both ends fold onto one picture
+      (left traffic sits above the runway either way). Width is averaged along the
+      leg abeam the field; altitude is the level part of the downwind, before the
+      descent. ADS-B reports pressure altitude, so AGL is measured against the
+      field's own pressure altitude that hour, not the charted elevation.
+      Uses the date/day/hour filters above.
+    </div>
+
+    <div id="pattern-out" style="display:none">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="num" id="pc-legs">–</div><div class="lbl">downwind legs</div></div>
+        <div class="stat-card"><div class="num" id="pc-width">–</div><div class="lbl">median downwind (nm)</div></div>
+        <div class="stat-card"><div class="num" id="pc-alt">–</div><div class="lbl">median altitude (ft AGL)</div></div>
+        <div class="stat-card"><div class="num" id="pc-tpa">–</div><div class="lbl">within 100 ft of TPA</div></div>
+        <div class="stat-card"><div class="num" id="pc-closed">–</div><div class="lbl">closed-traffic laps</div></div>
+        <div class="stat-card"><div class="num" id="pc-rwy">–</div><div class="lbl" id="pc-rwy-lbl">downwinds for RWY 30</div></div>
+      </div>
+
+      <div class="card">
+        <canvas id="pattern-plan" class="chart" style="height:340px"></canvas>
+        <div style="font-size:12px;color:#888;margin-top:8px" id="pattern-summary"></div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-title">Downwind width</div>
+          <div class="card"><canvas id="pattern-width" class="chart" style="height:190px"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title">Pattern altitude</div>
+          <div class="card"><canvas id="pattern-alt" class="chart" style="height:190px"></canvas></div>
+        </div>
+      </div>
+
+      <div class="section-title">Pattern by aircraft <span style="font-weight:400;color:#555;font-size:12px">· most downwinds first · click a row to highlight that aircraft</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="pattern-rank">
+          <thead><tr>
+            <th>#</th><th>Reg</th><th>Type</th><th>Downwinds</th><th>Laps</th>
+            <th>Median width (nm)</th><th>Median alt (ft AGL)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Downwind legs <span style="font-weight:400;color:#555;font-size:12px">· hover a row to highlight its circuit · lap = flown from the previous field contact</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="pattern-table">
+          <thead><tr>
+            <th>Time</th><th>Reg</th><th>Type</th><th>RWY</th><th>Circuit</th>
+            <th>Width (nm)</th><th>Alt (ft AGL)</th><th>Lap time</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ---- proximity events ---- -->
     <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       Proximity events
@@ -902,12 +977,13 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js"></script>
-  <script src="js/kanp.js?v=2"></script>
+  <script src="js/kanp.js?v=3"></script>
   <script src="js/kanp-history.js"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>
+  <script src="js/kanp-pattern.js"></script>
   <script src="js/kanp-conflict.js?v=2"></script>
 </body>
 </html>
