@@ -72,6 +72,12 @@ OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 # runs we did get, so keep it well under it — the binding constraint is how
 # often Actions runs us, not how often we are willing to write.
 SNAP_GAP_S = int(os.environ.get("WX_SNAP_GAP_S", "2400"))  # 40 min
+# How far back each run re-reads the obs feed. Comfortably past the worst
+# observed scheduler gap (4.3 h) so a missed run heals on the next one.
+OBS_LOOKBACK_H = int(os.environ.get("WX_OBS_LOOKBACK_H", "36"))
+# Same idea for TAFs: how far back each run is willing to re-check the
+# issuance list. Bounds the per-run XML fetches without capping by position.
+TAF_LOOKBACK_H = int(os.environ.get("WX_TAF_LOOKBACK_H", "36"))
 
 
 def log(msg):
@@ -86,11 +92,22 @@ def local_now():
         return datetime.datetime.now().astimezone()
 
 
-def fetch(url):
-    req = urllib.request.Request(url, headers={
+def fetch(url, fresh=False):
+    """`fresh=True` asks the CDN to revalidate. api.weather.gov's edge will
+    otherwise hand back a collection that is hours old — measured on
+    2026-08-07, six identical requests to /stations/KBWI/tafs returned one
+    response whose newest issuance was 21 h stale. A stale collection looks
+    exactly like "nothing new" to a dedupe, so the archiver silently lost
+    every KBWI/KMTN TAF issued that afternoon. Use it on the collection
+    endpoints; the per-product URLs are immutable and don't need it."""
+    headers = {
         "User-Agent": "wxarchive (jesselevine.net)",
         "Accept": "application/ld+json, application/geo+json, application/json",
-    })
+    }
+    if fresh:
+        headers["Cache-Control"] = "no-cache"
+        headers["Pragma"] = "no-cache"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
 
@@ -192,7 +209,15 @@ def snapshot_forecast():
 
 
 def archive_obs():
-    data = fetch(f"{NWS}/stations/{OBS_STATION}/observations?limit=72")
+    """Window by *time*, never by count. KDCA publishes a 5-minute ob, so the
+    old `?limit=72` reached back only ~5 h and carried just 5 rawMessages —
+    any scheduler gap longer than that dropped those hours for good, because
+    no later run could see back far enough to fill them. `?start=` costs one
+    bigger response (~475 features) and makes every run self-healing."""
+    start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        hours=OBS_LOOKBACK_H)
+    data = fetch(f"{NWS}/stations/{OBS_STATION}/observations"
+                 f"?start={start:%Y-%m-%dT%H:00:00Z}", fresh=True)
     tz = local_now().tzinfo
     by_day = {}
     for f in data.get("features", []):
@@ -339,22 +364,59 @@ def decode_taf_xml(text):
     return periods
 
 
+def newest_taf_on_disk(station, now):
+    """Latest issue time already archived for a station, over the window we
+    re-read. The staleness check below compares against this."""
+    newest = 0
+    for back in range(0, TAF_LOOKBACK_H // 24 + 2):
+        day = f"{now - datetime.timedelta(days=back):%Y-%m-%d}"
+        for x in read_json(os.path.join(TAF_DIR, f"{day}.json"), {}).get("tafs", []):
+            if x["station"] == station:
+                newest = max(newest, x["t"])
+    return newest
+
+
+def taf_collection(station, on_disk):
+    """The station's issuance list, retried until the CDN stops handing back a
+    cached copy older than what we already have. A stale collection is
+    indistinguishable from "no new TAFs" downstream, so it must be caught
+    here — see fetch()."""
+    stale = None
+    for attempt in range(3):
+        data = fetch(f"{NWS}/stations/{station}/tafs", fresh=True)
+        items = [i for i in (data.get("@graph") or [])
+                 if i.get("issueTime") and i.get("id")]
+        if not items:
+            stale = "empty collection"
+            continue
+        newest = max(epoch(i["issueTime"]) for i in items)
+        if newest >= on_disk:
+            return items
+        stale = (f"newest {datetime.datetime.fromtimestamp(newest, datetime.timezone.utc):%m-%d %H:%MZ}"
+                 f" is older than archived "
+                 f"{datetime.datetime.fromtimestamp(on_disk, datetime.timezone.utc):%m-%d %H:%MZ}")
+        log(f"taf {station}: stale response ({stale}), retry {attempt + 1}/3")
+    log(f"taf {station}: giving up on a fresh collection — {stale}")
+    return []
+
+
 def archive_tafs():
     """Every TAF issuance, decoded, deduped by issue time. The NWS collection
     endpoint only keeps recent ones — this keeps them all."""
     now = local_now()
+    cutoff = int((now - datetime.timedelta(hours=TAF_LOOKBACK_H)).timestamp())
     added = 0
     for station in TAF_STATIONS:
         try:
-            data = fetch(f"{NWS}/stations/{station}/tafs")
+            items = taf_collection(station, newest_taf_on_disk(station, now))
         except (urllib.error.URLError, OSError, KeyError) as e:
             log(f"taf {station}: {e}")
             continue
-        for item in (data.get("@graph") or [])[:6]:
-            iso = item.get("issueTime")
-            if not iso or not item.get("id"):
-                continue
+        for item in items:
+            iso = item["issueTime"]
             t = epoch(iso)
+            if t < cutoff:      # bounded work; anything older is already ours
+                continue
             day = f"{datetime.datetime.fromtimestamp(t, now.tzinfo):%Y-%m-%d}"
             path = os.path.join(TAF_DIR, f"{day}.json")
             doc = read_json(path, {"date": day, "tafs": []})
