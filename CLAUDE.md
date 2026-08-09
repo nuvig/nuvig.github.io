@@ -245,6 +245,17 @@ snapshots via `kanp-static.js`, mirroring the API's filter semantics client-side
 1 h stale. `KANP.apiBase()` auto-uses same-origin when the page is served over `http:` with a port
 (i.e. from the Pi itself); `localStorage` `kanp_api_base = 'none'` forces snapshot mode.
 
+Day files run 10–16 MB, so aggregate queries in snapshot mode never read them when they can avoid
+it: the exporter also publishes per-day **stats sidecars** (`v2/stats/YYYY-MM-DD.json`, ~500 KB —
+per-aircraft hour buckets + day-level altitude histograms; shape documented in `pi/exporter.py`,
+consumed by `statsGetStats`/`getFieldGrid` in `kanp-static.js` — **change the two together**).
+`KANPStatic.getStats` serves unfiltered/GA week-plus windows from the sidecars (the Live 60-day
+grid, History 7-day grid, GA/KANP heat toggles — the old path downloaded every raw day file in the
+window, hundreds of MB); anything else, and any window whose sidecars aren't published
+(`"stats": 1` per day in `summary.json`), falls back to the raw day files. Today's re-polled files
+skip the multi-MB re-parse when the body is unchanged (`freshJson` — length + head compare, because
+raw.githubusercontent doesn't expose `ETag` via CORS).
+
 There is **no data-source picker in the UI** — `kanp.html` has leftover `.settings-panel` CSS but no
 panel, and the old browser-selectable sources (custom `aircraft.json` URL, ADS-B Exchange via
 RapidAPI) are gone. `kanp_api_base` is set by hand; only `atc.js` still prompts for it. Routing is
@@ -285,7 +296,7 @@ the rendering engine. Commit the regenerated JSON alongside the Markdown. Full g
   **not in this repo**; these two pages are self-contained HTML with the host hardcoded near the top of
   their inline `<script>`. They're unlinked from site navigation (scanner links to ctaf and back).
 - On top of the clip list, `ctaf.html` layers **who was flying**: each clip is matched against the
-  traffic-data snapshots (same raw.githubusercontent source as `kanp-static.js`; the 3–4 MB day file
+  traffic-data snapshots (same raw.githubusercontent source as `kanp-static.js`; the 10–16 MB day file
   is fetched lazily per day and prefiltered to near-field tracks). Match gates: airborne ≤ 6 nm and
   ≤ 3,000 ft MSL, or on the surface ≤ 2 nm, interpolating across ≤ 240 s gaps like `kanp-conflict.js`;
   selected clips get a runway-frame mini-map of the ±2 min trails. The page degrades to a plain clip
