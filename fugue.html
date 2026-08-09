@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Pattern Fugue — a day at Lee Airport, played as music</title>
+  <meta name="description" content="Pick a day, press play, and hear it: every real aircraft that flew near Lee Airport (KANP) becomes a voice — altitude as melody, landings as bells, the archived wind as the room. A verbatim replay of real ADS-B traffic, time-compressed into a few minutes of generative music.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎼</text></svg>">
+  <style>
+    /* Self-contained like glow.html / bubbles.html — no shared CSS, no libs. */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body {
+      background: #04060c;
+      color: #dfe6f2;
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      position: fixed; inset: 0;
+      user-select: none; -webkit-user-select: none;
+    }
+    #stage { position: fixed; inset: 0; touch-action: none; cursor: default; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    .glass {
+      background: rgba(11, 15, 25, 0.66);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-radius: 14px;
+    }
+
+    #top, #bottom, #caption { transition: opacity 0.55s ease; }
+    body.idle.playing #top, body.idle.playing #bottom { opacity: 0.12; }
+    body.idle.playing #stage { cursor: none; }
+
+    /* ---- top bar ---- */
+    #top {
+      position: fixed; top: 14px; left: 16px; right: 16px; z-index: 20;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      pointer-events: none;
+    }
+    #brand { pointer-events: auto; line-height: 1.2; }
+    #brand h1 {
+      font-size: 14px; font-weight: 700; letter-spacing: 0.34em; text-transform: uppercase;
+      background: linear-gradient(90deg, #ffb46b, #ff8bb8 45%, #7dd0ff);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; color: transparent;
+    }
+    #brand .sub { font-size: 11px; color: #66738c; letter-spacing: 0.05em; }
+    #brand .sub a { color: #66738c; text-decoration: none; }
+    #brand .sub a:hover { color: #aeb9d0; }
+
+    #topright { display: flex; gap: 8px; pointer-events: auto; }
+    .chip {
+      appearance: none; border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(11,15,25,0.66); color: #aab4c9;
+      font: inherit; font-size: 12.5px; font-weight: 600;
+      padding: 7px 13px; border-radius: 999px; cursor: pointer;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .chip:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    .chip.on { color: #ffd9a8; border-color: rgba(255,190,120,0.45); }
+
+    /* ---- big play gate ---- */
+    #gate {
+      position: fixed; inset: 0; z-index: 30;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; text-align: center; padding: 20px;
+      background: radial-gradient(90% 70% at 50% 45%, rgba(6,9,17,0.25) 0%, rgba(4,6,12,0.78) 100%);
+      transition: opacity 0.7s ease;
+    }
+    #gate.gone { opacity: 0; pointer-events: none; }
+    #gate h2 { font-size: 15px; font-weight: 600; color: #cdd6e6; letter-spacing: 0.02em; }
+    #gate .day { font-size: 13px; color: #7d89a2; font-variant-numeric: tabular-nums; }
+    #playbtn {
+      width: 92px; height: 92px; border-radius: 50%; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: radial-gradient(circle at 35% 30%, rgba(255,180,107,0.28), rgba(11,15,25,0.7) 70%);
+      color: #ffe1bd; font-size: 34px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    #playbtn:hover { transform: scale(1.06); border-color: rgba(255,190,120,0.6); }
+    #playbtn:disabled { opacity: 0.45; cursor: wait; transform: none; }
+    #gate .note { font-size: 11.5px; color: #59647c; max-width: 420px; line-height: 1.5; }
+
+    /* ---- caption line ---- */
+    #caption {
+      position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+      z-index: 18; max-width: min(86vw, 640px); text-align: center;
+      font-size: 14.5px; color: #e8d9bf; letter-spacing: 0.02em;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+      opacity: 0; transition: opacity 0.8s ease; pointer-events: none;
+      font-variant-numeric: tabular-nums;
+    }
+    #caption.show { opacity: 1; }
+
+    /* ---- bottom transport ---- */
+    #bottom {
+      position: fixed; left: 16px; right: 16px; bottom: 14px; z-index: 20;
+      padding: 10px 14px 12px;
+    }
+    #strip { position: relative; height: 44px; cursor: pointer; touch-action: none; }
+    #stripcv { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+    #transport {
+      display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap;
+    }
+    #transport button, #transport select {
+      appearance: none; border: 1px solid rgba(255,255,255,0.12); background: transparent;
+      color: #aab4c9; font: inherit; font-size: 12.5px; padding: 5px 11px;
+      border-radius: 8px; cursor: pointer;
+    }
+    #transport button:hover, #transport select:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    #transport select { background: rgba(11,15,25,0.9); }
+    #clock { font-size: 13px; color: #d6deed; font-variant-numeric: tabular-nums; min-width: 74px; }
+    #status { font-size: 11.5px; color: #59647c; margin-left: auto; text-align: right; line-height: 1.35; }
+
+    /* ---- info card (hover/solo) ---- */
+    #info {
+      position: fixed; z-index: 22; padding: 8px 12px; pointer-events: none;
+      font-size: 12px; line-height: 1.5; color: #cdd6e6; display: none;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    #info .id { color: #ffd9a8; font-weight: 700; }
+    #info .dim { color: #66738c; }
+
+    /* ---- panels: calendar / about / end card ---- */
+    .panel {
+      position: fixed; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(92vw, 560px); max-height: 84vh; overflow-y: auto;
+      padding: 20px 22px; display: none; scrollbar-width: thin;
+    }
+    .panel.open { display: block; }
+    .panel h3 { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: #ffd9a8; margin-bottom: 12px; }
+    .panel .x {
+      position: absolute; top: 10px; right: 14px; cursor: pointer; border: 0; background: none;
+      color: #66738c; font-size: 20px; line-height: 1;
+    }
+    .panel .x:hover { color: #fff; }
+    .panel p { font-size: 13px; color: #aab4c9; line-height: 1.65; margin: 9px 0; }
+    .panel p b { color: #d6deed; font-weight: 600; }
+
+    #calgrid { display: flex; flex-direction: column; gap: 14px; }
+    .calmonth .mname { font-size: 11px; color: #7d89a2; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+    .caldays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cd {
+      aspect-ratio: 1.35; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; color: #8a94ab; cursor: pointer; position: relative;
+      font-variant-numeric: tabular-nums;
+    }
+    .cd:hover { border-color: rgba(255,255,255,0.35); color: #fff; }
+    .cd.blank { border: 0; cursor: default; }
+    .cd.sel { border-color: rgba(255,190,120,0.7); color: #ffd9a8; }
+
+    #endcard { text-align: center; }
+    #endcard .big { font-size: 20px; color: #ffe1bd; margin: 6px 0 2px; }
+    #endcard .stats { font-size: 13px; color: #aab4c9; line-height: 1.9; margin: 12px 0 16px; font-variant-numeric: tabular-nums; }
+    #endcard .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+    #toast {
+      position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 50;
+      padding: 9px 16px; font-size: 13px; color: #ffb3ab; display: none;
+    }
+
+    @media (max-width: 640px) {
+      #brand h1 { font-size: 12px; letter-spacing: 0.26em; }
+      #status { display: none; }
+      #caption { bottom: 128px; font-size: 13.5px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+  </div>
+
+  <div id="top">
+    <div id="brand">
+      <h1>Pattern Fugue</h1>
+      <div class="sub"><a href="/">jesselevine.net</a> · a day at Lee Airport, played as music</div>
+    </div>
+    <div id="topright">
+      <button class="chip" id="datebtn" title="Pick another day">…</button>
+      <button class="chip" id="mutebtn" title="Mute">sound on</button>
+      <button class="chip" id="aboutbtn" title="What is this?">?</button>
+    </div>
+  </div>
+
+  <div id="gate">
+    <h2 id="gatetitle">One day of real traffic over Annapolis, played as music.</h2>
+    <div class="day" id="gateday">loading the archive…</div>
+    <button id="playbtn" disabled>▶</button>
+    <div class="note">Every aircraft is a voice: altitude is its pitch, its place in the sky is its place
+      in the stereo field, and each landing rings a bell. Nothing is composed — this is a verbatim replay
+      of recorded ADS-B tracks, time-compressed. Headphones recommended.</div>
+  </div>
+
+  <div id="caption"></div>
+
+  <div id="bottom" class="glass">
+    <div id="strip"><canvas id="stripcv"></canvas></div>
+    <div id="transport">
+      <button id="ppbtn" title="Space">play</button>
+      <span id="clock">--:--</span>
+      <select id="dursel" title="How long the day should take">
+        <option value="120">day in 2 min</option>
+        <option value="240" selected>day in 4 min</option>
+        <option value="480">day in 8 min</option>
+      </select>
+      <button id="platebtn" title="Save the long-exposure plate as an image">save the plate</button>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div id="info" class="glass"></div>
+
+  <div id="calpanel" class="panel glass">
+    <button class="x" data-close>×</button>
+    <h3>Pick a day</h3>
+    <p style="margin-top:-6px">Brighter days saw more traffic. The archive begins in July.</p>
+    <div id="calgrid"></div>
+  </div>
+
+  <div id="aboutpanel" class="panel glass">
+    <button class="x" data-close>×</button>
+    <h3>What this is</h3>
+    <p>Lee Airport (KANP) is a single 2,505 ft runway with left traffic on both ends — so nearly every
+      airplane in the pattern flies the same shape: climb, a level downwind, a descending base and final,
+      wheels on. Stagger a day's worth of those nearly-identical phrases in time and you get, literally,
+      a canon. This page plays it.</p>
+    <p><b>The voices are real.</b> Tracks come from the site's own ADS-B archive
+      (the same hourly snapshots the <a href="/kanp.html" style="color:#7dd0ff">flight tracker</a> uses).
+      Altitude picks each voice's note on a Lydian scale, position pans it, distance from the field sets
+      its volume and reverb, groundspeed its brightness. A landing rings a bell. Nothing is quantized in
+      time — every entrance is exactly when it happened.</p>
+    <p><b>The room is real too.</b> The wind hiss underneath is that day's archived METARs
+      (KDCA — the nearest archived observations; KANP has no sensor). Rain crackles when it rained;
+      thunder rumbles when storms were reported. The sky brightens and dims on the field's actual
+      sunrise and sunset.</p>
+    <p><b>The picture is a long exposure.</b> Every flight burns a permanent trail into the plate,
+      colored by altitude — ember low, ice-blue high. By the end of the day you're looking at the score
+      of the piece you just heard. Hover or tap an aircraft to solo its voice. Positions are
+      ADS-B-equipped aircraft only, interpolated between simplified track points; altitudes are
+      pressure altitude.</p>
+  </div>
+
+  <div id="endpanel" class="panel glass">
+    <button class="x" data-close>×</button>
+    <div id="endcard">
+      <h3>The day is done</h3>
+      <div class="big" id="enddate"></div>
+      <div class="stats" id="endstats"></div>
+      <div class="row">
+        <button class="chip" id="againbtn">play it again</button>
+        <button class="chip" id="otherbtn">another day</button>
+        <button class="chip" id="platebtn2">save the plate</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="glass"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ═══════════════════════════ configuration ═══════════════════════════ */
+// Self-contained page: constants mirror js/site-config.js (SITE.tracker) by
+// hand, same as ctaf.html does, so the file works stand-alone.
+const FIELD = {
+  lat: 38.9422, lon: -76.5684, elevFt: 34,
+  axisTrue: 107,                    // runway 12/30 axis, degrees true
+  tz: 'America/New_York',
+};
+// localStorage 'fugue_snap' overrides the snapshot base (testing / Pi preview),
+// same spirit as kanp_api_base.
+const SNAP = localStorage.getItem('fugue_snap')
+  || 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2';
+const WXOBS = 'data/wx/obs';        // same-origin weather archive (KDCA METARs)
+
+const VIEW_NM  = 9;      // stage radius
+const VOICE_NM = 8;      // audible radius
+const VOICE_FT = 8000;   // audible ceiling (pressure alt MSL)
+const MAX_VOICES = 12;   // measured peak concurrency is 8 — headroom, not a squeeze
+const GAP_S = 240;       // max interpolation gap (matches kanp-conflict.js / ctaf.html)
+// Distance from threshold at which the runway-30 final crosses the South
+// River shoreline, nm — scenic only, nudge to taste.
+const SHORE_NM = 0.55;
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const DEG = Math.PI / 180;
+
+/* ═══════════════════════════ geometry ═══════════════════════════ */
+// Runway-frame stage: screen +x along bearing 107° true (runway 12 direction),
+// so the strip lies horizontal; canvas y grows downward, which puts south
+// (the runway-30 left-traffic side) in the lower half.
+const AX = FIELD.axisTrue * DEG;
+const COSLAT = Math.cos(FIELD.lat * DEG);
+function proj(lat, lon) {
+  const n = (lat - FIELD.lat) * 60, e = (lon - FIELD.lon) * 60 * COSLAT;
+  return { x: e * Math.sin(AX) + n * Math.cos(AX), y: e * Math.cos(AX) - n * Math.sin(AX) };
+}
+
+/* ═══════════════════════════ day + solar clock ═══════════════════════════ */
+const fmtClock = ts => new Date(ts * 1000).toLocaleTimeString('en-US',
+  { hour: 'numeric', minute: '2-digit', timeZone: FIELD.tz });
+const fmtDate = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US',
+  { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+// Epoch of local midnight at the field for a YYYY-MM-DD, DST-safe: try both
+// eastern offsets, keep the one that formats back to 00:xx on that date.
+function midnightEpoch(dateStr) {
+  for (const off of ['-04:00', '-05:00']) {
+    const t = Date.parse(`${dateStr}T00:00:00${off}`) / 1000;
+    const s = new Date(t * 1000).toLocaleString('en-US',
+      { hour12: false, hour: '2-digit', timeZone: FIELD.tz });
+    if (s.startsWith('00') || s.startsWith('24')) return t;
+  }
+  return Date.parse(`${dateStr}T00:00:00-05:00`) / 1000;
+}
+
+// NOAA solar position — good to a minute, plenty for a sky gradient.
+function sunAltDeg(ts) {
+  const d = new Date(ts * 1000);
+  const start = Date.UTC(d.getUTCFullYear(), 0, 1);
+  const doy = (d.getTime() - start) / 86400000;
+  const g = 2 * Math.PI / 365 * (doy - 1 + (d.getUTCHours() - 12) / 24);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+    - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g)
+    - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g)
+    - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const minutes = d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60;
+  const tst = minutes + eqt + 4 * FIELD.lon;
+  const ha = (tst / 4 - 180) * DEG;
+  const lat = FIELD.lat * DEG;
+  return Math.asin(Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(ha)) / DEG;
+}
+
+/* ═══════════════════════════ state ═══════════════════════════ */
+let dayStr = null;          // YYYY-MM-DD being played
+let summary = null;         // v2/summary.json
+let tracks = [];            // prepared near-field tracks
+let wx = [];                // [{ts, windKt, gustKt, dir, rain, ts_storm, fog, raw}]
+let events = [];            // global caption/bell timeline, sorted by ts
+let dayStats = null;        // for the end card
+let t0 = 0, t1 = 0;         // playback window (epoch s)
+let simT = 0;               // current sim time (epoch s)
+let playing = false, ended = false, started = false;
+let rate = 0;               // sim seconds per real second
+let selHex = null, hoverHex = null;
+let muted = false;
+let audioOK = false;
+
+/* ═══════════════════════════ data loading ═══════════════════════════ */
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+  return r.json();
+}
+
+// Day files run ~10–16 MB; stream so the gate can count megabytes while the
+// day "develops".
+async function fetchDay(date, onBytes) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: FIELD.tz });
+  const r = await fetch(`${SNAP}/days/${date}.json`,
+    date === today ? { cache: 'no-cache' } : undefined);
+  if (!r.ok) throw new Error(`no day file for ${date}`);
+  if (!r.body) return r.json();
+  const reader = r.body.getReader();
+  const chunks = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    onBytes(got);
+  }
+  const buf = new Uint8Array(got);
+  let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+
+function prepareTracks(raw) {
+  const out = [];
+  for (const t of raw.tracks) {
+    const pts = [];
+    let minD = 1e9, minAltNear = 1e9, everVoice = false;
+    for (const p of t.points) {
+      const q = proj(p[1], p[2]);
+      const d = Math.hypot(q.x, q.y);
+      // clamp: pressure altitude reads below sea level on high-pressure days
+      const alt = p[3] == null ? null : Math.max(0, p[3]);
+      pts.push({ t: p[0], x: q.x, y: q.y, alt, gs: p[4], og: !!p[5], d });
+      if (d < minD) minD = d;
+      if (d < 10 && alt != null) minAltNear = Math.min(minAltNear, alt);
+      if (d < VOICE_NM && alt != null && alt < VOICE_FT && !p[5]) everVoice = true;
+    }
+    if (minD > VIEW_NM + 1.5) continue;
+    const id = (t.reg || t.flight || t.hex || '').trim();
+    const jet = /^[A-Z]{3}\d/.test((t.flight || '').trim()) || minAltNear > 3000;
+    out.push({
+      hex: t.hex, id, type: (t.type || '').trim(), descr: t.descr || '',
+      military: !!t.military, jet,
+      pts, t0: pts[0].t, t1: pts[pts.length - 1].t,
+      everVoice, cursor: 0, lastDraw: null,
+      landings: [], takeoffs: [], goarounds: [],
+    });
+  }
+  out.sort((a, b) => a.t0 - b.t0);
+  return out;
+}
+
+// Position at sim time, or null outside coverage / across a >240 s gap.
+function posAt(tr, ts) {
+  if (ts < tr.t0 || ts > tr.t1) return null;
+  const pts = tr.pts;
+  let i = tr.cursor;
+  if (i >= pts.length - 1 || pts[i].t > ts) i = 0;           // seek backward: restart
+  while (i < pts.length - 1 && pts[i + 1].t < ts) i++;
+  tr.cursor = i;
+  const a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+  if (b.t - a.t > GAP_S && ts > a.t && ts < b.t) return null;
+  const f = b.t === a.t ? 0 : (ts - a.t) / (b.t - a.t);
+  const alt = (a.alt == null || b.alt == null) ? (a.alt ?? b.alt) : a.alt + (b.alt - a.alt) * f;
+  return {
+    x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f,
+    alt, gs: (a.gs == null || b.gs == null) ? (a.gs ?? b.gs) : a.gs + (b.gs - a.gs) * f,
+    og: f < 0.5 ? a.og : b.og,
+    vx: b.t === a.t ? 0 : (b.x - a.x) / (b.t - a.t),
+  };
+}
+
+/* ═══════════════════════════ event detection ═══════════════════════════ */
+// Ops-lite, for bells and captions only — the real classifier is
+// js/kanp-ops.js; this only needs to be right enough to ring a bell at the
+// right moment.
+function detectEvents(tr) {
+  const pts = tr.pts;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (b.t - a.t > GAP_S) continue;
+    if (b.d < 1.2 || a.d < 1.2) {
+      const rwy = (b.x - a.x) < 0 ? '30' : '12';   // frame +x = runway 12 direction
+      if (!a.og && b.og) tr.landings.push({ ts: b.t, rwy, x: b.x, y: b.y });
+      if (a.og && !b.og) tr.takeoffs.push({ ts: b.t, rwy, x: b.x, y: b.y });
+    }
+  }
+  // go-around: a descent *into* a low point over the field (that's what
+  // separates it from a normal departure climb), no ground fix, then a climb
+  // away. KANP prohibits touch-and-gos, so these are the real thing.
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i];
+    if (p.og || p.alt == null || p.alt >= FIELD.elevFt + 470 || p.d >= 0.9) continue;
+    if (!(pts[i - 1].alt == null || pts[i - 1].alt >= p.alt)
+      || !(pts[i + 1].alt == null || pts[i + 1].alt >= p.alt)) continue;  // local min only
+    let descended = false, climbed = false, touched = false, out = null;
+    for (let j = i - 1; j >= 0 && p.t - pts[j].t <= 240; j--) {
+      if (pts[j].og && Math.abs(pts[j].t - p.t) < 150) touched = true;
+      if (pts[j].alt != null && pts[j].alt > p.alt + 250) descended = true;
+    }
+    for (let j = i + 1; j < pts.length && pts[j].t - p.t <= 240; j++) {
+      if (pts[j].og && Math.abs(pts[j].t - p.t) < 150) touched = true;
+      if (pts[j].alt != null && pts[j].alt > p.alt + 400) { climbed = true; out = out || pts[j]; }
+    }
+    if (descended && climbed && !touched
+      && !tr.landings.some(l => Math.abs(l.ts - p.t) < 240)) {
+      const rwy = out && (out.x - p.x) < 0 ? '30' : '12';
+      tr.goarounds.push({ ts: p.t, rwy, x: p.x, y: p.y });
+      i += 20;   // one per pass
+    }
+  }
+}
+
+/* ═══════════════════════════ weather ═══════════════════════════ */
+function parseMetar(raw) {
+  const m = {};
+  const w = raw.match(/ (\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT/);
+  if (w) { m.dir = w[1] === 'VRB' ? null : +w[1]; m.windKt = +w[2]; m.gustKt = w[3] ? +w[3] : 0; }
+  const body = raw.split(' RMK')[0];
+  m.rain = /(?:^| )[+-]?(?:SH|TS)?(?:RA|DZ)/.test(body);
+  m.storm = /(?:^| )(?:\+|-)?(?:TS|VCTS)/.test(body);
+  m.fog = /(?:^| )(?:FG|BR)(?: |$)/.test(body);
+  return m;
+}
+async function loadWx(date) {
+  try {
+    const j = await fetchJSON(`${WXOBS}/${date}.json`);
+    wx = (j.metars || []).map(([ts, raw]) => ({ ts, raw, ...parseMetar(raw) }))
+      .filter(m => m.windKt != null).sort((a, b) => a.ts - b.ts);
+  } catch (e) { wx = []; }
+}
+function wxAt(ts) {
+  if (!wx.length) return null;
+  let best = wx[0];
+  for (const m of wx) { if (m.ts <= ts + 1800) best = m; else break; }
+  return best;
+}
+
+/* ═══════════════════════════ caption timeline ═══════════════════════════ */
+const TYPE_WORD = t => ({
+  P28A: 'a Cherokee', C172: 'a Skyhawk', C152: 'a 152', C182: 'a Skylane',
+  SR20: 'a Cirrus', SR22: 'a Cirrus', DA40: 'a Diamond', BE36: 'a Bonanza',
+  PA18: 'a Cub', J3: 'a Cub', C170: 'a 170', C180: 'a 180', RV7: 'an RV',
+  RV6: 'an RV', RV8: 'an RV', RV10: 'an RV',
+}[t] || null);
+
+function buildTimeline() {
+  events = [];
+  const say = (ts, text, kind) => events.push({ ts, text, kind });
+
+  const allLand = [], allDep = [];
+  for (const tr of tracks) {
+    detectEvents(tr);
+    for (const l of tr.landings) { l.tr = tr; allLand.push(l); }
+    for (const d of tr.takeoffs) { d.tr = tr; allDep.push(d); }
+    for (const g of tr.goarounds) say(g.ts, `go-around off runway ${g.rwy}.`, 'ga');
+  }
+  allLand.sort((a, b) => a.ts - b.ts);
+  allDep.sort((a, b) => a.ts - b.ts);
+
+  if (allDep.length) {
+    const d = allDep[0];
+    say(d.ts, `first wheels up, runway ${d.rwy}.`, 'first');
+  }
+  if (allLand.length) {
+    const l = allLand[0];
+    if (!allDep.length || l.ts < allDep[0].ts) say(l.ts, `first arrival, runway ${l.rwy}.`, 'first');
+    const last = allLand[allLand.length - 1];
+    say(last.ts, `last arrival of the day. The field goes quiet.`, 'last');
+  }
+  // practice sessions: an aircraft's third landing of the day
+  const byCraft = new Map();
+  for (const l of allLand) {
+    const n = (byCraft.get(l.tr.hex) || 0) + 1;
+    byCraft.set(l.tr.hex, n);
+    if (n === 3) {
+      const w = TYPE_WORD(l.tr.type);
+      say(l.ts, `${w || l.tr.id || 'the same airplane'}'s third landing today — someone's practicing.`, 'prac');
+    }
+  }
+  // busiest minute (voices in the air at once)
+  const perMin = new Map();
+  for (const tr of tracks) {
+    if (!tr.everVoice) continue;
+    for (const p of tr.pts) {
+      if (p.og || p.alt == null || p.alt >= VOICE_FT || p.d >= VOICE_NM) continue;
+      const m = Math.floor(p.t / 60);
+      if (!perMin.has(m)) perMin.set(m, new Set());
+      perMin.get(m).add(tr.hex);
+    }
+  }
+  let peak = 0, peakMin = 0;
+  for (const [m, s] of perMin) if (s.size > peak) { peak = s.size; peakMin = m; }
+  if (peak >= 4) say(peakMin * 60 + 30, `${peak} aircraft in the air at once — the busy hour.`, 'peak');
+  // weather beats
+  let prev = null;
+  for (const m of wx) {
+    if (prev) {
+      if (m.rain && !prev.rain) say(m.ts, 'rain reaches the obs.', 'wx');
+      if (m.storm && !prev.storm) say(m.ts, 'thunderstorm in the observations.', 'wx');
+      if (!m.rain && prev.rain && !m.storm) say(m.ts, 'the rain moves off.', 'wx');
+      if (m.windKt >= 15 && prev.windKt < 15) say(m.ts, `wind up — ${m.windKt} knots${m.gustKt ? `, gusting ${m.gustKt}` : ''}.`, 'wx');
+    }
+    prev = m;
+  }
+  // one military mention, if any came close
+  const mil = tracks.find(t => t.military && t.everVoice);
+  if (mil) say(Math.max(mil.t0, t0), 'a military callsign passes through.', 'mil');
+
+  events.sort((a, b) => a.ts - b.ts);
+  // thin pileups: at most one caption per 20 sim-seconds, priority to rarer kinds
+  const rank = { first: 0, last: 0, ga: 1, peak: 2, wx: 3, prac: 4, mil: 5 };
+  const kept = [];
+  for (const e of events) {
+    const clash = kept.length && e.ts - kept[kept.length - 1].ts < 20;
+    if (!clash) kept.push(e);
+    else if (rank[e.kind] < rank[kept[kept.length - 1].kind]) kept[kept.length - 1] = e;
+  }
+  events = kept;
+
+  dayStats = {
+    aircraft: tracks.filter(t => t.everVoice).length,
+    landings: allLand.length,
+    departures: allDep.length,
+    goarounds: tracks.reduce((n, t) => n + t.goarounds.length, 0),
+    first: allDep.length || allLand.length
+      ? Math.min(allDep[0]?.ts ?? Infinity, allLand[0]?.ts ?? Infinity) : null,
+    last: allLand.length || allDep.length
+      ? Math.max(allLand[allLand.length - 1]?.ts ?? 0, allDep[allDep.length - 1]?.ts ?? 0) : null,
+  };
+}
+
+/* ═══════════════════════════ audio engine ═══════════════════════════ */
+// All-procedural WebAudio: no samples, no libraries. One voice per airborne
+// aircraft near the field; everything meets in a gentle compressor so a busy
+// minute swells instead of clipping.
+const LYDIAN = [0, 2, 4, 6, 7, 9, 11];
+const ROOT_HZ = 130.813; // C3
+const NOTES = [];
+for (let oct = 0; oct < 3; oct++) for (const s of LYDIAN)
+  NOTES.push(ROOT_HZ * Math.pow(2, oct + s / 12));
+NOTES.push(ROOT_HZ * 8);
+const noteForAlt = alt => NOTES[clamp(Math.round((alt - FIELD.elevFt) / 400), 0, NOTES.length - 1)];
+
+let AC = null, master = null, voiceBus = null, verb = null, verbGain = null;
+let bedGain = null, bedFilter = null, rainGain = null;
+const voices = new Map();   // hex -> nodes
+
+function makeImpulse(ctx, seconds, decay) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+function noiseBuffer(ctx, seconds) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b = 0;
+  for (let i = 0; i < len; i++) {          // pink-ish: leaky integrator on white
+    b = 0.985 * b + 0.015 * (Math.random() * 2 - 1);
+    d[i] = b * 6;
+  }
+  return buf;
+}
+
+function initAudio() {
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) { audioOK = false; return; }
+  master = AC.createGain(); master.gain.value = 0.9;
+  const comp = AC.createDynamicsCompressor();
+  comp.threshold.value = -26; comp.knee.value = 18; comp.ratio.value = 5;
+  comp.attack.value = 0.01; comp.release.value = 0.4;
+  voiceBus = AC.createGain();
+  verb = AC.createConvolver(); verb.buffer = makeImpulse(AC, 2.8, 2.6);
+  verbGain = AC.createGain(); verbGain.gain.value = 0.5;
+  voiceBus.connect(comp);
+  verb.connect(verbGain).connect(comp);
+  comp.connect(master).connect(AC.destination);
+
+  // weather bed: looping pink noise -> lowpass; gain tracks the archived wind
+  const bedSrc = AC.createBufferSource();
+  bedSrc.buffer = noiseBuffer(AC, 6); bedSrc.loop = true;
+  bedFilter = AC.createBiquadFilter(); bedFilter.type = 'lowpass'; bedFilter.frequency.value = 320;
+  bedGain = AC.createGain(); bedGain.gain.value = 0;
+  bedSrc.connect(bedFilter).connect(bedGain).connect(comp);
+  bedSrc.start();
+
+  // rain crackle: highpassed noise, gated by scheduler when METARs say rain
+  const rainSrc = AC.createBufferSource();
+  rainSrc.buffer = noiseBuffer(AC, 4); rainSrc.loop = true;
+  const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2800;
+  rainGain = AC.createGain(); rainGain.gain.value = 0;
+  rainSrc.connect(hp).connect(rainGain).connect(comp);
+  rainSrc.start();
+
+  audioOK = true;
+}
+
+function acquireVoice(tr) {
+  if (!audioOK || voices.has(tr.hex)) return;
+  const o1 = AC.createOscillator(), o2 = AC.createOscillator();
+  o1.type = tr.jet ? 'sawtooth' : 'triangle';
+  o2.type = 'sine'; o2.detune.value = 7;
+  const lfo = AC.createOscillator(); lfo.frequency.value = 4.2 + Math.random() * 1.6;
+  const lfoG = AC.createGain(); lfoG.gain.value = 3.5;
+  lfo.connect(lfoG); lfoG.connect(o1.detune); lfoG.connect(o2.detune);
+  const filt = AC.createBiquadFilter(); filt.type = 'lowpass';
+  filt.frequency.value = tr.jet ? 700 : 1400; filt.Q.value = 0.7;
+  const g = AC.createGain(); g.gain.value = 0;
+  const pan = AC.createStereoPanner ? AC.createStereoPanner() : null;
+  const send = AC.createGain(); send.gain.value = 0;
+  const mix = AC.createGain(); mix.gain.value = tr.jet ? 0.55 : 1;
+  o1.connect(mix); o2.connect(mix);
+  mix.connect(filt).connect(g);
+  if (pan) { g.connect(pan); pan.connect(voiceBus); pan.connect(send); }
+  else { g.connect(voiceBus); g.connect(send); }
+  send.connect(verb);
+  o1.start(); o2.start(); lfo.start();
+  voices.set(tr.hex, { o1, o2, lfo, filt, g, pan, send, freq: 0 });
+}
+function releaseVoice(hex, hard) {
+  const v = voices.get(hex);
+  if (!v) return;
+  voices.delete(hex);
+  const t = AC.currentTime;
+  v.g.gain.cancelScheduledValues(t);
+  v.g.gain.setTargetAtTime(0, t, hard ? 0.05 : 0.4);
+  setTimeout(() => { try { v.o1.stop(); v.o2.stop(); v.lfo.stop(); } catch (e) {} },
+    hard ? 300 : 2600);
+}
+function updateVoice(tr, pos, soloState) {
+  const v = voices.get(tr.hex);
+  if (!v) return;
+  const t = AC.currentTime;
+  const f = noteForAlt(pos.alt ?? FIELD.elevFt) * (tr.jet ? 0.5 : 1);
+  if (Math.abs(f - v.freq) > 0.5) {
+    v.freq = f;
+    v.o1.frequency.setTargetAtTime(f, t, 0.35);       // portamento: the voice *sings*
+    v.o2.frequency.setTargetAtTime(f, t, 0.35);
+  }
+  const dist = Math.hypot(pos.x, pos.y);
+  let gain = 0.17 * Math.exp(-dist / 2.7);
+  if (pos.alt > 4500) gain *= Math.exp(-(pos.alt - 4500) / 2600);
+  gain *= soloState;
+  v.g.gain.setTargetAtTime(gain, t, 0.25);
+  v.send.gain.setTargetAtTime(gain * (0.35 + dist / VOICE_NM), t, 0.3);
+  if (v.pan) v.pan.pan.setTargetAtTime(clamp(pos.x / VIEW_NM, -1, 1) * 0.85, t, 0.3);
+  const gs = pos.gs ?? 90;
+  v.filt.frequency.setTargetAtTime(clamp(500 + gs * 9, 600, 2600) * (tr.jet ? 0.55 : 1), t, 0.4);
+}
+
+function bell(x) {
+  if (!audioOK || muted) return;
+  const t = AC.currentTime;
+  for (const [f, g0, dur] of [[523.25, 0.16, 2.4], [784, 0.07, 1.7]]) {  // C5 + G5
+    const o = AC.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const o2 = AC.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2.76;
+    const g2 = AC.createGain(); g2.gain.value = 0.12;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(g0, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0004, t + dur);
+    const pan = AC.createStereoPanner ? AC.createStereoPanner() : null;
+    o.connect(g); o2.connect(g2).connect(g);
+    if (pan) { g.connect(pan); pan.pan.value = clamp(x / VIEW_NM, -1, 1) * 0.7; pan.connect(voiceBus); pan.connect(verb); }
+    else { g.connect(voiceBus); g.connect(verb); }
+    o.start(t); o2.start(t); o.stop(t + dur + 0.1); o2.stop(t + dur + 0.1);
+  }
+}
+function thunder() {
+  if (!audioOK || muted) return;
+  const t = AC.currentTime;
+  const src = AC.createBufferSource(); src.buffer = noiseBuffer(AC, 3);
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 130;
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.22, t + 0.35);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 2.8);
+  src.connect(f).connect(g).connect(master);
+  src.start(t); src.stop(t + 3);
+}
+
+let lastThunder = 0;
+function updateBed() {
+  if (!audioOK) return;
+  const m = wxAt(simT);
+  const t = AC.currentTime;
+  const wind = m ? m.windKt + (m.gustKt ? (m.gustKt - m.windKt) * (0.5 + 0.5 * Math.sin(performance.now() / 2600)) : 0) : 0;
+  bedGain.gain.setTargetAtTime(muted ? 0 : clamp(wind / 22, 0, 1) * 0.11, t, 1.2);
+  bedFilter.frequency.setTargetAtTime(240 + wind * 14, t, 1.5);
+  rainGain.gain.setTargetAtTime(muted ? 0 : (m && m.rain ? 0.035 : 0), t, 1.5);
+  if (m && m.storm && performance.now() - lastThunder > 14000 + Math.random() * 22000) {
+    lastThunder = performance.now(); thunder();
+  }
+}
+
+/* ═══════════════════════════ rendering ═══════════════════════════ */
+const cv = $('cv'), ctx2d = cv.getContext('2d');
+// Long-exposure plate: fixed world-space buffer so resizes never smear it.
+const PLATE = 1600;
+const plate = document.createElement('canvas');
+plate.width = plate.height = PLATE;
+const pctx = plate.getContext('2d');
+const PK = PLATE / 2 / (VIEW_NM + 0.5);      // plate px per nm
+let W = 0, H = 0, DPR = 1, SS = 0;           // screen px per nm
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  SS = Math.min(W, H) * DPR / 2 / (VIEW_NM * 1.02);
+}
+addEventListener('resize', resize); resize();
+
+const toScreen = (x, y) => [cv.width / 2 + x * SS, cv.height / 2 + y * SS];
+const toPlate = (x, y) => [PLATE / 2 + x * PK, PLATE / 2 + y * PK];
+// screen px -> world nm
+const toWorld = (px, py) => [(px * DPR - cv.width / 2) / SS, (py * DPR - cv.height / 2) / SS];
+
+// altitude -> color: ember low, rose/violet mid, ice high
+function altColor(alt, a) {
+  const f = clamp((alt ?? 0) / 6500, 0, 1);
+  const r = Math.round(255 - 130 * f);
+  const g = Math.round(160 + (f < 0.5 ? -55 * (f * 2) : 25 + 60 * (f - 0.5) * 2));
+  const b = Math.round(90 + 165 * f);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+const RWY_NM = 2505 / 6076.12;
+function drawBase(g, k, cx, cy, forExport) {
+  // water: the South River crossing under the runway-30 final (scenic wash)
+  g.save();
+  g.translate(cx, cy);
+  const grd = g.createRadialGradient(4.2 * k, -2.6 * k, 0.4 * k, 4.2 * k, -2.6 * k, 7.5 * k);
+  grd.addColorStop(0, 'rgba(60,110,170,0.10)');
+  grd.addColorStop(1, 'rgba(60,110,170,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(4.2 * k, -2.6 * k, 7.5 * k, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(96,150,205,0.16)';
+  g.lineWidth = Math.max(1, 0.02 * k);
+  g.beginPath();
+  g.moveTo((RWY_NM / 2 + SHORE_NM) * k, -4.4 * k);
+  g.bezierCurveTo((RWY_NM / 2 + SHORE_NM + 0.5) * k, -1.8 * k,
+    (RWY_NM / 2 + SHORE_NM - 0.2) * k, -0.4 * k, (RWY_NM / 2 + SHORE_NM + 0.9) * k, 1.9 * k);
+  g.stroke();
+
+  // range rings
+  g.strokeStyle = 'rgba(255,255,255,0.045)';
+  g.fillStyle = 'rgba(255,255,255,0.14)';
+  g.font = `${Math.max(9, 0.16 * k)}px system-ui`;
+  g.textAlign = 'center';
+  for (const r of [3, 6, 9]) {
+    g.beginPath(); g.arc(0, 0, r * k, 0, 7); g.stroke();
+    if (!forExport) g.fillText(`${r} nm`, 0, -r * k - 0.08 * k);
+  }
+  // north tick (world north in the rotated frame)
+  const nx = Math.cos(AX), ny = -Math.sin(AX);
+  g.fillStyle = 'rgba(255,255,255,0.3)';
+  g.fillText('N', nx * 8.6 * k, ny * 8.6 * k + 0.08 * k);
+
+  // the runway
+  g.save();
+  g.strokeStyle = 'rgba(230,238,250,0.85)';
+  g.lineWidth = Math.max(2, 0.045 * k);
+  g.lineCap = 'butt';
+  g.beginPath();
+  g.moveTo(-RWY_NM / 2 * k, 0); g.lineTo(RWY_NM / 2 * k, 0);
+  g.stroke();
+  g.fillStyle = 'rgba(200,212,232,0.5)';
+  g.textAlign = 'center';
+  g.font = `${Math.max(9, 0.15 * k)}px system-ui`;
+  g.fillText('12', -RWY_NM / 2 * k - 0.28 * k, 0.06 * k);
+  g.fillText('30', RWY_NM / 2 * k + 0.28 * k, 0.06 * k);
+  g.restore();
+
+  g.fillStyle = 'rgba(120,150,190,0.22)';
+  g.font = `${Math.max(8, 0.14 * k)}px system-ui`;
+  g.fillText('South River', (RWY_NM / 2 + SHORE_NM + 1.1) * k, -2.4 * k);
+  g.restore();
+}
+
+// starfield (fixed, fades with daylight)
+const stars = Array.from({ length: 90 }, () => ({
+  x: Math.random(), y: Math.random(), m: 0.25 + Math.random() * 0.75,
+}));
+
+const ripples = [];   // touchdown rings: {x, y, t0(real ms)}
+let flashUntil = 0;
+
+function skyAlpha() {
+  const sa = sunAltDeg(simT);
+  return clamp((sa + 8) / 16, 0, 1);   // 0 night → 1 day, dawn spans -8°..+8°
+}
+
+function draw() {
+  const day = skyAlpha();
+  ctx2d.clearRect(0, 0, cv.width, cv.height);
+
+  // sky wash
+  const grd = ctx2d.createLinearGradient(0, 0, 0, cv.height);
+  const dawnAmber = clamp(1 - Math.abs(sunAltDeg(simT)) / 7, 0, 1);
+  grd.addColorStop(0, `rgb(${5 + 12 * day},${7 + 14 * day},${14 + 22 * day})`);
+  grd.addColorStop(1, `rgb(${4 + 22 * day + 26 * dawnAmber},${6 + 20 * day + 12 * dawnAmber},${11 + 26 * day}`
+    + ')');
+  ctx2d.fillStyle = grd;
+  ctx2d.fillRect(0, 0, cv.width, cv.height);
+
+  // stars
+  if (day < 0.55) {
+    ctx2d.fillStyle = `rgba(210,225,255,${0.5 * (1 - day / 0.55)})`;
+    for (const s of stars) {
+      ctx2d.globalAlpha = s.m * (1 - day / 0.55) * 0.6;
+      ctx2d.fillRect(s.x * cv.width, s.y * cv.height, DPR, DPR);
+    }
+    ctx2d.globalAlpha = 1;
+  }
+
+  // the long-exposure plate, then the field furniture
+  ctx2d.save();
+  ctx2d.globalCompositeOperation = 'lighter';
+  const side = 2 * (VIEW_NM + 0.5) * SS;
+  ctx2d.drawImage(plate, cv.width / 2 - side / 2, cv.height / 2 - side / 2, side, side);
+  ctx2d.restore();
+  drawBase(ctx2d, SS, cv.width / 2, cv.height / 2, false);
+
+  // live aircraft
+  const now = performance.now();
+  ctx2d.save();
+  ctx2d.translate(cv.width / 2, cv.height / 2);
+  ctx2d.globalCompositeOperation = 'lighter';
+  for (const tr of live) {
+    const p = tr._pos;
+    const solo = selHex || hoverHex;
+    const isSolo = solo && tr.hex === solo;
+    const dim = solo && !isSolo ? 0.35 : 1;
+    const col = altColor(p.alt, 1);
+    // short comet trail from recent history
+    const trail = [];
+    for (let dt = 100; dt >= 0; dt -= 10) {
+      const q = posAt(tr, simT - dt * (rate / 240));
+      if (q) trail.push(q);
+    }
+    if (trail.length > 1) {
+      for (let i = 1; i < trail.length; i++) {
+        const a = trail[i - 1], b = trail[i];
+        ctx2d.strokeStyle = altColor(b.alt, 0.45 * (i / trail.length) * dim);
+        ctx2d.lineWidth = Math.max(1, 0.02 * SS) * (isSolo ? 1.8 : 1);
+        ctx2d.beginPath();
+        ctx2d.moveTo(a.x * SS, a.y * SS); ctx2d.lineTo(b.x * SS, b.y * SS);
+        ctx2d.stroke();
+      }
+    }
+    const r = (p.og ? 0.035 : 0.055) * SS * (isSolo ? 1.6 : 1);
+    const gg = ctx2d.createRadialGradient(p.x * SS, p.y * SS, 0, p.x * SS, p.y * SS, r * 3);
+    gg.addColorStop(0, col);
+    gg.addColorStop(0.35, altColor(p.alt, 0.35 * dim));
+    gg.addColorStop(1, altColor(p.alt, 0));
+    ctx2d.fillStyle = gg;
+    ctx2d.beginPath(); ctx2d.arc(p.x * SS, p.y * SS, r * 3, 0, 7); ctx2d.fill();
+    ctx2d.fillStyle = `rgba(255,255,255,${(p.og ? 0.5 : 0.95) * dim})`;
+    ctx2d.beginPath(); ctx2d.arc(p.x * SS, p.y * SS, Math.max(1.2 * DPR, r * 0.45), 0, 7); ctx2d.fill();
+  }
+  // touchdown ripples
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    const f = (now - rp.t0) / 1600;
+    if (f > 1) { ripples.splice(i, 1); continue; }
+    ctx2d.strokeStyle = `rgba(255,214,150,${0.5 * (1 - f)})`;
+    ctx2d.lineWidth = Math.max(1, 0.02 * SS);
+    ctx2d.beginPath();
+    ctx2d.arc(rp.x * SS, rp.y * SS, (0.06 + f * 0.65) * SS, 0, 7);
+    ctx2d.stroke();
+  }
+  ctx2d.restore();
+}
+
+function burnPlate() {
+  pctx.globalCompositeOperation = 'lighter';
+  for (const tr of live) {
+    const p = tr._pos;
+    if (p.og) continue;
+    const [bx, by] = toPlate(p.x, p.y);
+    if (tr.lastDraw) {
+      pctx.strokeStyle = altColor(p.alt, 0.07);
+      pctx.lineWidth = 1.3;
+      pctx.beginPath();
+      pctx.moveTo(tr.lastDraw[0], tr.lastDraw[1]);
+      pctx.lineTo(bx, by);
+      pctx.stroke();
+    }
+    tr.lastDraw = [bx, by];
+  }
+}
+
+/* ═══════════════════════════ density strip ═══════════════════════════ */
+const stripcv = $('stripcv'), sctx = stripcv.getContext('2d');
+let density = [];   // per 5-min bucket: active voice count
+
+function buildDensity() {
+  const buckets = Math.ceil((t1 - t0) / 300);
+  density = new Array(buckets).fill(0);
+  for (const tr of tracks) {
+    if (!tr.everVoice) continue;
+    const seen = new Set();
+    for (const p of tr.pts) {
+      if (p.og || p.alt == null || p.alt >= VOICE_FT || p.d >= VOICE_NM) continue;
+      seen.add(clamp(Math.floor((p.t - t0) / 300), 0, buckets - 1));
+    }
+    for (const b of seen) density[b]++;
+  }
+}
+
+function drawStrip() {
+  const w = stripcv.clientWidth * DPR, h = stripcv.clientHeight * DPR;
+  if (stripcv.width !== w) { stripcv.width = w; stripcv.height = h; }
+  sctx.clearRect(0, 0, w, h);
+  // day/night tint
+  for (let x = 0; x < w; x += 4) {
+    const ts = t0 + (x / w) * (t1 - t0);
+    const day = clamp((sunAltDeg(ts) + 8) / 16, 0, 1);
+    sctx.fillStyle = `rgba(${30 + 60 * day},${38 + 60 * day},${60 + 60 * day},0.22)`;
+    sctx.fillRect(x, 0, 4, h);
+  }
+  const peak = Math.max(4, ...density);
+  const bw = w / density.length;
+  for (let i = 0; i < density.length; i++) {
+    const f = density[i] / peak;
+    if (!f) continue;
+    sctx.fillStyle = `rgba(255,180,107,${0.25 + 0.55 * f})`;
+    const bh = f * (h - 10);
+    sctx.fillRect(i * bw, h - bh - 4, Math.max(1, bw - 1), bh);
+  }
+  // event ticks
+  sctx.fillStyle = 'rgba(255,240,210,0.7)';
+  for (const e of events) {
+    const x = ((e.ts - t0) / (t1 - t0)) * w;
+    sctx.fillRect(x, 2, 1.5, 5);
+  }
+  // playhead
+  const px = clamp((simT - t0) / (t1 - t0), 0, 1) * w;
+  sctx.fillStyle = '#ffe1bd';
+  sctx.fillRect(px - 1, 0, 2, h);
+}
+
+/* ═══════════════════════════ playback loop ═══════════════════════════ */
+let live = [];          // tracks visible this frame, each with ._pos
+let evCursor = 0;
+let lastFrame = 0;
+let capTimer = 0;
+
+function setCaption(text) {
+  const el = $('caption');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(capTimer);
+  capTimer = setTimeout(() => el.classList.remove('show'), 6500);
+}
+
+function seek(ts, fromScrub) {
+  simT = clamp(ts, t0, t1);
+  evCursor = events.findIndex(e => e.ts >= simT);
+  if (evCursor < 0) evCursor = events.length;
+  for (const tr of tracks) { tr.cursor = 0; tr.lastDraw = null; }
+  if (fromScrub && ended) { ended = false; $('endpanel').classList.remove('open'); }
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+
+  if (playing && !ended) {
+    simT += dt * rate;
+    if (simT >= t1) { simT = t1; endDay(); }
+  }
+
+  // events → captions & bells
+  while (evCursor < events.length && events[evCursor].ts <= simT) {
+    const e = events[evCursor++];
+    if (playing && simT - e.ts < rate * 2) setCaption(`${fmtClock(e.ts)} — ${e.text}`);
+  }
+
+  // live set
+  live = [];
+  for (const tr of tracks) {
+    if (simT < tr.t0 || simT > tr.t1) { if (voices.has(tr.hex)) releaseVoice(tr.hex); continue; }
+    const p = posAt(tr, simT);
+    if (!p || Math.hypot(p.x, p.y) > VIEW_NM + 0.6) {
+      if (voices.has(tr.hex)) releaseVoice(tr.hex);
+      continue;
+    }
+    tr._pos = p;
+    live.push(tr);
+    // bells + ripples exactly at their recorded moment
+    for (const l of tr.landings) {
+      if (l.ts > simT - dt * rate && l.ts <= simT && playing) {
+        bell(l.x); ripples.push({ x: l.x, y: l.y, t0: now });
+      }
+    }
+  }
+
+  // voice allocation: nearest first, capped
+  if (audioOK && started) {
+    const cands = live
+      .filter(tr => !tr._pos.og && tr._pos.alt != null && tr._pos.alt < VOICE_FT
+        && Math.hypot(tr._pos.x, tr._pos.y) < VOICE_NM)
+      .sort((a, b) => Math.hypot(a._pos.x, a._pos.y) - Math.hypot(b._pos.x, b._pos.y))
+      .slice(0, MAX_VOICES);
+    const want = new Set(cands.map(t => t.hex));
+    for (const hex of [...voices.keys()]) if (!want.has(hex)) releaseVoice(hex);
+    const solo = selHex || hoverHex;
+    for (const tr of cands) {
+      acquireVoice(tr);
+      const soloState = muted || !playing ? 0 : (solo ? (tr.hex === solo ? 1.7 : 0.22) : 1);
+      updateVoice(tr, tr._pos, soloState);
+    }
+    updateBed();
+  }
+
+  if (playing) burnPlate();
+  draw();
+  drawStrip();
+  $('clock').textContent = fmtClock(simT);
+  updateInfo();
+}
+
+function endDay() {
+  if (ended) return;
+  ended = true; playing = false;
+  document.body.classList.remove('playing');
+  $('ppbtn').textContent = 'play';
+  for (const hex of [...voices.keys()]) releaseVoice(hex);
+  const s = dayStats;
+  $('enddate').textContent = fmtDate(dayStr);
+  $('endstats').innerHTML =
+    `${s.aircraft} aircraft heard · ${s.landings} landing${s.landings === 1 ? '' : 's'}`
+    + ` · ${s.departures} departure${s.departures === 1 ? '' : 's'}`
+    + (s.goarounds ? ` · ${s.goarounds} go-around${s.goarounds === 1 ? '' : 's'}` : '')
+    + (s.first ? `<br>first movement ${fmtClock(s.first)} · last ${fmtClock(s.last)}` : '')
+    + (wx.length ? `<br>${wxWord()}` : '');
+  $('endpanel').classList.add('open');
+}
+function wxWord() {
+  const mid = wxAt(t0 + (t1 - t0) * 0.6) || wx[wx.length - 1];
+  if (!mid) return '';
+  const parts = [];
+  parts.push(mid.windKt <= 4 ? 'light wind' : `wind ${mid.dir ?? '—'}° at ${mid.windKt}`);
+  if (wx.some(m => m.storm)) parts.push('afternoon storms');
+  else if (wx.some(m => m.rain)) parts.push('some rain');
+  else if (wx.some(m => m.fog)) parts.push('morning fog');
+  return parts.join(', ') + ' (KDCA obs)';
+}
+
+/* ═══════════════════════════ pointer: hover / solo ═══════════════════════════ */
+function nearestTrack(px, py) {
+  const [wx_, wy] = toWorld(px, py);
+  let best = null, bd = 0.7;   // grab radius, nm
+  for (const tr of live) {
+    const d = Math.hypot(tr._pos.x - wx_, tr._pos.y - wy);
+    if (d < bd) { bd = d; best = tr; }
+  }
+  return best;
+}
+let mouse = null;
+$('stage').addEventListener('pointermove', e => {
+  mouse = [e.clientX, e.clientY];
+  hoverHex = nearestTrack(e.clientX, e.clientY)?.hex || null;
+  bumpIdle();
+});
+$('stage').addEventListener('pointerdown', e => {
+  const tr = nearestTrack(e.clientX, e.clientY);
+  selHex = tr && selHex !== tr.hex ? tr.hex : null;
+  if (tr) { mouse = [e.clientX, e.clientY]; hoverHex = tr.hex; }
+  bumpIdle();
+});
+function updateInfo() {
+  const hex = selHex || hoverHex;
+  const el = $('info');
+  const tr = hex && live.find(t => t.hex === hex);
+  if (!tr) { el.style.display = 'none'; if (selHex && hex && !tr) selHex = null; return; }
+  const p = tr._pos;
+  const phase = p.og ? 'on the ground'
+    : (p.alt != null && p.alt < 1300 && p.gs != null && p.gs < 110 ? 'in the pattern'
+      : p.alt > 4000 ? 'passing over' : 'maneuvering');
+  el.innerHTML = `<span class="id">${tr.id || tr.hex}</span>`
+    + (tr.type ? ` <span class="dim">${tr.type}</span>` : '')
+    + `<br>${p.alt != null ? Math.round(p.alt / 25) * 25 + ' ft' : '—'}`
+    + (p.gs != null ? ` · ${Math.round(p.gs)} kt` : '')
+    + ` · <span class="dim">${phase}${selHex === tr.hex ? ' · solo — tap to release' : ''}</span>`;
+  el.style.display = 'block';
+  if (mouse) {
+    const [sx, sy] = toScreen(p.x, p.y);
+    el.style.left = Math.min(innerWidth - el.offsetWidth - 10, sx / DPR + 14) + 'px';
+    el.style.top = Math.max(10, sy / DPR - el.offsetHeight - 12) + 'px';
+  }
+}
+
+/* ═══════════════════════════ scrubber input ═══════════════════════════ */
+const strip = $('strip');
+let scrubbing = false;
+function stripSeek(e) {
+  const r = strip.getBoundingClientRect();
+  seek(t0 + clamp((e.clientX - r.left) / r.width, 0, 1) * (t1 - t0), true);
+}
+strip.addEventListener('pointerdown', e => { scrubbing = true; strip.setPointerCapture(e.pointerId); stripSeek(e); });
+strip.addEventListener('pointermove', e => { if (scrubbing) stripSeek(e); });
+strip.addEventListener('pointerup', () => { scrubbing = false; });
+
+/* ═══════════════════════════ UI wiring ═══════════════════════════ */
+let idleTimer = 0;
+function bumpIdle() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 3500);
+}
+addEventListener('pointermove', bumpIdle);
+bumpIdle();
+
+function setPlaying(p) {
+  playing = p && !ended;
+  document.body.classList.toggle('playing', playing);
+  $('ppbtn').textContent = playing ? 'pause' : 'play';
+  if (!playing && audioOK) for (const hex of [...voices.keys()]) releaseVoice(hex);
+  if (playing && AC && AC.state === 'suspended') AC.resume();
+}
+$('ppbtn').addEventListener('click', () => setPlaying(!playing));
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); if (started) setPlaying(!playing); }
+  if (e.code === 'ArrowLeft') seek(simT - 600, true);
+  if (e.code === 'ArrowRight') seek(simT + 600, true);
+  if (e.key === 'm') toggleMute();
+});
+
+function applyRate() { rate = (t1 - t0) / (+$('dursel').value); }
+$('dursel').addEventListener('change', applyRate);
+
+function toggleMute() {
+  muted = !muted;
+  $('mutebtn').textContent = muted ? 'muted' : 'sound on';
+  $('mutebtn').classList.toggle('on', muted);
+}
+$('mutebtn').addEventListener('click', toggleMute);
+
+$('aboutbtn').addEventListener('click', () => $('aboutpanel').classList.toggle('open'));
+$('datebtn').addEventListener('click', () => $('calpanel').classList.toggle('open'));
+document.querySelectorAll('[data-close]').forEach(b =>
+  b.addEventListener('click', () => b.closest('.panel').classList.remove('open')));
+$('againbtn').addEventListener('click', () => {
+  $('endpanel').classList.remove('open');
+  ended = false;
+  pctx.clearRect(0, 0, PLATE, PLATE);
+  seek(t0, false); setPlaying(true);
+});
+$('otherbtn').addEventListener('click', () => {
+  $('endpanel').classList.remove('open'); $('calpanel').classList.add('open');
+});
+
+function savePlate() {
+  const out = document.createElement('canvas');
+  out.width = PLATE; out.height = PLATE + 70;
+  const g = out.getContext('2d');
+  g.fillStyle = '#04060c'; g.fillRect(0, 0, out.width, out.height);
+  g.drawImage(plate, 0, 0);
+  drawBase(g, PK, PLATE / 2, PLATE / 2, true);
+  g.fillStyle = 'rgba(230,220,200,0.85)';
+  g.font = '22px system-ui'; g.textAlign = 'center';
+  const s = dayStats || {};
+  g.fillText(`KANP · ${fmtDate(dayStr)} — ${s.aircraft ?? '?'} aircraft, ${s.landings ?? '?'} landings`,
+    out.width / 2, PLATE + 40);
+  const a = document.createElement('a');
+  a.download = `pattern-fugue-${dayStr}.png`;
+  a.href = out.toDataURL('image/png');
+  a.click();
+}
+$('platebtn').addEventListener('click', savePlate);
+$('platebtn2').addEventListener('click', savePlate);
+
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg; el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+/* ═══════════════════════════ calendar ═══════════════════════════ */
+function buildCalendar() {
+  const grid = $('calgrid');
+  grid.innerHTML = '';
+  if (!summary) return;
+  const byMonth = new Map();
+  let maxAc = 1;
+  for (const d of summary.days) {
+    const mo = d.date.slice(0, 7);
+    if (!byMonth.has(mo)) byMonth.set(mo, []);
+    byMonth.get(mo).push(d);
+    maxAc = Math.max(maxAc, d.aircraft);
+  }
+  for (const [mo, days] of [...byMonth.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
+    const div = document.createElement('div');
+    div.className = 'calmonth';
+    const name = new Date(mo + '-15T12:00:00Z').toLocaleDateString('en-US',
+      { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    div.innerHTML = `<div class="mname">${name}</div>`;
+    const dg = document.createElement('div');
+    dg.className = 'caldays';
+    const first = new Date(mo + '-01T12:00:00Z');
+    for (let i = 0; i < first.getUTCDay(); i++) {
+      const b = document.createElement('div'); b.className = 'cd blank'; dg.appendChild(b);
+    }
+    const inMonth = new Map(days.map(d => [d.date, d]));
+    const dim = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    for (let dd = 1; dd <= dim; dd++) {
+      const ds = `${mo}-${String(dd).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      cell.className = 'cd';
+      cell.textContent = dd;
+      const rec = inMonth.get(ds);
+      if (rec) {
+        const f = Math.pow(rec.aircraft / maxAc, 0.6);
+        cell.style.background = `rgba(255,170,90,${0.04 + 0.30 * f})`;
+        cell.title = `${rec.aircraft} aircraft`;
+        if (ds === dayStr) cell.classList.add('sel');
+        cell.addEventListener('click', () => { $('calpanel').classList.remove('open'); loadDay(ds); });
+      } else {
+        cell.classList.add('blank');
+        cell.style.color = '#3c4356';
+      }
+      dg.appendChild(cell);
+    }
+    div.appendChild(dg);
+    grid.appendChild(div);
+  }
+}
+
+/* ═══════════════════════════ boot / day switching ═══════════════════════════ */
+async function loadDay(date) {
+  dayStr = date;
+  history.replaceState(null, '', `#d=${date}`);
+  started = false; ended = false; playing = false; selHex = hoverHex = null;
+  document.body.classList.remove('playing');
+  $('endpanel').classList.remove('open');
+  for (const hex of [...voices.keys()]) releaseVoice(hex, true);
+  pctx.clearRect(0, 0, PLATE, PLATE);
+  tracks = []; events = []; live = [];
+  $('gate').classList.remove('gone');
+  $('gateday').textContent = `${fmtDate(date)} — fetching the day…`;
+  $('playbtn').disabled = true;
+  $('datebtn').textContent = date;
+
+  try {
+    const [raw] = await Promise.all([
+      fetchDay(date, got => {
+        $('gateday').textContent = `${fmtDate(date)} — developing… ${(got / 1048576).toFixed(1)} MB`;
+      }),
+      loadWx(date),
+    ]);
+    tracks = prepareTracks(raw);
+    if (!tracks.length) throw new Error('no traffic near the field that day');
+    const mid0 = midnightEpoch(date);
+    let a = Infinity, b = -Infinity;
+    for (const tr of tracks) { a = Math.min(a, tr.t0); b = Math.max(b, tr.t1); }
+    t0 = Math.max(mid0, a - 600);
+    t1 = Math.min(mid0 + 86400, b + 300);
+    buildTimeline();
+    buildDensity();
+    applyRate();
+    seek(t0, false);
+    const s = dayStats;
+    $('gateday').textContent =
+      `${fmtDate(date)} — ${s.aircraft} aircraft, ${s.landings} landings`
+      + (s.first ? `, first movement ${fmtClock(s.first)}` : '');
+    $('playbtn').disabled = false;
+    buildCalendar();
+  } catch (e) {
+    $('gateday').textContent = `couldn't load ${date} — ${e.message}`;
+    toast(`Couldn't load ${date}. Pick another day.`);
+    $('calpanel').classList.add('open');
+  }
+}
+
+$('playbtn').addEventListener('click', () => {
+  if (!AC) initAudio();
+  if (AC && AC.state === 'suspended') AC.resume();
+  started = true;
+  $('gate').classList.add('gone');
+  if (!audioOK) toast('Audio unavailable — playing silent.');
+  setPlaying(true);
+});
+
+// read-only handle for headless verification (see .claude/skills/verify)
+window.FUGUE_DEBUG = {
+  get simT() { return simT; },
+  get live() { return live.map(t => ({ hex: t.hex, id: t.id, x: t._pos?.x, y: t._pos?.y, alt: t._pos?.alt })); },
+  get voices() { return voices.size; },
+  get stats() { return dayStats; },
+  get playing() { return playing; },
+  get hover() { return hoverHex; },
+  screenOf(x, y) { return toScreen(x, y).map(v => v / DPR); },
+};
+
+(async function boot() {
+  requestAnimationFrame(t => { lastFrame = t; requestAnimationFrame(frame); });
+  try {
+    summary = await fetchJSON(`${SNAP}/summary.json`, { cache: 'no-cache' });
+  } catch (e) {
+    $('gateday').textContent = 'the traffic archive is unreachable right now.';
+    return;
+  }
+  const days = summary.days.filter(d => d.aircraft > 5);
+  if (!days.length) { $('gateday').textContent = 'no days in the archive yet.'; return; }
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: FIELD.tz });
+  const want = (location.hash.match(/d=(\d{4}-\d{2}-\d{2})/) || [])[1];
+  let pick = want && days.find(d => d.date === want)?.date;
+  if (!pick) {
+    const done = days.filter(d => d.date < today);
+    pick = (done.length ? done[done.length - 1] : days[days.length - 1]).date;
+  }
+  buildCalendar();
+  loadDay(pick);
+})();
+
+})();
+</script>
+</body>
+</html>
