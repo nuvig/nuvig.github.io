@@ -53,6 +53,16 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   palettes are shared between the shader and the canvas modes. **Deliberately unlinked from site
   navigation** — it is not an aviation tool, so it does not belong on `tools.html`; reachable only by
   direct URL (unlike bubbles.html it is still indexable, no `noindex`).
+- `fugue.html` — Pattern Fugue: replays any archived day of real KANP-area traffic as generative
+  music (WebAudio, all procedural) over a runway-frame stage — altitude picks each aircraft's note
+  on a C-lydian scale, position pans it, distance sets volume/reverb, landings ring a bell, and the
+  day's KDCA METARs (`data/wx/obs/`) drive a wind/rain/thunder bed; every flight also burns a
+  long-exposure "plate" (PNG-exportable). Data: `summary.json` + `days/YYYY-MM-DD.json` from the
+  traffic-data branch (localStorage `fugue_snap` overrides the base for testing, like
+  `kanp_api_base`). Self-contained like glow.html. Ops detection is deliberately ops-lite (bells
+  and captions only, not stats — `js/kanp-ops.js` remains the real classifier). **Deliberately
+  unlinked and `noindex`** — an experiment; if promoted, remove the noindex meta and add the
+  tools.html card + sitemap entry. Exposes read-only `window.FUGUE_DEBUG` for headless tests.
 
 ### Flight tracker
 
