@@ -696,6 +696,18 @@ KANP.gaTrafficGrid = async function (start, end) {
 // each is counted once per hour cell it appears in.
 // ---------------------------------------------------------------------------
 KANP.kanpTrafficGrid = async function (start, end) {
+  // Snapshot mode: the per-day stats sidecars answer this from a few hundred
+  // KB per day — the getTracks path below would download every raw day file
+  // in the window. Fall through when sidecars aren't available (or on the
+  // LAN, where the Pi computes this cheaply server-side).
+  if (!KANP.apiBase()) {
+    try {
+      const g = await KANPStatic.getFieldGrid(start, end);
+      if (g) return g;
+    } catch (e) {
+      console.warn('[KANP] field grid via stats sidecars failed:', e.message);
+    }
+  }
   const d = await KANP.getTracks({
     start, end, ground: 'include',
     max_dist: 4, max_alt: 3500, max_points: 400000,
