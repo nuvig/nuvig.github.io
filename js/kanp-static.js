@@ -53,10 +53,18 @@ const KANPStatic = (() => {
     if (!wanted.length) throw new Error('No snapshot data for this date range');
 
     const days = await Promise.all(wanted.map(async date => {
-      if (dayCache.has(date) && date !== today) return dayCache.get(date);
+      const cached = dayCache.get(date);
+      if (cached && date !== today) return cached;
       try {
-        const res = await fetch(`${base()}/days/${date}.json`,
-          date === today ? { cache: 'no-cache' } : undefined);
+        // Today's file is re-polled by the Live tab every 60 s but only
+        // changes when the exporter republishes — freshJson skips the
+        // ~10 MB re-parse when the body is unchanged.
+        if (date === today) {
+          const j = await freshJson(`${base()}/days/${date}.json`, cached);
+          if (j) dayCache.set(date, j);
+          return j;
+        }
+        const res = await fetch(`${base()}/days/${date}.json`);
         if (!res.ok) return null;
         const j = await res.json();
         dayCache.set(date, j);
@@ -96,24 +104,31 @@ const KANPStatic = (() => {
       (k === 'ground' && v === 'include'));
   }
 
+  // Fetch + parse JSON with a parse memo for the two files that get
+  // re-polled while open (today's day file and stats sidecar). The polls
+  // mostly revalidate to an unchanged body served from HTTP cache, but
+  // res.json() still re-parsed it every time — for the ~10 MB day file that
+  // was a main-thread hitch every poll. The CDN's ETag can't be read here
+  // (raw.githubusercontent doesn't expose it via CORS), so change detection
+  // is body length + head: the exporter stamps "generated" near the top of
+  // both files, so any republish changes the head.
+  async function freshJson(url, cached) {
+    const res = await fetch(url, { cache: 'no-cache' });
+    if (!res.ok) return null;
+    const txt = await res.text();
+    const head = txt.slice(0, 240);
+    if (cached && cached._len === txt.length && cached._head === head) return cached;
+    const j = JSON.parse(txt);
+    j._len = txt.length;
+    j._head = head;
+    return j;
+  }
+
   async function fetchStats(date, today) {
     const cached = statsCache.get(date);
     if (cached && date !== today) return cached;
-    const res = await fetch(`${base()}/stats/${date}.json`,
-      date === today ? { cache: 'no-cache' } : undefined);
-    if (!res.ok) return null;
-    if (date === today) {
-      // reuse the parsed sidecar while the CDN serves the same ETag — the
-      // polled today-file only actually changes hourly
-      const etag = res.headers.get('etag');
-      if (cached && etag && cached._etag === etag) return cached;
-      const j = await res.json();
-      j._etag = etag;
-      statsCache.set(date, j);
-      return j;
-    }
-    const j = await res.json();
-    statsCache.set(date, j);
+    const j = await freshJson(`${base()}/stats/${date}.json`, cached);
+    if (j) statsCache.set(date, j);
     return j;
   }
 
