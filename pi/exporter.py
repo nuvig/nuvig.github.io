@@ -15,9 +15,33 @@ where <TOKEN> is a fine-grained PAT with read/write Contents access to this
 repo only. Without that clone in place this script exits cleanly with a hint.
 
 Output layout (branch traffic-data):
-  v2/summary.json          available days + totals + freshness
+  v2/summary.json          available days + totals + freshness (each day entry
+                           carries "stats": 1 once its stats sidecar exists)
   v2/days/YYYY-MM-DD.json  decimated per-day tracks (same point tuple as the
                            live API: [ts, lat, lon, alt, gs, on_ground])
+  v2/stats/YYYY-MM-DD.json per-day aggregate stats sidecar (a few hundred KB
+                           at most vs ~10 MB for the day file). Lets the site
+                           build the Traffic Study / heat-grid aggregates
+                           without downloading raw tracks — the 60-day
+                           all-time grid used to pull every day file
+                           (~400 MB). Consumed by js/kanp-static.js
+                           (statsGetStats / getFieldGrid) — change the two
+                           together. Shape (all hours are Pi-local, matching
+                           the day-file boundaries):
+                             { date, generated, v,
+                               totals: {aircraft, samples},
+                               alt_hist:    [[bucket_ft, samples], ...],
+                               alt_hist_ga: [[bucket_ft, samples], ...],
+                               aircraft: [ per-aircraft record ] }
+                           Per-aircraft record (absent keys mean null/0):
+                             x hex · r reg · t type · de descr · m military
+                             cs callsign · n samples · f/l first/last ts
+                             a0/a1 min/max airborne alt · d0 min dist (nm)
+                             h  {hour: samples} for every fix
+                             fh [hours] with fixes inside the field-grid
+                                gates, present only when the aircraft made
+                                field contact (OPS gates) — drives the
+                                "KANP traffic only" grid
 
 History-bloat control: the branch is kept at a single commit — each push
 amends and force-pushes, so the repo only ever stores the current snapshot.
@@ -56,6 +80,31 @@ GC_INTERVAL_S = int(os.environ.get("KANP_GC_INTERVAL_S", gitutil.DEFAULT_INTERVA
 
 V2_DIR = os.path.join(EXPORT_DIR, "v2")
 DAYS_DIR = os.path.join(V2_DIR, "days")
+STATS_DIR = os.path.join(V2_DIR, "stats")
+
+# --- stats-sidecar constants (mirrors of the site's JS — keep in sync) ------
+# Field center, as the collector uses (env mirror of SITE.tracker.lat/lon).
+FIELD_LAT = float(os.environ.get("KANP_LAT", "38.9422"))
+FIELD_LON = float(os.environ.get("KANP_LON", "-76.5684"))
+# "At the field" ops gates — mirrors SITE.tracker.opsGates (js/site-config.js).
+OPS_NEAR_NM = 0.8
+OPS_LOW_FT = 600
+# Point gates for the "KANP traffic only" grid — mirrors the getTracks params
+# in KANP.kanpTrafficGrid (js/kanp.js): max_dist 4 nm, max_alt 3,500 ft.
+GRID_MAX_NM = 4.0
+GRID_MAX_FT = 3500
+# Non-GA ICAO type designators, plus the A3../B7.. families matched by prefix.
+# Mirrors AIRLINER_TYPES in pi/server.py and KANP.AIRLINER_TYPES in js/kanp.js.
+AIRLINER_TYPES = frozenset([
+    "A19N", "A20N", "A21N", "B37M", "B38M", "B39M", "B3XM",
+    "CRJ1", "CRJ2", "CRJ7", "CRJ9", "CRJX", "BCS1", "BCS3",
+    "E135", "E145", "E170", "E75L", "E75S", "E190", "E195", "E290", "E295",
+    "RJ1H", "RJ85", "RJ70", "B461", "B462", "B463", "F70", "F100",
+    "AT43", "AT44", "AT45", "AT46", "AT72", "AT73", "AT75", "AT76",
+    "DH8A", "DH8B", "DH8C", "DH8D", "SF34", "SB20", "D328", "J328",
+    "MD11", "MD81", "MD82", "MD83", "MD87", "MD88", "MD90",
+    "DC10", "DC93", "DC94",
+])
 
 
 def log(msg):
@@ -77,6 +126,109 @@ def day_bounds(day_str):
     start = d.astimezone()  # midnight local -> aware
     end = (d + datetime.timedelta(days=1)).astimezone()
     return int(start.timestamp()), int(end.timestamp())
+
+
+def is_ga(ac_type, military):
+    """Mirror of KANP.isGA (js/kanp.js) / the ga filter in pi/server.py."""
+    if military:
+        return False
+    t = (ac_type or "").upper().strip()
+    if not t:
+        return True                     # untyped -> assume light GA
+    if len(t) == 4 and (t.startswith("A3") or t.startswith("B7")):
+        return False                    # Airbus/Boeing airliner families
+    return t not in AIRLINER_TYPES
+
+
+def dist_nm(lat, lon):
+    """Great-circle distance from the field, nm (mirror of KANP.distNm)."""
+    import math
+    r = math.pi / 180
+    dlat = (lat - FIELD_LAT) * r
+    dlon = (lon - FIELD_LON) * r
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(FIELD_LAT * r) * math.cos(lat * r) * math.sin(dlon / 2) ** 2)
+    return 2 * 3440.065 * math.asin(math.sqrt(a))
+
+
+def stats_for_day(day):
+    """Aggregate a parsed day JSON into the small stats sidecar (see module
+    docstring for the shape). Point tuple: [ts, lat, lon, alt, gs, on_ground].
+    Hour buckets use this machine's local time, same as the day boundaries."""
+    aircraft = []
+    alt_hist = {}
+    alt_hist_ga = {}
+    total_samples = 0
+
+    for t in day["tracks"]:
+        pts = t.get("points") or []
+        if not pts:
+            continue
+        ga = is_ga(t.get("type"), t.get("military"))
+        hours = {}
+        fhours = set()
+        contact = False
+        a0 = a1 = d0 = None
+        for ts, lat, lon, alt, _gs, og in pts:
+            hr = datetime.datetime.fromtimestamp(ts).hour
+            hours[hr] = hours.get(hr, 0) + 1
+            d = dist_nm(lat, lon)
+            if d0 is None or d < d0:
+                d0 = d
+            if not og and alt is not None:
+                a0 = alt if a0 is None else min(a0, alt)
+                a1 = alt if a1 is None else max(a1, alt)
+                if alt >= 0:
+                    bucket = int(alt // 500) * 500
+                    alt_hist[bucket] = alt_hist.get(bucket, 0) + 1
+                    if ga:
+                        alt_hist_ga[bucket] = alt_hist_ga.get(bucket, 0) + 1
+            # field-grid gates (mirror kanpTrafficGrid: dist<=4, alt<=3500 or
+            # unknown), then the tighter ops gates decide "field contact"
+            if d <= GRID_MAX_NM and (alt is None or alt <= GRID_MAX_FT):
+                fhours.add(hr)
+                if (og == 1 or (alt is not None and alt <= OPS_LOW_FT)) \
+                        and d <= OPS_NEAR_NM:
+                    contact = True
+        total_samples += len(pts)
+
+        rec = {"x": t["hex"], "n": len(pts),
+               "f": pts[0][0], "l": pts[-1][0],
+               "h": {str(h): c for h, c in sorted(hours.items())}}
+        if t.get("reg"):
+            rec["r"] = t["reg"]
+        if t.get("type"):
+            rec["t"] = t["type"]
+        if t.get("descr"):
+            rec["de"] = t["descr"]
+        if t.get("military"):
+            rec["m"] = 1
+        if t.get("flight"):
+            rec["cs"] = t["flight"]
+        if a0 is not None:
+            rec["a0"], rec["a1"] = a0, a1
+        if d0 is not None:
+            rec["d0"] = round(d0, 1)
+        if contact:
+            rec["fh"] = sorted(fhours)
+        aircraft.append(rec)
+
+    return {
+        "date": day["date"],
+        "generated": int(datetime.datetime.now().timestamp()),
+        "v": 1,
+        "totals": {"aircraft": len(aircraft), "samples": total_samples},
+        "alt_hist": sorted(alt_hist.items()),
+        "alt_hist_ga": sorted(alt_hist_ga.items()),
+        "aircraft": aircraft,
+    }
+
+
+def write_stats(day):
+    os.makedirs(STATS_DIR, exist_ok=True)
+    path = os.path.join(STATS_DIR, f"{day['date']}.json")
+    with open(path, "w") as f:
+        json.dump(stats_for_day(day), f, separators=(",", ":"))
 
 
 def export_day(db, day_str):
@@ -139,6 +291,7 @@ def export_day(db, day_str):
     path = os.path.join(DAYS_DIR, f"{day_str}.json")
     with open(path, "w") as f:
         json.dump(out, f, separators=(",", ":"))
+    write_stats(out)
     return {
         "date": day_str,
         "aircraft": len(tracks),
@@ -240,7 +393,8 @@ def main():
             log(f"exported {d}: {info['aircraft']} aircraft, "
                 f"{info['points']}/{info['total_points']} points")
 
-    # summary over everything on disk
+    # summary over everything on disk; backfill any missing stats sidecar from
+    # the day file already on disk (one-time cost when this feature first ships)
     days = []
     for fname in sorted(os.listdir(DAYS_DIR)):
         if not fname.endswith(".json"):
@@ -248,10 +402,15 @@ def main():
         try:
             with open(os.path.join(DAYS_DIR, fname)) as f:
                 d = json.load(f)
+            stats_path = os.path.join(STATS_DIR, fname)
+            if not os.path.exists(stats_path):
+                write_stats(d)
+                log(f"backfilled stats for {d['date']}")
             days.append({
                 "date": d["date"],
                 "aircraft": len(d["tracks"]),
                 "points": sum(len(t["points"]) for t in d["tracks"]),
+                "stats": 1,
             })
         except (json.JSONDecodeError, KeyError):
             continue
