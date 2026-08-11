@@ -2424,6 +2424,160 @@ function buildHeadline() {
 }
 
 /* ===========================================================================
+   Archive ranges — "Where today sits": today's pressure and instability
+   against the highest and lowest this site's own archive (data/wx/) has
+   observed, each with a thumbnail sparkline. Pressure comes from the KDCA
+   METAR altimeter (obs stream, back to 2026-05-01); instability is the daily
+   peak GFS CAPE at the field (model stream, live-only, so its range grows
+   from 2026-08-04). Card stays hidden if the archive is unreachable.
+   =========================================================================== */
+
+const RANGE_OBS_CAP = 180;      // most-recent day files fetched (~3 KB each)
+const RANGE_FETCH_LANES = 10;   // parallel same-origin fetches
+
+/* Altimeter in inHg from raw METAR text (the A-group before RMK). */
+function metarAltimeter(raw) {
+  const m = /\bA(\d{4})\b/.exec(raw.split(' RMK')[0]);
+  return m ? +m[1] / 100 : null;
+}
+
+async function rangeDays(stream, dates, perDay) {
+  const out = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: RANGE_FETCH_LANES }, async () => {
+    while (i < dates.length) {
+      const date = dates[i++];
+      const doc = await WXA.day(stream, date);
+      const v = doc && perDay(doc, date);
+      if (v) out.push(v);
+    }
+  }));
+  return out.sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+/* Daily altimeter min/max across the obs archive, plus the newest reading. */
+async function pressureRange(idx) {
+  const dates = (idx.obs_days || []).slice(-RANGE_OBS_CAP);
+  const days = await rangeDays('obs', dates, (doc, date) => {
+    let lo = Infinity, hi = -Infinity, last = null;
+    for (const [, raw] of doc.metars || []) {
+      const a = metarAltimeter(raw);
+      if (a == null) continue;
+      if (a < lo) lo = a;
+      if (a > hi) hi = a;
+      last = a;
+    }
+    return last == null ? null : { date, lo, hi, last };
+  });
+  if (days.length < 2) return null;
+  let hi = days[0], lo = days[0];
+  for (const d of days) { if (d.hi > hi.hi) hi = d; if (d.lo < lo.lo) lo = d; }
+  return { days, hi, lo, now: days[days.length - 1].last };
+}
+
+/* Daily peak CAPE at the field from the model archive (last snap of each day,
+   hours clipped to that local calendar day). */
+async function capeRange(idx) {
+  const days = await rangeDays('model', idx.model_days || [], (doc, date) => {
+    const snap = doc.snaps && doc.snaps[doc.snaps.length - 1];
+    if (!snap || !snap.cape) return null;
+    let peak = null;
+    for (let i = 0; i < snap.cape.length; i++) {
+      if (DAY_FMT.format(new Date((snap.t0 + i * 3600) * 1000)) !== date) continue;
+      if (snap.cape[i] != null && (peak == null || snap.cape[i] > peak)) peak = snap.cape[i];
+    }
+    return peak == null ? null : { date, peak };
+  });
+  if (days.length < 2) return null;
+  let hi = days[0], lo = days[0];
+  for (const d of days) { if (d.peak > hi.peak) hi = d; if (d.peak < lo.peak) lo = d; }
+  return { days, hi, lo, now: days[days.length - 1].peak };
+}
+
+function rangeSpark(days, val, vlo, vhi, color, band) {
+  const W = 150, H = 38, dpr = window.devicePixelRatio || 1;
+  const c = document.createElement('canvas');
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.cssText = `width:${W}px;height:${H}px;display:block`;
+  c.className = 'range-spark';
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  const pad = 3, span = Math.max(vhi - vlo, 1e-6);
+  const x = (i) => pad + (i / Math.max(days.length - 1, 1)) * (W - 2 * pad);
+  const y = (v) => H - pad - ((v - vlo) / span) * (H - 2 * pad);
+  if (band) {                       // filled daily min–max envelope
+    g.beginPath();
+    days.forEach((d, i) => g[i ? 'lineTo' : 'moveTo'](x(i), y(d.hi)));
+    for (let i = days.length - 1; i >= 0; i--) g.lineTo(x(i), y(days[i].lo));
+    g.closePath();
+    g.fillStyle = color + '33';
+    g.fill();
+  }
+  g.beginPath();
+  days.forEach((d, i) => g[i ? 'lineTo' : 'moveTo'](x(i), y(val(d))));
+  g.strokeStyle = color; g.lineWidth = 1.4; g.lineJoin = 'round';
+  g.stroke();
+  const li = days.length - 1;
+  g.beginPath();
+  g.arc(x(li), y(val(days[li])), 2.6, 0, Math.PI * 2);
+  g.fillStyle = '#fff';
+  g.fill();
+  return c;
+}
+
+const RANGE_DAY = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric' });
+function rangeWhen(date) { return RANGE_DAY.format(new Date(date + 'T12:00:00')); }
+
+function renderRanges(pr, cv) {
+  const host = $('range-body');
+  host.textContent = '';
+  const row = (label, sub, spark, statsHtml) => {
+    const div = document.createElement('div');
+    div.className = 'range-row';
+    const lab = document.createElement('div');
+    lab.className = 'range-lab';
+    lab.innerHTML = `<b>${esc(label)}</b>${esc(sub)}`;
+    const stats = document.createElement('div');
+    stats.className = 'range-stats';
+    stats.innerHTML = statsHtml;
+    div.append(lab, spark, stats);
+    host.appendChild(div);
+  };
+  if (pr) {
+    row('Pressure', 'KDCA altimeter',
+      rangeSpark(pr.days, (d) => (d.lo + d.hi) / 2, pr.lo.lo, pr.hi.hi, '#7fb2d9', true),
+      `now <b>${pr.now.toFixed(2)}</b> inHg · ` +
+      `<span class="range-hi">high ${pr.hi.hi.toFixed(2)}</span> ${esc(rangeWhen(pr.hi.date))} · ` +
+      `<span class="range-lo">low ${pr.lo.lo.toFixed(2)}</span> ${esc(rangeWhen(pr.lo.date))}`);
+  }
+  if (cv) {
+    row('Instability', 'daily peak CAPE',
+      rangeSpark(cv.days, (d) => d.peak, Math.min(cv.lo.peak, 0), Math.max(cv.hi.peak, 100), '#e0a95a', false),
+      `today <b>${fmtJ(cv.now)}</b> J/kg · ` +
+      `<span class="range-hi">high ${fmtJ(cv.hi.peak)}</span> ${esc(rangeWhen(cv.hi.date))} · ` +
+      `<span class="range-lo">low ${fmtJ(cv.lo.peak)}</span> ${esc(rangeWhen(cv.lo.date))}`);
+  }
+  const note = document.createElement('div');
+  note.className = 'range-note';
+  const bits = [];
+  if (pr) bits.push(`pressure: ${pr.days.length} days of KDCA METARs since ${rangeWhen(pr.days[0].date)}`);
+  if (cv) bits.push(`CAPE: GFS at the field, archived since ${rangeWhen(cv.days[0].date)} — this range is still young`);
+  note.textContent = `Range = this site's own archive, not climatology. ${bits.join(' · ')}.`;
+  host.appendChild(note);
+  $('range-card').style.display = '';
+}
+
+async function loadRanges() {
+  const idx = await WXA.index();
+  if (!idx) return;
+  const [pr, cv] = await Promise.all([
+    pressureRange(idx).catch(() => null),
+    capeRange(idx).catch(() => null),
+  ]);
+  if (pr || cv) renderRanges(pr, cv);
+}
+
+/* ===========================================================================
    init
    =========================================================================== */
 
@@ -2451,6 +2605,7 @@ async function init() {
   const done = (await Promise.all(jobs)).filter(Boolean);
   await alerts;
   buildHeadline();
+  loadRanges().catch(() => {});   // archive-only context card — silent when absent
   loadVerification().catch((e) => {
     $('verify-body').innerHTML = `<span class="err">Verification failed: ${esc(e.message)}</span>`;
   });

@@ -324,6 +324,18 @@
     details.afd-full > summary .meta { text-transform: none; letter-spacing: 0; font-weight: 400; color: #5a6570; }
     details.afd-full #afd-sections { padding: 0 16px 14px; }
 
+    /* ---- archive ranges ("Where today sits") ---- */
+    .range-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+    .range-row + .range-row { border-top: 1px solid #262d33; }
+    .range-lab { flex: 0 0 88px; font-size: 12.5px; color: #9aa; line-height: 1.35; }
+    .range-lab b { display: block; color: #cfd6dc; font-weight: 600; font-size: 13px; }
+    .range-spark { flex: 0 0 auto; }
+    .range-stats { flex: 1 1 auto; font-size: 12.5px; color: #8a949d; line-height: 1.5; min-width: 0; }
+    .range-stats b { color: #d6dde3; font-weight: 600; }
+    .range-hi { color: #e8a15a; }
+    .range-lo { color: #6fb1e0; }
+    .range-note { font-size: 11.5px; color: #667077; margin-top: 6px; }
+
     /* ---- aviation: TAFs, the field grid, and what moved ---- */
     .card-h3 {
       margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
@@ -509,6 +521,11 @@
     <div class="atmos-grid" id="atmos"></div>
   </div>
 
+  <div class="card" id="range-card" style="margin-bottom:8px;display:none">
+    <h3 class="card-h3">Where today sits</h3>
+    <div id="range-body"></div>
+  </div>
+
   <div class="card" id="fieldgrid-card" style="margin-bottom:8px">
     <h3 class="card-h3">Hour by hour at KANP</h3>
     <div id="avn-grid"><span class="muted" style="font-size:13px">Loading…</span></div>
@@ -581,7 +598,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=12"></script>
+  <script src="js/discussion.js?v=13"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>
