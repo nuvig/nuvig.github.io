@@ -1473,6 +1473,16 @@ const OBS_STATION = 'KDCA';
 const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 const localDay = (ms) => DAY_FMT.format(new Date(ms));
 
+/* Temperature in °C out of raw METAR text — the RMK T-group when present
+   (tenths), else the body temp/dewpoint group. */
+function metarTempC(raw) {
+  const t = /\bT([01])(\d{3})[01]\d{3}\b/.exec(raw);
+  if (t) return (t[1] === '1' ? -1 : 1) * (+t[2] / 10);
+  const m = /(?:^|\s)(M?\d{2})\/(?:M?\d{2})?(?:\s|$)/.exec(raw.split(' RMK')[0]);
+  if (m) return m[1].startsWith('M') ? -+m[1].slice(1) : +m[1];
+  return null;
+}
+
 async function loadVerification() {
   const host = $('verify-body');
   if (!syn.ready) { host.innerHTML = '<span class="err">Needs the model grid — synoptic load failed.</span>'; return; }
@@ -1497,10 +1507,28 @@ async function loadVerification() {
     }
   }
 
-  /* what actually happened: METARs at DCA today */
-  const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
-  const todays = (obs.features || []).map((f) => f.properties)
-    .filter((p) => p && p.timestamp && localDay(new Date(p.timestamp).getTime()) === today);
+  /* what actually happened: METARs at DCA today. The site archive first —
+     the live NWS observation store silently drops obs (it lost a whole
+     TSRA sequence on 2026-08-10), while the archive accumulated them
+     hourly. latest.json tops up the current hour; the live API is only
+     the last resort. Newest first, matching the NWS response order. */
+  let todays = [];
+  try {
+    const raws = new Map();
+    const arcObs = await WXA.day('obs', today);
+    for (const [ts, raw] of (arcObs && arcObs.metars) || []) raws.set(ts, raw);
+    const wl = await WXA.latest();
+    for (const [ts, raw] of (wl && wl.obs) || []) raws.set(ts, raw);
+    todays = [...raws.entries()]
+      .filter(([ts]) => localDay(ts * 1000) === today)
+      .sort((a, b) => b[0] - a[0])
+      .map(([ts, raw]) => ({ timestamp: ts * 1000, rawMessage: raw, temperature: { value: metarTempC(raw) } }));
+  } catch (e) { /* fall through to the live store */ }
+  if (!todays.length) {
+    const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
+    todays = (obs.features || []).map((f) => f.properties)
+      .filter((p) => p && p.timestamp && localDay(new Date(p.timestamp).getTime()) === today);
+  }
   const thunder = todays.filter((p) => /\b(?:VC)?TS(?!NO)/.test(p.rawMessage || '')).reverse();
   const rain = todays.filter((p) => /(?:^|\s)[+-]?(?:SH|FZ)?(?:RA|DZ)\b/.test((p.rawMessage || '').replace(/RMK.*$/, '')));
   let maxT = null;
