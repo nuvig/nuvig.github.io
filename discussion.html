@@ -324,17 +324,15 @@
     details.afd-full > summary .meta { text-transform: none; letter-spacing: 0; font-weight: 400; color: #5a6570; }
     details.afd-full #afd-sections { padding: 0 16px 14px; }
 
-    /* ---- archive ranges ("Where today sits") ---- */
-    .range-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
-    .range-row + .range-row { border-top: 1px solid #262d33; }
-    .range-lab { flex: 0 0 88px; font-size: 12.5px; color: #9aa; line-height: 1.35; }
-    .range-lab b { display: block; color: #cfd6dc; font-weight: 600; font-size: 13px; }
-    .range-spark { flex: 0 0 auto; }
-    .range-stats { flex: 1 1 auto; font-size: 12.5px; color: #8a949d; line-height: 1.5; min-width: 0; }
-    .range-stats b { color: #d6dde3; font-weight: 600; }
-    .range-hi { color: #e8a15a; }
-    .range-lo { color: #6fb1e0; }
-    .range-note { font-size: 11.5px; color: #667077; margin-top: 6px; }
+    /* ---- 14-day history ---- */
+    #hist-chart canvas { display: block; cursor: crosshair; }
+    .hist-read { font-size: 12.5px; color: #8a949d; margin: 7px 0 4px; min-height: 18px; line-height: 1.5; }
+    .hist-read b { color: #d6dde3; font-weight: 600; }
+    .hist-ev { display: flex; gap: 10px; padding: 5px 0; border-top: 1px solid #232a30; font-size: 13px; color: #b3bec8; line-height: 1.45; }
+    .hist-ev .when { flex: 0 0 108px; color: #8a949d; font-size: 12.5px; padding-top: 1px; }
+    .hist-ev .what { flex: 1 1 auto; min-width: 0; }
+    .hist-ev .what b { font-weight: 600; color: #d6dde3; }
+    .hist-note { font-size: 11.5px; color: #667077; margin-top: 8px; }
 
     /* ---- aviation: TAFs, the field grid, and what moved ---- */
     .card-h3 {
@@ -521,11 +519,6 @@
     <div class="atmos-grid" id="atmos"></div>
   </div>
 
-  <div class="card" id="range-card" style="margin-bottom:8px;display:none">
-    <h3 class="card-h3">Where today sits</h3>
-    <div id="range-body"></div>
-  </div>
-
   <div class="card" id="fieldgrid-card" style="margin-bottom:8px">
     <h3 class="card-h3">Hour by hour at KANP</h3>
     <div id="avn-grid"><span class="muted" style="font-size:13px">Loading…</span></div>
@@ -581,6 +574,26 @@
     <div id="verify-body"><span class="muted" style="font-size:13px">Loading…</span></div>
   </div>
 
+  <!-- ============ EPILOGUE — 14-DAY HISTORY ============ -->
+  <div class="chapter" id="history">
+    <span class="kick">Epilogue · The record</span>
+    <details>
+      <summary><h2>The last 14 days</h2></summary>
+      <p class="deck">KDCA's pressure trace and the weather it brought — rain, storms, fog and
+        gusts marked where the METARs recorded them, LWX warnings along the top. Falling
+        pressure means a front or low approaching; rising means high pressure building in.
+        The amber area is storm fuel — hourly GFS CAPE at the field, on its own scale —
+        so a ⚡ over a tall amber peak is fuel spent, and a peak with no ⚡ is a lid that
+        held. All read from this site's own archive.</p>
+    </details>
+  </div>
+  <div class="card" id="hist-card" style="margin-bottom:8px;display:none">
+    <div id="hist-chart"></div>
+    <div class="hist-read" id="hist-read">&nbsp;</div>
+    <div id="hist-events"></div>
+    <div class="hist-note" id="hist-note"></div>
+  </div>
+
   <footer class="sources">
     Not for operational use — always get an official briefing.
     Discussion &amp; daily forecast: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a>
@@ -598,7 +611,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=13"></script>
+  <script src="js/discussion.js?v=15"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>

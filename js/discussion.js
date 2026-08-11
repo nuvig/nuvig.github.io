@@ -2424,157 +2424,408 @@ function buildHeadline() {
 }
 
 /* ===========================================================================
-   Archive ranges — "Where today sits": today's pressure and instability
-   against the highest and lowest this site's own archive (data/wx/) has
-   observed, each with a thumbnail sparkline. Pressure comes from the KDCA
-   METAR altimeter (obs stream, back to 2026-05-01); instability is the daily
-   peak GFS CAPE at the field (model stream, live-only, so its range grows
-   from 2026-08-04). Card stays hidden if the archive is unreachable.
+   14-day history — the epilogue card. KDCA's hourly altimeter over the last
+   two weeks (obs stream of data/wx/) with the weather the METARs actually
+   recorded — rain, thunder, fog, gusts — drawn as bands under the trace and
+   LWX warnings (alerts stream) as a lane along the top. Notable episodes are
+   listed underneath, including pressure swings big enough to matter
+   (>= HIST_SWING inHg between turning points; the diurnal wobble is ~0.05).
+   Card stays hidden if the archive is unreachable.
    =========================================================================== */
 
-const RANGE_OBS_CAP = 180;      // most-recent day files fetched (~3 KB each)
-const RANGE_FETCH_LANES = 10;   // parallel same-origin fetches
+const HIST_DAYS = 14;
+const HIST_LANES = 10;              // parallel same-origin fetches
+const HIST_GAP_MS = 2.5 * 3600e3;   // METAR gap that still counts as one episode
+const HIST_TURN = 0.08;             // inHg reversal that ends a rise/fall
+const HIST_SWING = 0.18;            // inHg between turning points worth reporting
+const HIST_GUST_KT = 25;
 
-/* Altimeter in inHg from raw METAR text (the A-group before RMK). */
-function metarAltimeter(raw) {
-  const m = /\bA(\d{4})\b/.exec(raw.split(' RMK')[0]);
-  return m ? +m[1] / 100 : null;
-}
+const HIST = { obs: [], eps: null, alerts: [], cape: [], canvas: null, scale: null };
 
-async function rangeDays(stream, dates, perDay) {
-  const out = [];
-  let i = 0;
-  await Promise.all(Array.from({ length: RANGE_FETCH_LANES }, async () => {
-    while (i < dates.length) {
-      const date = dates[i++];
-      const doc = await WXA.day(stream, date);
-      const v = doc && perDay(doc, date);
-      if (v) out.push(v);
-    }
-  }));
-  return out.sort((a, b) => (a.date < b.date ? -1 : 1));
-}
+const WX_CHUNK = {
+  TS: 'thunder', SH: 'showers', FZ: 'freezing', RA: 'rain', DZ: 'drizzle',
+  SN: 'snow', SG: 'snow grains', IC: 'ice crystals', PL: 'ice pellets',
+  GR: 'hail', GS: 'small hail', UP: 'precip', FG: 'fog', BR: 'mist',
+  HZ: 'haze', FU: 'smoke', SQ: 'squall', FC: 'funnel cloud', DU: 'dust',
+  SA: 'sand', VA: 'ash', PO: 'dust whirls', SS: 'sandstorm', DS: 'duststorm',
+  MI: 'shallow', BC: 'patchy', PR: 'partial', DR: 'drifting', BL: 'blowing',
+};
+const WX_PRECIP = /RA|DZ|SN|SG|PL|GR|GS|UP/;
 
-/* Daily altimeter min/max across the obs archive, plus the newest reading. */
-async function pressureRange(idx) {
-  const dates = (idx.obs_days || []).slice(-RANGE_OBS_CAP);
-  const days = await rangeDays('obs', dates, (doc, date) => {
-    let lo = Infinity, hi = -Infinity, last = null;
-    for (const [, raw] of doc.metars || []) {
-      const a = metarAltimeter(raw);
-      if (a == null) continue;
-      if (a < lo) lo = a;
-      if (a > hi) hi = a;
-      last = a;
-    }
-    return last == null ? null : { date, lo, hi, last };
-  });
-  if (days.length < 2) return null;
-  let hi = days[0], lo = days[0];
-  for (const d of days) { if (d.hi > hi.hi) hi = d; if (d.lo < lo.lo) lo = d; }
-  return { days, hi, lo, now: days[days.length - 1].last };
-}
-
-/* Daily peak CAPE at the field from the model archive (last snap of each day,
-   hours clipped to that local calendar day). */
-async function capeRange(idx) {
-  const days = await rangeDays('model', idx.model_days || [], (doc, date) => {
-    const snap = doc.snaps && doc.snaps[doc.snaps.length - 1];
-    if (!snap || !snap.cape) return null;
-    let peak = null;
-    for (let i = 0; i < snap.cape.length; i++) {
-      if (DAY_FMT.format(new Date((snap.t0 + i * 3600) * 1000)) !== date) continue;
-      if (snap.cape[i] != null && (peak == null || snap.cape[i] > peak)) peak = snap.cape[i];
-    }
-    return peak == null ? null : { date, peak };
-  });
-  if (days.length < 2) return null;
-  let hi = days[0], lo = days[0];
-  for (const d of days) { if (d.peak > hi.peak) hi = d; if (d.peak < lo.peak) lo = d; }
-  return { days, hi, lo, now: days[days.length - 1].peak };
-}
-
-function rangeSpark(days, val, vlo, vhi, color, band) {
-  const W = 150, H = 38, dpr = window.devicePixelRatio || 1;
-  const c = document.createElement('canvas');
-  c.width = W * dpr; c.height = H * dpr;
-  c.style.cssText = `width:${W}px;height:${H}px;display:block`;
-  c.className = 'range-spark';
-  const g = c.getContext('2d');
-  g.scale(dpr, dpr);
-  const pad = 3, span = Math.max(vhi - vlo, 1e-6);
-  const x = (i) => pad + (i / Math.max(days.length - 1, 1)) * (W - 2 * pad);
-  const y = (v) => H - pad - ((v - vlo) / span) * (H - 2 * pad);
-  if (band) {                       // filled daily min–max envelope
-    g.beginPath();
-    days.forEach((d, i) => g[i ? 'lineTo' : 'moveTo'](x(i), y(d.hi)));
-    for (let i = days.length - 1; i >= 0; i--) g.lineTo(x(i), y(days[i].lo));
-    g.closePath();
-    g.fillStyle = color + '33';
-    g.fill();
+function parseHistMetar(ts, raw) {
+  const body = raw.split(' RMK')[0];
+  const alt = /\bA(\d{4})\b/.exec(body);
+  const wind = /\b(?:\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT\b/.exec(body);
+  const wx = [];
+  for (const tok of body.split(' ')) {
+    const core = tok.replace(/^[+-]/, '').replace(/^VC/, '');
+    const chunks = core.length && core.length % 2 === 0 && core.length <= 8 && core.match(/.{2}/g);
+    if (chunks && chunks.every((c) => WX_CHUNK[c])) wx.push(tok);
   }
-  g.beginPath();
-  days.forEach((d, i) => g[i ? 'lineTo' : 'moveTo'](x(i), y(val(d))));
-  g.strokeStyle = color; g.lineWidth = 1.4; g.lineJoin = 'round';
-  g.stroke();
-  const li = days.length - 1;
-  g.beginPath();
-  g.arc(x(li), y(val(days[li])), 2.6, 0, Math.PI * 2);
-  g.fillStyle = '#fff';
-  g.fill();
-  return c;
-}
-
-const RANGE_DAY = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric' });
-function rangeWhen(date) { return RANGE_DAY.format(new Date(date + 'T12:00:00')); }
-
-function renderRanges(pr, cv) {
-  const host = $('range-body');
-  host.textContent = '';
-  const row = (label, sub, spark, statsHtml) => {
-    const div = document.createElement('div');
-    div.className = 'range-row';
-    const lab = document.createElement('div');
-    lab.className = 'range-lab';
-    lab.innerHTML = `<b>${esc(label)}</b>${esc(sub)}`;
-    const stats = document.createElement('div');
-    stats.className = 'range-stats';
-    stats.innerHTML = statsHtml;
-    div.append(lab, spark, stats);
-    host.appendChild(div);
+  return {
+    t: ts * 1000,
+    alt: alt ? +alt[1] / 100 : null,
+    spd: wind ? +wind[1] : null,
+    gust: wind && wind[2] ? +wind[2] : 0,
+    wx,
+    thunder: wx.some((w) => w.includes('TS')),
+    precip: wx.some((w) => !w.startsWith('VC') && WX_PRECIP.test(w)),
+    fog: wx.some((w) => w.replace(/^[+-]/, '').replace(/^VC/, '').includes('FG')),
   };
-  if (pr) {
-    row('Pressure', 'KDCA altimeter',
-      rangeSpark(pr.days, (d) => (d.lo + d.hi) / 2, pr.lo.lo, pr.hi.hi, '#7fb2d9', true),
-      `now <b>${pr.now.toFixed(2)}</b> inHg · ` +
-      `<span class="range-hi">high ${pr.hi.hi.toFixed(2)}</span> ${esc(rangeWhen(pr.hi.date))} · ` +
-      `<span class="range-lo">low ${pr.lo.lo.toFixed(2)}</span> ${esc(rangeWhen(pr.lo.date))}`);
-  }
-  if (cv) {
-    row('Instability', 'daily peak CAPE',
-      rangeSpark(cv.days, (d) => d.peak, Math.min(cv.lo.peak, 0), Math.max(cv.hi.peak, 100), '#e0a95a', false),
-      `today <b>${fmtJ(cv.now)}</b> J/kg · ` +
-      `<span class="range-hi">high ${fmtJ(cv.hi.peak)}</span> ${esc(rangeWhen(cv.hi.date))} · ` +
-      `<span class="range-lo">low ${fmtJ(cv.lo.peak)}</span> ${esc(rangeWhen(cv.lo.date))}`);
-  }
-  const note = document.createElement('div');
-  note.className = 'range-note';
-  const bits = [];
-  if (pr) bits.push(`pressure: ${pr.days.length} days of KDCA METARs since ${rangeWhen(pr.days[0].date)}`);
-  if (cv) bits.push(`CAPE: GFS at the field, archived since ${rangeWhen(cv.days[0].date)} — this range is still young`);
-  note.textContent = `Range = this site's own archive, not climatology. ${bits.join(' · ')}.`;
-  host.appendChild(note);
-  $('range-card').style.display = '';
 }
 
-async function loadRanges() {
+function wxWords(tok) {
+  const pre = (tok.startsWith('+') ? 'heavy ' : tok.startsWith('-') ? 'light ' : '') +
+    (tok.replace(/^[+-]/, '').startsWith('VC') ? 'nearby ' : '');
+  const core = tok.replace(/^[+-]/, '').replace(/^VC/, '');
+  return pre + core.match(/.{2}/g).map((c) => WX_CHUNK[c]).join(' ');
+}
+
+/* Contiguous runs of obs where flag() holds, tolerating one missing hour. */
+function histEpisodes(obs, flag) {
+  const eps = [];
+  let cur = null;
+  for (const o of obs) {
+    if (!flag(o)) continue;
+    if (cur && o.t - cur.t1 <= HIST_GAP_MS) { cur.t1 = o.t; cur.list.push(o); }
+    else { cur = { t0: o.t, t1: o.t, list: [o] }; eps.push(cur); }
+  }
+  return eps;
+}
+
+/* Zigzag turning points of the altimeter trace (ignores the diurnal wobble). */
+function pressureTurns(pts) {
+  if (pts.length < 4) return [];
+  const turns = [pts[0]];
+  let dir = 0, ext = pts[0];
+  for (const o of pts) {
+    if (dir === 0) {
+      if (o.alt - ext.alt >= HIST_TURN) dir = 1;
+      else if (ext.alt - o.alt >= HIST_TURN) dir = -1;
+      if (dir !== 0) { ext = o; continue; }
+      if (o.alt > turns[0].alt) { turns[0] = o; ext = o; }
+    } else if (dir === 1) {
+      if (o.alt >= ext.alt) ext = o;
+      else if (ext.alt - o.alt >= HIST_TURN) { turns.push(ext); dir = -1; ext = o; }
+    } else if (o.alt <= ext.alt) { ext = o; }
+    else if (o.alt - ext.alt >= HIST_TURN) { turns.push(ext); dir = 1; ext = o; }
+  }
+  turns.push(ext);
+  return turns;
+}
+
+const HIST_D = (ms) => fmtTime(new Date(ms), { month: 'short', day: 'numeric' });
+const HIST_H = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
+
+function histSpan(t0, t1) {
+  const d0 = HIST_D(t0), d1 = HIST_D(t1);
+  if (d0 !== d1) return `${d0} ${HIST_H(t0)} → ${d1} ${HIST_H(t1)}`;
+  return t1 - t0 < 3600e3 ? `${d0}, ${HIST_H(t0)}` : `${d0}, ${HIST_H(t0)}–${HIST_H(t1)}`;
+}
+
+/* The episode's dominant phenomenon ("Rain", "Snow", …) by token count. */
+function histPhenom(ep) {
+  const n = {};
+  for (const o of ep.list) for (const w of o.wx) {
+    const m = w.match(/RA|DZ|SN|GR|PL|UP/);
+    if (m) n[m[0]] = (n[m[0]] || 0) + 1;
+  }
+  const top = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+  const word = top ? WX_CHUNK[top] : 'precip';
+  return word[0].toUpperCase() + word.slice(1);
+}
+
+function histEvents() {
+  const evs = [];
+  const push = (t0, t1, what) => evs.push({ t: t1, when: histSpan(t0, t1), what });
+  const overlaps = (a, b) => a.t0 <= b.t1 && a.t1 >= b.t0;
+  for (const e of HIST.eps.precip) {
+    const th = HIST.eps.thunder.some((s) => overlaps(s, e));
+    const heavy = e.list.some((o) => o.wx.some((w) => w.startsWith('+')));
+    push(e.t0, e.t1, `<b>${esc(histPhenom(e))}${th ? ' with thunder' : ''}</b>` +
+      (heavy ? ', heavy at times' : ''));
+  }
+  for (const e of HIST.eps.thunder) {
+    if (!HIST.eps.precip.some((s) => overlaps(s, e))) {
+      push(e.t0, e.t1, '<b>Thunder</b> without measurable rain at the field');
+    }
+  }
+  for (const e of HIST.eps.fog) push(e.t0, e.t1, '<b>Fog</b>');
+  for (const e of HIST.eps.gust) {
+    const peak = Math.max(...e.list.map((o) => o.gust));
+    push(e.t0, e.t1, `<b>Gusty winds</b> — peak ${peak} kt`);
+  }
+  const turns = pressureTurns(HIST.obs.filter((o) => o.alt != null));
+  for (let i = 1; i < turns.length; i++) {
+    const a = turns[i - 1], b = turns[i], d = b.alt - a.alt;
+    if (Math.abs(d) < HIST_SWING) continue;
+    const h = Math.round((b.t - a.t) / 3600e3);
+    push(a.t, b.t, d < 0
+      ? `<b>Pressure fell ${(-d).toFixed(2)} inHg</b> over ${h} h, bottoming at ${b.alt.toFixed(2)} — a front or low moving through`
+      : `<b>Pressure rose ${d.toFixed(2)} inHg</b> over ${h} h — high pressure building in`);
+  }
+  for (const a of HIST.alerts) {
+    push(a.t0, a.t1, `<b>${esc(a.event)}</b> — LWX warning in effect`);
+  }
+  return evs.sort((x, y) => y.t - x.t).slice(0, 12);
+}
+
+function histSummary() {
+  const pts = HIST.obs.filter((o) => o.alt != null);
+  const last = pts[pts.length - 1];
+  let hi = pts[0], lo = pts[0];
+  for (const o of pts) { if (o.alt > hi.alt) hi = o; if (o.alt < lo.alt) lo = o; }
+  return `now <b>${last.alt.toFixed(2)}</b> inHg · 14-day high ` +
+    `${hi.alt.toFixed(2)} (${esc(HIST_D(hi.t))}) · low ${lo.alt.toFixed(2)} ` +
+    `(${esc(HIST_D(lo.t))}) — hover the trace for any hour`;
+}
+
+function drawHist() {
+  const host = $('hist-chart');
+  const W = Math.max(host.clientWidth || 0, 320), H = 195;
+  const dpr = window.devicePixelRatio || 1;
+  let c = HIST.canvas;
+  if (!c) {
+    c = HIST.canvas = document.createElement('canvas');
+    host.appendChild(c);
+    c.addEventListener('mousemove', histHover);
+    c.addEventListener('mouseleave', () => { $('hist-read').innerHTML = histSummary(); });
+  }
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.width = `${W}px`; c.style.height = `${H}px`;
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+
+  const L = 36, R = 6, T = 24, B = 20;
+  const plotW = W - L - R, plotH = H - T - B;
+  const pts = HIST.obs.filter((o) => o.alt != null);
+  const t0 = HIST.obs[0].t, t1 = HIST.obs[HIST.obs.length - 1].t;
+  let pLo = Infinity, pHi = -Infinity;
+  for (const o of pts) { pLo = Math.min(pLo, o.alt); pHi = Math.max(pHi, o.alt); }
+  const padP = Math.max((pHi - pLo) * 0.08, 0.02);
+  pLo -= padP; pHi += padP;
+  const x = (t) => L + ((t - t0) / (t1 - t0)) * plotW;
+  const y = (p) => T + (1 - (p - pLo) / (pHi - pLo)) * plotH;
+  HIST.scale = { x, t0, t1, L, plotW };
+
+  const band = (eps, color) => {
+    g.fillStyle = color;
+    for (const e of eps) {
+      const x0 = Math.max(x(e.t0 - 1800e3), L);
+      g.fillRect(x0, T, Math.max(x(e.t1 + 1800e3) - x0, 2), plotH);
+    }
+  };
+  band(HIST.eps.fog, 'rgba(170,180,190,.10)');
+  band(HIST.eps.precip, 'rgba(88,166,255,.16)');
+  band(HIST.eps.thunder, 'rgba(240,160,70,.22)');
+  g.font = '11px sans-serif';
+  g.textAlign = 'center';
+  g.fillStyle = '#f5b942';
+  for (const e of HIST.eps.thunder) g.fillText('⚡', x((e.t0 + e.t1) / 2), T + 12);
+  g.fillStyle = 'rgba(245,185,66,.55)';                       // gust ticks, bottom edge
+  for (const e of HIST.eps.gust) {
+    const x0 = Math.max(x(e.t0 - 1800e3), L);
+    g.fillRect(x0, T + plotH - 3, Math.max(x(e.t1 + 1800e3) - x0, 2), 3);
+  }
+  g.fillStyle = 'rgba(224,106,90,.85)';                       // LWX warning lane
+  for (const a of HIST.alerts) {
+    const x0 = Math.max(x(a.t0), L), x1 = Math.min(x(a.t1), L + plotW);
+    if (x1 > x0) g.fillRect(x0, 8, Math.max(x1 - x0, 2), 5);
+  }
+
+  /* storm fuel: hourly GFS CAPE on its own scale, kept to the lower half so
+     the pressure trace stays readable; contiguous runs only, so a hole in
+     the model archive shows as a hole, not a bridge */
+  const cp = HIST.cape.filter((p) => p.t >= t0 && p.t <= t1);
+  if (cp.length > 1) {
+    const capeMax = Math.max(1000, Math.ceil(Math.max(...cp.map((p) => p.v)) / 500) * 500);
+    const yC = (v) => T + plotH - (v / capeMax) * plotH * 0.55;
+    const runs = [[]];
+    for (const p of cp) {
+      const run = runs[runs.length - 1];
+      if (run.length && p.t - run[run.length - 1].t > 2 * 3600e3) runs.push([p]);
+      else run.push(p);
+    }
+    for (const run of runs) {
+      if (run.length < 2) continue;
+      g.beginPath();
+      g.moveTo(x(run[0].t), T + plotH);
+      for (const p of run) g.lineTo(x(p.t), yC(p.v));
+      g.lineTo(x(run[run.length - 1].t), T + plotH);
+      g.closePath();
+      g.fillStyle = 'rgba(240,160,70,.13)';
+      g.fill();
+      g.beginPath();
+      run.forEach((p, j) => g[j ? 'lineTo' : 'moveTo'](x(p.t), yC(p.v)));
+      g.strokeStyle = 'rgba(240,160,70,.65)'; g.lineWidth = 1;
+      g.stroke();
+    }
+    g.fillStyle = '#c08a4a'; g.font = '10px sans-serif'; g.textAlign = 'right';
+    g.fillText(`CAPE ${capeMax.toLocaleString('en-US')} J/kg`, L + plotW - 3, yC(capeMax) - 4);
+    g.strokeStyle = 'rgba(240,160,70,.25)';
+    g.beginPath(); g.moveTo(L, yC(capeMax)); g.lineTo(L + plotW, yC(capeMax)); g.stroke();
+  }
+
+  /* day gridlines + labels at local midnight */
+  g.strokeStyle = '#232a30'; g.lineWidth = 1;
+  g.fillStyle = '#667077'; g.font = '10px sans-serif'; g.textAlign = 'center';
+  const dayW = plotW / HIST_DAYS;
+  const every = dayW < 46 ? 2 : 1;
+  let li = 0;
+  for (let t = t0 - (t0 % 3600e3); t <= t1; t += 3600e3) {
+    if (+HOUR24.format(new Date(t)) !== 0) continue;
+    g.beginPath(); g.moveTo(x(t), T); g.lineTo(x(t), T + plotH); g.stroke();
+    if (li++ % every === 0 && x(t) + dayW / 2 < L + plotW) {
+      g.fillText(HIST_D(t + 12 * 3600e3), x(t) + dayW / 2, H - 6);
+    }
+  }
+  /* pressure gridlines */
+  const step = pHi - pLo > 0.5 ? 0.2 : 0.1;
+  g.textAlign = 'left';
+  for (let p = Math.ceil(pLo / step) * step; p < pHi; p += step) {
+    g.strokeStyle = '#20262c';
+    g.beginPath(); g.moveTo(L, y(p)); g.lineTo(L + plotW, y(p)); g.stroke();
+    g.fillText(p.toFixed(1), 4, y(p) + 3);
+  }
+
+  /* the trace itself, broken across gaps > 4 h */
+  g.strokeStyle = '#7fb2d9'; g.lineWidth = 1.5; g.lineJoin = 'round';
+  g.beginPath();
+  let prev = null;
+  for (const o of pts) {
+    if (prev == null || o.t - prev > 4 * 3600e3) g.moveTo(x(o.t), y(o.alt));
+    else g.lineTo(x(o.t), y(o.alt));
+    prev = o.t;
+  }
+  g.stroke();
+
+  let hi = pts[0], lo = pts[0];
+  for (const o of pts) { if (o.alt > hi.alt) hi = o; if (o.alt < lo.alt) lo = o; }
+  const mark = (o, color, above) => {
+    g.beginPath(); g.arc(x(o.t), y(o.alt), 2.6, 0, Math.PI * 2);
+    g.fillStyle = color; g.fill();
+    g.textAlign = 'center';
+    g.fillText(o.alt.toFixed(2), Math.min(Math.max(x(o.t), L + 16), L + plotW - 16),
+      y(o.alt) + (above ? -6 : 12));
+  };
+  mark(hi, '#e8a15a', true);
+  mark(lo, '#6fb1e0', false);
+  const last = pts[pts.length - 1];
+  g.beginPath(); g.arc(x(last.t), y(last.alt), 2.8, 0, Math.PI * 2);
+  g.fillStyle = '#fff'; g.fill();
+}
+
+function histHover(ev) {
+  const s = HIST.scale;
+  if (!s) return;
+  const mx = ev.offsetX;
+  const t = s.t0 + ((mx - s.L) / s.plotW) * (s.t1 - s.t0);
+  let best = null;
+  for (const o of HIST.obs) if (!best || Math.abs(o.t - t) < Math.abs(best.t - t)) best = o;
+  if (!best) return;
+  const bits = [`<b>${best.alt != null ? best.alt.toFixed(2) : '—'}</b> inHg`];
+  if (best.wx.length) bits.push(esc(best.wx.map(wxWords).join(', ')));
+  if (best.spd != null) bits.push(`wind ${best.spd}${best.gust ? `G${best.gust}` : ''} kt`);
+  let cp = null;
+  for (const p of HIST.cape) if (!cp || Math.abs(p.t - best.t) < Math.abs(cp.t - best.t)) cp = p;
+  if (cp && Math.abs(cp.t - best.t) <= 3600e3) bits.push(`CAPE ${fmtJ(cp.v)} J/kg`);
+  $('hist-read').innerHTML =
+    `${esc(fmtTime(new Date(best.t), { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} — ${bits.join(' · ')}`;
+}
+
+async function loadHistory() {
   const idx = await WXA.index();
   if (!idx) return;
-  const [pr, cv] = await Promise.all([
-    pressureRange(idx).catch(() => null),
-    capeRange(idx).catch(() => null),
-  ]);
-  if (pr || cv) renderRanges(pr, cv);
+  const dates = (idx.obs_days || []).slice(-HIST_DAYS);
+  if (dates.length < 3) return;
+  const aDates = (idx.alert_days || []).filter((d) => d >= dates[0]);
+  const mDates = (idx.model_days || []).filter((d) => d >= dates[0]);
+  const seen = new Set(), obs = [], alerts = new Map(), cape = new Map();
+  const addRaw = (ts, raw) => {
+    if (seen.has(ts)) return;
+    seen.add(ts);
+    obs.push(parseHistMetar(ts, raw));
+  };
+  /* Hourly CAPE out of a model snapshot, clipped to one local day. A snap's
+     t0 is the hour it was fetched, so no single snap covers its whole day —
+     walking a day's snaps in order fills the day with the freshest analysis
+     of each hour (later writes win in the map). */
+  const addCape = (snap, date) => {
+    if (!snap || !snap.cape || snap.t0 == null) return;
+    for (let h = 0; h < snap.cape.length; h++) {
+      const t = (snap.t0 + h * 3600) * 1000;
+      if (snap.cape[h] == null || (date && DAY_FMT.format(new Date(t)) !== date)) continue;
+      cape.set(t, snap.cape[h]);
+    }
+  };
+  const addCapeDay = (doc, date) => {
+    for (const snap of (doc && doc.snaps) || []) addCape(snap, date);
+  };
+  let i = 0;
+  await Promise.all(Array.from({ length: HIST_LANES }, async () => {
+    while (i < dates.length + aDates.length + mDates.length) {
+      const k = i++;
+      if (k < dates.length) {
+        const doc = await WXA.day('obs', dates[k]);
+        for (const [ts, raw] of (doc && doc.metars) || []) addRaw(ts, raw);
+      } else if (k < dates.length + aDates.length) {
+        const doc = await WXA.day('alerts', aDates[k - dates.length]);
+        for (const a of (doc && doc.alerts) || []) {
+          const key = a.event + (a.onset || a.headline || '');
+          if (!alerts.has(key)) alerts.set(key, a);
+        }
+      } else {
+        const d = mDates[k - dates.length - aDates.length];
+        addCapeDay(await WXA.day('model', d), d);
+      }
+    }
+  }));
+  /* latest.json carries the freshest obs, alerts and model run — index.json
+     (and today's day files) can be minutes-to-an-hour stale behind HTTP caches. */
+  const latest = await WXA.latest();
+  for (const [ts, raw] of (latest && latest.obs) || []) addRaw(ts, raw);
+  for (const a of (latest && latest.alerts) || []) {
+    const key = a.event + (a.onset || a.headline || '');
+    if (!alerts.has(key)) alerts.set(key, a);
+  }
+  addCape(latest && latest.model, DAY_FMT.format(new Date()));
+  obs.sort((a, b) => a.t - b.t);
+  if (obs.filter((o) => o.alt != null).length < 24) return;
+
+  HIST.obs = obs;
+  /* One span per alert: watches get re-issued every hour or two while in
+     effect, so overlapping issuances of the same event are merged. */
+  const spans = [...alerts.values()]
+    .map((a) => ({ event: a.event, t0: Date.parse(a.onset) || 0, t1: Date.parse(a.ends) || 0 }))
+    .filter((a) => a.t0)
+    .map((a) => (a.t1 ? a : { ...a, t1: a.t0 + 3 * 3600e3 }))
+    .sort((a, b) => a.t0 - b.t0);
+  HIST.alerts = [];
+  for (const a of spans) {
+    const prev = HIST.alerts.find((p) => p.event === a.event && a.t0 <= p.t1 + 3600e3);
+    if (prev) prev.t1 = Math.max(prev.t1, a.t1);
+    else HIST.alerts.push(a);
+  }
+  HIST.eps = {
+    thunder: histEpisodes(obs, (o) => o.thunder),
+    precip: histEpisodes(obs, (o) => o.precip),
+    fog: histEpisodes(obs, (o) => o.fog),
+    gust: histEpisodes(obs, (o) => o.gust >= HIST_GUST_KT),
+  };
+  HIST.cape = [...cape.entries()].map(([t, v]) => ({ t, v })).sort((a, b) => a.t - b.t);
+  $('hist-card').style.display = '';   // unhide first — drawHist sizes off clientWidth
+  drawHist();
+  $('hist-read').innerHTML = histSummary();
+  const evs = histEvents();
+  $('hist-events').innerHTML = evs.map((e) =>
+    `<div class="hist-ev"><span class="when">${esc(e.when)}</span><span class="what">${e.what}</span></div>`).join('');
+  $('hist-note').textContent =
+    `${OBS_STATION} METARs, ${dates.length} days · warnings from the LWX alert stream` +
+    (HIST.cape.length ? ` · storm fuel: GFS CAPE at the field, archived since ${HIST_D(HIST.cape[0].t)}` : '') +
+    ' · from the site\'s hourly archive, not climatology';
+  let rt = 0;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawHist, 150); });
 }
 
 /* ===========================================================================
@@ -2605,7 +2856,7 @@ async function init() {
   const done = (await Promise.all(jobs)).filter(Boolean);
   await alerts;
   buildHeadline();
-  loadRanges().catch(() => {});   // archive-only context card — silent when absent
+  loadHistory().catch(() => {});  // epilogue card — silent when the archive is absent
   loadVerification().catch((e) => {
     $('verify-body').innerHTML = `<span class="err">Verification failed: ${esc(e.message)}</span>`;
   });
