@@ -24,41 +24,116 @@
 
     .subtitle { color: var(--muted); margin: 4px 0 8px; font-size: 0.95rem; max-width: 640px; }
 
-    .cat { margin: 34px 0 0; }
-    .cat > h2 {
-      margin: 0 0 2px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      color: #bbb;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+    /* Each category carries its own hue; cards inherit it for the rule, the
+       heading dot, the hover border and the "open" link. --tone is the same
+       colour at card-background strength. */
+    .cat {
+      margin: 32px 0 0;
+      --tone: var(--hue);
     }
-    .cat > .cat-lede { margin: 0 0 12px; font-size: 0.85rem; color: var(--faint); }
+    .cat.weather   { --hue: #38bdf8; }  /* sky blue   */
+    .cat.perf      { --hue: #fbbf24; }  /* amber      */
+    .cat.cockpit   { --hue: #a78bfa; }  /* violet     */
+    .cat.study     { --hue: #34d399; }  /* green      */
+
+    .cat > h2 {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 12px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #d0d0d0;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .cat > h2::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--hue);
+      box-shadow: 0 0 10px color-mix(in srgb, var(--hue) 60%, transparent);
+      flex: none;
+    }
+    .cat > h2::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(to right, color-mix(in srgb, var(--hue) 45%, transparent), transparent);
+    }
 
     .tool-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      /* min() so a narrow phone gets one column instead of overflowing. */
+      grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
       gap: 14px;
     }
 
+    /* Weather leads the page: give it wider cards so its four sit as a 2×2
+       block instead of a row of three plus an orphan. */
+    .cat.weather .tool-grid { grid-template-columns: repeat(auto-fill, minmax(min(400px, 100%), 1fr)); }
+
     /* Reuse .card / .tracker-link from main.css; the grid supplies the spacing. */
     .tool-grid .card {
+      position: relative;
       margin: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+      background:
+        linear-gradient(160deg, color-mix(in srgb, var(--hue) 7%, transparent), transparent 55%),
+        var(--card);
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
     }
+    /* Colour bar down the left edge, brightening on hover. */
+    .tool-grid .card::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--hue);
+      opacity: 0.55;
+      transition: opacity 0.15s;
+    }
+    .tool-grid .card:hover {
+      border-color: color-mix(in srgb, var(--hue) 65%, transparent);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px color-mix(in srgb, var(--hue) 14%, transparent);
+    }
+    .tool-grid .card:hover::before { opacity: 1; }
     .tool-grid .card h3 {
       margin: 0 0 8px;
-      font-size: 1rem;
-      color: #ccc;
+      font-size: 1.02rem;
+      color: #e8e8e8;
+      transition: color 0.15s;
     }
+    .tool-grid .card:hover h3 { color: var(--hue); }
     .tool-grid .card p {
       margin: 0 0 12px;
       font-size: 0.88rem;
       color: var(--muted);
       line-height: 1.5;
     }
-    .tool-grid .card .go { margin-top: auto; }
+    .tool-grid .card .go {
+      margin-top: auto;
+      color: var(--hue);
+      font-weight: 600;
+      font-size: 0.87rem;
+      letter-spacing: 0.01em;
+    }
+    .tool-grid .card .go::after {
+      content: "\00a0→";  /* nbsp — a plain trailing space collapses */
+      display: inline-block;
+      transition: transform 0.15s;
+    }
+    .tool-grid .card:hover .go::after { transform: translateX(3px); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tool-grid .card,
+      .tool-grid .card .go::after { transition: none; }
+      .tool-grid .card:hover { transform: none; }
+    }
 
     .tool-grid .card.soon {
       border-style: dashed;
@@ -76,14 +151,14 @@
     "mainEntity": {
       "@type": "ItemList",
       "itemListElement": [
-        { "@type": "ListItem", "position": 1, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
-        { "@type": "ListItem", "position": 2, "name": "Eights on Pylons", "url": "https://jesselevine.net/eights.html" },
-        { "@type": "ListItem", "position": 3, "name": "The Power Curve", "url": "https://jesselevine.net/power.html" },
-        { "@type": "ListItem", "position": 4, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
-        { "@type": "ListItem", "position": 5, "name": "Skew-T Explorer", "url": "https://jesselevine.net/skew-t.html" },
-        { "@type": "ListItem", "position": 6, "name": "METAR Sky", "url": "https://jesselevine.net/sky.html" },
-        { "@type": "ListItem", "position": 7, "name": "DC Forecast Discussion", "url": "https://jesselevine.net/discussion.html" },
-        { "@type": "ListItem", "position": 8, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
+        { "@type": "ListItem", "position": 1, "name": "DC Forecast Discussion", "url": "https://jesselevine.net/discussion.html" },
+        { "@type": "ListItem", "position": 2, "name": "Skew-T Explorer", "url": "https://jesselevine.net/skew-t.html" },
+        { "@type": "ListItem", "position": 3, "name": "METAR Sky", "url": "https://jesselevine.net/sky.html" },
+        { "@type": "ListItem", "position": 4, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
+        { "@type": "ListItem", "position": 5, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
+        { "@type": "ListItem", "position": 6, "name": "The Power Curve", "url": "https://jesselevine.net/power.html" },
+        { "@type": "ListItem", "position": 7, "name": "Eights on Pylons", "url": "https://jesselevine.net/eights.html" },
+        { "@type": "ListItem", "position": 8, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
         { "@type": "ListItem", "position": 9, "name": "Instrument Errors", "url": "https://jesselevine.net/instruments.html" },
         { "@type": "ListItem", "position": 10, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
       ]
@@ -100,94 +175,86 @@
   <main>
     <!-- To add a tool: drop another <a class="card tracker-link"> into the right
          .tool-grid below. To add a category: copy a whole <section class="cat">
-         block. Keep new tools listed in the ItemList JSON-LD in <head> too. -->
+         block and give it a hue class (see the .cat rules in <head>).
+         Keep new tools listed in the ItemList JSON-LD in <head> too.
+         The "→" on each .go link comes from CSS — don't type it in the markup. -->
 
-    <section class="cat">
-      <h2>Procedures &amp; Charts</h2>
-      <p class="cat-lede">Reading and flying published instrument procedures.</p>
+    <section class="cat weather">
+      <h2>Weather</h2>
       <div class="tool-grid">
-        <a class="card tracker-link" href="/procedures.html">
-          <h3>🛫 Procedure Explorer</h3>
-          <p>Overlay any US SID, STAR or instrument approach on the sectional, TAC or IFR chart. Pick transitions one at a time, animate the flow, see the altitudes in 3D, read the leg-by-leg table, and pull up the official FAA plate — including charts the CIFP never codes.</p>
-          <span class="go">Open the explorer →</span>
-        </a>
-      </div>
-    </section>
-
-    <section class="cat">
-      <h2>Maneuvers &amp; Aerodynamics</h2>
-      <p class="cat-lede">The physics behind the maneuvers, made steerable.</p>
-      <div class="tool-grid">
-        <a class="card tracker-link" href="/eights.html">
-          <h3>✈️ Eights on Pylons</h3>
-          <p>Pivotal altitude derived and charted, plus a wind-aware simulation of the full figure eight — see exactly why the wingtip stays pinned to the pylon.</p>
-          <span class="go">Open the explainer →</span>
-        </a>
-
-        <a class="card tracker-link" href="/power.html">
-          <h3>⚡ The Power Curve</h3>
-          <p>Parasite versus induced power, minimum-power speed, and the region of reversed command — plus slow flight and a live approach simulation of the low-and-slow trap.</p>
-          <span class="go">Open the explainer →</span>
-        </a>
-      </div>
-    </section>
-
-    <section class="cat">
-      <h2>Atmosphere &amp; Performance</h2>
-      <p class="cat-lede">How the air itself flies the airplane.</p>
-      <div class="tool-grid">
-        <a class="card tracker-link" href="/airlab.html">
-          <h3>🎈 Air Lab</h3>
-          <p>Interactive simulations of density altitude, true airspeed, ground speed and atmospheric stability — pull the levers and watch the performance numbers move.</p>
-          <span class="go">Open the lab →</span>
+        <a class="card tracker-link" href="/discussion.html">
+          <h3>🌀 DC Forecast Discussion</h3>
+          <p>The NWS forecast discussion for the DC area, decoded — a live map of the air masses, fronts and pressure systems driving the forecast, plus a change log showing how the forecasters' reasoning evolved between issuances.</p>
+          <span class="go">Open the discussion</span>
         </a>
 
         <a class="card tracker-link" href="/skew-t.html">
           <h3>🌡 Skew-T Explorer</h3>
           <p>Forecast soundings for any US airport on an interactive Skew-T log-p diagram, plus real SPC balloon soundings with explain-on-hover — CAPE, cloud bases, freezing level, and how balloon data becomes the forecast.</p>
-          <span class="go">Open the explorer →</span>
+          <span class="go">Open the explorer</span>
         </a>
 
         <a class="card tracker-link" href="/sky.html">
           <h3>🌤 METAR Sky</h3>
           <p>The current METAR drawn as a living scene — sun and moon where they really are, cloud decks at their reported bases, rain, snow, fog and lightning, a windsock flying the actual wind. Decode the raw report group by group, preview TAF periods, or paste any METAR and watch it painted.</p>
-          <span class="go">Open the sky →</span>
-        </a>
-
-        <a class="card tracker-link" href="/discussion.html">
-          <h3>🌀 DC Forecast Discussion</h3>
-          <p>The NWS forecast discussion for the DC area, decoded — a live map of the air masses, fronts and pressure systems driving the forecast, plus a change log showing how the forecasters' reasoning evolved between issuances.</p>
-          <span class="go">Open the discussion →</span>
+          <span class="go">Open the sky</span>
         </a>
 
         <a class="card tracker-link" href="/almanac.html">
           <h3>📚 Weather Almanac</h3>
           <p>The site's own weather archive, explorable — a calendar of every archived day colored by flight category, the METARs, TAFs, alerts and forecast discussions behind it, how each day's forecast drifted before it verified, and season-long temperature trends.</p>
-          <span class="go">Open the almanac →</span>
+          <span class="go">Open the almanac</span>
         </a>
       </div>
     </section>
 
-    <section class="cat">
-      <h2>Systems &amp; Instruments</h2>
-      <p class="cat-lede">What the panel is really telling you.</p>
+    <section class="cat perf">
+      <h2>Atmosphere &amp; Performance</h2>
       <div class="tool-grid">
+        <a class="card tracker-link" href="/airlab.html">
+          <h3>🎈 Air Lab</h3>
+          <p>Interactive simulations of density altitude, true airspeed, ground speed and atmospheric stability — pull the levers and watch the performance numbers move.</p>
+          <span class="go">Open the lab</span>
+        </a>
+
+        <a class="card tracker-link" href="/power.html">
+          <h3>⚡ The Power Curve</h3>
+          <p>Parasite versus induced power, minimum-power speed, and the region of reversed command — plus slow flight and a live approach simulation of the low-and-slow trap.</p>
+          <span class="go">Open the explainer</span>
+        </a>
+
+        <a class="card tracker-link" href="/eights.html">
+          <h3>✈️ Eights on Pylons</h3>
+          <p>Pivotal altitude derived and charted, plus a wind-aware simulation of the full figure eight — see exactly why the wingtip stays pinned to the pylon.</p>
+          <span class="go">Open the explainer</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="cat cockpit">
+      <h2>Cockpit &amp; Procedures</h2>
+      <div class="tool-grid">
+        <a class="card tracker-link" href="/procedures.html">
+          <h3>🛫 Procedure Explorer</h3>
+          <p>Overlay any US SID, STAR or instrument approach on the sectional, TAC or IFR chart. Pick transitions one at a time, animate the flow, see the altitudes in 3D, read the leg-by-leg table, and pull up the official FAA plate — including charts the CIFP never codes.</p>
+          <span class="go">Open the explorer</span>
+        </a>
+
         <a class="card tracker-link" href="/instruments.html">
           <h3>🎛 Instrument Errors</h3>
           <p>Every way the panel lies: block the pitot or static line and watch the gauges respond, fly the altimeter into pressure and cold-weather traps, drift the gyros, and take the magnetic compass through UNOS and ANDS in a live sim.</p>
-          <span class="go">Open the explainer →</span>
+          <span class="go">Open the explainer</span>
         </a>
       </div>
     </section>
 
-    <section class="cat">
+    <section class="cat study">
       <h2>Study &amp; Reference</h2>
-      <p class="cat-lede">Ground-school material and the connections between it.</p>
       <div class="tool-grid">
         <a class="card tracker-link" href="/knowledge.html">
           <h3>🧭 Aviation Knowledge Map</h3>
           <p>An expandable concept graph of the whole airplane knowledge web — aerodynamics, systems, weather, navigation, airspace, regs and more — with the cross-links between them. Browse it as a graph or a readable outline, and tick off the concepts you can teach.</p>
-          <span class="go">Open the map →</span>
+          <span class="go">Open the map</span>
         </a>
       </div>
     </section>
