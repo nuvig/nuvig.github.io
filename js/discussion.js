@@ -878,8 +878,16 @@ function uvFieldsAt(tf) {
 }
 
 /* ------------------------------- radar ----------------------------------- */
+/* At the "now" step the radar loops the last hour of RainViewer frames
+   instead of sitting on one static image. One tile layer per frame, all
+   mounted at opacity 0 and cycled by opacity — setUrl() would re-fetch
+   tiles every tick and flash. The legend carries the active frame's clock
+   time so a stale frame is honest about it. */
 
-const radar = { layer: null, frameTime: null };
+const radar = { frames: [], layers: [], fi: 0, tick: 0, timer: null, key: '' };
+const RADAR_FRAMES = 7;        // ~last hour of 10-min frames
+const RADAR_TICK_MS = 600;
+const RADAR_DWELL = 3;         // extra ticks spent on the newest frame
 
 function isNowStep() {
   return syn.times.length > 0 && Math.abs(syn.times[syn.t] - Date.now()) <= 45 * 60 * 1000;
@@ -887,32 +895,64 @@ function isNowStep() {
 
 async function loadRadar() {
   const cfg = await fetchJSON('https://api.rainviewer.com/public/weather-maps.json');
-  const frames = (cfg.radar && cfg.radar.past) || [];
-  if (!frames.length) return;
-  const f = frames[frames.length - 1];
-  radar.frameTime = f.time * 1000;
-  const url = `${cfg.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`;
-  if (radar.layer) {
-    radar.layer.setUrl(url);
-  } else {
-    // Radar rides in its own pane above the field canvases so echoes stay
-    // true-color instead of being tinted by the air-mass fill.
-    syn.map.createPane('radarPane');
-    const pane = syn.map.getPane('radarPane');
-    pane.style.zIndex = 502;
-    pane.style.pointerEvents = 'none';
-    radar.layer = L.tileLayer(url, {
-      opacity: 0.68, maxNativeZoom: 7, maxZoom: 10, pane: 'radarPane',
-    });
+  const past = (cfg.radar && cfg.radar.past) || [];
+  if (!past.length) return;
+  const frames = past.slice(-RADAR_FRAMES);
+  const key = frames.map((f) => f.path).join('|');
+  if (key !== radar.key) {
+    if (!syn.map.getPane('radarPane')) {
+      // Radar rides in its own pane above the field canvases so echoes stay
+      // true-color instead of being tinted by the air-mass fill.
+      syn.map.createPane('radarPane');
+      const pane = syn.map.getPane('radarPane');
+      pane.style.zIndex = 502;
+      pane.style.pointerEvents = 'none';
+    }
+    for (const l of radar.layers) syn.map.removeLayer(l);
+    radar.layers = frames.map((f) => L.tileLayer(
+      `${cfg.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,
+      { opacity: 0, maxNativeZoom: 7, maxZoom: 10, pane: 'radarPane' }));
+    radar.frames = frames.map((f) => f.time * 1000);
+    radar.key = key;
+    radar.tick = radar.layers.length - 1;   // start (and dwell) on the newest
+    radar.fi = radar.layers.length - 1;
   }
   updateRadarVisibility();
 }
 
+function radarShowFrame(i) {
+  radar.fi = i;
+  radar.layers.forEach((l, k) => l.setOpacity(k === i ? 0.68 : 0));
+  radarNote(radar.frames[i]);
+}
+
+function radarStep() {
+  if (document.hidden || radar.layers.length < 2) return;
+  const n = radar.layers.length;
+  radar.tick = (radar.tick + 1) % (n + RADAR_DWELL);
+  radarShowFrame(Math.min(radar.tick, n - 1));
+}
+
+function radarNote(ms) {
+  const el = $('syn-radar-note');
+  if (!el) return;
+  el.textContent = (ms
+    ? `radar ${fmtTime(new Date(ms), { hour: 'numeric', minute: '2-digit' })}, last hour loops at “now”`
+    : 'radar at “now”') + ' · shading = model precip at other hours';
+}
+
 function updateRadarVisibility() {
-  if (!radar.layer || !syn.map) return;
+  if (!radar.layers.length || !syn.map) return;
   const show = syn.layers.radar && isNowStep();
-  if (show && !syn.map.hasLayer(radar.layer)) radar.layer.addTo(syn.map);
-  if (!show && syn.map.hasLayer(radar.layer)) syn.map.removeLayer(radar.layer);
+  if (show) {
+    for (const l of radar.layers) if (!syn.map.hasLayer(l)) l.addTo(syn.map);
+    radarShowFrame(radar.fi);
+    if (!radar.timer) radar.timer = setInterval(radarStep, RADAR_TICK_MS);
+  } else {
+    if (radar.timer) { clearInterval(radar.timer); radar.timer = null; }
+    for (const l of radar.layers) if (syn.map.hasLayer(l)) syn.map.removeLayer(l);
+    radarNote(null);
+  }
 }
 
 /* ---------------- DC point sounding-parameters (CAPE / CIN) -------------- */
@@ -1083,11 +1123,12 @@ function drawFields(tf = syn.tf) {
       }
       if (prU) {
         const pv = sampleU(prU, ux, uy);
-        // opacity ramps from ~0 at the threshold so drizzle stays a hint
-        // and only real cells read like radar echoes
-        if (pv >= 0.15) {
+        // 0.3 mm/h floor = "measurable precip" — erases GFS grid-drizzle,
+        // which reads as forecast rain when no forecaster carries any;
+        // opacity still ramps from ~0 so the lightest echoes stay faint
+        if (pv >= 0.3) {
           const pc = pv < 0.5 ? [90, 200, 120] : pv < 2 ? [245, 210, 90] : [235, 75, 140];
-          const pa = Math.min(0.62, 0.10 + (pv - 0.15) * 0.34);
+          const pa = Math.min(0.62, 0.10 + (pv - 0.3) * 0.34);
           r = r * (1 - pa) + pc[0] * pa; g = g * (1 - pa) + pc[1] * pa; b = b * (1 - pa) + pc[2] * pa;
           a = Math.max(a, Math.min(0.8, a + pa));
         }
@@ -1194,11 +1235,20 @@ function frac(a, b, lev) { return b === a ? 0.5 : Math.max(0, Math.min(1, (lev -
 /* H/L centers from the base-resolution MSLP grid (less noise than upsampled) */
 function findExtrema(t) { return findExtremaIn(baseField('pressure_msl', t)); }
 
+/* Parabolic vertex offset along one axis — puts the center between grid
+   cells, so markers glide during playback instead of snapping cell to cell. */
+function subCell(a, b, c) {
+  const d = a - 2 * b + c;
+  if (!Number.isFinite(d) || Math.abs(d) < 1e-6) return 0;
+  return Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / d));
+}
+
 function findExtremaIn(f) {
   const marks = [];
   for (let y = 1; y < SYN.NY - 1; y++) {
     for (let x = 1; x < SYN.NX - 1; x++) {
-      const v = f[y * SYN.NX + x];
+      const i = y * SYN.NX + x;
+      const v = f[i];
       if (Number.isNaN(v)) continue;
       let isMin = true, isMax = true, sum = 0, n = 0;
       for (let dy = -2; dy <= 2; dy++) {
@@ -1212,7 +1262,13 @@ function findExtremaIn(f) {
         }
       }
       const prom = Math.abs(v - sum / n);
-      if ((isMin || isMax) && prom > 0.8) marks.push({ x, y, v, type: isMin ? 'L' : 'H' });
+      if ((isMin || isMax) && prom > 0.8) {
+        marks.push({
+          x: x + subCell(f[i - 1], v, f[i + 1]),
+          y: y + subCell(f[i - SYN.NX], v, f[i + SYN.NX]),
+          v, prom, type: isMin ? 'L' : 'H',
+        });
+      }
     }
   }
   return marks;
@@ -1227,6 +1283,9 @@ function drawExtrema(ctx, tf = syn.tf) {
   for (const m of marks) {
     const p = uProject(m.x * SYN.UP, m.y * SYN.UP);
     if (p.x < 12 || p.x > cw - 12 || p.y < 14 || p.y > ch - 20) continue;
+    // fade in near the detection threshold so borderline centers don't
+    // pop in and out between blended frames
+    ctx.globalAlpha = Math.min(1, (m.prom - 0.8) / 0.25);
     ctx.font = '700 22px Segoe UI, system-ui, sans-serif';
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,10,12,0.8)';
     ctx.fillStyle = m.type === 'L' ? '#ff6b6b' : '#74a7ff';
@@ -1542,7 +1601,7 @@ function synExplain() {
       ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${nm(high.km)} nm to the ${high.dir}`} (${Math.round(high.v)} hPa) — subsidence: air slowly sinking, warming and drying as it descends.`
       : 'No front, low, or instability signal near DC — a quiet, well-mixed airmass.');
   }
-  const foot = syn.layers.radar && isNowStep() && radar.layer
+  const foot = syn.layers.radar && isNowStep() && radar.layers.length
     ? '<div class="why-foot">Radar overlay shows what’s actually falling; this read is the model’s explanation of why.</div>' : '';
   host.innerHTML =
     `<div class="why-hd">Why (and whether) it’s precipitating — model read at DC</div>` +
@@ -2487,14 +2546,34 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
 
 /* The office's own framing, trimmed: the synopsis in a sentence or two, then
    its key messages as bullets. Not the whole product — that sits collapsed at
-   the bottom of the act. */
+   the bottom of the act. WHAT HAS CHANGED is a last resort here — the
+   headline card already quotes it, and the office often repeats it inside
+   KEY MESSAGES too, so without the dedupe below the same sentence printed
+   three times on the page. */
 function renderBigPicture(keyMsgs) {
   const secs = AFD.parsed.get(AFD.newestId) || [];
   const pick = secs.find((x) => /^SYNOPSIS/.test(x.name))
-    || secs.find((x) => /^(UPDATE|WHAT HAS CHANGED|NEAR TERM)/.test(x.name)) || secs[0];
-  const lead = pick ? firstSentence(normText(pick.body), 260) : '';
+    || secs.find((x) => /^(DISCUSSION|NEAR TERM)/.test(x.name))
+    || secs.find((x) => /^(UPDATE|WHAT HAS CHANGED)/.test(x.name)) || secs[0];
+  const overlaps = (a, b) => a && b && (a.includes(b) || b.includes(a));
+  const changed = afdWhatChanged();
+  const quoted = (s) => overlaps(s, changed) || keyMsgs.some((k) => overlaps(s, k));
+  /* Lead = the first sentence of actual reasoning. The new LWX format opens
+     DISCUSSION with "KEY MESSAGE n..." lines restating what the headline
+     card already quotes — skip those, or the same sentence prints three
+     times on the page. */
+  const toks = pick ? (normText(pick.body).match(/[^.!?]+[.!?]+/g) || [normText(pick.body)]) : [];
+  let lead = '';
+  for (const tk of toks) {
+    const s = tk.trim();
+    if (/^KEY MESSAGES?\b/i.test(s) || s.length < 30 || quoted(s)) continue;
+    lead = s; break;
+  }
+  if (!lead && toks.length) lead = toks[0].trim();
+  if (lead.length > 260) lead = lead.slice(0, 257).replace(/\s\S*$/, '') + '…';
+  const kms = keyMsgs.filter((t) => !overlaps(t, lead) && !overlaps(t, changed));
   $('big-picture').innerHTML = lead
-    ? esc(lead) + keyMsgs.map((t) => `<div class="km">${esc(t)}</div>`).join('')
+    ? esc(lead) + kms.map((t) => `<div class="km">${esc(t)}</div>`).join('')
     : '<span class="faint" style="font-size:13px">No discussion loaded.</span>';
 }
 
