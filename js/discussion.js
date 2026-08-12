@@ -645,8 +645,9 @@ SYN.UX = (SYN.NX - 1) * SYN.UP + 1;
 SYN.UY = (SYN.NY - 1) * SYN.UP + 1;
 
 const syn = {
-  map: null, times: [], raw: {}, t: 0, playing: false, playTimer: null,
+  map: null, times: [], raw: {}, t: 0, tf: 0, playing: false, playAnim: null,
   cache: new Map(), tRange: null, lut: null, parts: null, ready: false,
+  proj: null, lutProj: null, lerpBuf: {},
   layers: { airmass: true, fronts: true, isobars: true, wind: true, radar: true },
 };
 
@@ -721,9 +722,10 @@ function bilinear(f, gx, gy) {   // gx∈[0,NX-1], gy∈[0,NY-1] on the base gri
   return (v00 * (1 - fx) + v10 * fx) * (1 - fy) + (v01 * (1 - fx) + v11 * fx) * fy;
 }
 
-/* Upsample base → UX×UY with bilinear, then two box-blur passes for smooth
-   contours and usable gradients. Cached per (tag, t). */
-function upsampled(tag, t, getBase) {
+/* Upsample base → UX×UY with bilinear, then box-blur passes for smooth
+   contours and usable gradients. Cached per (tag, t). Precip passes fewer
+   blur passes — the full blur smeared light rain across the whole view. */
+function upsampled(tag, t, getBase, blurPasses = 2) {
   const key = `${tag}:${t}`;
   if (syn.cache.has(key)) return syn.cache.get(key);
   const base = getBase();
@@ -734,10 +736,39 @@ function upsampled(tag, t, getBase) {
       g[y * UX + x] = bilinear(base, x / UP, y / UP);
     }
   }
-  for (let pass = 0; pass < 2; pass++) g = boxBlur(g, UX, UY, 3);
-  if (syn.cache.size > 40) syn.cache.delete(syn.cache.keys().next().value);
+  for (let pass = 0; pass < blurPasses; pass++) g = boxBlur(g, UX, UY, 3);
+  if (syn.cache.size > 320) syn.cache.delete(syn.cache.keys().next().value);
   syn.cache.set(key, g);
   return g;
+}
+
+/* Upsampled field at a fractional hour: blend of the two bracketing frames.
+   Reuses one buffer per tag — callers must not hold the reference across
+   frames. */
+function upsampledAt(tag, tf, getBaseAt, blurPasses = 2) {
+  const last = syn.times.length - 1;
+  const t0 = Math.max(0, Math.min(last, Math.floor(tf)));
+  const a = upsampled(tag, t0, () => getBaseAt(t0), blurPasses);
+  const f = tf - t0;
+  if (f < 1e-3 || t0 >= last) return a;
+  const b = upsampled(tag, t0 + 1, () => getBaseAt(t0 + 1), blurPasses);
+  let out = syn.lerpBuf[tag];
+  if (!out || out.length !== a.length) out = syn.lerpBuf[tag] = new Float32Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] + (b[i] - a[i]) * f;
+  return out;
+}
+
+/* Base-resolution field at a fractional hour (tiny grid — fresh array). */
+function baseFieldAt(v, tf) {
+  const last = syn.times.length - 1;
+  const t0 = Math.max(0, Math.min(last, Math.floor(tf)));
+  const a = baseField(v, t0);
+  const f = tf - t0;
+  if (f < 1e-3 || t0 >= last) return a;
+  const b = baseField(v, t0 + 1);
+  const out = new Float32Array(SYN.NP);
+  for (let i = 0; i < SYN.NP; i++) out[i] = a[i] + (b[i] - a[i]) * f;
+  return out;
 }
 
 function boxBlur(src, w, h, r) {
@@ -803,9 +834,47 @@ function gradFields(t) {
     }
   }
   const out = { gradX, gradY };
-  if (syn.cache.size > 40) syn.cache.delete(syn.cache.keys().next().value);
+  if (syn.cache.size > 320) syn.cache.delete(syn.cache.keys().next().value);
   syn.cache.set(key, out);
   return out;
+}
+
+/* Gradients at a fractional hour — the gradient is linear in the field, so
+   blending the two hourly gradients equals the gradient of the blend. */
+function gradFieldsAt(tf) {
+  const last = syn.times.length - 1;
+  const t0 = Math.max(0, Math.min(last, Math.floor(tf)));
+  const g0 = gradFields(t0);
+  const f = tf - t0;
+  if (f < 1e-3 || t0 >= last) return g0;
+  const g1 = gradFields(t0 + 1);
+  const n = g0.gradX.length;
+  let gx = syn.lerpBuf.gradX, gy = syn.lerpBuf.gradY;
+  if (!gx || gx.length !== n) {
+    gx = syn.lerpBuf.gradX = new Float32Array(n);
+    gy = syn.lerpBuf.gradY = new Float32Array(n);
+  }
+  for (let i = 0; i < n; i++) {
+    gx[i] = g0.gradX[i] + (g1.gradX[i] - g0.gradX[i]) * f;
+    gy[i] = g0.gradY[i] + (g1.gradY[i] - g0.gradY[i]) * f;
+  }
+  return { gradX: gx, gradY: gy };
+}
+
+/* Base u/v at a fractional hour — uvFields returns fresh arrays, safe to blend
+   in place. */
+function uvFieldsAt(tf) {
+  const last = syn.times.length - 1;
+  const t0 = Math.max(0, Math.min(last, Math.floor(tf)));
+  const a = uvFields(t0);
+  const f = tf - t0;
+  if (f < 1e-3 || t0 >= last) return a;
+  const b = uvFields(t0 + 1);
+  for (let i = 0; i < SYN.NP; i++) {
+    a.u[i] += (b.u[i] - a.u[i]) * f;
+    a.v[i] += (b.v[i] - a.v[i]) * f;
+  }
+  return a;
 }
 
 /* ------------------------------- radar ----------------------------------- */
@@ -932,7 +1001,35 @@ function sizeCanvases() {
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
     cv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   }
+  syn.proj = null;      // pixel→grid projections depend on the map transform
+  syn.lutProj = null;
   return { w, h };
+}
+
+/* Cached projection of the low-res field-canvas pixels into upsampled-grid
+   coords — the map never pans/zooms, so this only changes on resize. Also
+   holds the reusable ImageData + offscreen canvas so playback doesn't
+   allocate per frame. */
+function fieldProj(B) {
+  const cv = $('syn-canvas');
+  const w = parseInt(cv.style.width, 10), h = parseInt(cv.style.height, 10);
+  let p = syn.proj;
+  if (p && p.w === w && p.h === h && p.B === B) return p;
+  const lw = Math.ceil(w / B), lh = Math.ceil(h / B);
+  const ux = new Float32Array(lw * lh), uy = new Float32Array(lw * lh);
+  for (let py = 0; py < lh; py++) {
+    for (let pxi = 0; pxi < lw; pxi++) {
+      const ll = syn.map.containerPointToLatLng([pxi * B + B / 2, py * B + B / 2]);
+      const g = gridXY(ll.lat, ll.lng);
+      const i = py * lw + pxi;
+      ux[i] = g.gx * SYN.UP; uy[i] = g.gy * SYN.UP;
+    }
+  }
+  const off = document.createElement('canvas');
+  off.width = lw; off.height = lh;
+  p = { w, h, B, lw, lh, ux, uy, img: new ImageData(lw, lh), off, offCtx: off.getContext('2d') };
+  syn.proj = p;
+  return p;
 }
 
 /* --------------------------- field rendering ----------------------------- */
@@ -941,74 +1038,69 @@ function sizeCanvases() {
    synoptic scale; scaled into upsampled-grid units below. */
 const FRONT_KM_PER_CELL_LAT = 111.32 * SYN.DLAT / SYN.UP;
 
-function drawFields() {
+function drawFields(tf = syn.tf) {
   if (!syn.ready) return;
-  const t = syn.t;
   const cv = $('syn-canvas'), ctx = cv.getContext('2d');
   const w = parseInt(cv.style.width, 10), h = parseInt(cv.style.height, 10);
   ctx.clearRect(0, 0, w, h);
 
-  const air = upsampled('air', t, () => airmassField(t));
-  const mslp = upsampled('mslp', t, () => Float32Array.from(baseField('pressure_msl', t)));
-  const uvB = uvFields(t);
-  const uU = upsampled('u', t, () => uvB.u), vU = upsampled('v', t, () => uvB.v);
-  const { gradX, gradY } = gradFields(t);
+  const air = upsampledAt('air', tf, (t) => airmassField(t));
+  const mslp = upsampledAt('mslp', tf, (t) => Float32Array.from(baseField('pressure_msl', t)));
+  const uU = upsampledAt('u', tf, (t) => uvFields(t).u);
+  const vU = upsampledAt('v', tf, (t) => uvFields(t).v);
+  const { gradX, gradY } = gradFieldsAt(tf);
 
-  // model precip shading fills the radar role at hours the radar can't show
+  // model precip shading fills the radar role at hours the radar can't show;
+  // one blur pass only — the default two smeared light rain across the view
   const modelPrecip = syn.layers.radar && !isNowStep();
   const prU = modelPrecip
-    ? upsampled('pr', t, () => Float32Array.from(baseField('precipitation', t)))
+    ? upsampledAt('pr', tf, (t) => Float32Array.from(baseField('precipitation', t)), 1)
     : null;
 
   /* --- air-mass fill + frontal zones + model precip: low-res pixel pass --- */
   if (syn.layers.airmass || syn.layers.fronts || modelPrecip) {
-    const B = 3;
-    const lw = Math.ceil(w / B), lh = Math.ceil(h / B);
-    const img = new ImageData(lw, lh);
-    const px = img.data;
-    for (let py = 0; py < lh; py++) {
-      for (let pxi = 0; pxi < lw; pxi++) {
-        const ll = syn.map.containerPointToLatLng([pxi * B + B / 2, py * B + B / 2]);
-        const { gx, gy } = gridXY(ll.lat, ll.lng);
-        const ux = gx * SYN.UP, uy = gy * SYN.UP;
-        const o = (py * lw + pxi) * 4;
-        let r = 0, g = 0, b = 0, a = 0;
-        if (syn.layers.airmass) {
-          const c = tempColor(sampleU(air, ux, uy));
-          r = c[0]; g = c[1]; b = c[2]; a = 0.42;
-        }
-        if (syn.layers.fronts) {
-          const gxv = sampleU(gradX, ux, uy), gyv = sampleU(gradY, ux, uy);
-          const G = Math.hypot(gxv, gyv);
-          if (G > 1.6) {
-            const adv = -(sampleU(uU, ux, uy) * gxv + sampleU(vU, ux, uy) * gyv);
-            const fa = Math.min(0.75, (G - 1.6) / 2.2);
-            const fc = adv < 0 ? [70, 140, 255] : [255, 90, 90];
-            r = r * (1 - fa) + fc[0] * fa; g = g * (1 - fa) + fc[1] * fa; b = b * (1 - fa) + fc[2] * fa;
-            a = Math.max(a, Math.min(0.7, a + fa * 0.8));
-          }
-        }
-        if (prU) {
-          const pv = sampleU(prU, ux, uy);
-          if (pv > 0.08) {
-            const pc = pv < 0.5 ? [90, 200, 120] : pv < 2 ? [245, 210, 90] : [235, 75, 140];
-            const pa = Math.min(0.72, 0.28 + pv * 0.14);
-            r = r * (1 - pa) + pc[0] * pa; g = g * (1 - pa) + pc[1] * pa; b = b * (1 - pa) + pc[2] * pa;
-            a = Math.max(a, Math.min(0.8, a + pa));
-          }
-        }
-        px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = Math.round(a * 255);
+    const P = fieldProj(3);
+    const px = P.img.data;
+    const n = P.lw * P.lh;
+    for (let i = 0; i < n; i++) {
+      const ux = P.ux[i], uy = P.uy[i];
+      const o = i * 4;
+      let r = 0, g = 0, b = 0, a = 0;
+      if (syn.layers.airmass) {
+        const c = tempColor(sampleU(air, ux, uy));
+        r = c[0]; g = c[1]; b = c[2]; a = 0.42;
       }
+      if (syn.layers.fronts) {
+        const gxv = sampleU(gradX, ux, uy), gyv = sampleU(gradY, ux, uy);
+        const G = Math.hypot(gxv, gyv);
+        if (G > 1.6) {
+          const adv = -(sampleU(uU, ux, uy) * gxv + sampleU(vU, ux, uy) * gyv);
+          const fa = Math.min(0.75, (G - 1.6) / 2.2);
+          const fc = adv < 0 ? [70, 140, 255] : [255, 90, 90];
+          r = r * (1 - fa) + fc[0] * fa; g = g * (1 - fa) + fc[1] * fa; b = b * (1 - fa) + fc[2] * fa;
+          a = Math.max(a, Math.min(0.7, a + fa * 0.8));
+        }
+      }
+      if (prU) {
+        const pv = sampleU(prU, ux, uy);
+        // opacity ramps from ~0 at the threshold so drizzle stays a hint
+        // and only real cells read like radar echoes
+        if (pv >= 0.15) {
+          const pc = pv < 0.5 ? [90, 200, 120] : pv < 2 ? [245, 210, 90] : [235, 75, 140];
+          const pa = Math.min(0.62, 0.10 + (pv - 0.15) * 0.34);
+          r = r * (1 - pa) + pc[0] * pa; g = g * (1 - pa) + pc[1] * pa; b = b * (1 - pa) + pc[2] * pa;
+          a = Math.max(a, Math.min(0.8, a + pa));
+        }
+      }
+      px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = Math.round(a * 255);
     }
-    const off = document.createElement('canvas');
-    off.width = lw; off.height = lh;
-    off.getContext('2d').putImageData(img, 0, 0);
+    P.offCtx.putImageData(P.img, 0, 0);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(off, 0, 0, lw, lh, 0, 0, lw * B, lh * B);
+    ctx.drawImage(P.off, 0, 0, P.lw, P.lh, 0, 0, P.lw * P.B, P.lh * P.B);
   }
 
   /* --- isobars + H/L --- */
-  if (syn.layers.isobars) drawIsobars(ctx, mslp, w, h);
+  if (syn.layers.isobars) drawIsobars(ctx, mslp, w, h, tf);
 
   drawCityMarks(ctx);
 }
@@ -1029,7 +1121,7 @@ function uProject(ux, uy) {     // upsampled-grid coords → container px
 }
 
 /* marching squares on the upsampled MSLP grid */
-function drawIsobars(ctx, mslp, w, h) {
+function drawIsobars(ctx, mslp, w, h, tf) {
   let mn = Infinity, mx = -Infinity;
   for (const v of mslp) { if (v < mn) mn = v; if (v > mx) mx = v; }
   const lo = Math.ceil(mn / 2) * 2, hi = Math.floor(mx / 2) * 2;
@@ -1094,14 +1186,15 @@ function drawIsobars(ctx, mslp, w, h) {
     ctx.fillText(String(lb.lev), lb.x, lb.y);
   }
   ctx.restore();
-  drawExtrema(ctx);
+  drawExtrema(ctx, tf);
 }
 
 function frac(a, b, lev) { return b === a ? 0.5 : Math.max(0, Math.min(1, (lev - a) / (b - a))); }
 
 /* H/L centers from the base-resolution MSLP grid (less noise than upsampled) */
-function findExtrema(t) {
-  const f = baseField('pressure_msl', t);
+function findExtrema(t) { return findExtremaIn(baseField('pressure_msl', t)); }
+
+function findExtremaIn(f) {
   const marks = [];
   for (let y = 1; y < SYN.NY - 1; y++) {
     for (let x = 1; x < SYN.NX - 1; x++) {
@@ -1125,8 +1218,8 @@ function findExtrema(t) {
   return marks;
 }
 
-function drawExtrema(ctx) {
-  const marks = findExtrema(syn.t);
+function drawExtrema(ctx, tf = syn.tf) {
+  const marks = findExtremaIn(baseFieldAt('pressure_msl', tf));
   const cw = parseInt($('syn-canvas').style.width, 10);
   const ch = parseInt($('syn-canvas').style.height, 10);
   ctx.save();
@@ -1170,22 +1263,33 @@ function drawCityMarks(ctx) {
 
 const PARTICLE_N = 650;
 
-function buildWindLut() {
+function buildWindLut(tf = syn.tf) {
   const cv = $('syn-particles');
   const w = parseInt(cv.style.width, 10), h = parseInt(cv.style.height, 10);
   const step = 8;
-  const gw = Math.ceil(w / step) + 1, gh = Math.ceil(h / step) + 1;
-  const u = new Float32Array(gw * gh), v = new Float32Array(gw * gh);
-  const { u: bu, v: bv } = uvFields(syn.t);
-  for (let gy = 0; gy < gh; gy++) {
-    for (let gx = 0; gx < gw; gx++) {
-      const ll = syn.map.containerPointToLatLng([gx * step, gy * step]);
-      const { gx: fx, gy: fy } = gridXY(ll.lat, ll.lng);
-      u[gy * gw + gx] = bilinear(bu, fx, fy);
-      v[gy * gw + gx] = bilinear(bv, fx, fy);
+  let P = syn.lutProj;
+  if (!P || P.w !== w || P.h !== h) {
+    // cache the pixel→grid projection like fieldProj — only changes on resize
+    const gw = Math.ceil(w / step) + 1, gh = Math.ceil(h / step) + 1;
+    const fx = new Float32Array(gw * gh), fy = new Float32Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        const ll = syn.map.containerPointToLatLng([gx * step, gy * step]);
+        const g = gridXY(ll.lat, ll.lng);
+        fx[gy * gw + gx] = g.gx; fy[gy * gw + gx] = g.gy;
+      }
     }
+    P = syn.lutProj = {
+      w, h, step, gw, gh, fx, fy,
+      u: new Float32Array(gw * gh), v: new Float32Array(gw * gh),
+    };
   }
-  syn.lut = { u, v, gw, gh, step, w, h };
+  const { u: bu, v: bv } = uvFieldsAt(tf);
+  for (let i = 0; i < P.gw * P.gh; i++) {
+    P.u[i] = bilinear(bu, P.fx[i], P.fy[i]);
+    P.v[i] = bilinear(bv, P.fx[i], P.fy[i]);
+  }
+  syn.lut = P;
 }
 
 function lutUV(x, y) {
@@ -1245,14 +1349,19 @@ function particleLoop() {
 
 /* ----------------------------- controls ---------------------------------- */
 
-function synSetTime(t, fromSlider) {
-  syn.t = Math.max(0, Math.min(syn.times.length - 1, t));
-  if (!fromSlider) $('syn-slider').value = syn.t;
+function synTimeLabel() {
   const d = new Date(syn.times[syn.t]);
   const dh = Math.round((d.getTime() - Date.now()) / 3600000);
   const rel = dh === 0 ? 'now' : dh > 0 ? `+${dh} h` : `${dh} h`;
   $('syn-time').innerHTML =
     `${esc(fmtTime(d, { weekday: 'short', hour: 'numeric', timeZoneName: 'short' }))} <span class="rel">· ${esc(rel)}</span>`;
+}
+
+function synSetTime(t, fromSlider) {
+  syn.t = Math.max(0, Math.min(syn.times.length - 1, Math.round(t)));
+  syn.tf = syn.t;
+  if (!fromSlider) $('syn-slider').value = syn.t;
+  synTimeLabel();
   updateRadarVisibility();
   drawFields();
   buildWindLut();
@@ -1268,15 +1377,38 @@ function synNowIndex() {
   return best;
 }
 
+/* Playback glides through fractional hours (fields are blended between the
+   two bracketing frames per rAF tick); the hourly bookkeeping — slider, time
+   label, radar swap, the "why" read — only runs when the nearest hour
+   changes. */
+const PLAY_MS_PER_HOUR = 650;
+
 function synTogglePlay(force) {
   syn.playing = force != null ? force : !syn.playing;
   $('syn-play').textContent = syn.playing ? '⏸ Pause' : '▶ Play';
-  clearInterval(syn.playTimer);
-  if (syn.playing) {
-    syn.playTimer = setInterval(() => {
-      synSetTime((syn.t + 1) % syn.times.length);
-    }, 550);
-  }
+  if (syn.playAnim) { cancelAnimationFrame(syn.playAnim); syn.playAnim = null; }
+  if (!syn.playing) { syn.tf = syn.t; drawFields(); buildWindLut(); return; }
+  let last = performance.now();
+  const frame = (now) => {
+    syn.playAnim = requestAnimationFrame(frame);
+    if (document.hidden) { last = now; return; }
+    const dt = Math.min(250, now - last);
+    last = now;
+    let tf = syn.tf + dt / PLAY_MS_PER_HOUR;
+    if (tf >= syn.times.length - 1) tf = 0;
+    syn.tf = tf;
+    const hr = Math.round(tf);
+    if (hr !== syn.t) {
+      syn.t = hr;
+      $('syn-slider').value = hr;
+      synTimeLabel();
+      updateRadarVisibility();
+      synExplain();
+    }
+    drawFields(tf);
+    buildWindLut(tf);
+  };
+  syn.playAnim = requestAnimationFrame(frame);
 }
 
 function synHover(ev) {
