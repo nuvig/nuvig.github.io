@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather Almanac — the DC/Annapolis weather archive, explorable</title>
+  <meta name="description" content="Every archived METAR, TAF, forecast snapshot, alert and forecast discussion for the DC/Annapolis area — a calendar of flight categories, day-by-day observations, how each day's forecast drifted before it verified, and season-long trends.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/almanac.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/almanac.html">
+  <meta property="og:title" content="Weather Almanac — the archive, explorable">
+  <meta property="og:description" content="A calendar of every archived day of DC/Annapolis weather: METARs, TAFs, forecast drift and verification, alerts, discussions, and season-long trends.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link {
+      display: inline-block; margin-top: 16px; font-size: 14px;
+      text-decoration: none; color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card h2 .sub { font-size: 12px; font-weight: 400; color: #777; }
+
+    /* ---- calendar ---- */
+    #cal-scroll { overflow-x: auto; padding-bottom: 4px; }
+    #cal { display: inline-flex; gap: 3px; }
+    .cal-month { flex: none; }
+    .cal-month .m-label { font-size: 11px; color: #888; margin: 0 0 4px 1px; }
+    .cal-weeks { display: flex; gap: 3px; }
+    .cal-week { display: flex; flex-direction: column; gap: 3px; }
+    .cal-day {
+      width: 15px; height: 15px; border-radius: 3px; background: #222;
+      cursor: pointer; position: relative; flex: none;
+    }
+    .cal-day.empty { background: transparent; cursor: default; }
+    .cal-day.nodata { background: #1d1d1d; cursor: default; }
+    .cal-day:not(.empty):not(.nodata):hover { outline: 1px solid #aaa; }
+    .cal-day.sel { outline: 2px solid #fff; z-index: 1; }
+    .cal-day .bolt {
+      position: absolute; top: -3px; right: -2px; font-size: 8px;
+      line-height: 1; pointer-events: none;
+      filter: drop-shadow(0 0 1px #000);
+    }
+    .cal-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: #888; }
+    .cal-legend .chip { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+    #cal-progress { font-size: 12px; color: #666; margin-top: 6px; }
+
+    /* ---- day header ---- */
+    .day-head {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin: 28px 0 4px; padding-top: 16px; border-top: 1px solid #262626;
+    }
+    .day-head h2 { margin: 0; font-size: 20px; color: #e8e8e8; }
+    .day-head .nav-btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 14px; padding: 3px 12px; border-radius: 5px; cursor: pointer;
+      font-family: inherit;
+    }
+    .day-head .nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .day-head .nav-btn:not(:disabled):hover { background: #26497a; }
+    .day-head input[type="date"] {
+      background: #1a1a1a; color: #ccc; border: 1px solid #333; border-radius: 5px;
+      padding: 3px 8px; font: inherit; font-size: 13px; color-scheme: dark;
+    }
+    .stream-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .stream-chips span {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      border: 1px solid #2c3946; background: #141a21; color: #9aa7b2;
+      font-variant-numeric: tabular-nums;
+    }
+    .stream-chips span.off { opacity: 0.3; }
+
+    canvas.chart { width: 100%; display: block; }
+
+    .stat-line { font-size: 13px; color: #999; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+    .stat-line b { color: #ddd; font-weight: 600; }
+    .cat-word { font-weight: 700; }
+
+    details.fold { margin-top: 10px; }
+    details.fold > summary {
+      cursor: pointer; font-size: 13px; color: #8a959f; user-select: none;
+      list-style: none;
+    }
+    details.fold > summary::-webkit-details-marker { display: none; }
+    details.fold > summary::before { content: "▸ "; color: #5d7791; }
+    details.fold[open] > summary::before { content: "▾ "; }
+    details.fold > summary:hover { color: #cfe6ff; }
+
+    /* ---- METAR list ---- */
+    .ob-list { margin-top: 8px; max-height: 420px; overflow-y: auto; }
+    .ob-row {
+      display: flex; gap: 10px; align-items: baseline; padding: 3px 4px;
+      font-size: 12px; border-bottom: 1px solid #1f1f1f;
+    }
+    .ob-row .t { color: #888; flex: none; width: 42px; font-variant-numeric: tabular-nums; }
+    .ob-row .cat {
+      flex: none; width: 38px; text-align: center; font-size: 10px; font-weight: 700;
+      border-radius: 3px; color: #000; padding: 1px 0;
+    }
+    .ob-row code {
+      font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+      color: #bbb; word-break: break-all;
+    }
+
+    /* ---- TAF / AFD lists ---- */
+    .iss { margin: 6px 0; }
+    .iss > summary {
+      cursor: pointer; font-size: 13px; color: #aab4be; user-select: none;
+      padding: 5px 8px; background: #161c23; border: 1px solid #2c3946; border-radius: 6px;
+      list-style: none; font-variant-numeric: tabular-nums;
+    }
+    .iss > summary::-webkit-details-marker { display: none; }
+    .iss > summary:hover { border-color: #4a9eff; color: #cfe6ff; }
+    .iss > summary .who { color: #4a9eff; font-weight: 600; margin-right: 8px; }
+    .iss > summary .meta { color: #667; font-size: 12px; float: right; }
+    .iss .body { padding: 6px 4px 2px; }
+    .taf-line {
+      display: flex; gap: 10px; font-size: 12px; padding: 3px 4px;
+      border-bottom: 1px solid #1f1f1f; align-items: baseline;
+      font-variant-numeric: tabular-nums;
+    }
+    .taf-line .ind { flex: none; width: 58px; color: #4a9eff; font-weight: 600; font-size: 11px; }
+    .taf-line .when { flex: none; width: 88px; color: #888; }
+    .taf-line .what { color: #bbb; }
+    pre.product {
+      font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+      color: #b5bec7; white-space: pre-wrap; line-height: 1.5;
+      max-height: 480px; overflow-y: auto; margin: 6px 0 0;
+      background: #141414; border: 1px solid #262626; border-radius: 6px; padding: 10px 12px;
+    }
+
+    /* ---- alerts ---- */
+    .alert-row {
+      border-left: 3px solid var(--sev, #888); background: #1a1712;
+      border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 8px 0; font-size: 13px;
+    }
+    .alert-row .ev { font-weight: 700; color: #eee; }
+    .alert-row .when { color: #887; font-size: 12px; margin-left: 8px; font-variant-numeric: tabular-nums; }
+    .alert-row .hl { color: #a99; margin-top: 2px; font-size: 12px; }
+    .alert-row pre { margin: 6px 0 0; }
+
+    /* ---- grid hourly table ---- */
+    table.grid-tab {
+      border-collapse: collapse; font-size: 12px; margin-top: 8px; width: 100%;
+      font-variant-numeric: tabular-nums;
+    }
+    .grid-tab th { color: #778; font-weight: 600; text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid #333; }
+    .grid-tab td { color: #aab; padding: 2px 8px 2px 0; border-bottom: 1px solid #1d1d1d; white-space: nowrap; }
+    .grid-tab td.wx { color: #8a959f; white-space: normal; }
+
+    .note { font-size: 12px; color: #667; margin-top: 8px; line-height: 1.5; }
+    .empty-note { font-size: 13px; color: #667; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Weather Almanac</h1>
+    <p class="subtitle">
+      Every hour this site archives the raw material of the local weather story —
+      METARs, TAFs, forecast snapshots, the NWS grid, alerts, model soundings and every
+      forecast discussion. This page is the reading room: pick any archived day and see what
+      happened, what was forecast, and how the two compare.
+      Live views: <a href="/weather.html">weather</a> · <a href="/discussion.html">discussion</a>.
+    </p>
+  </header>
+
+  <div class="status-bar" id="stats">Loading the archive catalog…</div>
+
+  <section class="card">
+    <h2>The season at a glance
+      <span class="sub">each day colored by its worst daytime flight category (8 am – 8 pm, KDCA) · click a day to open it</span>
+    </h2>
+    <div id="cal-scroll"><div id="cal"></div></div>
+    <div class="cal-legend" id="cal-legend"></div>
+    <div id="cal-progress"></div>
+  </section>
+
+  <div class="day-head">
+    <button class="nav-btn" id="day-prev" title="Previous day (←)">‹</button>
+    <h2 id="day-title">—</h2>
+    <button class="nav-btn" id="day-next" title="Next day (→)">›</button>
+    <input type="date" id="day-pick">
+    <div class="stream-chips" id="day-chips"></div>
+  </div>
+
+  <section class="card" id="obs-card" hidden>
+    <h2>What happened <span class="sub" id="obs-sub"></span></h2>
+    <canvas class="chart" id="obs-chart" height="260"></canvas>
+    <p class="stat-line" id="obs-stats"></p>
+    <details class="fold" id="obs-fold">
+      <summary>Raw METARs</summary>
+      <div class="ob-list" id="ob-list"></div>
+    </details>
+  </section>
+
+  <section class="card" id="drift-card" hidden>
+    <h2>What was forecast <span class="sub" id="drift-sub"></span></h2>
+    <canvas class="chart" id="drift-chart" height="200"></canvas>
+    <p class="stat-line" id="drift-stats"></p>
+  </section>
+
+  <section class="card" id="grid-card" hidden>
+    <h2>The morning's hourly picture <span class="sub" id="grid-sub"></span></h2>
+    <canvas class="chart" id="grid-chart" height="200"></canvas>
+    <details class="fold">
+      <summary>Hour-by-hour grid table</summary>
+      <div id="grid-table"></div>
+    </details>
+    <p class="note">The NWS hourly grid at the field as it stood that morning — the table every
+      weather app renders — beside the GFS's CAPE and precipitation rate. Forecast, not observation.</p>
+  </section>
+
+  <section class="card" id="alert-card" hidden>
+    <h2>Alerts</h2>
+    <div id="alert-list"></div>
+  </section>
+
+  <section class="card" id="taf-card" hidden>
+    <h2>TAFs <span class="sub">as issued that day — KANP has no TAF; these are the neighbors</span></h2>
+    <div id="taf-list"></div>
+  </section>
+
+  <section class="card" id="afd-card" hidden>
+    <h2>Forecast discussions <span class="sub">every LWX issuance that day, full text</span></h2>
+    <div id="afd-list"></div>
+  </section>
+
+  <p class="empty-note" id="day-empty" hidden>Nothing archived for this day.</p>
+
+  <section class="card" id="trend-card" hidden>
+    <h2>The whole archive <span class="sub" id="trend-sub"></span></h2>
+    <canvas class="chart" id="trend-chart" height="240"></canvas>
+    <p class="note">Daily temperature span (KDCA, each bar min → max of the day's own METARs),
+      colored by the day's high. Below: the day's worst daytime flight category, and dots for
+      days with rain (·) and thunderstorms (⚡) in the METARs.</p>
+  </section>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <footer>
+    <p>Observations KDCA (the archive's verification station) · archive written hourly by a GitHub Action ·
+      <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">raw data</a></p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/wx-archive.js?v=1"></script>
+  <script src="js/almanac.js?v=1"></script>
+</body>
+</html>
