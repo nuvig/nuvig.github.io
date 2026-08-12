@@ -648,7 +648,7 @@ const syn = {
   map: null, times: [], raw: {}, t: 0, tf: 0, playing: false, playAnim: null,
   cache: new Map(), tRange: null, lut: null, parts: null, ready: false,
   proj: null, lutProj: null, lerpBuf: {},
-  layers: { airmass: true, fronts: true, isobars: true, wind: true, radar: true },
+  layers: { airmass: false, fronts: true, isobars: true, wind: true, radar: true, radarLoop: false },
 };
 
 function synUrl() {
@@ -937,7 +937,7 @@ function radarNote(ms) {
   const el = $('syn-radar-note');
   if (!el) return;
   el.textContent = (ms
-    ? `radar ${fmtTime(new Date(ms), { hour: 'numeric', minute: '2-digit' })}, last hour loops at “now”`
+    ? `radar ${fmtTime(new Date(ms), { hour: 'numeric', minute: '2-digit' })}${syn.layers.radarLoop ? ', last hour loops' : ''} at “now”`
     : 'radar at “now”') + ' · shading = model precip at other hours';
 }
 
@@ -946,8 +946,15 @@ function updateRadarVisibility() {
   const show = syn.layers.radar && isNowStep();
   if (show) {
     for (const l of radar.layers) if (!syn.map.hasLayer(l)) l.addTo(syn.map);
-    radarShowFrame(radar.fi);
-    if (!radar.timer) radar.timer = setInterval(radarStep, RADAR_TICK_MS);
+    if (syn.layers.radarLoop) {
+      if (!radar.timer) radar.timer = setInterval(radarStep, RADAR_TICK_MS);
+      radarShowFrame(radar.fi);
+    } else {
+      // loop off: hold the newest frame, and resume from it if re-enabled
+      if (radar.timer) { clearInterval(radar.timer); radar.timer = null; }
+      radar.tick = radar.layers.length - 1;
+      radarShowFrame(radar.layers.length - 1);
+    }
   } else {
     if (radar.timer) { clearInterval(radar.timer); radar.timer = null; }
     for (const l of radar.layers) if (syn.map.hasLayer(l)) syn.map.removeLayer(l);
@@ -1640,6 +1647,14 @@ async function loadSynoptic() {
       synExplain();
     });
   }
+  // radar loop preference sticks across visits (off unless opted in)
+  syn.layers.radarLoop = localStorage.getItem('disc_radar_loop') === '1';
+  $('lyr-radar-loop').checked = syn.layers.radarLoop;
+  $('lyr-radar-loop').addEventListener('change', (e) => {
+    syn.layers.radarLoop = e.target.checked;
+    try { localStorage.setItem('disc_radar_loop', e.target.checked ? '1' : '0'); } catch (err) { /* private mode */ }
+    updateRadarVisibility();
+  });
   loadRadar().catch(() => { /* radar is optional garnish */ });
   setInterval(() => loadRadar().catch(() => {}), 5 * 60 * 1000);
   let resizeTimer = null;
