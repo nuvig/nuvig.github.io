@@ -9,7 +9,10 @@ device (localStorage only remembers one browser):
     products API only keeps a few days; this keeps them all)
   - NWS daily-forecast snapshots for DC several times a day (what was
     *expected*, for drift + verification)
-  - KDCA METARs per day (what actually *happened*)
+  - KDCA METARs per day (what actually *happened* where the forecast is for)
+  - KNAK METARs per day (what actually happened *at the field* — KANP has no
+    on-field sensor, and verifying a KANP forecast against KDCA means
+    verifying it 25 nm away)
   - the NWS hourly grid at KANP (ceiling/vis/wind/PoP/weather, 48 h out)
   - every TAF issuance for KMTN/KBWI/KDCA, decoded from IWXXM
   - active alerts, and a GFS CAPE/CIN/precip digest at the field
@@ -29,6 +32,8 @@ Output layout (data/wx/):
   afd/YYYY/afd-YYYYMMDD-HHMM.json  one file per AFD issuance (UTC stamp)
   forecast/YYYY-MM-DD.json         {date, snaps:[{t, days:{date:{hi,lo,pop,short}}}]}
   obs/YYYY-MM-DD.json              {date, station, metars:[[t, raw], ...]}
+  fieldobs/YYYY-MM-DD.json         same shape, the field's own station (hourly,
+                                   so sparser than obs/ — tolerate gaps)
 
 Growth math: AFDs are ~8 KB × ~5/day, forecasts + obs a few KB/day —
 roughly 15 MB/year of JSON. A public repo doesn't notice.
@@ -45,6 +50,12 @@ import xml.etree.ElementTree as ET
 
 OFFICE = os.environ.get("WX_OFFICE", "LWX")
 OBS_STATION = os.environ.get("WX_OBS", "KDCA")
+# The field's own sensor. The grid stream forecasts KANP, but KANP has no
+# on-field METAR, so the nearest one (KNAK, USNA, ~3 nm NE) stands in for it.
+# Without this the aviation rows on discussion.html can only check a KANP
+# forecast against KDCA weather ~25 nm NW. Blank — or the same id as WX_OBS,
+# for a field that reports its own METAR — disables the stream.
+FIELD_OBS_STATION = os.environ.get("WX_FIELD_OBS", "KNAK")
 POINT = os.environ.get("WX_POINT", "38.8894,-77.0352")  # downtown DC
 TZ = "America/New_York"   # archive days are local DC days (matches the page)
 
@@ -54,6 +65,7 @@ WX = os.path.join(REPO, "data", "wx")
 AFD_DIR = os.path.join(WX, "afd")
 FC_DIR = os.path.join(WX, "forecast")
 OBS_DIR = os.path.join(WX, "obs")
+FIELDOBS_DIR = os.path.join(WX, "fieldobs")
 GRID_DIR = os.path.join(WX, "grid")
 TAF_DIR = os.path.join(WX, "taf")
 ALERT_DIR = os.path.join(WX, "alerts")
@@ -208,7 +220,7 @@ def snapshot_forecast():
     return True
 
 
-def archive_obs():
+def archive_metars(station, out_dir):
     """Window by *time*, never by count. KDCA publishes a 5-minute ob, so the
     old `?limit=72` reached back only ~5 h and carried just 5 rawMessages —
     any scheduler gap longer than that dropped those hours for good, because
@@ -216,7 +228,7 @@ def archive_obs():
     bigger response (~475 features) and makes every run self-healing."""
     start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         hours=OBS_LOOKBACK_H)
-    data = fetch(f"{NWS}/stations/{OBS_STATION}/observations"
+    data = fetch(f"{NWS}/stations/{station}/observations"
                  f"?start={start:%Y-%m-%dT%H:00:00Z}", fresh=True)
     tz = local_now().tzinfo
     by_day = {}
@@ -230,8 +242,8 @@ def archive_obs():
         by_day.setdefault(day, []).append([int(t.timestamp()), raw])
     changed = 0
     for day, metars in by_day.items():
-        path = os.path.join(OBS_DIR, f"{day}.json")
-        doc = read_json(path, {"date": day, "station": OBS_STATION, "metars": []})
+        path = os.path.join(out_dir, f"{day}.json")
+        doc = read_json(path, {"date": day, "station": station, "metars": []})
         have = {m[0] for m in doc["metars"]}
         add = [m for m in metars if m[0] not in have]
         if not add:
@@ -240,8 +252,23 @@ def archive_obs():
         write_json(path, doc)
         changed += len(add)
     if changed:
-        log(f"archived {changed} new METAR(s) from {OBS_STATION}")
+        log(f"archived {changed} new METAR(s) from {station}")
     return changed
+
+
+def archive_obs():
+    """The station that verifies the DC forecast this archive is built around."""
+    return archive_metars(OBS_STATION, OBS_DIR)
+
+
+def archive_field_obs():
+    """The airfield's own weather, so the aviation rows can check a forecast
+    made *for the field* against a sensor at the field. KNAK reports hourly
+    (not KDCA's 5-minute cadence) and occasionally omits rawMessage, so this
+    stream is sparser than obs/ by nature — consumers must tolerate gaps."""
+    if not FIELD_OBS_STATION or FIELD_OBS_STATION == OBS_STATION:
+        return 0
+    return archive_metars(FIELD_OBS_STATION, FIELDOBS_DIR)
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +545,7 @@ def write_latest():
     grid = read_json(os.path.join(GRID_DIR, today + ".json"), {})
     model = read_json(os.path.join(MODEL_DIR, today + ".json"), {})
     obs = read_json(os.path.join(OBS_DIR, today + ".json"), {})
+    fieldobs = read_json(os.path.join(FIELDOBS_DIR, today + ".json"), {})
     alerts = read_json(os.path.join(ALERT_DIR, today + ".json"), {})
     tafs = {}
     for day in (today, f"{now - datetime.timedelta(days=1):%Y-%m-%d}"):
@@ -529,6 +557,7 @@ def write_latest():
     write_json(os.path.join(WX, "latest.json"), {
         "t": int(now.timestamp()),
         "office": OFFICE, "station": OBS_STATION, "point": POINT, "field": FIELD,
+        "field_station": FIELD_OBS_STATION,
         "afd": afd,
         "forecast": last(fc, "snaps"),
         "grid": last(grid, "snaps"),
@@ -536,6 +565,8 @@ def write_latest():
         "tafs": tafs,
         "alerts": alerts.get("alerts", []),
         "obs": (obs.get("metars") or [])[-12:],
+        # hourly station, so a shorter tail still covers the same span as obs
+        "fieldobs": (fieldobs.get("metars") or [])[-6:],
     })
     log("latest.json written")
 
@@ -562,9 +593,11 @@ def build_index():
         "updated": int(datetime.datetime.now().timestamp()),
         "office": OFFICE,
         "station": OBS_STATION,
+        "field_station": FIELD_OBS_STATION,
         "afd": afd,
         "forecast_days": listing(FC_DIR),
         "obs_days": listing(OBS_DIR),
+        "fieldobs_days": listing(FIELDOBS_DIR),
         "grid_days": listing(GRID_DIR),
         "taf_days": listing(TAF_DIR),
         "alert_days": listing(ALERT_DIR),
@@ -577,7 +610,7 @@ def build_index():
 
 def main():
     problems = 0
-    for step in (archive_afds, snapshot_forecast, archive_obs,
+    for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
                  snapshot_grid, archive_tafs, snapshot_alerts, snapshot_model):
         try:
             step()

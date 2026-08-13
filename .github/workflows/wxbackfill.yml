@@ -17,9 +17,9 @@ on:
         required: false
         default: ''
       streams:
-        description: 'Streams: obs,afd,taf (+model, opt-in)'
+        description: 'Streams: obs,fieldobs,afd,taf (+model, opt-in)'
         required: false
-        default: 'obs,afd,taf'
+        default: 'obs,fieldobs,afd,taf'
 
 permissions:
   contents: write

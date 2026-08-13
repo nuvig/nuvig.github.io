@@ -1696,6 +1696,10 @@ async function loadSynoptic() {
 
 const OBS_STATION = 'KDCA';
 const FIELD_ID = (typeof SITE !== 'undefined' && SITE.airport && SITE.airport.id) || 'KANP';
+/* The station standing in for the field. KANP has no on-field sensor, so
+   site-config points at KNAK (~3 nm NE); the archive's latest.json carries
+   the id the archiver actually used, which wins when present. */
+const FIELD_OBS_ID = (typeof SITE !== 'undefined' && SITE.airport && SITE.airport.metarStation) || '';
 const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 const localDay = (ms) => DAY_FMT.format(new Date(ms));
 
@@ -1749,11 +1753,13 @@ function metarObs(raw) {
 
 const hourLabel = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
 
-/* "9 AM" for one hour, "9 AM–1 PM" for a run. */
+/* "9 AM" for one hour, "9 AM–1 PM" for a run. Compares the *labels*, not the
+   timestamps — two obs 20 minutes apart are both "5 PM" and must not render
+   as "5 PM–5 PM". */
 function hourSpan(list) {
   if (!list || !list.length) return '';
-  const a = list[0], b = list[list.length - 1];
-  return a === b ? hourLabel(a) : `${hourLabel(a)}–${hourLabel(b)}`;
+  const a = hourLabel(list[0]), b = hourLabel(list[list.length - 1]);
+  return a === b ? a : `${a}–${b}`;
 }
 
 /* Did the observed hours land in (or next to) the advertised ones? An
@@ -1892,6 +1898,27 @@ async function loadVerification() {
   const lastObMs = metars[metars.length - 1][0] * 1000;
   const decoded = metars.map(([ts, raw]) => ({ ms: ts * 1000, o: metarObs(raw) }));
 
+  /* The field's own sensor (KNAK, ~3 nm from the runway), which is what the
+     field rows should be checked against — the grid forecasts KANP, and
+     KDCA is 25 nm NW. Days before the fieldobs stream existed have none, so
+     everything below falls back to the DC station and relabels itself. */
+  let fieldMetars = [], fieldObsId = FIELD_OBS_ID;
+  try {
+    const raws = new Map();
+    const arc = await WXA.day('fieldobs', today);
+    for (const [ts, raw] of (arc && arc.metars) || []) raws.set(ts, raw);
+    const wl = await WXA.latest();
+    if (wl && wl.field_station) fieldObsId = wl.field_station;
+    for (const [ts, raw] of (wl && wl.fieldobs) || []) raws.set(ts, raw);
+    fieldMetars = [...raws.entries()]
+      .filter(([ts]) => localDay(ts * 1000) === today && ts * 1000 <= now)
+      .sort((a, b) => a[0] - b[0]);
+  } catch (e) { /* no field stream — the fallback below covers it */ }
+  const atField = fieldMetars.length > 0;
+  const fieldStation = atField ? fieldObsId : OBS_STATION;
+  const fDecoded = (atField ? fieldMetars : metars)
+    .map(([ts, raw]) => ({ ms: ts * 1000, o: metarObs(raw) }));
+
   /* this morning's minimum, which is what last night's forecast low meant */
   let gotLo = null, gotLoMs = null;
   for (const d of decoded) {
@@ -1905,10 +1932,15 @@ async function loadVerification() {
     const f = Math.round(degF(d.o.tC));
     if (gotHi == null || f > gotHi) { gotHi = f; gotHiMs = d.ms; }
   }
+  /* Thunder stays on the DC station even when the field reports: KNAK is an
+     AUTO site, and an automated station only calls TS if it carries lightning
+     detection, so absence there is not evidence of absence. Ceiling, vis,
+     wind and precip are exactly what an AO2 measures well — those move to
+     the field. */
   const tsObs = decoded.filter((d) => d.o.ts);
-  const rainObs = decoded.filter((d) => d.o.rain);
+  const rainObs = fDecoded.filter((d) => d.o.rain);
   let peakSpd = 0, peakGst = 0;
-  for (const d of decoded) {
+  for (const d of fDecoded) {
     peakSpd = Math.max(peakSpd, d.o.spd || 0);
     peakGst = Math.max(peakGst, d.o.gst || 0);
   }
@@ -1956,7 +1988,7 @@ async function loadVerification() {
   /* ---------- windows ---------- */
 
   const settled = [], open = [];
-  const pairs = hourlyPairs(metars, gridSnap, today);
+  const pairs = hourlyPairs(atField ? fieldMetars : metars, gridSnap, today);
   const catPairs = pairs.filter((p) => p.fCat != null);
 
   /* 1 — last night's low. Closes at 09:00; before that the night is still
@@ -1992,14 +2024,14 @@ async function loadVerification() {
     if (worse.length) {
       state = 'miss';
       const w = worse.map((p) => p.hr);
-      got = `${OBS_STATION} <b>${CATS[Math.max(...worse.map((p) => p.obs.cat))]}</b> ${esc(hourSpan(w))}`;
+      got = `${esc(fieldStation)} <b>${CATS[Math.max(...worse.map((p) => p.obs.cat))]}</b> ${esc(hourSpan(w))}`;
       note = `${worse.length} h worse than advertised`;
     } else if (better.length) {
       state = 'near';
-      got = `${OBS_STATION} <b>${CATS[Math.min(...better.map((p) => p.obs.cat))]}</b> — better than called`;
+      got = `${esc(fieldStation)} <b>${CATS[Math.min(...better.map((p) => p.obs.cat))]}</b> — better than called`;
       note = `${better.length} of ${catPairs.length} h`;
     } else {
-      got = `${OBS_STATION} <b>${CATS[agree[0].obs.cat]}</b> every hour`;
+      got = `${esc(fieldStation)} <b>${CATS[agree[0].obs.cat]}</b> every hour`;
       note = `${agree.length} of ${catPairs.length} h matched`;
     }
     settled.push({ state, what: 'Ceiling & vis', said, got, note });
@@ -2015,7 +2047,7 @@ async function loadVerification() {
       state: Math.abs(d) <= 4 ? 'hit' : Math.abs(d) <= 8 ? 'near' : 'miss',
       what: 'Wind',
       said: `${esc(FIELD_ID)} grid peaked ${fPeak} kt${fGstPeak ? ` G${Math.round(fGstPeak)}` : ''}`,
-      got: `${OBS_STATION} <b>${peakSpd} kt</b>${peakGst ? ` G${peakGst}` : ''}`,
+      got: `${esc(fieldStation)} <b>${peakSpd} kt</b>${peakGst ? ` G${peakGst}` : ''}`,
       note: d === 0 ? 'spot on' : `${Math.abs(d)} kt ${d > 0 ? 'stronger' : 'lighter'}`,
     });
   }
@@ -2038,14 +2070,14 @@ async function loadVerification() {
       state: hit ? 'hit' : timingOff ? 'near' : 'miss',
       what: 'Rain so far',
       said: rainPast.length ? `${esc(FIELD_ID)} grid: rain ${esc(hourSpan(rainPast))}` : `${esc(FIELD_ID)} grid: dry`,
-      got: obsMs.length ? `${OBS_STATION} <b>rain</b> ${esc(hourSpan(obsMs))}` : `${OBS_STATION} <b>dry</b>`,
-      note: timingOff ? 'different hours' : rainPast.length && !obsMs.length ? `nothing reached ${OBS_STATION}`
+      got: obsMs.length ? `${esc(fieldStation)} <b>rain</b> ${esc(hourSpan(obsMs))}` : `${esc(fieldStation)} <b>dry</b>`,
+      note: timingOff ? 'different hours' : rainPast.length && !obsMs.length ? `nothing reached ${fieldStation}`
         : !rainPast.length && obsMs.length ? 'unadvertised' : '',
     });
   } else {
     settled.push({
       state: 'hit', what: 'Rain so far',
-      said: `${esc(FIELD_ID)} grid: dry`, got: `${OBS_STATION} <b>dry</b>`,
+      said: `${esc(FIELD_ID)} grid: dry`, got: `${esc(fieldStation)} <b>dry</b>`,
       note: `through ${esc(hourLabel(lastObMs))}`,
     });
   }
@@ -2146,7 +2178,12 @@ async function loadVerification() {
   const pct = Math.max(0, Math.min(100, (hNow / 24) * 100));
   const openH = Math.max(0, 24 - Math.round(hNow));
   const srcNote = catPairs.length
-    ? `Field rows compare the ${esc(FIELD_ID)} hourly grid (archived this morning) against ${OBS_STATION} METARs ~25 nm NW — the nearest sensor to ${esc(FIELD_ID)}, KNAK, is not archived. Day rows are the DC forecast against ${OBS_STATION}.`
+    ? `Field rows compare the ${esc(FIELD_ID)} hourly grid (archived this morning) against ` +
+      (atField
+        ? `${esc(fieldStation)} METARs — the field's own sensor, ~3 nm out.`
+        : `${OBS_STATION} METARs ~25 nm NW, because no ${esc(FIELD_ID)}-area obs are archived for this day.`) +
+      ` Day rows are the DC forecast against ${OBS_STATION}` +
+      (atField ? `, and thunder stays on ${OBS_STATION} — an AUTO station only reports TS if it carries lightning detection.` : '.')
     : `Day rows are the DC point forecast against ${OBS_STATION} METARs.`;
 
   host.innerHTML =

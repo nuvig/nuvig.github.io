@@ -5,7 +5,9 @@
    a same-origin data source any page here can read — no CORS, no NWS rate
    limits, no per-page fetch logic, and history for free.
 
-   Streams: afd · forecast · obs · grid · taf · alerts · model
+   Streams: afd · forecast · obs · fieldobs · grid · taf · alerts · model
+   (obs is the station the DC forecast is verified against, KDCA; fieldobs is
+   the airfield's own sensor, KNAK — hourly, so expect gaps)
    (see CLAUDE.md and the docstring in scripts/wxarchive.py for shapes).
 
    Everything is optional and every call resolves to null rather than throwing:

@@ -1,6 +1,7 @@
 # DC weather archive — replaces pi/wxarchive.py so the Pi holds no weather
-# history at all. Hourly: fetch new LWX AFDs, a DC forecast snapshot, and
-# KDCA METARs, the NWS hourly grid at KANP, every TAF issuance, active alerts
+# history at all. Hourly: fetch new LWX AFDs, a DC forecast snapshot, KDCA
+# METARs (what verifies the DC forecast) and KNAK METARs (what happened at the
+# field), the NWS hourly grid at KANP, every TAF issuance, active alerts
 # and a GFS digest into data/wx/, then commit whatever changed to main.
 # `git add data/wx` picks up new streams automatically — no change needed here
 # when scripts/wxarchive.py grows one.

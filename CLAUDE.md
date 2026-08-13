@@ -168,11 +168,15 @@ is classified there, check all four.
   could only be honest near midnight: at 9 AM a 60%-PoP day whose storms fire at 4 PM took the
   "expected storms, got none" branch and explained the bust in the same confident voice it would
   use for a real one — the same failure mode as the headline card going quiet.) Sources are
-  labelled per row because three places are involved: **the DC point** is the forecast being
-  discussed, **KDCA** is what verifies it (5-minute obs, archived), and **KANP** is the NWS
-  hourly grid behind the field rows. KANP has no archived observation — the nearest sensor,
-  KNAK ~3 nm NE, is not a `data/wx` stream — so field rows check a KANP forecast against KDCA
-  weather ~25 nm NW and say so. Advertised-vs-observed precip must overlap in time to score a
+  labelled per row because four places are involved: **the DC point** is the forecast being
+  discussed, **KDCA** (`obs/`) is what verifies it, **KANP** is the NWS hourly grid behind the
+  field rows, and **KNAK** (`fieldobs/`, ~3 nm NE) is what those field rows verify against —
+  KANP has no on-field sensor. Day rows (low, high, thunder) stay on KDCA; field rows (ceiling,
+  vis, wind, rain) use KNAK when the archive has it and **fall back to KDCA ~25 nm NW, relabelling
+  themselves and saying why**, for any day before the stream existed. **Thunder deliberately
+  stays on KDCA even when KNAK is available** — KNAK is AUTO, and an automated station only
+  reports TS if it carries lightning detection, so absence there is not evidence of absence.
+  Advertised-vs-observed precip must overlap in time to score a
   hit (`overlapsHours`): an advertised 2 PM shower and an observed 4 AM one are both "rain
   today" but are not the same event. Busts that closed are explained from the hindcast
   (CAPE/CIN, front position). The drift card is a 7-day strip centered on today
@@ -207,15 +211,20 @@ is classified there, check all four.
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history
   accumulates from whenever a stream was added; the only retroactive writes are wxbackfill's
   (below), which fill gaps without touching live-captured entries.
-  Streams: `afd/` (every LWX issuance) · `forecast/` (DC daily digests) · `obs/` (KDCA METARs) ·
+  Streams: `afd/` (every LWX issuance) · `forecast/` (DC daily digests) · `obs/` (KDCA METARs —
+  the station the DC forecast is verified against) · `fieldobs/` (KNAK METARs — the airfield's
+  own sensor, **hourly not 5-minute, so it is sparser than `obs/` by nature**; set by
+  `WX_FIELD_OBS`, skipped when blank or equal to `WX_OBS`) ·
   `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
   KMTN/KBWI/KDCA issuance, decoded from IWXXM) · `alerts/` · `model/` (GFS CAPE/CIN/precip at the
   field). `git add data/wx` in the workflow picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
   Growth is roughly 40 KB/day (~15 MB/year).
 - `scripts/wxbackfill.py` + `.github/workflows/wxbackfill.yml` — **manual** backfill of the
-  factual streams (`obs`/`afd`/`taf` from IEM's archives; `model` opt-in from Open-Meteo's
-  historical-forecast API) for a date range, run from the Actions tab or by hand. It never
+  factual streams (`obs`/`fieldobs`/`afd`/`taf` from IEM's archives; `model` opt-in from
+  Open-Meteo's historical-forecast API) for a date range, run from the Actions tab or by hand.
+  KNAK is in IEM's ASOS archive under id `NAK`, so `fieldobs` backfills exactly like `obs`.
+  It never
   touches an entry the live archiver captured and tags everything it writes (`bf`).
   `forecast`/`grid` are deliberately **not** backfillable — no public archive preserves what
   was predicted at the time, and substituting later data would poison drift/verification.
@@ -223,6 +232,8 @@ is classified there, check all four.
   the decoded `periods` the live archiver stores — consumers must handle both shapes.
   **Coverage after the 2026-08-06 run:** `obs`/`afd`/`taf` reach back to 2026-05-01;
   `forecast` starts 2026-07-30 and `grid`/`alerts`/`model` 2026-08-04 (live-only, by design).
+  `fieldobs` was added 2026-08-12 and starts there until someone runs
+  `--streams fieldobs --since 2026-05-01`.
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,

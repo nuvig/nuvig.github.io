@@ -7,6 +7,9 @@ archive only reaches back to when each stream was added. This script repairs
 the past for the streams where a trustworthy public archive exists:
 
   obs   KDCA METARs        Iowa Environmental Mesonet (IEM) ASOS archive
+  fieldobs KNAK METARs     same IEM ASOS archive — the field's own sensor,
+                           so aviation rows verify a KANP forecast against
+                           KANP weather instead of KDCA 25 nm NW
   afd   LWX discussions    IEM NWS text-product archive (AFOS pil AFDLWX)
   taf   KMTN/KBWI/KDCA     IEM text-product archive (pils TAFMTN/TAFBWI/TAFDCA)
                            — raw text incl. AMD amendments (Ogimet has the
@@ -32,7 +35,7 @@ Honesty rules, enforced here:
 
 Usage:
   python3 scripts/wxbackfill.py --since 2026-05-01 [--until 2026-08-05]
-      [--streams obs,afd,taf] [--dry-run]
+      [--streams obs,fieldobs,afd,taf] [--dry-run]
   python3 scripts/wxbackfill.py --selftest
 
 A 90-day afd+taf backfill is a few thousand polite requests (~0.5 s apart) —
@@ -139,8 +142,7 @@ def merge_obs_day(doc, entries, tol_s=90):
     return added
 
 
-def backfill_obs(since, until, dry):
-    station = wxa.OBS_STATION
+def _backfill_metars(station, out_dir, label, since, until, dry):
     iem_id = station[1:] if len(station) == 4 and station.startswith("K") else station
     end = until + datetime.timedelta(days=2)   # IEM end date is exclusive; pad
     url = (f"{IEM}/cgi-bin/request/asos.py?station={iem_id}&data=metar"
@@ -158,16 +160,32 @@ def backfill_obs(since, until, dry):
             by_day.setdefault(day, []).append((t, raw))
     total = 0
     for day, ents in sorted(by_day.items()):
-        path = os.path.join(wxa.OBS_DIR, f"{day}.json")
+        path = os.path.join(out_dir, f"{day}.json")
         doc = wxa.read_json(path, {"date": day, "station": station, "metars": []})
         added = merge_obs_day(doc, ents)
         if added and not dry:
             wxa.write_json(path, doc)
         if added:
-            wxa.log(f"obs {day}: +{added} METAR(s)")
+            wxa.log(f"{label} {day}: +{added} METAR(s)")
         total += added
-    wxa.log(f"obs: {total} METAR(s) backfilled ({len(entries)} fetched)")
+    wxa.log(f"{label}: {total} METAR(s) backfilled from {station} "
+            f"({len(entries)} fetched)")
     return total
+
+
+def backfill_obs(since, until, dry):
+    return _backfill_metars(wxa.OBS_STATION, wxa.OBS_DIR, "obs", since, until, dry)
+
+
+def backfill_fieldobs(since, until, dry):
+    """The field's own station. Same IEM source as obs — KNAK is in the ASOS
+    archive — so the field rows on discussion.html get history back to
+    whatever date is asked for, not just from when the stream was added."""
+    station = wxa.FIELD_OBS_STATION
+    if not station or station == wxa.OBS_STATION:
+        wxa.log("fieldobs: no distinct field station configured — skipping")
+        return 0
+    return _backfill_metars(station, wxa.FIELDOBS_DIR, "fieldobs", since, until, dry)
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +351,8 @@ def backfill_model(since, until, dry):
 # CLI
 # ---------------------------------------------------------------------------
 
-STREAMS = {"obs": backfill_obs, "afd": backfill_afd,
-           "taf": backfill_taf, "model": backfill_model}
+STREAMS = {"obs": backfill_obs, "fieldobs": backfill_fieldobs,
+           "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model}
 
 
 def main(argv=None):
@@ -342,8 +360,9 @@ def main(argv=None):
         description="Backfill data/wx/ from IEM / Open-Meteo archives.")
     ap.add_argument("--since", help="first local day, YYYY-MM-DD")
     ap.add_argument("--until", help="last local day (default: yesterday)")
-    ap.add_argument("--streams", default="obs,afd,taf",
-                    help="comma list of obs,afd,taf,model (default: obs,afd,taf)")
+    ap.add_argument("--streams", default="obs,fieldobs,afd,taf",
+                    help="comma list of obs,fieldobs,afd,taf,model "
+                         "(default: obs,fieldobs,afd,taf)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and report, write nothing")
     ap.add_argument("--selftest", action="store_true",
