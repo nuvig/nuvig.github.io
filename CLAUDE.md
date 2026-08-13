@@ -260,9 +260,10 @@ is classified there, check all four.
   the decoded `periods` the live archiver stores — consumers must handle both shapes.
   **Coverage after the 2026-08-06 run:** `obs`/`afd`/`taf` reach back to 2026-05-01;
   `forecast` starts 2026-07-30 and `grid`/`alerts`/`model` 2026-08-04 (live-only, by design).
-  `fieldobs` was added 2026-08-12 and starts there until someone runs
-  `--streams fieldobs --since 2026-05-01` (and commits the result — a local
-  backfill the almanac reads happily on a dev server is invisible to the site).
+  `fieldobs` was added 2026-08-12 and backfilled to 2026-05-01 as well. **Commit
+  what a backfill writes** — day files *and* `index.json`, which is what every
+  consumer reads to know a day exists. A backfill sitting in a working tree
+  looks complete on a dev server and is invisible to the site.
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,
