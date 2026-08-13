@@ -161,8 +161,21 @@ is classified there, check all four.
   and a rule-based precip-cause diagnosis at DC; the LWX AFD reader with jargon tooltips; a
   change log that word-diffs successive AFD issuances (every entry collapsed on load) plus a
   forecast-drift card; and a
-  verification card comparing the morning forecast against KDCA METARs, explaining busts from
-  the hindcast (CAPE/CIN, front position). The drift card is a 7-day strip centered on today
+  verification card (Act IV) built as a **front that sweeps with the clock**. Forecast windows
+  close at different times, so each is checked when *it* closes and everything ahead is listed
+  under "still open" rather than judged — the card must never render a verdict on a window that
+  has not closed. (It used to compare whole-day aggregates against observations-so-far, which
+  could only be honest near midnight: at 9 AM a 60%-PoP day whose storms fire at 4 PM took the
+  "expected storms, got none" branch and explained the bust in the same confident voice it would
+  use for a real one — the same failure mode as the headline card going quiet.) Sources are
+  labelled per row because three places are involved: **the DC point** is the forecast being
+  discussed, **KDCA** is what verifies it (5-minute obs, archived), and **KANP** is the NWS
+  hourly grid behind the field rows. KANP has no archived observation — the nearest sensor,
+  KNAK ~3 nm NE, is not a `data/wx` stream — so field rows check a KANP forecast against KDCA
+  weather ~25 nm NW and say so. Advertised-vs-observed precip must overlap in time to score a
+  hit (`overlapsHours`): an advertised 2 PM shower and an observed 4 AM one are both "rain
+  today" but are not the same event. Busts that closed are explained from the hindcast
+  (CAPE/CIN, front position). The drift card is a 7-day strip centered on today
   (`DRIFT_SPAN`): behind today it verifies — archived METAR high, plus the overnight low read
   from the **next** day's pre-09:00 obs, since the NWS "low" for day D is D+1's minimum —
   against the first forecast snapshot archived that morning; today and ahead it diffs the live

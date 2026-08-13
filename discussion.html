@@ -217,15 +217,44 @@
     #syn-why .why-foot { margin-top: 6px; font-size: 11px; color: #58656f; }
 
     /* ---- verification card ---- */
-    .v-grid {
-      display: grid; grid-template-columns: 84px 1fr; gap: 5px 12px;
-      font-size: 13px; color: #bbb;
+    /* Act IV — the verification front. Left of "now" is settled, right of it
+       is still open; the same reading as the tracker's markNow line. */
+    .vf-head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      font-size: 12px; margin-bottom: 12px;
     }
-    .v-lab {
-      color: #667; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 0.06em; padding-top: 2px;
+    .vf-front { color: #e4eaf0; font-weight: 600; }
+    .vf-bar {
+      flex: 1; min-width: 110px; height: 5px; border-radius: 3px;
+      background: #1e2630; overflow: hidden;
     }
-    .v-why { font-size: 13px; color: #b9c2cb; line-height: 1.65; margin: 10px 0 0; }
+    .vf-bar i { display: block; height: 100%; background: linear-gradient(90deg, #2f6fbf, #4a9eff); }
+    .vf-open { color: #6d7d8c; }
+    .vf-sec {
+      font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: #667; margin: 14px 0 2px;
+    }
+    .vf-sec:first-of-type { margin-top: 0; }
+    .vf-row {
+      display: flex; gap: 10px; align-items: baseline; padding: 6px 0;
+      border-bottom: 1px solid #242424; font-size: 13px; flex-wrap: wrap;
+    }
+    .vf-row:last-child { border-bottom: none; }
+    .vf-mark { width: 13px; flex-shrink: 0; font-weight: 700; }
+    .vf-what { width: 116px; flex-shrink: 0; color: #ccc; font-weight: 600; }
+    .vf-said { color: #7c8792; }
+    .vf-got { color: #b9c3cc; }
+    .vf-got b { color: #e4eaf0; font-weight: 600; }
+    .vf-note { color: #6d7d8c; font-size: 11.5px; }
+    .vf-row .wx { color: #93a2b1; }
+    .vf-row.hit .vf-mark { color: #22c55e; }
+    .vf-row.near .vf-mark { color: #93a2b1; }
+    .vf-row.miss .vf-mark { color: #f59e0b; }
+    .vf-row.miss .vf-note { color: #d08a3c; }
+    .vf-row.open .vf-mark { color: #4a9eff; }
+    .vf-row.watch .vf-mark { color: #f59e0b; }
+    .vf-row.watch .vf-got b { color: #f0b45a; }
+    .v-why { font-size: 13px; color: #b9c2cb; line-height: 1.65; margin: 12px 0 0; }
     .syn-legend {
       display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
       font-size: 11px; color: #666; margin-top: 8px;
@@ -567,8 +596,11 @@
     <span class="kick">Act IV · The verdict</span>
     <details>
       <summary><h2>Did it come true?</h2></summary>
-      <p class="deck">This morning's forecast against what KDCA's METARs actually recorded — and when
-        they disagree, the model's own hindcast of where the day went sideways.</p>
+      <p class="deck">Forecast windows close at different times, so each is checked when it closes and
+        the rest stay listed as open — at noon that's last night's low and the morning's ceilings,
+        not a verdict on storms that haven't fired yet. Day rows are the DC forecast against KDCA's
+        METARs; field rows are the KANP hourly grid against the same METARs. When something closed
+        and missed, the model's own hindcast says where it went sideways.</p>
     </details>
   </div>
   <div class="card">
@@ -612,7 +644,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=20"></script>
+  <script src="js/discussion.js?v=21"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>

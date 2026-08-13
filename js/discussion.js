@@ -1672,10 +1672,30 @@ async function loadSynoptic() {
 }
 
 /* ===========================================================================
-   Verification — why today played out the way it did
+   Act IV — verification, as a front that sweeps with the clock
+   ---------------------------------------------------------------------------
+   Forecast windows close at different times of day, so each one is checked
+   when *it* closes and whatever is still ahead is named as open rather than
+   judged. The card this replaces compared whole-day aggregates — the daily
+   high, the day's max PoP, the day's one-line forecast — against
+   observations-so-far, which could only be honest near midnight: opened at
+   9 AM, a 60%-PoP day whose storms fire at 4 PM took the "expected storms,
+   got none" branch and explained the bust in the same confident voice it
+   would use for a real one.
+
+   Three places are involved, each for a reason:
+     · the DC point — the forecast this page is about (NWS daily + the AFD)
+     · KDCA — the observations that verify it (5-minute obs, archived hourly)
+     · KANP — the NWS hourly grid, because the field rows are about flying at
+       Lee, not about downtown
+   KANP has no archived observation of its own (the nearest sensor, KNAK
+   ~3 nm NE, is not a data/wx stream), so a field row necessarily checks a
+   KANP forecast against KDCA weather ~25 nm NW. The card says so rather than
+   letting the two read as one place.
    =========================================================================== */
 
 const OBS_STATION = 'KDCA';
+const FIELD_ID = (typeof SITE !== 'undefined' && SITE.airport && SITE.airport.id) || 'KANP';
 const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 const localDay = (ms) => DAY_FMT.format(new Date(ms));
 
@@ -1689,150 +1709,459 @@ function metarTempC(raw) {
   return null;
 }
 
+/* Flight category from visibility (SM) and ceiling (ft AGL) — the same
+   thresholds as weather.js flightCat() and almanac.js catOf(). */
+const CATS = ['VFR', 'MVFR', 'IFR', 'LIFR'];
+function catOf(visSM, ceilFt) {
+  const v = visSM == null ? 99 : visSM, c = ceilFt == null ? 99999 : ceilFt;
+  if (v < 1 || c < 500) return 3;
+  if (v < 3 || c < 1000) return 2;
+  if (v <= 5 || c <= 3000) return 1;
+  return 0;
+}
+
+/* Ceiling / visibility / wind / present weather out of raw METAR text — a
+   compact mirror of almanac.js parseMetar(), which discussion.html does not
+   load. Keep the two in step if the decoding changes. */
+function metarObs(raw) {
+  const body = String(raw || '').split(' RMK')[0];
+  const o = { tC: metarTempC(raw), spd: null, gst: null, visSM: null, ceilFt: null };
+  const w = body.match(/(?:^|\s)(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT\b/);
+  if (w) { o.spd = +w[2]; o.gst = w[3] ? +w[3] : null; }
+  if (/\bP6SM\b/.test(body)) o.visSM = 7;
+  else {
+    const v = body.match(/(?:^|\s)(?:(\d{1,2})\s)?(M)?(\d{1,2})(?:\/(\d{1,2}))?SM\b/);
+    if (v) {
+      o.visSM = (+v[1] || 0) + (v[4] ? +v[3] / +v[4] : +v[3]);
+      if (v[2]) o.visSM = Math.max(0, o.visSM - 0.01);   // M1/4SM = "less than"
+    }
+  }
+  const cre = /\b(FEW|SCT|BKN|OVC|VV)(\d{3})/g;
+  let c;
+  while ((c = cre.exec(body))) {
+    if (o.ceilFt === null && (c[1] === 'BKN' || c[1] === 'OVC' || c[1] === 'VV')) o.ceilFt = +c[2] * 100;
+  }
+  o.ts = /(?:^|\s)[+-]?(?:VC)?TS(?!NO)/.test(body);
+  o.rain = /(?:^|\s)[+-]?(?:VC)?(?:TS|SH|FZ)?(?:RA|DZ)\b/.test(body);
+  o.cat = catOf(o.visSM, o.ceilFt);
+  return o;
+}
+
+const hourLabel = (ms) => fmtTime(new Date(ms), { hour: 'numeric' });
+
+/* "9 AM" for one hour, "9 AM–1 PM" for a run. */
+function hourSpan(list) {
+  if (!list || !list.length) return '';
+  const a = list[0], b = list[list.length - 1];
+  return a === b ? hourLabel(a) : `${hourLabel(a)}–${hourLabel(b)}`;
+}
+
+/* Did the observed hours land in (or next to) the advertised ones? An
+   advertised 2 PM shower and an observed 4 AM one are both "rain today", but
+   they are not the same event and must not score as a hit. */
+function overlapsHours(advMs, obsMs) {
+  const set = new Set(advMs.map((ms) => Math.round(ms / 3600000)));
+  return obsMs.some((ms) => {
+    const h = Math.round(ms / 3600000);
+    return set.has(h) || set.has(h - 1) || set.has(h + 1);
+  });
+}
+
+/* Hours of `date` that a grid snapshot painted a given weather type in. The
+   NWS `weather` array is what drives the thunderstorm icon in every app
+   rendering this grid, so it is also the honest record of what was
+   advertised this morning. */
+function gridHours(snap, re, date) {
+  const out = [];
+  if (!snap || snap.t0 == null || !snap.wx) return out;
+  for (let i = 0; i < snap.wx.length; i++) {
+    const ms = (snap.t0 + i * 3600) * 1000;
+    if (localDay(ms) !== date) continue;
+    if (snap.wx[i] && re.test(snap.wx[i])) out.push(ms);
+  }
+  return out;
+}
+
+/* One ob per hour — the one nearest the top of the hour, since KDCA files
+   several — paired with what the morning grid had forecast for that hour. */
+function hourlyPairs(metars, snap, date) {
+  const byHour = new Map();
+  for (const [ts, raw] of metars || []) {
+    const ms = ts * 1000;
+    if (localDay(ms) !== date) continue;
+    const hr = Math.round(ms / 3600000) * 3600000;
+    const prev = byHour.get(hr);
+    if (!prev || Math.abs(ms - hr) < Math.abs(prev.ms - hr)) byHour.set(hr, { ms, raw });
+  }
+  const pairs = [];
+  for (const [hr, ob] of [...byHour.entries()].sort((a, b) => a[0] - b[0])) {
+    const o = metarObs(ob.raw);
+    const fCeil = WXA.gridAt(snap, 'ceil', hr);
+    const fVis = WXA.gridAt(snap, 'vis', hr);
+    const fSpd = WXA.gridAt(snap, 'spd', hr);
+    const fGst = WXA.gridAt(snap, 'gst', hr);
+    const known = fCeil !== undefined || fVis !== undefined;
+    pairs.push({
+      hr, obs: o,
+      fCat: known ? catOf(fVis === undefined ? null : fVis, fCeil === undefined ? null : fCeil) : null,
+      fCeil: fCeil === undefined ? null : fCeil,
+      fSpd: fSpd === undefined ? null : fSpd,
+      fGst: fGst === undefined ? null : fGst,
+    });
+  }
+  return pairs;
+}
+
+/* A verification row. state drives the mark and the colour:
+   hit / near = it closed and verified, miss = it closed and did not,
+   open = still ahead, watch = advertised, not here yet, window still live. */
+const V_MARK = { hit: '✓', near: '≈', miss: '✗', open: '○', watch: '!' };
+
+function vRowHtml(r) {
+  return `<div class="vf-row ${r.state}">` +
+    `<span class="vf-mark">${V_MARK[r.state] || '·'}</span>` +
+    `<span class="vf-what">${esc(r.what)}</span>` +
+    `<span class="vf-said">${r.said}</span>` +
+    `<span class="vf-got">${r.got}</span>` +
+    (r.note ? `<span class="vf-note">${r.note}</span>` : '') +
+    `</div>`;
+}
+
 async function loadVerification() {
   const host = $('verify-body');
-  if (!syn.ready) { host.innerHTML = '<span class="err">Needs the model grid — synoptic load failed.</span>'; return; }
   const now = Date.now();
   const today = localDay(now);
+  const yest = shiftDay(today, -1);
+  const hNow = localHour(now) + new Date(now).getMinutes() / 60;   // TZ is whole-hour
 
-  /* what was expected: prefer the site archive's earliest snapshot of today
-     (shared across devices), else the earliest snapshot saved in this
-     browser (≥3 h old) that covered today */
+  /* ---------- what was expected ---------- */
+
+  /* today's whole-day call, from the first snapshot archived this morning
+     (shared across devices), else the earliest one this browser saved */
   let exp = null, expSrc = '';
   const arcSnap = ((ARC.todayFc && ARC.todayFc.snaps) || []).find((s) => s.days && s.days[today]);
   if (arcSnap) {
     exp = { at: arcSnap.t * 1000, ...arcSnap.days[today] };
-    expSrc = `archived on the site at ${fmtTime(new Date(exp.at), { hour: 'numeric' })}`;
+    expSrc = `archived ${fmtTime(new Date(exp.at), { hour: 'numeric' })}`;
   } else {
     let snaps = [];
     try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
     const withToday = snaps.filter((s) => s.days && s.days[today] && now - s.at > 3 * 3600 * 1000);
     if (withToday.length) {
       exp = { at: withToday[0].at, ...withToday[0].days[today] };
-      expSrc = `saved in this browser ${timeAgo(new Date(exp.at))}`;
+      expSrc = `saved here ${timeAgo(new Date(exp.at))}`;
     }
   }
+  /* last night's low was called yesterday morning, and the NWS "low" for a
+     day bottoms out in the next day's small hours — so this morning's obs
+     verify yesterday's number */
+  const yFc = await WXA.firstSnap('forecast', yest);
+  const expLo = (yFc && yFc.days && yFc.days[yest] && yFc.days[yest].lo != null) ? yFc.days[yest].lo : null;
+  /* the field's own hourly forecast as it stood this morning */
+  const gridSnap = await WXA.firstSnap('grid', today);
 
-  /* what actually happened: METARs at DCA today. The site archive first —
-     the live NWS observation store silently drops obs (it lost a whole
-     TSRA sequence on 2026-08-10), while the archive accumulated them
-     hourly. latest.json tops up the current hour; the live API is only
-     the last resort. Newest first, matching the NWS response order. */
-  let todays = [];
+  /* ---------- what actually happened ---------- */
+
+  /* METARs at DCA today. The site archive first — the live NWS observation
+     store silently drops obs (it lost a whole TSRA sequence on 2026-08-10),
+     while the archive accumulated them hourly. latest.json tops up the
+     current hour; the live API is only the last resort. */
+  let metars = [];
   try {
     const raws = new Map();
     const arcObs = await WXA.day('obs', today);
     for (const [ts, raw] of (arcObs && arcObs.metars) || []) raws.set(ts, raw);
     const wl = await WXA.latest();
     for (const [ts, raw] of (wl && wl.obs) || []) raws.set(ts, raw);
-    todays = [...raws.entries()]
-      .filter(([ts]) => localDay(ts * 1000) === today)
-      .sort((a, b) => b[0] - a[0])
-      .map(([ts, raw]) => ({ timestamp: ts * 1000, rawMessage: raw, temperature: { value: metarTempC(raw) } }));
+    metars = [...raws.entries()]
+      .filter(([ts]) => localDay(ts * 1000) === today && ts * 1000 <= now)
+      .sort((a, b) => a[0] - b[0]);
   } catch (e) { /* fall through to the live store */ }
-  if (!todays.length) {
+  if (!metars.length) {
     const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
-    todays = (obs.features || []).map((f) => f.properties)
-      .filter((p) => p && p.timestamp && localDay(new Date(p.timestamp).getTime()) === today);
+    metars = (obs.features || []).map((f) => f.properties)
+      .filter((p) => p && p.timestamp && p.rawMessage)
+      .map((p) => [Math.round(new Date(p.timestamp).getTime() / 1000), p.rawMessage])
+      .filter(([ts]) => localDay(ts * 1000) === today && ts * 1000 <= now)
+      .sort((a, b) => a[0] - b[0]);
   }
-  const thunder = todays.filter((p) => /\b(?:VC)?TS(?!NO)/.test(p.rawMessage || '')).reverse();
-  const rain = todays.filter((p) => /(?:^|\s)[+-]?(?:SH|FZ)?(?:RA|DZ)\b/.test((p.rawMessage || '').replace(/RMK.*$/, '')));
-  let maxT = null;
-  for (const p of todays) {
-    const c = p.temperature && p.temperature.value;
-    if (c != null && (maxT == null || c > maxT)) maxT = c;
+  if (!metars.length) {
+    host.innerHTML = '<span class="err">No observations for today yet — nothing to verify against.</span>';
+    return;
+  }
+  const lastObMs = metars[metars.length - 1][0] * 1000;
+  const decoded = metars.map(([ts, raw]) => ({ ms: ts * 1000, o: metarObs(raw) }));
+
+  /* this morning's minimum, which is what last night's forecast low meant */
+  let gotLo = null, gotLoMs = null;
+  for (const d of decoded) {
+    if (localHour(d.ms) >= 9 || d.o.tC == null) continue;
+    const f = Math.round(degF(d.o.tC));
+    if (gotLo == null || f < gotLo) { gotLo = f; gotLoMs = d.ms; }
+  }
+  let gotHi = null, gotHiMs = null;
+  for (const d of decoded) {
+    if (d.o.tC == null) continue;
+    const f = Math.round(degF(d.o.tC));
+    if (gotHi == null || f > gotHi) { gotHi = f; gotHiMs = d.ms; }
+  }
+  const tsObs = decoded.filter((d) => d.o.ts);
+  const rainObs = decoded.filter((d) => d.o.rain);
+  let peakSpd = 0, peakGst = 0;
+  for (const d of decoded) {
+    peakSpd = Math.max(peakSpd, d.o.spd || 0);
+    peakGst = Math.max(peakGst, d.o.gst || 0);
   }
 
-  /* model hindcast at DC over today's past hours */
-  const g = gridXY(DC.lat, DC.lon);
-  const pastIdx = [];
-  for (let i = 0; i < syn.times.length; i++) {
-    if (syn.times[i] <= now && localDay(syn.times[i]) === today) pastIdx.push(i);
-  }
-  let peakCape = 0, dcPrecip = 0, nearbyMax = 0;
-  for (const i of pastIdx) {
-    peakCape = Math.max(peakCape, bilinear(baseField('cape', i), g.gx, g.gy) || 0);
-    dcPrecip += Math.max(0, bilinear(baseField('precipitation', i), g.gx, g.gy) || 0);
-    const pf = baseField('precipitation', i);
-    for (let k = 0; k < SYN.NP; k++) {
-      const lat = SYN.LAT_N - Math.floor(k / SYN.NX) * SYN.DLAT;
-      const lon = SYN.LON_W + (k % SYN.NX) * SYN.DLON;
-      if (kmBetween(DC.lat, DC.lon, lat, lon).km < 120) nearbyMax = Math.max(nearbyMax, pf[k] || 0);
+  /* ---------- model hindcast, for the "why" on windows that closed ---------- */
+
+  let peakCape = 0, dcPrecip = 0, nearbyMax = 0, capJkg = null, front = null;
+  if (syn.ready) {
+    const g = gridXY(DC.lat, DC.lon);
+    for (let i = 0; i < syn.times.length; i++) {
+      if (syn.times[i] > now || localDay(syn.times[i]) !== today) continue;
+      peakCape = Math.max(peakCape, bilinear(baseField('cape', i), g.gx, g.gy) || 0);
+      dcPrecip += Math.max(0, bilinear(baseField('precipitation', i), g.gx, g.gy) || 0);
+      const pf = baseField('precipitation', i);
+      for (let k = 0; k < SYN.NP; k++) {
+        const lat = SYN.LAT_N - Math.floor(k / SYN.NX) * SYN.DLAT;
+        const lon = SYN.LON_W + (k % SYN.NX) * SYN.DLON;
+        if (kmBetween(DC.lat, DC.lon, lat, lon).km < 120) nearbyMax = Math.max(nearbyMax, pf[k] || 0);
+      }
     }
-  }
-  if (syn.point) {   // point call carries CAPE too and resolves better than the grid
-    for (let i = 0; i < syn.point.times.length; i++) {
-      if (syn.point.times[i] <= now && localDay(syn.point.times[i]) === today) {
+    if (syn.point) {   // the point call carries CAPE too and resolves better
+      for (let i = 0; i < syn.point.times.length; i++) {
+        const tms = syn.point.times[i];
+        if (tms > now || localDay(tms) !== today) continue;
         peakCape = Math.max(peakCape, syn.point.cape[i] || 0);
+        const hr = localHour(tms);
+        if (hr >= 11 && hr <= 22) {
+          const c = syn.point.cin[i];
+          if (c != null && (capJkg == null || Math.abs(c) > capJkg)) capJkg = Math.abs(c);
+        }
       }
     }
+    front = nearestFront(synNowIndex());
   }
-  /* strongest cap during the heating hours (15–23 local ≈ when storms fire) */
-  let capJkg = null;
+  /* CAPE right now, for a storm window still ahead of us */
+  let capeNow = null, cinNow = null;
   if (syn.point) {
+    let best = Infinity;
     for (let i = 0; i < syn.point.times.length; i++) {
-      const tms = syn.point.times[i];
-      if (tms > now || localDay(tms) !== today) continue;
-      const hr = +new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(new Date(tms));
-      if (hr >= 11 && hr <= 22) {
-        const c = syn.point.cin[i];
-        if (c != null && (capJkg == null || Math.abs(c) > capJkg)) capJkg = Math.abs(c);
-      }
+      const d = Math.abs(syn.point.times[i] - now);
+      if (d < best) { best = d; capeNow = syn.point.cape[i]; cinNow = syn.point.cin[i]; }
     }
   }
-  const front = nearestFront(synNowIndex());
 
-  /* ---- compose ---- */
-  const F = (c) => Math.round(c * 9 / 5 + 32);
-  const expectedStorms = exp && (/t-?storm|thunder/i.test(exp.short || '') || (exp.pop ?? 0) >= 50);
-  const gotStorms = thunder.length > 0;
-  const gotRain = rain.length > 0 || dcPrecip > 0.5;
-  const hrOf = (p) => fmtTime(new Date(p.timestamp), { hour: 'numeric' });
+  /* ---------- windows ---------- */
 
-  const expLine = exp
-    ? `${esc(exp.short || '—')}${exp.pop != null ? ` · ${exp.pop}% precip chance` : ''}${exp.hi != null ? ` · high ${exp.hi}°` : ''} <span class="faint">(forecast ${esc(expSrc)})</span>`
-    : '<span class="faint">no earlier forecast on record yet — the comparison starts once the site archive (or your next visit) captures one</span>';
-  const obsLine =
-    `${gotStorms ? `thunder at ${OBS_STATION} around ${esc(hrOf(thunder[0]))}${thunder.length > 1 ? `–${esc(hrOf(thunder[thunder.length - 1]))}` : ''}` : 'no thunder'}` +
-    ` · ${rain.length ? 'rain reported' : 'no rain in the METARs'}` +
-    `${maxT != null ? ` · high ${F(maxT)}°F` : ''} <span class="faint">(${OBS_STATION}, through the latest ob)</span>`;
+  const settled = [], open = [];
+  const pairs = hourlyPairs(metars, gridSnap, today);
+  const catPairs = pairs.filter((p) => p.fCat != null);
+
+  /* 1 — last night's low. Closes at 09:00; before that the night is still
+     running and the minimum can still fall. */
+  if (hNow >= 9 && gotLo != null) {
+    const d = expLo == null ? null : gotLo - expLo;
+    settled.push({
+      state: d == null ? 'open' : Math.abs(d) <= 2 ? 'hit' : Math.abs(d) <= 4 ? 'near' : 'miss',
+      what: 'Overnight low',
+      said: expLo == null ? '<span class="faint">no forecast archived</span>' : `called ${expLo}°`,
+      got: `<b>${gotLo}°</b> at ${esc(hourLabel(gotLoMs))}`,
+      note: d == null ? '' : d === 0 ? 'spot on' : `${Math.abs(d)}° ${d > 0 ? 'warmer' : 'colder'}`,
+    });
+  } else if (gotLo != null) {
+    open.push({
+      state: 'open', what: 'Overnight low',
+      said: expLo == null ? '<span class="faint">no forecast archived</span>' : `called ${expLo}°`,
+      got: `<b>${gotLo}°</b> so far`, note: 'settles at 9 AM',
+    });
+  }
+
+  /* 2 — ceilings and visibility at the field, hour by hour. Every hour with
+     an ob behind us is closed; the rest of the grid is not judged. */
+  if (catPairs.length) {
+    const agree = catPairs.filter((p) => p.obs.cat === p.fCat);
+    const worse = catPairs.filter((p) => p.obs.cat > p.fCat);
+    const better = catPairs.filter((p) => p.obs.cat < p.fCat);
+    const fCats = [...new Set(catPairs.map((p) => p.fCat))];
+    const said = fCats.length === 1
+      ? `${esc(FIELD_ID)} grid ${CATS[fCats[0]]} all ${catPairs.length} h`
+      : `${esc(FIELD_ID)} grid ${CATS[Math.min(...fCats)]}–${CATS[Math.max(...fCats)]}`;
+    let state = 'hit', got, note = '';
+    if (worse.length) {
+      state = 'miss';
+      const w = worse.map((p) => p.hr);
+      got = `${OBS_STATION} <b>${CATS[Math.max(...worse.map((p) => p.obs.cat))]}</b> ${esc(hourSpan(w))}`;
+      note = `${worse.length} h worse than advertised`;
+    } else if (better.length) {
+      state = 'near';
+      got = `${OBS_STATION} <b>${CATS[Math.min(...better.map((p) => p.obs.cat))]}</b> — better than called`;
+      note = `${better.length} of ${catPairs.length} h`;
+    } else {
+      got = `${OBS_STATION} <b>${CATS[agree[0].obs.cat]}</b> every hour`;
+      note = `${agree.length} of ${catPairs.length} h matched`;
+    }
+    settled.push({ state, what: 'Ceiling & vis', said, got, note });
+  }
+
+  /* 3 — wind, over the hours that have obs */
+  const fSpds = pairs.map((p) => p.fSpd).filter((v) => v != null);
+  if (fSpds.length && peakSpd) {
+    const fPeak = Math.round(Math.max(...fSpds));
+    const fGstPeak = Math.max(0, ...pairs.map((p) => p.fGst || 0));
+    const d = peakSpd - fPeak;
+    settled.push({
+      state: Math.abs(d) <= 4 ? 'hit' : Math.abs(d) <= 8 ? 'near' : 'miss',
+      what: 'Wind',
+      said: `${esc(FIELD_ID)} grid peaked ${fPeak} kt${fGstPeak ? ` G${Math.round(fGstPeak)}` : ''}`,
+      got: `${OBS_STATION} <b>${peakSpd} kt</b>${peakGst ? ` G${peakGst}` : ''}`,
+      note: d === 0 ? 'spot on' : `${Math.abs(d)} kt ${d > 0 ? 'stronger' : 'lighter'}`,
+    });
+  }
+
+  /* 4 — rain and thunder, split at now. The morning grid's own hourly
+     weather array says when it was advertised, which is what lets a threat
+     still ahead of you read as pending instead of as a bust. */
+  const stormHrs = gridHours(gridSnap, /thunder/i, today);
+  const rainHrs = gridHours(gridSnap, /rain|shower|drizzle/i, today);
+  const stormPast = stormHrs.filter((ms) => ms <= now);
+  const stormAhead = stormHrs.filter((ms) => ms > now);
+  const rainPast = rainHrs.filter((ms) => ms <= now);
+  const rainAhead = rainHrs.filter((ms) => ms > now);
+
+  if (rainPast.length || rainObs.length) {
+    const obsMs = rainObs.map((d) => d.ms);
+    const hit = rainPast.length > 0 && obsMs.length > 0 && overlapsHours(rainPast, obsMs);
+    const timingOff = rainPast.length > 0 && obsMs.length > 0 && !hit;
+    settled.push({
+      state: hit ? 'hit' : timingOff ? 'near' : 'miss',
+      what: 'Rain so far',
+      said: rainPast.length ? `${esc(FIELD_ID)} grid: rain ${esc(hourSpan(rainPast))}` : `${esc(FIELD_ID)} grid: dry`,
+      got: obsMs.length ? `${OBS_STATION} <b>rain</b> ${esc(hourSpan(obsMs))}` : `${OBS_STATION} <b>dry</b>`,
+      note: timingOff ? 'different hours' : rainPast.length && !obsMs.length ? `nothing reached ${OBS_STATION}`
+        : !rainPast.length && obsMs.length ? 'unadvertised' : '',
+    });
+  } else {
+    settled.push({
+      state: 'hit', what: 'Rain so far',
+      said: `${esc(FIELD_ID)} grid: dry`, got: `${OBS_STATION} <b>dry</b>`,
+      note: `through ${esc(hourLabel(lastObMs))}`,
+    });
+  }
+
+  /* Thunder splits at now like everything else: advertised hours already
+     behind us are settled — and a storm window that passed empty is exactly
+     the thing the old card could not say — while hours still ahead stay open
+     rather than being judged. */
+  const tsMs = tsObs.map((d) => d.ms);
+  if (tsMs.length) {
+    const hit = stormPast.length > 0 && overlapsHours(stormPast, tsMs);
+    settled.push({
+      state: hit ? 'hit' : 'miss',
+      what: 'Thunder so far',
+      said: stormPast.length ? `${esc(FIELD_ID)} grid: storms ${esc(hourSpan(stormPast))}` : 'not advertised',
+      got: `${OBS_STATION} <b>TS</b> ${esc(hourSpan(tsMs))}`,
+      note: hit ? '' : stormPast.length ? 'different hours' : 'no grid signal for it',
+    });
+  } else if (stormPast.length) {
+    settled.push({
+      state: 'miss', what: 'Thunder so far',
+      said: `${esc(FIELD_ID)} grid: storms ${esc(hourSpan(stormPast))}`,
+      got: `${OBS_STATION} <b>none</b>`,
+      note: stormAhead.length ? `${stormPast.length} h passed empty` : 'window closed',
+    });
+  }
+  if (stormAhead.length) {
+    open.push({
+      state: 'watch',
+      what: stormPast.length || tsMs.length ? 'Thunder, rest of day' : 'Thunder',
+      said: `${esc(FIELD_ID)} grid: storms ${esc(hourSpan(stormAhead))}`,
+      got: '<b>still ahead</b>',
+      // CIN comes off Open-Meteo as a magnitude; the page prints it signed
+      note: capeNow != null ? `CAPE ${fmtJ(capeNow)}${cinNow != null ? ` · CIN −${Math.abs(Math.round(cinNow))}` : ''} J/kg now` : 'window still open',
+    });
+  }
+
+  /* 5 — today's high. The maximum normally lands mid-afternoon, so call it
+     closed at 6 PM; before that it is a running number, not a verdict. */
+  if (exp && exp.hi != null && gotHi != null) {
+    if (hNow >= 18) {
+      const d = gotHi - exp.hi;
+      settled.push({
+        state: Math.abs(d) <= 2 ? 'hit' : Math.abs(d) <= 4 ? 'near' : 'miss',
+        what: "Today's high", said: `called ${exp.hi}°`,
+        got: `<b>${gotHi}°</b> at ${esc(hourLabel(gotHiMs))}`,
+        note: d === 0 ? 'spot on' : `${Math.abs(d)}° ${d > 0 ? 'warmer' : 'cooler'}`,
+      });
+    } else {
+      open.push({
+        state: 'open', what: "Today's high", said: `called ${exp.hi}°`,
+        got: `<b>${gotHi}°</b> so far`, note: 'settles this evening',
+      });
+    }
+  }
+
+  /* 6 — the rest of the day's advertised weather, named so it can't go quiet */
+  if (exp && exp.short && hNow < 21) {
+    const restPop = exp.pop != null ? ` · ${exp.pop}% chance` : '';
+    open.push({
+      state: 'open', what: 'Rest of the day',
+      said: `<span class="wx">${esc(exp.short)}</span>${restPop}`,
+      got: rainAhead.length ? `grid has rain ${esc(hourSpan(rainAhead))}` : '<span class="faint">grid is dry from here</span>',
+      note: '',
+    });
+  }
+
+  /* ---------- the "why", only for windows that actually closed ---------- */
 
   const S = [];
-  if (expectedStorms && !gotStorms) {
+  const stormMiss = stormPast.length && !tsObs.length && !stormAhead.length;
+  if (stormMiss) {
     if (peakCape >= 800 && capJkg != null && capJkg >= 60) {
-      S.push(`The fuel showed up — the model hindcast has CAPE peaking near ${Math.round(peakCape / 100) * 100} J/kg — but the lid never broke: convective inhibition held around −${Math.round(capJkg / 10) * 10} J/kg at DC through the heating hours, and no trigger was strong enough to punch through it.`);
+      S.push(`The fuel showed up — the hindcast has CAPE peaking near ${fmtJ(peakCape)} J/kg — but the lid never broke: inhibition held around −${Math.round(capJkg / 10) * 10} J/kg through the heating hours, and no trigger punched through it.`);
     }
     if (front && front.km < 450 && front.dir.includes('W')) {
-      S.push(`The trigger also ran late: the front that was supposed to set storms off is still ~${Math.round(front.km * 0.54 / 10) * 10} nm to the ${front.dir} at the latest model hour, so the lift never overlapped the unstable air over the district in time.`);
+      S.push(`The trigger ran late: the front is still ~${Math.round(front.km * 0.54 / 10) * 10} nm to the ${front.dir}, so the lift never overlapped the unstable air in time.`);
     } else if (front && front.dir.includes('E')) {
-      S.push('The boundary actually came through — but dry: by the time it crossed, the low levels had stabilized and there was nothing left for it to lift.');
+      S.push('The boundary came through dry — by the time it crossed, the low levels had stabilized.');
     }
     if (nearbyMax > 0.8 && dcPrecip < 0.3) {
-      S.push(`Storms did fire in the region — the hindcast paints up to ~${nearbyMax.toFixed(1)} mm/hr within ~65 nm — they just missed the district. On a ${exp && exp.pop != null ? exp.pop + '%' : 'scattered'} day, that's the coin landing on the other side.`);
+      S.push(`Storms did fire nearby — the hindcast paints up to ~${nearbyMax.toFixed(1)} mm/hr within ~65 nm — they just missed the district.`);
     }
     if (peakCape < 500) {
-      S.push(`The instability itself underperformed: CAPE at DC only reached ~${Math.round(peakCape / 50) * 50} J/kg — clouds or leftover stable air held surface heating below what the morning forecast banked on.`);
+      S.push(`The instability underperformed: CAPE only reached ~${Math.round(peakCape / 50) * 50} J/kg, short of what the morning forecast banked on.`);
     }
-    if (!S.length) {
-      S.push('The model’s own hindcast keeps DC dry too — the setup simply weakened faster than the earlier runs (and the forecast built on them) expected.');
-    }
-  } else if (expectedStorms && gotStorms) {
-    S.push(`That verified: thunder reached ${OBS_STATION}${thunder.length ? ` around ${hrOf(thunder[0])}` : ''}${front ? `, with the frontal zone ${front.dir.includes('E') ? 'having swept through' : `still ~${Math.round(front.km * 0.54 / 10) * 10} nm ${front.dir}`}` : ''} — fuel (CAPE ~${Math.round(peakCape / 100) * 100} J/kg) plus a trigger, the classic recipe.`);
-  } else if (!expectedStorms && gotStorms) {
-    S.push(`Storms weren’t really advertised, but they happened anyway — ${capJkg != null && capJkg < 40 ? 'the cap was weaker than forecast, and ' : ''}${front && front.km < 250 ? 'the boundary nearby provided the spark' : 'an outflow or bay-breeze boundary likely provided the spark'}. Small-scale triggers like that are exactly what the models resolve worst.`);
-  } else {
-    S.push(gotRain
-      ? 'A mostly quiet day with some rain — about what the pattern supported.'
-      : `A quiet day${exp ? ' — largely as advertised' : ''}: ${capJkg != null && capJkg >= 60 ? `the column stayed capped (CIN ~−${Math.round(capJkg / 10) * 10} J/kg)` : peakCape < 500 ? 'little instability ever developed' : 'no trigger arrived to tap what instability there was'}, so the sky stayed mostly out of the precip business.`);
+    if (!S.length) S.push('The model’s own hindcast keeps DC dry too — the setup weakened faster than the runs behind the morning forecast expected.');
+  } else if (tsObs.length) {
+    S.push(`Thunder verified at ${OBS_STATION} around ${esc(hourLabel(tsObs[0].ms))}${peakCape ? ` — fuel (CAPE ~${fmtJ(peakCape)} J/kg) plus a trigger, the classic recipe` : ''}.`);
+  } else if (stormAhead.length) {
+    S.push(`Nothing is settled about the storms yet — the advertised window runs ${esc(hourSpan(stormAhead))}${capJkg != null ? `, and inhibition is still around −${Math.round(capJkg / 10) * 10} J/kg` : ''}. Treat the silence above as "not yet", not "clear".`);
+  } else if (!settled.some((r) => r.state === 'miss')) {
+    S.push(`Everything that has closed so far verified${hNow < 18 ? ' — the day is not over' : ''}.`);
   }
 
+  /* ---------- render ---------- */
+
+  const pct = Math.max(0, Math.min(100, (hNow / 24) * 100));
+  const openH = Math.max(0, 24 - Math.round(hNow));
+  const srcNote = catPairs.length
+    ? `Field rows compare the ${esc(FIELD_ID)} hourly grid (archived this morning) against ${OBS_STATION} METARs ~25 nm NW — the nearest sensor to ${esc(FIELD_ID)}, KNAK, is not archived. Day rows are the DC forecast against ${OBS_STATION}.`
+    : `Day rows are the DC point forecast against ${OBS_STATION} METARs.`;
+
   host.innerHTML =
-    `<div class="v-grid">` +
-    `<div class="v-lab">Expected</div><div>${expLine}</div>` +
-    `<div class="v-lab">Observed</div><div>${obsLine}</div>` +
+    `<div class="vf-head">` +
+    `<span class="vf-front">Verified through ${esc(hourLabel(lastObMs))}</span>` +
+    `<span class="vf-bar"><i style="width:${pct.toFixed(0)}%"></i></span>` +
+    `<span class="vf-open">${openH} h still open</span>` +
     `</div>` +
-    `<p class="v-why">${S.map(esc).join(' ')}</p>` +
-    `<div class="drift-note">PoPs are probabilities, not promises${exp && exp.pop != null && exp.pop > 0 && exp.pop < 100 ? ` — a ${exp.pop}% day stays dry about ${Math.round(10 - exp.pop / 10)} times in 10` : ''}. Hindcast = the model’s own reconstruction (GFS); observations from ${OBS_STATION} METARs. Recheck after the next discussion drops: the change log above usually shows the forecasters reckoning with the same bust.</div>`;
+    (settled.length ? `<div class="vf-sec">Settled</div>${settled.map(vRowHtml).join('')}` : '') +
+    (open.length ? `<div class="vf-sec">Still open</div>${open.map(vRowHtml).join('')}` : '') +
+    (S.length ? `<p class="v-why">${S.join(' ')}</p>` : '') +
+    `<div class="drift-note">${srcNote} ` +
+    `PoPs are probabilities, not promises${exp && exp.pop != null && exp.pop > 0 && exp.pop < 100 ? ` — a ${exp.pop}% day stays dry about ${Math.round(10 - exp.pop / 10)} times in 10` : ''}. ` +
+    `Forecast baseline: ${exp ? esc(expSrc) : 'none on record yet'}. ` +
+    `Hindcast = the model’s own reconstruction (GFS).</div>`;
 }
 
 /* ===========================================================================
