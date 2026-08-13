@@ -45,6 +45,14 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const cToF = (c) => c * 9 / 5 + 32;
 const round = Math.round;
 
+// Relative humidity from temp/dewpoint (Magnus, over water). METAR T/Td are whole
+// degrees C, so this lands within a couple of percent — good enough to read at a glance.
+function relHumidity(tempC, dewC) {
+  if (tempC == null || dewC == null) return null;
+  const es = (t) => 6.112 * Math.exp((17.67 * t) / (t + 243.5));
+  return Math.max(0, Math.min(100, (100 * es(dewC)) / es(tempC)));
+}
+
 function fmtTime(d, opts) {
   return new Date(d).toLocaleTimeString('en-US',
     Object.assign({ timeZone: TZ, hour: 'numeric', minute: '2-digit' }, opts));
@@ -719,6 +727,11 @@ function renderConditions() {
   const sky = m.clear ? 'clear' :
     (m.clouds.map((c) => `${c.amt}${c.cb} ${(c.baseFt).toLocaleString()}`).join(', ') || '—');
 
+  const rh = relHumidity(m.tempC, m.dewC);
+  const rhHtml = rh == null ? '' :
+    `<div class="kv"><span class="k">Relative humidity</span>
+      <span class="v">${round(rh)}%<span class="faint"> · spread ${round(m.tempC - m.dewC)}°C</span></span></div>`;
+
   let daHtml = '';
   if (m.tempC != null && m.altInHg != null) {
     const pa = KANP.elevFt + (29.92 - m.altInHg) * 1000;
@@ -734,6 +747,7 @@ function renderConditions() {
     <div class="kv"><span class="k">Sky</span><span class="v">${esc(sky)}${m.wx.length ? ' · ' + esc(m.wx.join(' ')) : ''}</span></div>
     <div class="kv"><span class="k">Ceiling</span><span class="v">${ceil != null ? ceil.toLocaleString() + ' ft' : 'none'}</span></div>
     <div class="kv"><span class="k">Temp / dewpoint</span><span class="v">${m.tempC != null ? `${round(cToF(m.tempC))}°F / ${round(cToF(m.dewC))}°F <span class="faint">(${m.tempC}/${m.dewC}C)</span>` : '—'}</span></div>
+    ${rhHtml}
     <div class="kv"><span class="k">Altimeter</span><span class="v">${m.altInHg != null ? m.altInHg.toFixed(2) + ' inHg' : '—'}</span></div>
     ${daHtml}
     <div class="apt-raw" style="margin-bottom:0">${esc(m.raw)}</div>
