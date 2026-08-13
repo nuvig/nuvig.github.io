@@ -110,6 +110,17 @@ function parseMetar(raw) {
     if (t2) { o.tC = +t2[1].replace('M', '-'); o.dC = +t2[2].replace('M', '-'); }
   }
 
+  /* pressure: the altimeter setting a pilot sets (inHg), and the RMK sea-level
+     pressure in tenths of a mb around 1000 — SLP149 = 1014.9, SLP985 = 998.5.
+     SLP is the meteorologist's number and only appears on the hourly ob. */
+  const alt = body.match(/\bA(\d{4})\b/);
+  if (alt) o.altim = +alt[1] / 100;
+  const slp = raw.match(/\bSLP(\d{3})\b/);
+  if (slp) o.slpMb = (+slp[1] >= 500 ? 900 : 1000) + +slp[1] / 10;
+  /* P-group: precipitation since the last hourly ob, hundredths of an inch */
+  const pg = raw.match(/\bP(\d{4})\b/);
+  if (pg) o.precIn = +pg[1] / 100;
+
   o.ts = /(?:^|\s)[+-]?(?:VC)?TS/.test(body);
   o.rain = /(?:^|\s)[+-]?(?:VC)?(?:TS|SH|FZ)?(?:RA|DZ)/.test(body);
   o.snow = /(?:^|\s)[+-]?(?:SH|BL)?(?:SN|PL|IC|GS)/.test(body);
@@ -180,6 +191,11 @@ const S = {
   selected: null,
   cells: new Map(),         // date -> calendar cell element
   charts: new Map(),        // canvas id -> redraw fn (for resize)
+  day: null,                // decoded day model behind the meteogram
+  lanes: null,              // Set of lane keys the reader has on
+  src: null,                // {obs, grid, model} source toggles
+  hover: null,              // crosshair time, epoch seconds
+  meteo: null,              // last meteogram layout (for hit-testing)
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -203,8 +219,9 @@ async function boot() {
   }
   const ix = S.index;
 
-  for (const [stream, key] of [['obs', 'obs_days'], ['forecast', 'forecast_days'],
-    ['grid', 'grid_days'], ['taf', 'taf_days'], ['alerts', 'alert_days'], ['model', 'model_days']]) {
+  for (const [stream, key] of [['obs', 'obs_days'], ['fieldobs', 'fieldobs_days'],
+    ['forecast', 'forecast_days'], ['grid', 'grid_days'], ['taf', 'taf_days'],
+    ['alerts', 'alert_days'], ['model', 'model_days']]) {
     S.have[stream] = new Set(ix[key] || []);
   }
   for (const a of (ix.afd || []).slice().reverse()) {
@@ -224,6 +241,8 @@ async function boot() {
   renderStats();
   buildCalendar();
   wireDayNav();
+  loadPrefs();
+  buildPicker();
 
   const fromHash = (location.hash.match(/d=(\d{4}-\d{2}-\d{2})/) || [])[1];
   selectDay(fromHash && S.days.includes(fromHash) ? fromHash
@@ -247,6 +266,7 @@ function renderStats() {
   $('stats').innerHTML = [
     `Archive updated <b>${age <= 0 ? 'this hour' : `${age} h ago`}</b>`,
     `METARs (${esc(ix.station)}): ${span(S.have.obs)}`,
+    ...(ix.field_station ? [`Field (${esc(ix.field_station)}): ${span(S.have.fieldobs)}`] : []),
     `TAFs: ${span(S.have.taf)}`,
     `Discussions: <b>${(ix.afd || []).length}</b> issuances`,
     `Forecast snaps: ${span(S.have.forecast)}`,
@@ -384,6 +404,7 @@ async function selectDay(date) {
 
   const chips = [
     ['METARs', S.have.obs.has(date)],
+    [`${S.index.field_station || 'field'} obs`, S.have.fieldobs.has(date)],
     ['forecast', S.have.forecast.has(date)],
     ['grid', S.have.grid.has(date)],
     ['TAFs', S.have.taf.has(date)],
@@ -395,8 +416,9 @@ async function selectDay(date) {
     .map(([label, on]) => `<span class="${on ? '' : 'off'}">${esc(label)}</span>`).join('');
 
   /* fetch everything the day has in parallel; WXA caches repeats */
-  const [obs, nextObs, grid, model, taf, alerts] = await Promise.all([
+  const [obs, fobs, nextObs, grid, model, taf, alerts] = await Promise.all([
     S.have.obs.has(date) ? WXA.day('obs', date) : null,
+    S.have.fieldobs.has(date) ? WXA.day('fieldobs', date) : null,
     S.have.obs.has(addDays(date, 1)) ? WXA.day('obs', addDays(date, 1)) : null,
     S.have.grid.has(date) ? WXA.day('grid', date) : null,
     S.have.model.has(date) ? WXA.day('model', date) : null,
@@ -406,7 +428,7 @@ async function selectDay(date) {
   const drift = await loadDrift(date);
   if (seq !== daySeq) return;   // user moved on mid-fetch
 
-  renderObs(date, obs);
+  renderObs(date, obs, fobs, grid, model);
   renderDrift(date, drift, obs, nextObs);
   renderGrid(date, grid, model);
   renderAlerts(alerts);
@@ -421,121 +443,1108 @@ async function selectDay(date) {
 }
 
 /* ---------------------------------------------------------------------------
-   Observations card
+   Observations card — the day meteogram
+   ---------------------------------------------------------------------------
+   One lane per selected measure, stacked, all sharing the day's time axis and
+   one crosshair. Deliberately NOT an overlay with several y-scales: two
+   measures on two scales invent a correlation out of wherever the scales
+   happen to line up. Each lane keeps a single scale that re-steps itself to
+   the day's own range, so every reading is honest.
+
+   Three sources can fill a lane: the day's METARs (solid), the first NWS grid
+   snapshot archived that morning — what was expected before the day happened
+   (dashed) — and the GFS point archived at the field (CAPE/CIN, precip rate).
+
+   Palette: one hue per measure, from the site's categorical slots, checked for
+   colorblind separation and ≥3:1 contrast on the card surface. Two hues repeat
+   across lanes on purpose — density altitude reuses temperature's orange (it
+   is the temperature story in feet) and precipitation reuses dewpoint's aqua —
+   which is fine because those lanes are separate plots, each directly labelled,
+   and the pairs never share one.
 --------------------------------------------------------------------------- */
 
-function renderObs(date, doc) {
+const C = {
+  temp: '#d95926', dew: '#199e70', wind: '#3987e5', pres: '#9085e9',
+  rh: '#008300', vis: '#c98500', ceil: '#d55181', cape: '#e66767',
+  da: '#d95926', precip: '#199e70',
+  ink: '#d6d6d0', muted: '#8d8d86', dim: '#6a6a65',
+  grid: '#242424', hour: 'rgba(255,255,255,0.05)', lane: 'rgba(255,255,255,0.022)',
+  night: 'rgba(9,14,34,0.62)', nightClear: 'rgba(9,14,34,0)',
+};
+
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const rgba = (hex, a) => `rgba(${rgbOf(hex).join(',')},${a})`;
+/* a lighter step of the same hue — forecast lines, gust caps, model fills */
+const lighten = (hex, t = 0.42) => '#' + rgbOf(hex)
+  .map((v) => Math.round(v + (255 - v) * t).toString(16).padStart(2, '0')).join('');
+
+/* The scale is fitted to the day, then labelled — bounds hug the data (plus a
+   little air) and the 1 / 2 / 2.5 / 5 × 10^k ticks fall wherever they land
+   inside. Snapping the *bounds* to tick multiples instead is what leaves a
+   68–93° day drawn on a 60–100° axis, flat and unreadable. */
+function autoScale(lo, hi, want, maxTicks, { zero = false, minSpan = 0, pad = 0.1, ladder = [1, 2, 5, 2.5] } = {}) {
+  if (!(hi > lo)) hi = lo;
+  if (hi - lo < minSpan) {
+    if (zero) hi = Math.max(hi, minSpan);
+    else { const c = (lo + hi) / 2; lo = c - minSpan / 2; hi = c + minSpan / 2; }
+  }
+  const air = Math.max((hi - lo) * pad, 1e-9);
+  hi += air;
+  lo = zero ? 0 : lo - air;
+
+  /* Search the 1/2/5/2.5 ladder for the step whose tick count lands nearest
+     the target, rather than deriving one from a division — the padding above
+     routinely pushes that division a hair over a rung (raw 10.007 → step 20),
+     which is how an axis ends up with a single label. */
+  const mag = Math.pow(10, Math.floor(Math.log10((hi - lo) / Math.max(2, want))));
+  let step = mag, best = Infinity;
+  for (const m of [mag / 10, mag, mag * 10]) {
+    for (const f of ladder) {
+      const s = m * f;
+      const k = Math.floor(hi / s + 1e-9) - Math.ceil(lo / s - 1e-9) + 1;
+      if (k < 2) continue;
+      const score = Math.abs(k - want) + (k > maxTicks ? 100 : 0);
+      if (score < best) { best = score; step = s; }
+    }
+  }
+  const ticks = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) ticks.push(+v.toFixed(10));
+  return { lo, hi, ticks };
+}
+
+/* Keep tick labels from stacking up in a short lane. */
+function thin(ticks, h) {
+  const max = Math.max(2, Math.floor(h / 20));
+  let t = ticks;
+  while (t.length > max) t = t.filter((_, i) => i % 2 === 0);
+  return t;
+}
+
+/* Monotone cubic — smooth without inventing peaks between two hourly obs the
+   way a plain Catmull-Rom does. */
+function smoothPath(ctx, p) {
+  const n = p.length;
+  if (n < 3) { p.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); return; }
+  const dx = [], sl = [], m = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = p[i + 1][0] - p[i][0] || 1e-6;
+    sl[i] = (p[i + 1][1] - p[i][1]) / dx[i];
+  }
+  m[0] = sl[0]; m[n - 1] = sl[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = sl[i - 1] * sl[i] <= 0 ? 0 : (sl[i - 1] + sl[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (!sl[i]) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / sl[i], b = m[i + 1] / sl[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * sl[i]; m[i + 1] = t * b * sl[i]; }
+  }
+  ctx.moveTo(p[0][0], p[0][1]);
+  for (let i = 0; i < n - 1; i++) {
+    ctx.bezierCurveTo(p[i][0] + dx[i] / 3, p[i][1] + m[i] * dx[i] / 3,
+      p[i + 1][0] - dx[i] / 3, p[i + 1][1] - m[i + 1] * dx[i] / 3, p[i + 1][0], p[i + 1][1]);
+  }
+}
+
+/* ---- derived values -------------------------------------------------------
+
+   Field elevation of the observing station, needed for pressure/density
+   altitude. KDCA is the archive's station; SITE covers the local fields. An
+   unknown station leaves density altitude out rather than guessing. */
+const STATION_ELEV_FT = { KDCA: 15 };
+function stationElev(id) {
+  if (STATION_ELEV_FT[id] != null) return STATION_ELEV_FT[id];
+  if (id === SITE.airport.id || id === SITE.airport.metarStation) return SITE.airport.elevFt;
+  const a = (SITE.weather.nearbyAirports || []).find((x) => x.id === id || x.metarStation === id);
+  return a ? a.elevFt : null;
+}
+
+const satVapHpa = (tC) => 6.1078 * Math.pow(10, 7.5 * tC / (tC + 237.3));   // Tetens
+const relHum = (tC, dC) => Math.max(1, Math.min(100, 100 * satVapHpa(dC) / satVapHpa(tC)));
+
+/* Density altitude, NWS method with humidity — same formulas as airlab.js. */
+function densityAltFt(tC, dC, altimInHg, elevFt) {
+  const k = 0.190284;
+  const pHpa = Math.pow(Math.pow(altimInHg, k) - 1.313e-5 * elevFt, 1 / k) * 33.8639;
+  const e = dC == null ? 0 : satVapHpa(dC);
+  const T = tC + 273.15;
+  const rho = (100 * (pHpa - e)) / (287.05 * T) + (100 * e) / (461.495 * T);
+  return 145442.16 * (1 - Math.pow(rho / 1.225, 0.234969));
+}
+
+/* Sunrise/sunset for an archived day (NOAA equation), for the night shading.
+   Anchored on the field's own calendar day like weather.js solarTimes() —
+   browser-local Y/M/D slips the base a day for viewers west of here. */
+function solarTimes(date, lat, lon) {
+  const [y, mo, d] = date.split('-').map(Number);
+  const base = Date.UTC(y, mo - 1, d) / 1000;
+  const doy = Math.floor((Date.UTC(y, mo - 1, d) - Date.UTC(y, 0, 0)) / 86400000);
+  const rad = (deg) => deg * Math.PI / 180;
+  const g = (2 * Math.PI / 365) * (doy - 1 + 0.5);
+  const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+    - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g)
+    - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g)
+    - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const at = (zen, rising) => {
+    const cosH = (Math.cos(rad(zen)) / (Math.cos(rad(lat)) * Math.cos(decl)))
+      - Math.tan(rad(lat)) * Math.tan(decl);
+    if (cosH > 1 || cosH < -1) return null;
+    const ha = (Math.acos(cosH) * 180 / Math.PI) * (rising ? 1 : -1);
+    return base + (720 - 4 * (lon + ha) - eqtime) * 60;
+  };
+  return { dawn: at(96, true), sunrise: at(90.833, true), sunset: at(90.833, false), dusk: at(96, false) };
+}
+
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const dirName = (deg) => COMPASS[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+const ftShort = (v) => (Math.abs(v) >= 10000 ? `${Math.round(v / 1000)}k`
+  : Math.round(v).toLocaleString('en-US'));
+
+/* ---- the day, decoded into plottable series ---------------------------- */
+
+const pick = (arr, key) => arr.filter((p) => p[key] != null).map((p) => [p.t, p[key]]);
+const hasData = (s) => s.pts.some((p) => p[1] != null);
+
+function buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
+  const t0 = midnight(date), t1 = t0 + 86400;
+  const station = (obsDoc && obsDoc.station) || S.index.station;
+  const fieldStation = (fieldDoc && fieldDoc.station) || S.index.field_station;
+
+  const decode = (doc, elev) => ((doc && doc.metars) || []).map(([t, raw]) => {
+    const o = { t, ...parseMetar(raw) };
+    o.tF = o.tC != null ? o.tC * 9 / 5 + 32 : null;
+    o.dF = o.dC != null ? o.dC * 9 / 5 + 32 : null;
+    o.rhPct = (o.tC != null && o.dC != null) ? relHum(o.tC, o.dC) : null;
+    o.daFt = (o.tC != null && o.altim != null && elev != null)
+      ? densityAltFt(o.tC, o.dC, o.altim, elev) : null;
+    o.precMm = o.precIn != null ? o.precIn * 25.4 : null;
+    return o;
+  });
+
+  /* KNAK stands in for KANP (no on-field sensor), so its density altitude is
+     worked at the *field's* elevation — that is the number that matters here,
+     and the two fields are 3 nm and ~30 ft apart. */
+  const fieldElev = fieldStation === SITE.airport.metarStation
+    ? SITE.airport.elevFt : stationElev(fieldStation);
+  const obs = decode(obsDoc, stationElev(station));
+  const fobs = decode(fieldDoc, fieldElev);
+
+  /* the morning snapshot of each forecast stream — the version of the day that
+     existed before it happened, which is the interesting one to lay over obs */
+  const gs = gridDoc && gridDoc.snaps && gridDoc.snaps[0];
+  const gpts = [];
+  if (gs) {
+    for (let i = 0; i < gs.n; i++) {
+      const t = gs.t0 + i * 3600;
+      if (t < t0 - 3600 || t > t1 + 3600) continue;
+      const tC = gs.temp[i], dC = gs.dew[i];
+      gpts.push({
+        t, tF: tC != null ? tC * 9 / 5 + 32 : null, dF: dC != null ? dC * 9 / 5 + 32 : null,
+        rhPct: (tC != null && dC != null) ? relHum(tC, dC) : null,
+        spd: gs.spd[i], gst: gs.gst[i], dir: gs.dir[i],
+        visSM: gs.vis[i], ceilFt: gs.ceil[i], pop: gs.pop[i], wx: gs.wx[i],
+      });
+    }
+  }
+
+  const ms = modelDoc && modelDoc.snaps && modelDoc.snaps[0];
+  const mpts = [];
+  if (ms) {
+    for (let i = 0; i < ms.n; i++) {
+      const t = ms.t0 + i * 3600;
+      if (t < t0 - 3600 || t > t1 + 3600) continue;
+      mpts.push({ t, cape: ms.cape[i], cin: ms.cin[i], pr: ms.pr[i] });
+    }
+  }
+
+  return {
+    date, t0, t1, station, fieldStation, elev: stationElev(station), fieldElev, obs, fobs, gpts, mpts,
+    gridAt: gs ? (gs.t || gs.t0) : null, modelAt: ms ? ms.t : null,
+    sun: solarTimes(date, SITE.airport.lat, SITE.airport.lon),
+  };
+}
+
+/* ---- lanes -------------------------------------------------------------- */
+
+/* Category washes behind visibility and ceiling: the thresholds that decide
+   VFR/MVFR/IFR, in the same colors as the calendar. */
+const VIS_BANDS = [[0, 1, 3], [1, 3, 2], [3, 5, 1]];
+const CEIL_BANDS = [[0, 500, 3], [500, 1000, 2], [1000, 3000, 1]];
+
+/* The observed stations switched on, in draw order. KDCA is the archive's
+   verification station and draws as the solid, dotted, filled line; the field
+   sensor (KNAK, which stands in for KANP) draws thinner in a lighter step of
+   the same hue and always carries its station id, so telling the two apart
+   never rests on color. */
+function obsOn(D, src) {
+  const out = [];
+  if (src.obs && D.obs.length) out.push({ p: D.obs, pre: '', tint: (c) => c, main: true, w: 2 });
+  if (src.field && D.fobs.length) {
+    out.push({ p: D.fobs, pre: `${D.fieldStation} `, tint: (c) => lighten(c, 0.55), main: false, w: 1.5 });
+  }
+  return out;
+}
+const anyObs = (D, fn) => D.obs.some(fn) || D.fobs.some(fn);
+
+const LANES = [
+  {
+    key: 'temp', label: 'Temp & dewpoint', unit: '°F', hue: C.temp,
+    avail: (D) => anyObs(D, (o) => o.tF != null) || D.gpts.some((g) => g.tF != null),
+    fmt: (v) => `${Math.round(v)}°`,
+    build(D, src) {
+      const s = [];
+      for (const o of obsOn(D, src)) {
+        s.push({ name: o.pre + 'temp', color: o.tint(C.temp), kind: 'smooth', fill: o.main && 0.2, dots: o.main, width: o.w, pts: pick(o.p, 'tF') });
+        s.push({ name: o.pre + 'dewpoint', color: o.tint(C.dew), kind: 'smooth', dots: o.main, width: o.w, pts: pick(o.p, 'dF') });
+      }
+      if (src.grid) {
+        s.push({ name: 'NWS temp', color: lighten(C.temp), kind: 'smooth', dash: [5, 4], pts: pick(D.gpts, 'tF') });
+        s.push({ name: 'NWS dew', color: lighten(C.dew), kind: 'smooth', dash: [5, 4], pts: pick(D.gpts, 'dF') });
+      }
+      return { series: s, minSpan: 12, refs: [{ v: 32, label: 'freezing' }] };
+    },
+  },
+  {
+    key: 'wind', label: 'Wind', unit: 'kt', hue: C.wind,
+    avail: (D) => anyObs(D, (o) => o.spd != null) || D.gpts.some((g) => g.spd != null),
+    fmt: (v) => String(Math.round(v)),
+    build(D, src) {
+      const s = [];
+      const on = obsOn(D, src);
+      for (const o of on) {
+        const g = o.p.filter((x) => x.gst != null).map((x) => [x.t, x.spd || 0, x.gst]);
+        if (g.length) s.push({ name: o.pre + 'gusts', color: lighten(o.tint(C.wind), 0.3), kind: 'gust', pts: g });
+        s.push({ name: o.pre + 'sustained', color: o.tint(C.wind), kind: o.main ? 'area' : 'line', fill: o.main && 0.28, dots: o.main, width: o.w, pts: pick(o.p, 'spd') });
+      }
+      if (src.grid) {
+        s.push({ name: 'NWS wind', color: lighten(C.wind), kind: 'line', dash: [5, 4], pts: pick(D.gpts, 'spd') });
+      }
+      /* arrows come from whichever source is actually drawn */
+      const arrows = on.length ? on[0].p : src.grid ? D.gpts : null;
+      /* headroom keeps the speed trace clear of the arrow band above it */
+      return { series: s, zero: true, minSpan: 12, headroom: arrows ? 32 : 8, arrows };
+    },
+  },
+  {
+    key: 'pres', label: 'Pressure', unit: 'inHg', hue: C.pres,
+    avail: (D) => anyObs(D, (o) => o.altim != null),
+    fmt: (v) => v.toFixed(2),
+    build(D, src) {
+      const s = [];
+      for (const o of obsOn(D, src)) {
+        s.push({ name: o.pre + 'altimeter', color: o.tint(C.pres), kind: 'smooth', fill: o.main && 0.18, dots: o.main, width: o.w, pts: pick(o.p, 'altim') });
+      }
+      /* no 2.5 rung: an altimeter is read in hundredths, so 0.025 steps make
+         an axis that looks unevenly spaced once the labels round to 2 dp */
+      return { series: s, minSpan: 0.12, ladder: [1, 2, 5], refs: [{ v: 29.92, label: 'standard' }] };
+    },
+  },
+  {
+    key: 'rh', label: 'Humidity', unit: '%', hue: C.rh,
+    avail: (D) => anyObs(D, (o) => o.rhPct != null) || D.gpts.some((g) => g.rhPct != null),
+    fmt: (v) => `${Math.round(v)}`,
+    build(D, src) {
+      const s = [];
+      for (const o of obsOn(D, src)) {
+        s.push({ name: o.pre + 'relative humidity', color: o.tint(C.rh), kind: 'smooth', fill: o.main && 0.22, width: o.w, pts: pick(o.p, 'rhPct') });
+      }
+      if (src.grid) s.push({ name: 'NWS', color: lighten(C.rh), kind: 'smooth', dash: [5, 4], pts: pick(D.gpts, 'rhPct') });
+      return { series: s, fixed: { lo: 0, hi: 100, ticks: [0, 25, 50, 75, 100] } };
+    },
+  },
+  {
+    key: 'vis', label: 'Visibility', unit: 'SM', hue: C.vis,
+    avail: (D) => anyObs(D, (o) => o.visSM != null) || D.gpts.some((g) => g.visSM != null),
+    fmt: (v) => String(+v.toFixed(2)),
+    build(D, src) {
+      const s = [];
+      for (const o of obsOn(D, src)) {
+        s.push({ name: o.pre + 'observed', color: o.tint(C.vis), kind: 'step', fill: o.main && 0.18, width: o.w, pts: pick(o.p, 'visSM') });
+      }
+      if (src.grid) s.push({ name: 'NWS', color: lighten(C.vis), kind: 'step', dash: [5, 4], pts: pick(D.gpts, 'visSM') });
+      return { series: s, zero: true, minSpan: 10, bands: VIS_BANDS };
+    },
+  },
+  {
+    key: 'ceil', label: 'Ceiling', unit: 'ft', hue: C.ceil,
+    avail: (D) => D.obs.length > 0 || D.fobs.length > 0 || D.gpts.length > 0,
+    fmt: ftShort,
+    build(D, src) {
+      const s = [];
+      const on = obsOn(D, src);
+      for (const o of on) {
+        /* nulls kept, not filtered: on this lane "no ceiling" is a reading */
+        s.push({ name: o.pre + 'observed', color: o.tint(C.ceil), kind: 'step', fill: o.main && 0.16, width: o.w, pts: o.p.map((z) => [z.t, z.ceilFt]) });
+      }
+      if (src.grid) s.push({ name: 'NWS', color: lighten(C.ceil), kind: 'step', dash: [5, 4], pts: D.gpts.map((z) => [z.t, z.ceilFt]) });
+      /* a clear sky has no ceiling at all — that is a fact, not a gap, so the
+         obs with no ceiling get their own rail along the top of the lane */
+      const rail = on.length ? on[0].p.filter((o) => o.ceilFt == null).map((o) => o.t) : [];
+      /* ticks are the numbers a pilot already thinks in — the category
+         thresholds, then two for scale */
+      return {
+        series: s, log: [150, 30000], ticks: [500, 1000, 3000, 10000, 25000],
+        bands: CEIL_BANDS, rail, headroom: rail.length ? 28 : 8,
+      };
+    },
+  },
+  {
+    key: 'da', label: 'Density altitude', unit: 'ft', hue: C.da,
+    avail: (D) => anyObs(D, (o) => o.daFt != null),
+    fmt: ftShort,
+    build(D, src) {
+      const s = [];
+      const on = obsOn(D, src);
+      for (const o of on) {
+        s.push({ name: o.pre + 'density altitude', color: o.tint(C.da), kind: 'smooth', fill: o.main && 0.2, dots: o.main, width: o.w, pts: pick(o.p, 'daFt') });
+      }
+      /* the reference line is the elevation the shown series was worked at */
+      const primary = on.length && on[0].main;
+      const elev = primary ? D.elev : D.fieldElev;
+      const who = primary ? D.station : `${SITE.airport.id} (via ${D.fieldStation})`;
+      return {
+        series: s, minSpan: 600,
+        refs: elev != null ? [{ v: elev, label: `${who} elevation` }] : [],
+      };
+    },
+  },
+  {
+    key: 'precip', label: 'Precipitation', unit: 'mm/h', hue: C.precip,
+    avail: (D) => anyObs(D, (o) => o.precMm != null) || D.mpts.some((m) => m.pr != null)
+      || D.gpts.some((g) => g.pop != null),
+    fmt: (v) => String(+v.toFixed(v >= 10 ? 0 : 1)),
+    build(D, src) {
+      const s = [];
+      /* bars, not a line: a step area at 0 draws a rule across a dry day */
+      if (src.model) s.push({ name: 'GFS rate', color: lighten(C.precip, 0.45), kind: 'bars', w: 11, pts: pick(D.mpts, 'pr') });
+      for (const o of obsOn(D, src)) {
+        s.push({ name: o.pre + 'measured', color: o.tint(C.precip), kind: 'bars', w: o.main ? 6 : 3,
+          pts: o.p.filter((x) => x.precMm).map((x) => [x.t, x.precMm]) });
+      }
+      /* chance-of-precip is a probability, not a rate — it gets no second
+         y-scale, it shades the lane behind the rates instead */
+      return { series: s, zero: true, minSpan: 1, wash: src.grid ? pick(D.gpts, 'pop') : null };
+    },
+  },
+  {
+    key: 'cape', label: 'Instability', unit: 'J/kg', hue: C.cape,
+    avail: (D) => D.mpts.some((m) => m.cape != null),
+    fmt: (v) => String(Math.round(v)),
+    build(D, src) {
+      const s = [];
+      if (src.model) {
+        s.push({ name: 'CAPE', color: C.cape, kind: 'area', fill: 0.2, pts: pick(D.mpts, 'cape') });
+        s.push({ name: 'CIN (the cap)', color: lighten(C.cape, 0.4), kind: 'line', dash: [4, 3], pts: pick(D.mpts, 'cin') });
+      }
+      return { series: s, zero: true, minSpan: 500 };
+    },
+  },
+];
+
+const SOURCES = [
+  { key: 'obs', label: () => S.index.station, note: 'the archive’s verification station' },
+  { key: 'field', label: () => `${S.index.field_station} · the field`,
+    note: 'the nearest sensor to KANP, which has none of its own',
+    skip: () => !S.index.field_station },
+  { key: 'grid', label: () => 'NWS forecast', note: 'the hourly grid archived that morning' },
+  { key: 'model', label: () => 'GFS model', note: 'the model point at the field' },
+];
+
+/* ---- picker (the chart's legend, and its controls) ---------------------- */
+
+const LS_LANES = 'almanac_lanes', LS_SRC = 'almanac_src';
+
+function loadPrefs() {
+  let lanes = ['temp', 'wind', 'pres', 'ceil'];
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_LANES));
+    if (Array.isArray(raw) && raw.length) lanes = raw.filter((k) => LANES.some((l) => l.key === k));
+  } catch { /* first visit */ }
+  let src = { obs: true, field: false, grid: true, model: true };
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_SRC));
+    if (raw && typeof raw === 'object') src = { ...src, ...raw };
+  } catch { /* first visit */ }
+  S.lanes = new Set(lanes);
+  S.src = src;
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(LS_LANES, JSON.stringify([...S.lanes]));
+    localStorage.setItem(LS_SRC, JSON.stringify(S.src));
+  } catch { /* private mode — the chart still works, it just won't remember */ }
+}
+
+function buildPicker() {
+  const srcRow = $('obs-sources'), laneRow = $('obs-series');
+  srcRow.innerHTML = SOURCES.filter((s) => !(s.skip && s.skip())).map((s) =>
+    `<button class="chip src" data-src="${s.key}" title="${esc(s.note)}">${esc(s.label())}</button>`).join('');
+  laneRow.innerHTML = LANES.map((l) =>
+    `<button class="chip" data-lane="${l.key}" title="${esc(l.label)} (${esc(l.unit)})">` +
+    `<i style="background:${l.hue}"></i>${esc(l.label)}</button>`).join('');
+
+  srcRow.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-src]');
+    if (!b || b.disabled) return;
+    S.src[b.dataset.src] = !S.src[b.dataset.src];
+    savePrefs(); syncPicker(); drawObsChart();
+  });
+  laneRow.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-lane]');
+    if (!b || b.disabled) return;
+    S.lanes.has(b.dataset.lane) ? S.lanes.delete(b.dataset.lane) : S.lanes.add(b.dataset.lane);
+    savePrefs(); syncPicker(); drawObsChart();
+  });
+}
+
+/* Chips carry two states: on/off (the reader's choice) and available (whether
+   this day archived anything that could fill the lane). */
+function syncPicker() {
+  const D = S.day;
+  const stock = { obs: 'obs', field: 'fobs', grid: 'gpts', model: 'mpts' };
+  for (const b of $('obs-sources').querySelectorAll('button')) {
+    const k = b.dataset.src;
+    const have = !!(D && D[stock[k]] && D[stock[k]].length);
+    const on = have && !!S.src[k];
+    b.disabled = !have;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    b.title = have ? (SOURCES.find((s) => s.key === k) || {}).note || '' : 'nothing archived this day';
+  }
+  for (const b of $('obs-series').querySelectorAll('button')) {
+    const lane = LANES.find((l) => l.key === b.dataset.lane);
+    const have = D ? lane.avail(D) : false;
+    const on = have && S.lanes.has(lane.key);
+    b.disabled = !have;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    b.title = have ? `${lane.label} (${lane.unit})` : `${lane.label} — not archived this day`;
+  }
+}
+
+/* ---- render ------------------------------------------------------------- */
+
+function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
   const card = $('obs-card');
-  if (!doc || !doc.metars || !doc.metars.length) { card.hidden = true; return; }
+  const D = buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc);
+  S.day = D; S.hover = null;
+  $('obs-readout').hidden = true;
+  if (!D.obs.length && !D.fobs.length && !D.gpts.length && !D.mpts.length) { card.hidden = true; return; }
   card.hidden = false;
-  $('obs-sub').textContent = `${doc.station} · ${doc.metars.length} observations`;
 
-  const obs = doc.metars.map(([t, raw]) => ({ t, ...parseMetar(raw) }));
-  const s = summarize(doc.metars);
+  const srcBits = [];
+  if (D.obs.length) srcBits.push(`${D.station} · ${D.obs.length} observations`);
+  if (D.fobs.length) srcBits.push(`${D.fieldStation} · ${D.fobs.length}`);
+  if (D.gridAt) srcBits.push(`NWS grid ${hhmm(D.gridAt)}`);
+  if (D.modelAt) srcBits.push(`GFS ${hhmm(D.modelAt)}`);
+  $('obs-sub').textContent = srcBits.join(' · ');
 
-  chart('obs-chart', (ctx, W, H) => drawDayChart(ctx, W, H, date, obs));
+  syncPicker();
+  drawObsChart();
 
+  /* headline numbers */
   const bits = [];
-  if (s.hiC != null) bits.push(`<b>${cToF(s.hiC)}°</b> / <b>${cToF(s.loC)}°</b>F`);
-  const worst = obs.reduce((w, o) => Math.max(w, o.cat), 0);
-  bits.push(`worst <b class="cat-word" style="color:${CAT[worst].color}">${CAT[worst].name}</b>`);
-  if (s.maxSpd) bits.push(`max wind <b>${s.maxSpd}${s.maxGst ? `G${s.maxGst}` : ''} kt</b>`);
-  const tsObs = obs.filter((o) => o.ts);
-  if (tsObs.length) bits.push(`⚡ thunder ${hhmm(tsObs[0].t)}–${hhmm(tsObs[tsObs.length - 1].t)}`);
-  else if (s.rain) bits.push('rain reported');
-  if (s.snow) bits.push('winter precip');
-  if (s.fog) bits.push('fog/mist');
+  const s = D.obs.length ? summarize(obsDoc.metars) : null;
+  if (s) {
+    if (s.hiC != null) bits.push(`<b>${cToF(s.hiC)}°</b> / <b>${cToF(s.loC)}°</b>F`);
+    const worst = D.obs.reduce((w, o) => Math.max(w, o.cat), 0);
+    bits.push(`worst <b class="cat-word" style="color:${CAT[worst].color}">${CAT[worst].name}</b>`);
+    if (s.maxSpd) bits.push(`max wind <b>${s.maxSpd}${s.maxGst ? `G${s.maxGst}` : ''} kt</b>`);
+    const pres = D.obs.filter((o) => o.altim != null).map((o) => o.altim);
+    if (pres.length) {
+      const lo = Math.min(...pres), hi = Math.max(...pres);
+      bits.push(`pressure <b>${lo.toFixed(2)}–${hi.toFixed(2)}</b> inHg` +
+        (hi - lo >= 0.15 ? ` (${((hi - lo) * 33.86).toFixed(0)} mb swing)` : ''));
+    }
+    const das = D.obs.filter((o) => o.daFt != null).map((o) => o.daFt);
+    if (das.length) bits.push(`peak density alt <b>${ftShort(Math.max(...das))} ft</b>`);
+    const tsObs = D.obs.filter((o) => o.ts);
+    if (tsObs.length) bits.push(`⚡ thunder ${hhmm(tsObs[0].t)}–${hhmm(tsObs[tsObs.length - 1].t)}`);
+    else if (s.rain) bits.push('rain reported');
+    if (s.snow) bits.push('winter precip');
+    if (s.fog) bits.push('fog/mist');
+  }
   $('obs-stats').innerHTML = bits.join(' · ');
 
-  $('ob-list').innerHTML = obs.map((o) =>
+  renderObsTable(D);
+  const raw = obsOn(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);
+  $('ob-list').innerHTML = raw.map((o) =>
     `<div class="ob-row"><span class="t">${hhmm(o.t)}</span>` +
     `<span class="cat" style="background:${CAT[o.cat].color}">${CAT[o.cat].name}</span>` +
     `<code>${esc(o.raw)}</code></div>`).join('');
 }
 
-function drawDayChart(ctx, W, H, date, obs) {
-  const L = 36, R = 8, ribbonH = 12, windH = 52;
-  const T = ribbonH + 8, B = H - 18 - windH;
-  const t0 = midnight(date), x = (t) => L + (t - t0) / 86400 * (W - L - R);
+/* Every plotted value, readable without a mouse — one table per observing
+   station that is switched on. */
+function renderObsTable(D) {
+  const tables = obsOn(D, S.src)
+    .map((o) => (o.p.length ? obsTableHtml(D, o.p, o.main ? D.station : D.fieldStation) : ''))
+    .filter(Boolean);
+  $('obs-table').innerHTML = tables.length ? tables.join('')
+    : '<p class="note">No observations archived this day.</p>';
+}
 
+function obsTableHtml(D, obs, station) {
+  const wx = (o) => [o.ts && 'TS', o.rain && 'RA', o.snow && 'SN', o.fog && 'FG'].filter(Boolean).join(' ');
+  return `<p class="note">${esc(station)}</p>` +
+    '<table class="grid-tab"><tr><th>local</th><th>cat</th><th>temp</th>' +
+    '<th>dew</th><th>RH</th><th>wind</th><th>altim</th><th>vis</th><th>ceiling</th><th>dens alt</th>' +
+    '<th>precip</th><th>wx</th></tr>' +
+    obs.map((o) => `<tr><td>${hhmm(o.t)}</td>` +
+      `<td style="color:${CAT[o.cat].color}">${CAT[o.cat].name}</td>` +
+      `<td>${o.tF != null ? Math.round(o.tF) + '°' : '—'}</td>` +
+      `<td>${o.dF != null ? Math.round(o.dF) + '°' : '—'}</td>` +
+      `<td>${o.rhPct != null ? Math.round(o.rhPct) + '%' : '—'}</td>` +
+      `<td>${o.spd == null ? '—' : o.spd === 0 ? 'calm'
+        : `${o.dir != null ? String(o.dir).padStart(3, '0') + '°' : 'VRB'} ${o.spd}${o.gst ? 'G' + o.gst : ''}`}</td>` +
+      `<td>${o.altim != null ? o.altim.toFixed(2) : '—'}</td>` +
+      `<td>${o.visSM != null ? (o.visSM >= 7 ? '10+' : o.visSM) : '—'}</td>` +
+      `<td>${o.ceilFt != null ? o.ceilFt.toLocaleString() : 'none'}</td>` +
+      `<td>${o.daFt != null ? ftShort(o.daFt) : '—'}</td>` +
+      `<td>${o.precMm ? o.precMm.toFixed(1) + ' mm' : ''}</td>` +
+      `<td class="wx">${wx(o)}</td></tr>`).join('') + '</table>';
+}
+
+/* Lane heights shrink as lanes are added, but never below readable — the
+   canvas grows instead, which is why its height is computed, not fixed.
+   Generous by design: the taller the lane, the more tick labels laneScale()
+   gives it, and a 4 °F wobble that reads as a flat line in 60 px is a visible
+   afternoon sea breeze in 130. */
+const laneH = (n) => (n <= 2 ? 168 : n === 3 ? 146 : n === 4 ? 130 : n === 5 ? 116 : n <= 7 ? 104 : 94);
+const RIB_H = 13, LANE_GAP = 12, AXIS_H = 26, PAD_L = 50, PAD_R = 14;
+
+function activeLanes() {
+  const D = S.day;
+  if (!D) return [];
+  return LANES.filter((l) => S.lanes.has(l.key) && l.avail(D))
+    .map((l) => ({ spec: l, ...l.build(D, S.src) }))
+    .filter((l) => l.series.some(hasData) || l.rail && l.rail.length || l.wash && l.wash.length);
+}
+
+function drawObsChart() {
+  if (!S.day) return;
+  const lanes = activeLanes();
+  const n = lanes.length;
+  const h = RIB_H + 10 + (n ? n * laneH(n) + (n - 1) * LANE_GAP : 26) + AXIS_H;
+  chart('obs-chart', (ctx, W, H) => drawMeteogram(ctx, W, H, S.day, lanes), h);
+  wireHover($('obs-chart'));
+}
+
+function drawMeteogram(ctx, W, H, D, lanes) {
   ctx.clearRect(0, 0, W, H);
-
-  /* hour grid + labels */
   ctx.font = '10px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  for (let h = 0; h <= 24; h += 3) {
-    const px = x(t0 + h * 3600);
-    ctx.strokeStyle = '#242424';
-    ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, H - 14); ctx.stroke();
-    ctx.fillStyle = '#666';
-    ctx.fillText(h === 24 ? '24' : String(h).padStart(2, '0'), px, H - 3);
-  }
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  /* flight-category ribbon (each ob paints until the next) */
-  for (let i = 0; i < obs.length; i++) {
-    const a = Math.max(x(obs[i].t), L);
-    const b = i + 1 < obs.length ? x(obs[i + 1].t) : Math.min(x(obs[i].t + 3600), W - R);
-    ctx.fillStyle = CAT[obs[i].cat].color;
-    ctx.fillRect(a, 0, Math.max(b - a, 1.5), ribbonH);
-  }
+  const x = (t) => PAD_L + (t - D.t0) / 86400 * (W - PAD_L - PAD_R);
+  const x0 = x(D.t0), x1 = x(D.t1);
+  S.meteo = { W, H, x0, x1, t0: D.t0, t1: D.t1 };
 
-  /* temp + dewpoint */
-  const temps = obs.filter((o) => o.tC != null);
-  if (temps.length) {
-    const vals = temps.flatMap((o) => [cToF(o.tC), o.dC != null ? cToF(o.dC) : cToF(o.tC)]);
-    let lo = Math.min(...vals), hi = Math.max(...vals);
-    const pad = Math.max(2, (hi - lo) * 0.12); lo -= pad; hi += pad;
-    const y = (f) => B - (f - lo) / (hi - lo) * (B - T);
-
-    ctx.textAlign = 'right';
-    for (const f of [Math.ceil(lo / 10) * 10, Math.round((lo + hi) / 20) * 10, Math.floor(hi / 10) * 10]) {
-      if (f <= lo || f >= hi) continue;
-      ctx.strokeStyle = '#202020';
-      ctx.beginPath(); ctx.moveTo(L, y(f)); ctx.lineTo(W - R, y(f)); ctx.stroke();
-      ctx.fillStyle = '#666'; ctx.fillText(`${f}°`, L - 4, y(f) + 3);
+  /* flight-category ribbon: each ob paints until the next one */
+  if (D.obs.length) {
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, 0, x1 - x0, RIB_H, 3); else ctx.rect(x0, 0, x1 - x0, RIB_H);
+    ctx.clip();
+    for (let i = 0; i < D.obs.length; i++) {
+      const a = x(D.obs[i].t);
+      const b = i + 1 < D.obs.length ? x(D.obs[i + 1].t) : Math.min(x(D.obs[i].t + 3600), x1);
+      ctx.fillStyle = CAT[D.obs[i].cat].color;
+      ctx.fillRect(a, 0, Math.max(b - a, 1.5), RIB_H);
     }
-    const line = (pick, color) => {
-      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath();
-      let started = false;
-      for (const o of temps) {
-        const v = pick(o);
-        if (v == null) continue;
-        const px = x(o.t), py = y(cToF(v));
-        started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-        started = true;
-      }
-      ctx.stroke(); ctx.lineWidth = 1;
-    };
-    line((o) => o.tC, '#f59e0b');
-    line((o) => o.dC, '#22c55e');
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#f59e0b'; ctx.fillText('temp °F', L + 4, T + 10);
-    ctx.fillStyle = '#22c55e'; ctx.fillText('dewpoint', L + 52, T + 10);
+    ctx.restore();
+    ctx.fillStyle = C.dim; ctx.textAlign = 'right';
+    ctx.fillText('cat', x0 - 6, RIB_H - 3);
   }
 
-  /* wind lane: speed bars, gust ticks, weather glyphs above */
-  const wTop = B + 6, wBot = H - 18;
-  const maxKt = Math.max(15, ...obs.map((o) => o.gst || o.spd || 0));
-  const wy = (kt) => wBot - kt / maxKt * (wBot - wTop);
-  ctx.strokeStyle = '#242424';
-  ctx.beginPath(); ctx.moveTo(L, wBot); ctx.lineTo(W - R, wBot); ctx.stroke();
-  for (const o of obs) {
+  const n = lanes.length;
+  const lh = laneH(Math.max(n, 1));
+  let y = RIB_H + 10;
+  const boxes = [];
+  for (const lane of lanes) {
+    const box = { x: x0, y, w: x1 - x0, h: lh };
+    boxes.push(box);
+    drawLane(ctx, D, lane, box, x);
+    y += lh + LANE_GAP;
+  }
+  S.meteo.boxes = boxes; S.meteo.lanes = lanes;
+
+  const top = RIB_H + 10, bot = y - LANE_GAP;
+  if (!n) {
+    ctx.fillStyle = C.muted; ctx.textAlign = 'center';
+    ctx.fillText('Pick a measure above to plot it.', (x0 + x1) / 2, top + 16);
+  }
+
+  /* hour axis, shared by every lane */
+  ctx.textAlign = 'center'; ctx.fillStyle = C.muted;
+  for (let hh = 0; hh <= 24; hh += 3) {
+    ctx.fillText(hh === 24 ? '24' : String(hh).padStart(2, '0'), x(D.t0 + hh * 3600), H - 13);
+  }
+  ctx.textAlign = 'left'; ctx.fillStyle = C.dim;
+  ctx.fillText('local', 0, H - 13);
+
+  /* sun marks: night is already shaded inside each lane, this names the edges */
+  if (n) {
+    ctx.textAlign = 'center';
+    for (const [t, label] of [[D.sun.sunrise, '☀ ' + (D.sun.sunrise ? hhmm(D.sun.sunrise) : '')],
+      [D.sun.sunset, '☾ ' + (D.sun.sunset ? hhmm(D.sun.sunset) : '')]]) {
+      if (t == null || t < D.t0 || t > D.t1) continue;
+      ctx.strokeStyle = 'rgba(255,214,140,0.16)';
+      ctx.beginPath(); ctx.moveTo(x(t), top); ctx.lineTo(x(t), bot); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,214,140,0.5)';
+      ctx.fillText(label, Math.min(Math.max(x(t), x0 + 26), x1 - 26), H - 2);
+    }
+    /* "now" on today's page */
+    const now = Date.now() / 1000;
+    if (now > D.t0 && now < D.t1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.beginPath(); ctx.moveTo(x(now), top); ctx.lineTo(x(now), bot); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'left';
+      ctx.fillText('now', x(now) + 3, top - 2);
+    }
+  }
+
+  /* crosshair */
+  if (S.hover != null && n) {
+    const px = x(S.hover);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, bot); ctx.stroke();
+    for (let i = 0; i < lanes.length; i++) markHover(ctx, lanes[i], boxes[i], x, S.hover);
+  }
+}
+
+/* ---- one lane ----------------------------------------------------------- */
+
+function laneScale(lane, box) {
+  /* every lane reserves a little top for its label row */
+  const head = Math.max(lane.headroom || 0, 11);
+  const plot = box.h - head;
+  if (lane.log) {
+    const [lo, hi] = lane.log, k = Math.log(hi / lo);
+    return {
+      ticks: thin(lane.ticks, plot), lo, hi,
+      y: (v) => box.y + box.h - Math.log(Math.max(lo, Math.min(hi, v)) / lo) / k * plot,
+    };
+  }
+  if (lane.fixed) {
+    const { lo, hi, ticks } = lane.fixed;
+    return { ticks: thin(ticks, plot), lo, hi, y: (v) => box.y + box.h - (v - lo) / (hi - lo) * plot };
+  }
+  /* reference lines deliberately stay out of the range: pinning 29.92 (or
+     freezing) into the scale would flatten the day's own variation. */
+  const vals = [];
+  for (const s of lane.series) {
+    for (const p of s.pts) {
+      if (p[1] == null) continue;
+      vals.push(p[1]);
+      if (p.length > 2) vals.push(p[2]);
+    }
+  }
+  if (!vals.length) vals.push(0, 1);
+  /* how many labels this lane can carry without crowding */
+  const want = lane.want || Math.max(2, Math.min(5, Math.round(plot / 22)));
+  const sc = autoScale(Math.min(...vals), Math.max(...vals), want, Math.max(2, Math.floor(plot / 18)),
+    { zero: !!lane.zero, minSpan: lane.minSpan || 0, ladder: lane.ladder });
+  return {
+    ticks: sc.ticks, lo: sc.lo, hi: sc.hi,
+    y: (v) => box.y + box.h - (v - sc.lo) / (sc.hi - sc.lo) * plot,
+  };
+}
+
+function drawLane(ctx, D, lane, box, x) {
+  const sc = laneScale(lane, box);
+  const round = (r) => {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(box.x, box.y, box.w, box.h, r); else ctx.rect(box.x, box.y, box.w, box.h);
+  };
+
+  /* plate */
+  round(5); ctx.fillStyle = C.lane; ctx.fill();
+
+  /* category washes (visibility, ceiling) */
+  ctx.save(); round(5); ctx.clip();
+  for (const [lo, hi, cat] of lane.bands || []) {
+    const a = sc.y(Math.min(hi, sc.hi)), b = sc.y(Math.max(lo, sc.lo));
+    if (b - a > 0.5) { ctx.fillStyle = rgba(CAT[cat].color, 0.07); ctx.fillRect(box.x, a, box.w, b - a); }
+  }
+
+  /* chance-of-precip behind the rates: probability as shade, not a second axis */
+  if (lane.wash) {
+    for (let i = 0; i < lane.wash.length; i++) {
+      const [t, pop] = lane.wash[i];
+      if (!pop) continue;
+      const a = x(t - 1800), b = x(t + 1800);
+      ctx.fillStyle = rgba(C.wind, 0.03 + pop / 100 * 0.16);
+      ctx.fillRect(a, box.y, b - a, box.h);
+    }
+  }
+
+  /* night */
+  const g = ctx.createLinearGradient(box.x, 0, box.x + box.w, 0);
+  const f = (t) => Math.max(0, Math.min(1, (t - D.t0) / 86400));
+  const sun = D.sun;
+  if (sun.dawn && sun.sunrise && sun.sunset && sun.dusk) {
+    g.addColorStop(0, C.night);
+    g.addColorStop(f(sun.dawn), C.night);
+    g.addColorStop(f(sun.sunrise), C.nightClear);
+    g.addColorStop(f(sun.sunset), C.nightClear);
+    g.addColorStop(f(sun.dusk), C.night);
+    g.addColorStop(1, C.night);
+    ctx.fillStyle = g; ctx.fillRect(box.x, box.y, box.w, box.h);
+  }
+  ctx.restore();
+
+  /* grid: solid hairlines, one shade off the plate */
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.fillStyle = C.muted;
+  for (const v of sc.ticks) {
+    const py = Math.round(sc.y(v)) + 0.5;
+    if (py < box.y - 0.5 || py > box.y + box.h + 0.5) continue;
+    ctx.beginPath(); ctx.moveTo(box.x, py); ctx.lineTo(box.x + box.w, py); ctx.stroke();
+    ctx.fillText(lane.spec.fmt(v), box.x - 6, py + 3);
+  }
+  ctx.strokeStyle = C.hour;
+  for (let hh = 3; hh < 24; hh += 3) {
+    const px = Math.round(x(D.t0 + hh * 3600)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(px, box.y); ctx.lineTo(px, box.y + box.h); ctx.stroke();
+  }
+
+  /* reference lines that mean something (freezing, 29.92, field elevation) */
+  ctx.save(); round(5); ctx.clip();
+  for (const r of lane.refs || []) {
+    if (r.v <= sc.lo || r.v >= sc.hi) continue;
+    const py = Math.round(sc.y(r.v)) + 0.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath(); ctx.moveTo(box.x, py); ctx.lineTo(box.x + box.w, py); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.textAlign = 'right';
+    ctx.fillText(r.label, box.x + box.w - 5, py - 3);
+  }
+
+  for (const s of lane.series) plotSeries(ctx, box, sc, s, x);
+  if (lane.arrows) drawWindArrows(ctx, box, lane.arrows, x);
+  if (lane.rail && lane.rail.length) drawClearRail(ctx, box, lane.rail, x);
+  ctx.restore();
+
+  /* frame + labels: names in muted ink, identity carried by the swatch, on a
+     backdrop so a trace running along the top of the lane stays legible */
+  round(5); ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+  ctx.textAlign = 'left';
+  const uw = ctx.measureText(lane.spec.unit).width;
+  /* series names are added while they fit — on a phone the chips above are
+     already the legend, so a clipped name row would only be noise */
+  const room = box.w - 24 - uw;
+  const drawn = [];
+  let w = 12 + ctx.measureText(lane.spec.label).width;
+  for (const s of lane.series) {
+    if (!hasData(s)) continue;
+    const need = 15 + ctx.measureText(s.name).width + 12;
+    if (w + need > room) break;
+    drawn.push(s); w += need;
+  }
+  const plate = (x0p, wp) => {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0p, box.y + 2, wp, 15, 4); else ctx.rect(x0p, box.y + 2, wp, 15);
+    ctx.fillStyle = 'rgba(14,14,14,0.72)'; ctx.fill();
+  };
+  plate(box.x + 3, Math.min(w, box.w - 6));
+
+  let lx = box.x + 8;
+  ctx.fillStyle = C.ink; ctx.fillText(lane.spec.label, lx, box.y + 12);
+  lx += ctx.measureText(lane.spec.label).width + 10;
+  for (const s of drawn) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+    if (s.dash) ctx.setLineDash(s.dash);
+    ctx.beginPath(); ctx.moveTo(lx, box.y + 8.5); ctx.lineTo(lx + 11, box.y + 8.5); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+    lx += 15;
+    ctx.fillStyle = C.muted; ctx.fillText(s.name, lx, box.y + 12);
+    lx += ctx.measureText(s.name).width + 12;
+  }
+  plate(box.x + box.w - uw - 11, uw + 8);
+  ctx.textAlign = 'right'; ctx.fillStyle = C.dim;
+  ctx.fillText(lane.spec.unit, box.x + box.w - 6, box.y + 12);
+}
+
+/* A null is not always missing data: on the ceiling lane it means the sky was
+   clear, so the trace has to break there instead of bridging two ceilings that
+   never met. Split into runs, hold each run's last value up to the ob that
+   ended it, and draw the runs separately. */
+function plotSeries(ctx, box, sc, s, x) {
+  const runs = [];
+  let cur = null;
+  for (const p of s.pts) {
+    if (p[1] == null) { if (cur) { cur.end = x(p[0]); cur = null; } continue; }
+    if (!cur) { cur = { pts: [], end: null }; runs.push(cur); }
+    cur.pts.push(p);
+  }
+  for (const r of runs) plotRun(ctx, box, sc, s, x, r.pts, r.end);
+}
+
+function plotRun(ctx, box, sc, s, x, srcPts, endHint) {
+  const pts = srcPts.map((p) => [x(p[0]), sc.y(p[1])]);
+  if (!pts.length) return;
+  const base = box.y + box.h;
+
+  if (s.kind === 'bars') {
+    ctx.fillStyle = s.color;
+    const bw = s.w || 7;
+    for (let i = 0; i < pts.length; i++) {
+      if (!(srcPts[i][1] > 0)) continue;                 // a dry hour draws nothing
+      const [px, py] = pts[i];
+      const h = Math.max(base - py, 2);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(px - bw / 2, base - h, bw, h, [2, 2, 0, 0]);
+      else ctx.rect(px - bw / 2, base - h, bw, h);
+      ctx.fill();
+    }
+    return;
+  }
+  if (s.kind === 'gust') {                       // sustained → gust whisker
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+    for (const p of srcPts) {
+      const px = x(p[0]), a = sc.y(p[1]), b = sc.y(p[2]);
+      ctx.beginPath(); ctx.moveTo(px, a); ctx.lineTo(px, b); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px - 3.5, b); ctx.lineTo(px + 3.5, b); ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    return;
+  }
+
+  const stepped = s.kind === 'step' || s.kind === 'stepArea';
+  /* a step holds its value until the reading that ended it — the next ob if
+     that one said "clear", otherwise the right edge (a 23:52 ob is still the
+     ceiling at midnight) */
+  const endX = stepped ? (endHint != null ? endHint : box.x + box.w) : pts[pts.length - 1][0];
+  const trace = () => {
+    if (s.kind === 'smooth') { smoothPath(ctx, pts); return; }
+    if (stepped) {
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) { ctx.lineTo(pts[i][0], pts[i - 1][1]); ctx.lineTo(pts[i][0], pts[i][1]); }
+      ctx.lineTo(endX, pts[pts.length - 1][1]);
+      return;
+    }
+    pts.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
+  };
+
+  if (s.fill) {
+    ctx.beginPath(); trace();
+    ctx.lineTo(endX, base); ctx.lineTo(pts[0][0], base); ctx.closePath();
+    const grad = ctx.createLinearGradient(0, box.y, 0, base);
+    grad.addColorStop(0, rgba(s.color, s.fill));
+    grad.addColorStop(1, rgba(s.color, 0));
+    ctx.fillStyle = grad; ctx.fill();
+  }
+  ctx.strokeStyle = s.color; ctx.lineWidth = s.width || (s.dash ? 1.5 : 2);
+  if (s.dash) ctx.setLineDash(s.dash);
+  ctx.beginPath(); trace(); ctx.stroke();
+  ctx.setLineDash([]); ctx.lineWidth = 1;
+
+  if (s.dots && pts.length < 40) {               // where the obs actually are
+    for (const [px, py] of pts) {
+      ctx.beginPath(); ctx.arc(px, py, 3, 0, 7);
+      ctx.fillStyle = '#1a1a1a'; ctx.fill();      // 2px surface ring
+      ctx.beginPath(); ctx.arc(px, py, 1.8, 0, 7);
+      ctx.fillStyle = s.color; ctx.fill();
+    }
+  }
+}
+
+/* Wind direction as arrows that fly with the wind, thinned so they never
+   collide — a barb field is precise but nobody reads it at a glance. */
+function drawWindArrows(ctx, box, src, x) {
+  const y = box.y + 24;
+  let lastX = -1e9;
+  for (const o of src) {
     if (o.spd == null) continue;
     const px = x(o.t);
-    ctx.fillStyle = '#3b6ea5';
-    ctx.fillRect(px - 1, wy(o.spd), 2.5, wBot - wy(o.spd));
-    if (o.gst) {
-      ctx.fillStyle = '#f59e0b';
-      ctx.fillRect(px - 2, wy(o.gst), 5, 1.5);
+    if (px - lastX < 26) continue;
+    lastX = px;
+    if (!o.spd) {                                 // calm: the standard hollow ring
+      ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(px, y, 3.2, 0, 7); ctx.stroke();
+      continue;
+    }
+    if (o.dir == null) {                          // variable
+      ctx.fillStyle = C.muted; ctx.textAlign = 'center';
+      ctx.fillText('~', px, y + 4);
+      continue;
+    }
+    /* METAR direction is where the wind comes FROM; the arrow points downwind */
+    const a = (o.dir + 180) * Math.PI / 180;
+    const dx = Math.sin(a), dy = -Math.cos(a), L = 7;
+    ctx.strokeStyle = rgba(C.wind, 0.55 + Math.min(0.45, o.spd / 30));
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(px - dx * L, y - dy * L); ctx.lineTo(px + dx * L, y + dy * L); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px + dx * L, y + dy * L);
+    ctx.lineTo(px + dx * (L - 5) - dy * 3.2, y + dy * (L - 5) + dx * 3.2);
+    ctx.lineTo(px + dx * (L - 5) + dy * 3.2, y + dy * (L - 5) - dx * 3.2);
+    ctx.closePath();
+    ctx.fillStyle = rgba(C.wind, 0.75); ctx.fill();
+    ctx.lineWidth = 1;
+  }
+}
+
+/* Obs with no ceiling at all — drawn as a rail so "clear" reads as a fact
+   rather than as missing data. */
+function drawClearRail(ctx, box, times, x) {
+  const y = box.y + 22;
+  ctx.strokeStyle = rgba(C.ceil, 0.5); ctx.lineWidth = 2;
+  for (const t of times) {
+    ctx.beginPath(); ctx.moveTo(x(t) - 3, y); ctx.lineTo(x(t) + 3, y); ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+  const w = ctx.measureText('no ceiling').width;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(box.x + box.w - w - 11, y - 7, w + 8, 14, 4);
+  else ctx.rect(box.x + box.w - w - 11, y - 7, w + 8, 14);
+  ctx.fillStyle = 'rgba(14,14,14,0.72)'; ctx.fill();
+  ctx.fillStyle = C.dim; ctx.textAlign = 'right';
+  ctx.fillText('no ceiling', box.x + box.w - 6, y + 3.5);
+}
+
+/* ---- hover -------------------------------------------------------------- */
+
+const nearest = (pts, t, maxGap) => {
+  let best = null, bd = Infinity;
+  for (const p of pts) { const d = Math.abs(p[0] - t); if (d < bd) { bd = d; best = p; } }
+  return bd <= maxGap ? best : null;
+};
+
+function markHover(ctx, lane, box, x, t) {
+  const sc = laneScale(lane, box);
+  for (const s of lane.series) {
+    if (s.kind === 'gust' || s.kind === 'bars') continue;
+    const p = nearest(s.pts.filter((q) => q[1] != null), t, 3600);
+    if (!p) continue;
+    ctx.beginPath(); ctx.arc(x(p[0]), sc.y(p[1]), 4.5, 0, 7);
+    ctx.fillStyle = '#1a1a1a'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x(p[0]), sc.y(p[1]), 3, 0, 7);
+    ctx.fillStyle = s.color; ctx.fill();
+  }
+}
+
+function wireHover(cv) {
+  if (cv.dataset.hov) return;
+  cv.dataset.hov = '1';
+  const at = (e) => {
+    const m = S.meteo;
+    if (!m) return null;
+    const r = cv.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (m.W / r.width);
+    if (px < m.x0 - 4 || px > m.x1 + 4) return null;
+    return m.t0 + (px - m.x0) / (m.x1 - m.x0) * (m.t1 - m.t0);
+  };
+  const move = (e) => {
+    const t = at(e);
+    if (t == null) { clearHover(); return; }
+    S.hover = t;
+    showReadout(e, t);
+    if (!S._hrq) S._hrq = requestAnimationFrame(() => { S._hrq = 0; S.charts.get('obs-chart')(); });
+  };
+  cv.addEventListener('pointermove', move);
+  cv.addEventListener('pointerdown', move);
+  cv.addEventListener('pointerleave', clearHover);
+}
+
+function clearHover() {
+  if (S.hover == null) return;
+  S.hover = null;
+  $('obs-readout').hidden = true;
+  const fn = S.charts.get('obs-chart');
+  if (fn) fn();
+}
+
+/* One observed station's value for one lane, or null if it has nothing to say
+   there. Shared by both stations so they read identically. */
+function obReading(k, o) {
+  switch (k) {
+    case 'temp':
+      return o.tF == null ? null : ['temp', `${Math.round(o.tF)}°F` +
+        (o.dF != null ? ` <span class="d">dew ${Math.round(o.dF)}°</span>` : '')];
+    case 'wind':
+      return o.spd == null ? null : ['wind', o.spd === 0 ? 'calm'
+        : `${o.dir != null ? `${dirName(o.dir)} ${String(o.dir).padStart(3, '0')}°` : 'variable'} ` +
+          `${o.spd} kt${o.gst ? ` <span class="d">gusts ${o.gst}</span>` : ''}`];
+    case 'pres':
+      return o.altim == null ? null : ['pressure', `${o.altim.toFixed(2)} inHg` +
+        (o.slpMb != null ? ` <span class="d">SLP ${o.slpMb.toFixed(1)} mb</span>` : '')];
+    case 'rh':
+      return o.rhPct == null ? null : ['humidity', `${Math.round(o.rhPct)}%`];
+    case 'vis':
+      return o.visSM == null ? null : ['visibility', o.visSM >= 7 ? '10+ SM' : `${o.visSM} SM`];
+    case 'ceil':
+      return ['ceiling', o.ceilFt != null
+        ? `${o.ceilFt.toLocaleString()} ft` +
+          (o.clouds.length ? ` <span class="d">${esc(o.clouds.slice(0, 2).join(', '))}</span>` : '')
+        : '<span class="d">none</span>'];
+    case 'da':
+      return o.daFt == null ? null : ['density alt', `${ftShort(o.daFt)} ft`];
+    case 'precip':
+      return o.precMm ? ['measured', `${o.precMm.toFixed(1)} mm/h`] : null;
+    default:
+      return null;
+  }
+}
+
+const LANE_HUE = { temp: C.temp, wind: C.wind, pres: C.pres, rh: C.rh, vis: C.vis, ceil: C.ceil, da: C.da, precip: C.precip };
+
+function showReadout(e, t) {
+  const D = S.day, box = $('obs-readout');
+  const rows = [];
+  const at = (arr, gap) => {
+    const hit = arr.length ? nearest(arr.map((p) => [p.t, p]), t, gap) : null;
+    return hit && hit[1];
+  };
+  const stations = obsOn(D, S.src).map((o) => ({ ...o, ob: at(o.p, 5400) }));
+  const gp = S.src.grid ? at(D.gpts, 1800) : null;
+  const mp = S.src.model ? at(D.mpts, 1800) : null;
+
+  const row = (color, label, value) => rows.push(
+    `<div class="r"><i style="background:${color}"></i><span class="k">${esc(label)}</span>` +
+    `<span class="v">${value}</span></div>`);
+
+  for (const lane of (S.meteo.lanes || [])) {
+    const k = lane.spec.key;
+    for (const st of stations) {
+      const r = st.ob && obReading(k, st.ob);
+      if (r) row(st.tint(LANE_HUE[k] || lane.spec.hue), st.pre + r[0], r[1]);
+    }
+    if (gp) {
+      if (k === 'temp' && gp.tF != null) row(lighten(C.temp), 'NWS temp', `${Math.round(gp.tF)}°F` +
+        (gp.dF != null ? ` <span class="d">dew ${Math.round(gp.dF)}°</span>` : ''));
+      if (k === 'wind' && gp.spd != null) row(lighten(C.wind), 'NWS wind',
+        `${gp.dir != null ? `${dirName(gp.dir)} ` : ''}${gp.spd} kt` +
+        (gp.gst ? ` <span class="d">gusts ${gp.gst}</span>` : ''));
+      if (k === 'rh' && gp.rhPct != null) row(lighten(C.rh), 'NWS humidity', `${Math.round(gp.rhPct)}%`);
+      if (k === 'vis' && gp.visSM != null) row(lighten(C.vis), 'NWS vis', `${gp.visSM} SM`);
+      if (k === 'ceil' && gp.ceilFt != null) row(lighten(C.ceil), 'NWS ceiling', `${gp.ceilFt.toLocaleString()} ft`);
+      if (k === 'precip' && gp.pop != null) row(rgba(C.wind, 0.6), 'chance', `${gp.pop}%`);
+    }
+    if (mp) {
+      if (k === 'precip' && mp.pr != null) row(lighten(C.precip, 0.45), 'GFS rate', `${mp.pr.toFixed(1)} mm/h`);
+      if (k === 'cape' && mp.cape != null) row(C.cape, 'CAPE', `${Math.round(mp.cape)} J/kg` +
+        (mp.cin != null ? ` <span class="d">CIN ${Math.round(mp.cin)}</span>` : ''));
     }
   }
-  ctx.fillStyle = '#666'; ctx.textAlign = 'right';
-  ctx.fillText(`${maxKt} kt`, L - 4, wTop + 8);
-  ctx.textAlign = 'center'; ctx.font = '9px system-ui, sans-serif';
-  for (const o of obs) {
-    const g = o.ts ? '⚡' : o.snow ? '❄' : o.rain ? '🌧' : o.fog ? '≡' : null;
-    if (g) ctx.fillText(g, x(o.t), wTop + 8);
-  }
+
+  const ob = stations.length ? stations[0].ob : null;
+  const head = ob
+    ? `${hhmm(ob.t)} <span class="cat" style="background:${CAT[ob.cat].color}">${CAT[ob.cat].name}</span>`
+    : `${hhmm(Math.round(t))}`;
+  const wxBits = ob ? [ob.ts && 'thunder', ob.rain && 'rain', ob.snow && 'snow', ob.fog && 'fog/mist']
+    .filter(Boolean).join(' · ') : '';
+  const gwx = gp && gp.wx ? gp.wx.replace(/_/g, ' ').replace(/,/g, ', ') : '';
+
+  box.innerHTML = `<div class="h">${head}</div>${rows.join('')}` +
+    (wxBits ? `<div class="wx">${esc(wxBits)}</div>` : '') +
+    (gwx && S.src.grid ? `<div class="wx d">NWS: ${esc(gwx)}</div>` : '');
+  box.hidden = rows.length === 0 && !wxBits;
+
+  const wrap = $('obs-wrap').getBoundingClientRect();
+  const left = e.clientX - wrap.left, topY = e.clientY - wrap.top;
+  box.style.left = `${Math.max(4, Math.min(left + 14, wrap.width - box.offsetWidth - 6))}px`;
+  box.style.top = `${Math.max(4, Math.min(topY + 12, wrap.height - box.offsetHeight - 6))}px`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1004,21 +2013,38 @@ function drawTrendChart(ctx, W, H, dates) {
    Canvas plumbing — HiDPI-scaled, redraws on resize via S.charts.
 --------------------------------------------------------------------------- */
 
-function chart(id, draw) {
+/* `height` is optional: a number (or a function, evaluated per render) for
+   charts like the meteogram whose height depends on what's being plotted. */
+function chart(id, draw, height) {
   const cv = $(id);
   const render = () => {
     const cssW = cv.clientWidth || cv.parentElement.clientWidth;
-    const cssH = +cv.getAttribute('height');
+    const cssH = typeof height === 'function' ? height()
+      : height != null ? height : +cv.getAttribute('height');
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(cssW * dpr);
     cv.height = Math.round(cssH * dpr);
     cv.style.height = `${cssH}px`;
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cv._w = cssW;
     draw(ctx, cssW, cssH);
   };
   S.charts.set(id, render);
   render();
+
+  /* A window resize isn't the only thing that changes a chart's width: a
+     scrollbar appearing (which the tall meteogram can cause all by itself)
+     resizes the layout box with no resize event, leaving the backing store
+     scaled and soft. Watch the element instead. */
+  if (!cv._ro && window.ResizeObserver) {
+    cv._ro = new ResizeObserver(() => {
+      if (Math.abs(cv.clientWidth - cv._w) < 1) return;
+      const fn = S.charts.get(id);
+      if (fn) fn();
+    });
+    cv._ro.observe(cv);
+  }
 }
 
 boot();

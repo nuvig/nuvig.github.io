@@ -88,6 +88,49 @@
 
     canvas.chart { width: 100%; display: block; }
 
+    /* ---- meteogram picker (the chart's legend, and its controls) ---- */
+    .picker { display: flex; flex-direction: column; gap: 7px; margin: 10px 0 12px; }
+    .chip-row { display: flex; align-items: flex-start; gap: 8px; }
+    .chip-label {
+      font-size: 10px; color: #5f5f5a; letter-spacing: 0.09em; text-transform: uppercase;
+      width: 46px; flex: none; padding-top: 8px;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px;
+      line-height: 1; padding: 7px 11px; border-radius: 999px; cursor: pointer;
+      background: #151515; border: 1px solid #2c2c2c; color: #86867f;
+      transition: border-color 0.12s, color 0.12s, background 0.12s;
+    }
+    .chip i { width: 9px; height: 9px; border-radius: 2px; opacity: 0.3; flex: none; }
+    .chip.on { background: #202020; border-color: #4d4d4d; color: #e4e4de; }
+    .chip.on i { opacity: 1; }
+    .chip.src.on { background: #16202b; border-color: #3d5c78; color: #cfe6ff; }
+    .chip:disabled { opacity: 0.28; cursor: default; }
+    .chip:not(:disabled):hover { border-color: #6e6e6e; color: #ddd; }
+
+    /* ---- meteogram hover readout ---- */
+    #obs-wrap { position: relative; }
+    .readout {
+      position: absolute; pointer-events: none; z-index: 3;
+      background: rgba(17, 17, 17, 0.96); border: 1px solid #3a3a3a; border-radius: 8px;
+      padding: 7px 10px; font-size: 12px; min-width: 156px; max-width: 280px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55); font-variant-numeric: tabular-nums;
+    }
+    .readout .h {
+      display: flex; align-items: center; gap: 7px; color: #ededea;
+      font-weight: 600; margin-bottom: 5px;
+    }
+    .readout .h .cat {
+      font-size: 9.5px; font-weight: 700; color: #000; border-radius: 3px; padding: 1px 5px;
+    }
+    .readout .r { display: flex; align-items: baseline; gap: 7px; margin: 2px 0; }
+    .readout .r i { width: 8px; height: 8px; border-radius: 2px; flex: none; align-self: center; }
+    .readout .r .k { color: #86867f; flex: none; min-width: 66px; }
+    .readout .r .v { color: #e0e0da; }
+    .readout .d { color: #7c7c76; font-weight: 400; }
+    .readout .wx { margin-top: 5px; color: #9aa7b2; font-size: 11.5px; }
+
     .stat-line { font-size: 13px; color: #999; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
     .stat-line b { color: #ddd; font-weight: 600; }
     .cat-word { font-weight: 700; }
@@ -201,8 +244,24 @@
 
   <section class="card" id="obs-card" hidden>
     <h2>What happened <span class="sub" id="obs-sub"></span></h2>
-    <canvas class="chart" id="obs-chart" height="260"></canvas>
+    <div class="picker">
+      <div class="chip-row"><span class="chip-label">sources</span><span class="chips" id="obs-sources"></span></div>
+      <div class="chip-row"><span class="chip-label">plot</span><span class="chips" id="obs-series"></span></div>
+    </div>
+    <div id="obs-wrap">
+      <canvas class="chart" id="obs-chart"></canvas>
+      <div class="readout" id="obs-readout" hidden></div>
+    </div>
     <p class="stat-line" id="obs-stats"></p>
+    <p class="note">Top band: the flight category, same colors as the calendar. Solid lines are what
+      was observed — the archive's verification station, and optionally the field's own sensor in a
+      lighter shade of the same color; dashed lines are the NWS grid archived that morning, the day
+      as forecast laid over the day as flown. Every lane keeps its own scale (no shared or hidden
+      second axis), and night is shaded. Hover or tap anywhere for every value at that moment.</p>
+    <details class="fold">
+      <summary>Decoded values</summary>
+      <div id="obs-table"></div>
+    </details>
     <details class="fold" id="obs-fold">
       <summary>Raw METARs</summary>
       <div class="ob-list" id="ob-list"></div>
@@ -211,13 +270,13 @@
 
   <section class="card" id="drift-card" hidden>
     <h2>What was forecast <span class="sub" id="drift-sub"></span></h2>
-    <canvas class="chart" id="drift-chart" height="200"></canvas>
+    <canvas class="chart" id="drift-chart" height="260"></canvas>
     <p class="stat-line" id="drift-stats"></p>
   </section>
 
   <section class="card" id="grid-card" hidden>
     <h2>The morning's hourly picture <span class="sub" id="grid-sub"></span></h2>
-    <canvas class="chart" id="grid-chart" height="200"></canvas>
+    <canvas class="chart" id="grid-chart" height="260"></canvas>
     <details class="fold">
       <summary>Hour-by-hour grid table</summary>
       <div id="grid-table"></div>
@@ -245,7 +304,7 @@
 
   <section class="card" id="trend-card" hidden>
     <h2>The whole archive <span class="sub" id="trend-sub"></span></h2>
-    <canvas class="chart" id="trend-chart" height="240"></canvas>
+    <canvas class="chart" id="trend-chart" height="320"></canvas>
     <p class="note">Daily temperature span (KDCA, each bar min → max of the day's own METARs),
       colored by the day's high. Below: the day's worst daytime flight category, and dots for
       days with rain (·) and thunderstorms (⚡) in the METARs.</p>
@@ -260,6 +319,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
-  <script src="js/almanac.js?v=1"></script>
+  <script src="js/almanac.js?v=2"></script>
 </body>
 </html>

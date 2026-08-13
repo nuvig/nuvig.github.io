@@ -206,6 +206,34 @@ is classified there, check all four.
   grid table prints the NWS `weather` array verbatim — **that array is what drives the
   thunderstorm icon in every app rendering this data**, so it is the honest answer to "why is
   there no TS symbol". Same `ceilingHeight` −30.48 m sentinel rule as weather.html.
+- `almanac.html` + `js/almanac.js` — Weather Almanac: the `data/wx/` archive as a reading room.
+  A GitHub-style calendar (each day its worst *daytime* 8 am–8 pm category), then per-day cards —
+  the day meteogram, forecast drift + verification, the morning grid, alerts, TAFs, every AFD
+  issuance — and a whole-archive temperature/category strip. Reads **only** `WXA`: no live weather
+  API anywhere on the page, and a card whose stream isn't archived hides itself.
+  The meteogram is the page's centrepiece and has rules worth keeping:
+  - **Stacked lanes, one scale each — never a second y-axis on one plot.** Two measures on two
+    scales invent a correlation out of wherever the scales line up; the shared crosshair is what
+    ties the lanes together. A new measure is a new entry in `LANES` (label, unit, hue, `avail`,
+    `fmt`, `build`) — the layout, scale, hover and table pick it up from there.
+  - Four sources, distinguished by *style* and always by name, never by color alone: the
+    verification station (`obs`, KDCA) solid with dots and fill; the **field sensor** (`fieldobs`,
+    KNAK — the archive stream `discussion.js` also verifies against) thinner, no dots, in a lighter
+    step of the same hue, labelled with its station id; the NWS grid's **first snapshot of that
+    morning** (the day as forecast, before it happened) dashed; the GFS point for CAPE/CIN/precip.
+  - Scales fit the day and are labelled after: bounds hug the data + ~10 %, and the tick step is
+    **searched** over the 1/2/5/2.5 ladder for the count that fits the lane's height. Deriving the
+    step by division instead lands a hair over a rung (raw 10.007 → step 20) and leaves an axis
+    with one label. Ceiling is log with the category thresholds as ticks.
+  - **A null ceiling is a reading, not a gap** — "clear" gets a rail along the top of the lane and
+    breaks the step line, which otherwise bridges two ceilings that never met. Chance-of-precip
+    shades the precip lane instead of earning a scale of its own.
+  - Density altitude is the NWS method (same formulas as `airlab.js`); KNAK's is worked at
+    **KANP's** elevation, since KNAK is standing in for the field.
+  - One hue per measure from a palette checked for CVD separation and ≥3:1 on the card; two hues
+    repeat across lanes on purpose (density altitude = temperature's orange, precip = dewpoint's
+    aqua) — legal only because those lanes are separate plots that never share one.
+  Lane/source choices persist in `localStorage` (`almanac_lanes`, `almanac_src`).
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history
@@ -233,7 +261,8 @@ is classified there, check all four.
   **Coverage after the 2026-08-06 run:** `obs`/`afd`/`taf` reach back to 2026-05-01;
   `forecast` starts 2026-07-30 and `grid`/`alerts`/`model` 2026-08-04 (live-only, by design).
   `fieldobs` was added 2026-08-12 and starts there until someone runs
-  `--streams fieldobs --since 2026-05-01`.
+  `--streams fieldobs --since 2026-05-01` (and commits the result — a local
+  backfill the almanac reads happily on a dev server is invisible to the site).
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,
