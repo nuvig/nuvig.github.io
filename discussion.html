@@ -331,6 +331,12 @@
     #big-picture { font-size: 14px; line-height: 1.6; color: #c3ccd5; }
     #big-picture .km { font-size: 13px; color: #97a3ae; margin-top: 7px; padding-left: 14px; position: relative; }
     #big-picture .km::before { content: "—"; position: absolute; left: 0; color: #4a9eff; }
+    #big-picture .bp-now {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; color: #4a9eff; border: 1px solid rgba(74, 158, 255, .35);
+      border-radius: 4px; padding: 1px 6px; margin-right: 7px; vertical-align: 2px;
+    }
+    #big-picture .bp-stamp { font-size: 11px; color: #66717d; margin-top: 8px; }
     .atmos-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px;
     }
@@ -646,7 +652,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=22"></script>
+  <script src="js/discussion.js?v=23"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>

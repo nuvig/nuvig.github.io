@@ -155,6 +155,11 @@ is classified there, check all four.
   disappears, and saying "unchanged since 2:40 AM" out loud when it hasn't moved. Same reason the
   drift rows print `short` next to the numbers: "unchanged" beside a bare 64% never tells you the
   64% is thunderstorms. **Keep page copy terse** — label, fact, done.
+  Act II's "big picture" card leads with the AFD's **here-and-now paragraph** (`nowLead()`:
+  paragraphs scored by present-tense sentences vs other-day references), because the LWX
+  DISCUSSION format opens with an essay on the *biggest* day of the week — first-sentence
+  extraction once led with Sunday's severe setup while it was raining outside. No now-paragraph
+  (typical of evening issuances) → the old first-reasoning-sentence lead.
   Below it: a synoptic canvas built from an
   Open-Meteo GFS grid — air-mass fill, isobars/H-L, fronts detected from 850 hPa temp gradients
   signed by advection, wind particles, RainViewer radar at "now" / model precip at other hours,
