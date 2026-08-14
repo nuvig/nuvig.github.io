@@ -2925,36 +2925,89 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
 
 /* ---------------------- Act II: the story, then the physics -------------- */
 
-/* The office's own framing, trimmed: the synopsis in a sentence or two, then
-   its key messages as bullets. Not the whole product — that sits collapsed at
-   the bottom of the act. WHAT HAS CHANGED is a last resort here — the
-   headline card already quotes it, and the office often repeats it inside
-   KEY MESSAGES too, so without the dedupe below the same sentence printed
-   three times on the page. */
+/* Sentence split that survives decimals and "vs. 12Z": a boundary only where
+   the punctuation is followed by a capital (or the end). */
+const SENT_RE = /[^.!?]+(?:[.!?]+(?!\s+[A-Z("“]|\s*$)[^.!?]*)*[.!?]+/g;
+
+/* The here-and-now paragraph of the discussion. The LWX DISCUSSION format
+   opens with an essay per key message in news order, so its first sentence is
+   routinely about the biggest day of the week, not this one — Sunday's severe
+   setup once led this card while it was raining outside. Score each paragraph
+   by its present-tense sentences ("today", "this afternoon", "ongoing"…)
+   against its references to other days, and quote the winner: the first
+   now-sentence to set the scene, then the later now-sentence with the most
+   weather in it. Null when no paragraph is about now (typical of evening
+   issuances, which look ahead) — the caller falls back to the old lead. */
+const NOW_WORDS = /\b(?:today|tonight|this (?:morning|afternoon|evening)|currently|ongoing|under\s?way|ha(?:s|ve) begun|is beginning|in progress|right now|at the moment|(?:last|past) few hours)\b/i;
+const WX_WORDS = /shower|storm|thunder|rain|drizzle|snow|sleet|fog|lightning|convecti/gi;
+
+function nowLead(secs, quoted) {
+  const sec = secs.find((x) => /^(NEAR TERM|DISCUSSION|UPDATE)/.test(x.name));
+  if (!sec) return null;
+  const wd = fmtTime(new Date(), { weekday: 'long' });
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const ahead = new RegExp(
+    `\\b(?:tomorrow|next week|(?:on|for|into|by|through|toward) (?:${days.filter((d) => d !== wd).join('|')}))\\b`, 'gi');
+  let best = null;
+  for (const raw of sec.body.split(/\n\s*\n/)) {
+    const p = normText(raw);
+    if (p.length < 60 || /^KEY MESSAGES?\b/i.test(p)) continue;
+    const nows = (p.match(SENT_RE) || [p]).map((x) => x.trim())
+      .filter((x) => NOW_WORDS.test(x) && x.length >= 30 && !quoted(x));
+    const score = nows.length * 2 - (p.match(ahead) || []).length;
+    if (nows.length && score > 0 && (!best || score > best.score)) best = { score, nows };
+  }
+  if (!best) return null;
+  let second = null;
+  for (const x of best.nows.slice(1)) {
+    const wx = (x.match(WX_WORDS) || []).length;
+    if (!second || wx > second.wx) second = { x, wx };
+  }
+  let out = best.nows[0] + (second ? ' ' + second.x : '');
+  if (out.length > 360) out = out.slice(0, 357).replace(/\s\S*$/, '') + '…';
+  return out;
+}
+
+/* The office's own framing, trimmed: the here-and-now paragraph when the
+   discussion has one, its opening reasoning otherwise, then its key messages
+   as bullets. Not the whole product — that sits collapsed at the bottom of
+   the act. WHAT HAS CHANGED is a last resort here — the headline card
+   already quotes it, and the office often repeats it inside KEY MESSAGES
+   too, so without the dedupe below the same sentence printed three times on
+   the page. */
 function renderBigPicture(keyMsgs) {
   const secs = AFD.parsed.get(AFD.newestId) || [];
-  const pick = secs.find((x) => /^SYNOPSIS/.test(x.name))
-    || secs.find((x) => /^(DISCUSSION|NEAR TERM)/.test(x.name))
-    || secs.find((x) => /^(UPDATE|WHAT HAS CHANGED)/.test(x.name)) || secs[0];
   const overlaps = (a, b) => a && b && (a.includes(b) || b.includes(a));
   const changed = afdWhatChanged();
   const quoted = (s) => overlaps(s, changed) || keyMsgs.some((k) => overlaps(s, k));
-  /* Lead = the first sentence of actual reasoning. The new LWX format opens
-     DISCUSSION with "KEY MESSAGE n..." lines restating what the headline
-     card already quotes — skip those, or the same sentence prints three
-     times on the page. */
-  const toks = pick ? (normText(pick.body).match(/[^.!?]+[.!?]+/g) || [normText(pick.body)]) : [];
+  const now = nowLead(secs, quoted);
   let lead = '';
-  for (const tk of toks) {
-    const s = tk.trim();
-    if (/^KEY MESSAGES?\b/i.test(s) || s.length < 30 || quoted(s)) continue;
-    lead = s; break;
+  if (!now) {
+    const pick = secs.find((x) => /^SYNOPSIS/.test(x.name))
+      || secs.find((x) => /^(DISCUSSION|NEAR TERM)/.test(x.name))
+      || secs.find((x) => /^(UPDATE|WHAT HAS CHANGED)/.test(x.name)) || secs[0];
+    /* Lead = the first sentence of actual reasoning. The LWX format opens
+       DISCUSSION with "KEY MESSAGE n..." lines restating what the headline
+       card already quotes — skip those, or the same sentence prints three
+       times on the page. */
+    const toks = pick ? (normText(pick.body).match(SENT_RE) || [normText(pick.body)]) : [];
+    for (const tk of toks) {
+      const s = tk.trim();
+      if (/^KEY MESSAGES?\b/i.test(s) || s.length < 30 || quoted(s)) continue;
+      lead = s; break;
+    }
+    if (!lead && toks.length) lead = toks[0].trim();
+    if (lead.length > 260) lead = lead.slice(0, 257).replace(/\s\S*$/, '') + '…';
   }
-  if (!lead && toks.length) lead = toks[0].trim();
-  if (lead.length > 260) lead = lead.slice(0, 257).replace(/\s\S*$/, '') + '…';
-  const kms = keyMsgs.filter((t) => !overlaps(t, lead) && !overlaps(t, changed));
-  $('big-picture').innerHTML = lead
-    ? esc(lead) + kms.map((t) => `<div class="km">${esc(t)}</div>`).join('')
+  const top = now || lead;
+  const kms = keyMsgs.filter((t) => !overlaps(t, top) && !overlaps(t, changed));
+  const newest = AFD.list[0];
+  const stamp = newest ? `<div class="bp-stamp">LWX, issued ` +
+    `${esc(fmtTime(new Date(newest.issuanceTime), { hour: 'numeric', minute: '2-digit' }))} ` +
+    `(${esc(timeAgo(new Date(newest.issuanceTime)))})</div>` : '';
+  $('big-picture').innerHTML = top
+    ? (now ? '<span class="bp-now">Now</span>' : '') + esc(top)
+      + kms.map((t) => `<div class="km">${esc(t)}</div>`).join('') + stamp
     : '<span class="faint" style="font-size:13px">No discussion loaded.</span>';
 }
 
