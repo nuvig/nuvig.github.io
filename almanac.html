@@ -188,15 +188,73 @@
       background: #141414; border: 1px solid #262626; border-radius: 6px; padding: 10px 12px;
     }
 
-    /* ---- alerts ---- */
-    .alert-row {
-      border-left: 3px solid var(--sev, #888); background: #1a1712;
-      border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 8px 0; font-size: 13px;
+    /* ---- alerts: a timeline, not a list ---- */
+    .al-axis {
+      position: relative; height: 14px; margin: 4px 0 2px;
+      font-size: 10px; color: #6f6f6a; font-variant-numeric: tabular-nums;
     }
-    .alert-row .ev { font-weight: 700; color: #eee; }
-    .alert-row .when { color: #887; font-size: 12px; margin-left: 8px; font-variant-numeric: tabular-nums; }
-    .alert-row .hl { color: #a99; margin-top: 2px; font-size: 12px; }
-    .alert-row pre { margin: 6px 0 0; }
+    .al-axis .t { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+    .al-axis .t.first { transform: none; }
+    .al-axis .t.last { transform: translateX(-100%); }
+    .al-axis .t.mid { color: #a9a9a0; }
+    .al-axis .t.now { color: #ddd; transform: translateX(-50%); }
+
+    details.al { padding: 7px 0 8px; border-top: 1px solid #1f1f1f; }
+    details.al > summary { list-style: none; cursor: pointer; }
+    details.al > summary::-webkit-details-marker { display: none; }
+    .al-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+    .al-head .kind {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: #000; background: var(--sev); border-radius: 3px; padding: 1px 5px;
+    }
+    .al-head .ev { color: #e8e8e8; font-weight: 600; }
+    .al-head .when { color: #a3a39a; font-variant-numeric: tabular-nums; }
+    .al-head .meta { color: #6f6f6a; font-size: 12px; }
+    details.al > summary:hover .ev { color: #fff; }
+
+    .al-track {
+      position: relative; display: block; height: 16px; margin-top: 5px;
+      border-radius: 3px; overflow: hidden; background-color: #131316;
+    }
+    .al-track > span { position: absolute; }
+    .al-track .bar { top: 3px; height: 10px; border-radius: 2px; background: var(--sev); opacity: 0.85; }
+    .al-track .bar.open {
+      background: linear-gradient(90deg, var(--sev) 0%, var(--sev) 65%, rgba(0, 0, 0, 0) 100%);
+    }
+    .al-track .lead {
+      top: 7px; height: 2px; opacity: 0.55;
+      background: repeating-linear-gradient(90deg, var(--sev) 0 2px, transparent 2px 5px);
+    }
+    .al-track .tick { top: 1px; width: 1px; height: 14px; background: #fff; opacity: 0.8; }
+    .al-track .mid { top: 0; width: 1px; height: 100%; background: rgba(255, 255, 255, 0.2); }
+    .al-track .now { top: 0; width: 1px; height: 100%; background: rgba(255, 255, 255, 0.5); }
+    .al-track .clip { top: 0; line-height: 16px; font-size: 12px; color: #e8e8e8; }
+    .al-track .clip.l { left: 1px; }
+    .al-track .clip.r { right: 1px; }
+
+    .al-body { padding: 8px 0 2px 2px; border-left: 2px solid var(--sev); padding-left: 10px; margin: 8px 0 2px; }
+    .al-body .hl { color: #a8a89e; font-size: 12px; }
+    .al-facts { color: #6f6f6a; font-size: 12px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .al-i {
+      display: flex; gap: 10px; align-items: baseline; font-size: 12px;
+      padding: 3px 0; border-bottom: 1px solid #1c1c1c; font-variant-numeric: tabular-nums;
+    }
+    .al-i .t { color: #a3a39a; flex: none; min-width: 78px; }
+    .al-i .k { color: #6f6f6a; flex: none; width: 52px; }
+    .al-i .x { flex: 1; min-width: 0; }
+    .al-i .same { color: #55554f; }
+    .al-i details.fold { margin: 0; }
+
+    .al-legend {
+      display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px;
+      font-size: 11.5px; color: #7c7c76; align-items: center;
+    }
+    .al-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+    .al-legend i.tk { width: 2px; height: 11px; border-radius: 0; background: #ddd; margin-right: 7px; }
+    .al-legend i.ld {
+      width: 12px; height: 2px; border-radius: 0; vertical-align: 3px;
+      background: repeating-linear-gradient(90deg, #ddd 0 2px, transparent 2px 5px);
+    }
 
     /* ---- grid hourly table ---- */
     table.grid-tab {
@@ -286,8 +344,14 @@
   </section>
 
   <section class="card" id="alert-card" hidden>
-    <h2>Alerts</h2>
+    <h2>Alerts <span class="sub" id="alert-sub"></span></h2>
     <div id="alert-list"></div>
+    <div class="al-legend" id="alert-legend"></div>
+    <p class="note">One bar per alert, on the day's clock — the meteogram's hours, widened only
+      for an alert that began before this day or ran past it. Ticks are issuances: a watch updated
+      three times is one bar with four ticks, not four rows. The dotted run-in is the lead time
+      between the first issuance and onset. Night is shaded; a date instead of an hour marks
+      midnight. Open a row for every issuance and its text.</p>
   </section>
 
   <section class="card" id="taf-card" hidden>
@@ -319,6 +383,6 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
-  <script src="js/almanac.js?v=2"></script>
+  <script src="js/almanac.js?v=3"></script>
 </body>
 </html>

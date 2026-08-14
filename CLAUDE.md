@@ -239,6 +239,17 @@ is classified there, check all four.
     repeat across lanes on purpose (density altitude = temperature's orange, precip = dewpoint's
     aqua) — legal only because those lanes are separate plots that never share one.
   Lane/source choices persist in `localStorage` (`almanac_lanes`, `almanac_src`).
+  The **alerts card is a timeline, not a list**: the archive keeps one record per issuance, so
+  records of the same event whose spans touch fold into one thread (`alertThreads()`) drawn as a
+  bar on a shared axis — bar = in effect, ticks = issuances, dotted run-in = the lead time between
+  first issuance and onset. The axis is the day widened to hold the alerts (capped at −12 h/+36 h
+  so one multi-day advisory can't squash the day), so it usually matches the meteogram's hours
+  exactly. **A bare clock time is the thing to avoid here** — a watch issued this afternoon for
+  tomorrow morning reads as this morning's, so times outside the selected day always carry their
+  date. Issue times are parsed out of the NWS headline's own words, not `seen`, which is only when
+  the hourly archiver noticed; rows that had to fall back are marked `~`. Bars are colored by
+  Warning/Watch/Advisory/Statement, not by CAP `severity` — on a convective day every record here
+  comes back "Severe".
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history

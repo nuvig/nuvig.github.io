@@ -196,6 +196,7 @@ const S = {
   src: null,                // {obs, grid, model} source toggles
   hover: null,              // crosshair time, epoch seconds
   meteo: null,              // last meteogram layout (for hit-testing)
+  alerts: null,             // the selected day's alert doc (re-rendered on resize)
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -252,7 +253,12 @@ async function boot() {
 
   window.addEventListener('resize', () => {
     clearTimeout(S._rz);
-    S._rz = setTimeout(() => { for (const fn of S.charts.values()) fn(); }, 150);
+    S._rz = setTimeout(() => {
+      for (const fn of S.charts.values()) fn();
+      /* the alert timeline is DOM, so it reflows itself — but how many hour
+         labels fit is a width decision, so it has to be re-run */
+      if (S.alerts) renderAlerts(S.selected, S.alerts);
+    }, 150);
   });
 }
 
@@ -431,7 +437,7 @@ async function selectDay(date) {
   renderObs(date, obs, fobs, grid, model);
   renderDrift(date, drift, obs, nextObs);
   renderGrid(date, grid, model);
-  renderAlerts(alerts);
+  renderAlerts(date, alerts);
   renderTafs(date, taf);
   renderAfds(date);
 
@@ -1801,25 +1807,243 @@ function drawGridChart(ctx, W, H, date, gsnap, gh, msnap, mh) {
    Alerts, TAFs, AFDs
 --------------------------------------------------------------------------- */
 
-const SEV_COLOR = { Extreme: '#ef4444', Severe: '#f59e0b', Moderate: '#eab308', Minor: '#4a9eff' };
+/* ---------------------------------------------------------------------------
+   Alerts — the day's alerts on the day's clock.
+   ---------------------------------------------------------------------------
+   The archive keeps one record per issuance, so a watch that was updated three
+   times arrives as four near-identical records. Listed one under another they
+   read as four separate alerts, and the only time in the row — a bare
+   "4:00 AM → 11:00 AM" — silently drops the date, so a watch issued this
+   afternoon for tomorrow morning reads as one that ran this morning.
 
-function renderAlerts(doc) {
+   So: records of the same event whose spans touch fold into one thread, drawn
+   as a bar on a shared axis. The bar is the span it was in effect, the ticks
+   on it are the issuances, and the dotted run-in is the gap between the first
+   issuance and onset — the lead time, which is the fact worth reading. The
+   axis is the selected day (same hours as the meteogram above), stretched only
+   as far as an alert that began before it or ran past it.
+--------------------------------------------------------------------------- */
+
+const MON = ['january', 'february', 'march', 'april', 'may', 'june', 'july',
+  'august', 'september', 'october', 'november', 'december'];
+const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* Alerts are read as Warning / Watch / Advisory long before anyone reads the
+   CAP severity field — and on a convective day here every record comes back
+   "Severe", so severity alone colors nothing. Color by the word instead. */
+const AL_KINDS = [
+  [/\bwarning\b/i, { label: 'Warning', color: '#ef4444' }],
+  [/\bwatch\b/i, { label: 'Watch', color: '#f59e0b' }],
+  [/\badvisory\b/i, { label: 'Advisory', color: '#eab308' }],
+];
+const AL_OTHER = { label: 'Statement', color: '#4a9eff' };
+const alKind = (ev) => (AL_KINDS.find(([re]) => re.test(ev || '')) || [null, AL_OTHER])[1];
+
+/* NWS headlines carry the issuance in words — "…issued August 4 at 4:09PM EDT
+   until…" — which is the real issue time. `seen` is only when the hourly
+   archiver noticed, up to an hour later, so parse the headline when it's there
+   and mark the rows that fell back. The headline carries no year: take the one
+   that lands the issuance closest to the alert itself. */
+function issuedAt(headline, ref) {
+  const m = /issued\s+([A-Za-z]+)\s+(\d{1,2})\s+at\s+(\d{1,2}):(\d{2})\s*([AP])M/i.exec(headline || '');
+  const mo = m ? MON.indexOf(m[1].toLowerCase()) : -1;
+  if (mo < 0) return { t: ref, exact: false };
+  const h = (+m[3] % 12) + (m[5].toUpperCase() === 'P' ? 12 : 0);
+  const y0 = +lp(ref).date.slice(0, 4);
+  let best = null;
+  for (const y of [y0 - 1, y0, y0 + 1]) {
+    const t = midnight(`${y}-${String(mo + 1).padStart(2, '0')}-${String(+m[2]).padStart(2, '0')}`)
+      + h * 3600 + (+m[4]) * 60;
+    if (isFinite(t) && (best === null || Math.abs(t - ref) < Math.abs(best - ref))) best = t;
+  }
+  return best === null ? { t: ref, exact: false } : { t: best, exact: true };
+}
+
+const AL_GAP = 3600;    // same event, spans within an hour of each other: one episode
+
+function alertThreads(alerts) {
+  const recs = (alerts || []).map((a) => {
+    const onset = a.onset ? Date.parse(a.onset) / 1000 : a.seen;
+    const ends = a.ends ? Date.parse(a.ends) / 1000 : null;
+    const iss = issuedAt(a.headline, onset || a.seen || 0);
+    return { ev: a.event || 'Alert', sev: a.severity, onset, ends, iss: iss.t,
+      exact: iss.exact, headline: a.headline || '', desc: a.desc || '' };
+  }).filter((r) => isFinite(r.onset)).sort((a, b) => a.onset - b.onset || a.iss - b.iss);
+
+  const out = [];
+  for (const r of recs) {
+    let th = null;
+    for (let i = out.length - 1; i >= 0; i--) {          // the most recent match wins
+      const t = out[i];
+      if (t.ev !== r.ev) continue;
+      if (r.onset <= (t.ends == null ? Infinity : t.ends) + AL_GAP
+        && (r.ends == null ? Infinity : r.ends) >= t.onset - AL_GAP) { th = t; break; }
+    }
+    if (!th) { th = { ev: r.ev, sev: r.sev, onset: r.onset, ends: r.ends, recs: [] }; out.push(th); }
+    th.onset = Math.min(th.onset, r.onset);
+    /* one open-ended issuance leaves the whole thread open-ended */
+    th.ends = (th.ends == null || r.ends == null) ? null : Math.max(th.ends, r.ends);
+    th.recs.push(r);
+  }
+  for (const th of out) {
+    th.recs.sort((a, b) => a.iss - b.iss);
+    th.iss = th.recs[0].iss;
+    th.kind = alKind(th.ev);
+  }
+  return out.sort((a, b) => a.onset - b.onset || (a.ends || Infinity) - (b.ends || Infinity));
+}
+
+/* The axis: the day, widened to hold the alerts, then snapped out to whole
+   ticks. Capped either side so one multi-day advisory can't squash the day
+   itself into a sliver — anything past the cap is drawn clipped. */
+function alertWindow(threads, t0, t1) {
+  let lo = t0, hi = t1;
+  for (const th of threads) {
+    lo = Math.min(lo, th.onset);
+    hi = Math.max(hi, th.ends == null ? t1 : th.ends);
+  }
+  lo = Math.max(lo, t0 - 12 * 3600);
+  hi = Math.min(hi, t1 + 36 * 3600);
+  const step = (hi - lo <= 27 * 3600 ? 3 : hi - lo <= 54 * 3600 ? 6 : 12) * 3600;
+  return { step, w0: t0 + Math.floor((lo - t0) / step) * step, w1: t0 + Math.ceil((hi - t0) / step) * step };
+}
+
+/* "16:09" on the selected day, "Aug 4 16:09" on any other — an alert that
+   crosses midnight is exactly the case a bare clock time misreads. */
+function tstamp(ts, day) {
+  const p = lp(ts);
+  const hm = `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`;
+  return p.date === day ? hm : `${MON_SHORT[+p.date.slice(5, 7) - 1]} ${+p.date.slice(8)} ${hm}`;
+}
+
+function dur(s) {
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h < 24) return r ? `${h} h ${r} m` : `${h} h`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+/* Night shading, same gradient the meteogram lanes use, walked day by day so
+   it still reads across a window that spans a midnight. */
+function alertNight(w0, w1) {
+  const span = w1 - w0, stops = [];
+  const p = (t) => Math.max(0, Math.min(100, (t - w0) / span * 100));
+  for (let d = lp(w0).date; d <= lp(w1).date; d = addDays(d, 1)) {
+    const s = solarTimes(d, SITE.airport.lat, SITE.airport.lon);
+    if (!s.dawn || !s.sunrise || !s.sunset || !s.dusk) continue;
+    stops.push([p(s.dawn), C.night], [p(s.sunrise), C.nightClear],
+      [p(s.sunset), C.nightClear], [p(s.dusk), C.night]);
+  }
+  if (!stops.length) return '';
+  return `linear-gradient(90deg, ${C.night} 0%, ` +
+    stops.map(([pp, c]) => `${c} ${pp.toFixed(2)}%`).join(', ') + `, ${C.night} 100%)`;
+}
+
+function renderAlerts(date, doc) {
   const card = $('alert-card');
-  const alerts = doc && doc.alerts;
-  if (!alerts || !alerts.length) { card.hidden = true; return; }
+  S.alerts = doc;                 // kept so a resize can re-thin the axis labels
+  const threads = alertThreads(doc && doc.alerts);
+  if (!threads.length) { card.hidden = true; return; }
   card.hidden = false;
-  $('alert-list').innerHTML = alerts.map((a) => {
-    const when = a.onset ? new Date(a.onset).toLocaleTimeString('en-US',
-      { hour: 'numeric', minute: '2-digit', timeZone: TZ }) : '';
-    const until = a.ends ? new Date(a.ends).toLocaleTimeString('en-US',
-      { hour: 'numeric', minute: '2-digit', timeZone: TZ }) : '';
-    return `<div class="alert-row" style="--sev:${SEV_COLOR[a.severity] || '#888'}">` +
-      `<span class="ev">${esc(a.event)}</span>` +
-      `<span class="when">${when}${until ? ` → ${until}` : ''}</span>` +
-      `<div class="hl">${esc(a.headline || '')}</div>` +
-      (a.desc ? `<details class="fold"><summary>Full text</summary><pre class="product">${esc(a.desc)}</pre></details>` : '') +
-      '</div>';
+
+  const t0 = midnight(date), t1 = t0 + 86400;
+  const { w0, w1, step } = alertWindow(threads, t0, t1);
+  const span = w1 - w0, now = Date.now() / 1000;
+  const at = (t) => (t - w0) / span * 100;
+  const cl = (p) => Math.max(0, Math.min(100, p));
+  const pc = (p) => `${cl(p).toFixed(3)}%`;
+  const isMid = (t) => { const p = lp(t); return p.h === 0 && p.m === 0; };
+
+  /* axis: the hour ticks, the date at each local midnight, "now" if we're in it.
+     Labels thin out to whatever the card is actually wide enough to hold — the
+     ends always keep theirs, since they carry the dates. */
+  const wpx = $('alert-list').clientWidth || 700, GAP_PX = 46;
+  const axis = [];
+  for (let t = w0; t <= w1 + 1; t += step) {
+    const p = lp(t), mid = isMid(t);
+    axis.push({ t, px: at(t) / 100 * wpx,
+      cls: `t${mid ? ' mid' : ''}${t === w0 ? ' first' : t + step > w1 ? ' last' : ''}`,
+      text: mid ? `${MON_SHORT[+p.date.slice(5, 7) - 1]} ${+p.date.slice(8)}`
+        : String(p.h).padStart(2, '0') });
+  }
+  const keep = [0];
+  for (let i = 1; i < axis.length - 1; i++) {
+    if (axis[i].px - axis[keep[keep.length - 1]].px >= GAP_PX
+      && axis[axis.length - 1].px - axis[i].px >= GAP_PX) keep.push(i);
+  }
+  if (axis.length > 1) keep.push(axis.length - 1);
+  const ticks = keep.map((i) => `<span class="${axis[i].cls}" style="left:${pc(at(axis[i].t))}">${axis[i].text}</span>`);
+  if (now > w0 && now < w1) ticks.push(`<span class="t now" style="left:${pc(at(now))}">now</span>`);
+
+  /* marks every track carries: local midnights inside the window, and "now" */
+  let rails = '';
+  for (let t = w0; t <= w1 + 1; t += step) {
+    if (isMid(t) && at(t) > 0.5 && at(t) < 99.5) rails += `<span class="mid" style="left:${pc(at(t))}"></span>`;
+  }
+  if (now > w0 && now < w1) rails += `<span class="now" style="left:${pc(at(now))}"></span>`;
+
+  const night = alertNight(w0, w1);
+  const bg = 'background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.055) 0 1px,' +
+    `transparent 1px ${(step / span * 100).toFixed(4)}%)${night ? `,${night}` : ''}`;
+
+  const rowHtml = threads.map((th) => {
+    const endsT = th.ends == null ? w1 : th.ends;
+    const a = cl(at(th.onset)), b = cl(at(endsT));
+    const marks = [];
+    if (th.iss != null && th.iss < th.onset - 300 && at(th.iss) < a) {
+      marks.push(`<span class="lead" style="left:${pc(at(th.iss))};width:${(a - cl(at(th.iss))).toFixed(3)}%"></span>`);
+    }
+    marks.push(`<span class="bar${th.ends == null ? ' open' : ''}" ` +
+      `style="left:${pc(a)};width:${Math.max(b - a, 0.4).toFixed(3)}%"></span>`);
+    for (const r of th.recs) {
+      if (r.iss > w0 && r.iss < w1) marks.push(`<span class="tick" style="left:${pc(at(r.iss))}"></span>`);
+    }
+    if (th.onset < w0) marks.push('<span class="clip l" title="in effect before this window">‹</span>');
+    if (th.ends == null || th.ends > w1) {
+      marks.push(`<span class="clip r" title="${th.ends == null ? 'no end time given'
+        : 'still in effect past this window'}">›</span>`);
+    }
+
+    const meta = [
+      th.ends != null ? dur(th.ends - th.onset) : 'no end time given',
+      th.recs.length > 1 ? `${th.recs.length - 1} update${th.recs.length > 2 ? 's' : ''}` : null,
+      th.iss < th.onset - 300 ? `${dur(th.onset - th.iss)} lead` : null,
+    ].filter(Boolean).join(' · ');
+
+    let prev = null;
+    const issRows = th.recs.map((r, i) => {
+      const same = r.desc && r.desc === prev;
+      const text = same ? '<span class="same">text unchanged</span>'
+        : r.desc ? `<details class="fold"><summary>full text</summary><pre class="product">${esc(r.desc)}</pre></details>` : '';
+      prev = r.desc || prev;
+      return `<div class="al-i"><span class="t"${r.exact ? '' : ' title="issuance time not in the headline — this is when the archiver first saw it"'}>` +
+        `${r.exact ? '' : '~'}${tstamp(r.iss, date)}</span>` +
+        `<span class="k">${i ? 'update' : 'issued'}</span><span class="x">${text}</span></div>`;
+    }).join('');
+
+    return `<details class="al" style="--sev:${th.kind.color}">` +
+      '<summary><span class="al-head">' +
+      `<span class="kind">${th.kind.label}</span>` +
+      `<b class="ev">${esc(th.ev)}</b>` +
+      `<span class="when">${tstamp(th.onset, date)} → ${th.ends == null ? '—' : tstamp(th.ends, date)}</span>` +
+      `<span class="meta">${meta}</span></span>` +
+      `<span class="al-track" style="${bg}">${rails}${marks.join('')}</span></summary>` +
+      `<div class="al-body"><div class="hl">${esc(th.recs[th.recs.length - 1].headline)}</div>` +
+      `<div class="al-facts">NWS severity ${esc(th.sev || 'unstated')} · ` +
+      `first issued ${tstamp(th.iss, date)}</div>${issRows}</div></details>`;
   }).join('');
+
+  $('alert-sub').textContent = `${threads.length} alert${threads.length > 1 ? 's' : ''}` +
+    ` · ${tstamp(threads[0].onset, date)} → ` +
+    `${threads.some((t) => t.ends == null) ? 'open'
+      : tstamp(Math.max(...threads.map((t) => t.ends)), date)}`;
+  $('alert-list').innerHTML = `<div class="al-axis">${ticks.join('')}</div>${rowHtml}`;
+  $('alert-legend').innerHTML =
+    [...AL_KINDS.map(([, k]) => k), AL_OTHER].map((k) =>
+      `<span><i style="background:${k.color}"></i>${k.label}</span>`).join('') +
+    '<span class="m"><i class="tk"></i>issuance</span>' +
+    '<span class="m"><i class="ld"></i>lead time</span>';
 }
 
 /* IWXXM changeIndicator -> the TAF word a pilot reads */
