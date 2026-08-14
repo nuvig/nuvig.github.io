@@ -26,6 +26,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 from . import config
 from .config import OpsThresholds
+from .db import OPEN_WINDOW, Window
 from .flights import iter_flights
 from .ops import detect_flight_contacts, ang_diff
 
@@ -87,7 +88,8 @@ def runway_frame(x: np.ndarray, y: np.ndarray):
 
 def collect_figure_data(db: sqlite3.Connection, hexes: list[str],
                         th: OpsThresholds = config.TIGHT_THRESHOLDS,
-                        radius_nm: float = 3.0, log=print):
+                        radius_nm: float = 3.0, w: Window = OPEN_WINDOW,
+                        log=print):
     """One pass over candidate flights; returns (fig1, fig2) data.
 
     fig1: list of per-flight (x_nm, y_nm, alt_plot, ts) arrays restricted to
@@ -98,7 +100,7 @@ def collect_figure_data(db: sqlite3.Connection, hexes: list[str],
     dw_alt = {"12": [], "30": []}
     half_w = math.radians(30)  # heading tolerance around the downwind course
 
-    for f in iter_flights(db, hexes, th.flight_gap_s):
+    for f in iter_flights(db, hexes, th.flight_gap_s, w):
         contacts = [c for c in detect_flight_contacts(f, th, infer_rwy=False)
                     if c.kind in ("arrival", "departure", "touch")]
         if not contacts:
@@ -151,7 +153,8 @@ def collect_figure_data(db: sqlite3.Connection, hexes: list[str],
 # --- figure 1: track density ----------------------------------------------------
 
 def fig_track_density(tracks, out_base: str, radius_nm: float = 3.0,
-                      vmax_ft: float = 1600.0, log=print):
+                      vmax_ft: float = 1600.0, subtitle: str | None = None,
+                      log=print):
     with plt.rc_context(RC):
         fig, ax = plt.subplots(figsize=(6.6, 6.2))
         norm = Normalize(vmin=0, vmax=vmax_ft, clip=False)
@@ -197,8 +200,14 @@ def fig_track_density(tracks, out_base: str, radius_nm: float = 3.0,
         ax.set_aspect("equal")
         ax.set_xlabel("East of KANP reference (nm)")
         ax.set_ylabel("North of KANP reference (nm)")
-        ax.set_title("KANP operations — ground tracks within 3 nm,"
-                     " colored by altitude", color=INK, pad=10)
+        title = ("KANP operations — ground tracks within 3 nm,"
+                 " colored by altitude")
+        ax.set_title(title, color=INK, pad=16 if subtitle else 10)
+        if subtitle:
+            # sits between title and axes; pad above leaves the room for it
+            ax.annotate(subtitle, xy=(0.5, 1.0), xycoords="axes fraction",
+                        xytext=(0, 4), textcoords="offset points",
+                        ha="center", va="bottom", color=MUTED, fontsize=8)
         cb = fig.colorbar(lc, ax=ax, shrink=0.8, pad=0.02, extend="max")
         cb.set_label("Baro altitude (ft MSL)", color=INK_2)
         cb.ax.tick_params(color=MUTED, labelcolor=MUTED, labelsize=8)

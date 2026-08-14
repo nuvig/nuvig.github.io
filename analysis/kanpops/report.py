@@ -1,7 +1,12 @@
 """Full analysis run: exploration, ops, sensitivity, figures, abstract summary.
 
     python -m kanpops.report --db analysis/data/kanp_mirror.db \
-        --out analysis/output [--skip-sensitivity] [--skip-figures]
+        --out analysis/output [--start YYYY-MM-DD] [--end YYYY-MM-DD] \
+        [--day-basis utc|local] [--skip-sensitivity] [--skip-figures]
+
+The analysis window is UTC and inclusive on both ends. --end defaults to the
+last COMPLETE UTC day in the database: the collector is still running, so the
+newest day is always partial and would drag the ops/day statistics down.
 
 Read-only against the database throughout.
 """
@@ -28,25 +33,42 @@ def section(title: str):
     print(f"\n{'=' * 72}\n{title}\n{'=' * 72}")
 
 
-def explore(db) -> dict:
+def explore(db, w, gaps_since=None) -> dict:
     section("STEP 1 — SCHEMA, COVERAGE, DISTRIBUTIONS")
     print(dbmod.schema_report(db))
+    print(f"\nANALYSIS WINDOW (UTC, inclusive): {w.label()}"
+          f"  ({w.span_s / 86400.0:.2f} days)")
+    print("(schema row counts above are whole-file; everything below is"
+          " restricted to the window)")
 
-    cov = dbmod.coverage(db)
+    cov = dbmod.coverage(db, w=w)
     print(f"\ntime coverage : {_utc(cov.first_ts)} .. {_utc(cov.last_ts)}"
-          f"  ({cov.days_spanned:.1f} days)")
+          f"  ({cov.days_spanned:.1f} days of data in a"
+          f" {w.span_s / 86400.0:.2f}-day window)")
     print(f"position rows : {cov.rows:,}")
     print(f"seconds with data: {cov.distinct_seconds:,}"
           f"  (poll cadence ~3 s while aircraft present)")
     print(f"polling gaps > {cov.gap_threshold_s}s: {len(cov.gaps)}"
           f"  (total {cov.downtime_s / 3600:.2f} h,"
           f" uptime {100 * cov.uptime_frac:.2f}%)")
+    print("  largest:")
     for t, g in cov.gaps[:8]:
-        print(f"    {_utc(t)}  gap {g / 60:6.1f} min")
+        print(f"    {_utc(t)}  gap {g / 60:8.1f} min")
     if len(cov.gaps) > 8:
         print(f"    … and {len(cov.gaps) - 8} more")
 
-    alt_hist, dist_hist, joint, null_alt, ground = dbmod.alt_dist_distribution(db)
+    if gaps_since is not None:
+        since = dbmod.parse_day(gaps_since)
+        sub = cov.gaps_since(since)
+        print(f"\ngaps > {cov.gap_threshold_s}s since {gaps_since} UTC:"
+              f" {len(sub)} (total {sum(g for _, g in sub) / 3600:.2f} h)")
+        for t, g in sub:
+            print(f"    {_utc(t)}  ->  {_utc(t + g)}   {g / 60:8.1f} min")
+        if not sub:
+            print("    none — continuous collection")
+
+    alt_hist, dist_hist, joint, null_alt, ground = dbmod.alt_dist_distribution(
+        db, w)
     tot = cov.rows
     print("\naltitude distribution (baro ft MSL, airborne rows):")
     acc = {}
@@ -76,25 +98,25 @@ def explore(db) -> dict:
           " KANP-relevant rows are a thin slice, as expected under the"
           " DC-area shelf.")
 
-    ac = dbmod.unique_aircraft(db)
+    ac = dbmod.unique_aircraft(db, w)
     print(f"\nunique aircraft: {ac['total']:,} anywhere in the 60 nm circle;"
           f" {ac['low_3nm']:,} ever below 2,000 ft within 3 nm;"
           f" {ac['low_2nm']:,} ever below 1,200 ft within 2 nm")
     return {"coverage": cov, "aircraft": ac}
 
 
-def detect(db) -> dict:
+def detect(db, w) -> dict:
     section("STEP 2 — OPERATION DETECTION")
     print(f"\nTIGHT gates (site ops gates — resolve individual circuits):"
           f" <= {TIGHT_THRESHOLDS.contact_alt_msl_ft:.0f} ft MSL,"
           f" <= {TIGHT_THRESHOLDS.contact_dist_nm} nm,"
           f" gap {TIGHT_THRESHOLDS.flight_gap_s}s")
-    tight = opsmod.run_detection(db, TIGHT_THRESHOLDS)
+    tight = opsmod.run_detection(db, TIGHT_THRESHOLDS, w=w)
     _print_ops(tight)
 
     print(f"\nUSER-SPEC gates (~1,200 ft / 2 nm — the whole pattern is inside"
           f" these gates, so circuit sessions merge into single contacts):")
-    loose = opsmod.run_detection(db, DEFAULT_THRESHOLDS)
+    loose = opsmod.run_detection(db, DEFAULT_THRESHOLDS, w=w)
     _print_ops(loose)
     return {"tight": tight, "loose": loose}
 
@@ -120,9 +142,9 @@ def _print_ops(r: opsmod.OpsResult):
                   f" | unresolved {amb:,}")
 
 
-def sensitivity(db) -> dict:
+def sensitivity(db, w) -> dict:
     section("STEP 2b — THRESHOLD SENSITIVITY (total ops)")
-    sens = opsmod.sensitivity(db)
+    sens = opsmod.sensitivity(db, w=w)
     for gap_s, grid in sens.items():
         print(f"\nflight gap {gap_s}s — total ops"
               f" (rows: contact alt ft MSL, cols: contact radius nm)")
@@ -134,17 +156,25 @@ def sensitivity(db) -> dict:
     return sens
 
 
-def report_numbers(db, tight: opsmod.OpsResult) -> dict:
+def report_numbers(db, tight: opsmod.OpsResult, day_basis: str = "utc") -> dict:
     section("STEP 3 — ABSTRACT NUMBERS (tight gates)")
-    by_day = tight.ops_by_date()
+    by_day = tight.ops_by_date(day_basis)
     days = len(by_day)
     vals = np.array(list(by_day.values()))
-    print(f"\nops per local day over {days} days:"
+    print(f"\nops per {day_basis.upper()} day over {days} days:"
           f" mean {vals.mean():.1f}, median {np.median(vals):.0f},"
           f" min {vals.min()} ({min(by_day, key=by_day.get)}),"
           f" max {vals.max()} ({max(by_day, key=by_day.get)})")
     for d, n in by_day.items():
         print(f"    {d}  {n:4,}  {'#' * min(60, n)}")
+
+    # the other basis, for comparison — a UTC day boundary falls at 20:00
+    # local, cutting through evening pattern work, so the two disagree
+    other = "local" if day_basis == "utc" else "utc"
+    ov = np.array(list(tight.ops_by_date(other).values()))
+    print(f"\n  (same ops bucketed by {other.upper()} day:"
+          f" {len(ov)} days, mean {ov.mean():.1f},"
+          f" median {np.median(ov):.0f}, max {ov.max()})")
 
     # aircraft types among op aircraft
     hexes = sorted({c.hex for c in tight.contacts})
@@ -168,17 +198,20 @@ def report_numbers(db, tight: opsmod.OpsResult) -> dict:
     return {"by_day": by_day, "types": types, "quality": dq}
 
 
-def abstract_summary(cov, tight: opsmod.OpsResult, extras: dict):
+def abstract_summary(cov, tight: opsmod.OpsResult, extras: dict,
+                     day_basis: str = "utc"):
     section("ABSTRACT-READY SUMMARY")
-    by_day = tight.ops_by_date()
+    w = cov.window
+    by_day = tight.ops_by_date(day_basis)
     vals = np.array(list(by_day.values()))
     rw = tight.runway_split()
     arr, dep = rw["arrivals"], rw["departures"]
     n12 = arr.get("12", 0) + dep.get("12", 0)
     n30 = arr.get("30", 0) + dep.get("30", 0)
     dq = extras["quality"]
+    n_days = len(by_day)
     print(f"""
-Over {cov.days_spanned:.0f} days ({_utc(cov.first_ts)[:10]} to {_utc(cov.last_ts)[:10]}), a
+Over {n_days} days ({_utc(w.start)[:10]} to {_utc(w.end)[:10]}), a
 single ADS-B receiver-driven collector near KANP (Lee Airport, Annapolis,
 MD) stored {cov.rows / 1e6:.1f} M position reports from {extras['n_aircraft_total']:,} distinct
 aircraft inside a 60 nm radius. Of these, {tight.unique_aircraft:,} aircraft conducted
@@ -189,22 +222,37 @@ aircraft inside a 60 nm radius. Of these, {tight.unique_aircraft:,} aircraft con
 final courses. Operations carry a median of {dq['median_points_per_op']:.0f} position reports
 within 3 nm at a median update interval of {dq['median_update_s']:.0f} s.
 """.strip("\n"))
+    print(f"\n[window {w.label()} UTC inclusive; ops/day bucketed by"
+          f" {day_basis.upper()} day; uptime {100 * cov.uptime_frac:.2f}%]")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--db", required=True)
     ap.add_argument("--out", default="output", help="figure/json output dir")
+    ap.add_argument("--start", help="window start, YYYY-MM-DD UTC or unix"
+                                    " (default: first row in the DB)")
+    ap.add_argument("--end", help="window end, YYYY-MM-DD UTC (inclusive) or"
+                                  " unix (default: last COMPLETE UTC day)")
+    ap.add_argument("--day-basis", choices=("utc", "local"), default="utc",
+                    help="calendar basis for the ops/day statistics"
+                         " (default utc, matching the window)")
+    ap.add_argument("--gaps-since", help="also list polling gaps on/after this"
+                                         " YYYY-MM-DD UTC date")
+    ap.add_argument("--density-fig", help="output base path for the ground-track"
+                                          " density figure (no extension);"
+                                          " default {out}/fig1_track_density")
     ap.add_argument("--skip-sensitivity", action="store_true")
     ap.add_argument("--skip-figures", action="store_true")
     args = ap.parse_args(argv)
 
     db = dbmod.open_ro(args.db)
-    info = explore(db)
-    runs = detect(db)
+    w = dbmod.resolve_window(db, args.start, args.end)
+    info = explore(db, w, gaps_since=args.gaps_since)
+    runs = detect(db, w)
     tight = runs["tight"]
-    sens = None if args.skip_sensitivity else sensitivity(db)
-    extras = report_numbers(db, tight)
+    sens = None if args.skip_sensitivity else sensitivity(db, w)
+    extras = report_numbers(db, tight, args.day_basis)
     extras["n_aircraft_total"] = info["aircraft"]["total"]
 
     if not args.skip_figures:
@@ -212,27 +260,48 @@ def main(argv=None):
         import os
         from . import figures
         os.makedirs(args.out, exist_ok=True)
+        density_base = args.density_fig or f"{args.out}/fig1_track_density"
+        d_dir = os.path.dirname(density_base)
+        if d_dir:
+            os.makedirs(d_dir, exist_ok=True)
         hexes = candidate_hexes(db, TIGHT_THRESHOLDS.contact_dist_nm,
-                                TIGHT_THRESHOLDS.contact_alt_msl_ft)
-        tracks, dw = figures.collect_figure_data(db, hexes)
+                                TIGHT_THRESHOLDS.contact_alt_msl_ft, w)
+        tracks, dw = figures.collect_figure_data(db, hexes, w=w)
         figures.fig_track_density(
-            tracks, f"{args.out}/fig1_track_density")
+            tracks, density_base,
+            subtitle=f"{_utc(w.start)[:10]} to {_utc(w.end)[:10]} UTC"
+                     f"  ·  {tight.total_ops:,} operations,"
+                     f" {len(tracks):,} flights")
         figures.fig_downwind_altitude(
             dw, f"{args.out}/fig2_downwind_altitude")
 
-    abstract_summary(info["coverage"], tight, extras)
+    abstract_summary(info["coverage"], tight, extras, args.day_basis)
 
     # machine-readable dump for the paper pipeline
     if sens is not None:
         import os
         os.makedirs(args.out, exist_ok=True)
+        cov = info["coverage"]
         dump = {
             "generated_utc": datetime.now(timezone.utc).isoformat(),
+            "window": {"start": w.start, "end": w.end,
+                       "start_utc": _utc(w.start), "end_utc": _utc(w.end),
+                       "span_days": w.span_s / 86400.0,
+                       "day_basis": args.day_basis},
+            "coverage": {"rows": cov.rows, "uptime_frac": cov.uptime_frac,
+                         "downtime_s": cov.downtime_s,
+                         "gap_threshold_s": cov.gap_threshold_s,
+                         "n_gaps": len(cov.gaps),
+                         "gaps": [{"start_utc": _utc(t), "seconds": g}
+                                  for t, g in sorted(cov.gaps)],
+                         "aircraft_total": info["aircraft"]["total"]},
             "tight": _ops_dict(tight), "loose": _ops_dict(runs["loose"]),
             "sensitivity": {str(g): {f"{a}ft_{d}nm": v for (a, d), v in grid.items()}
                             for g, grid in sens.items()},
             "quality": extras["quality"],
             "ops_by_day": extras["by_day"],
+            "ops_by_day_utc": tight.ops_by_date("utc"),
+            "ops_by_day_local": tight.ops_by_date("local"),
         }
         with open(f"{args.out}/ops_summary.json", "w") as f:
             json.dump(dump, f, indent=1)
@@ -248,7 +317,8 @@ def _ops_dict(r: opsmod.OpsResult):
             "unique_aircraft": r.unique_aircraft,
             "op_flights": r.op_flights, "pattern_flights": r.pattern_flights,
             "runways": r.runway_split(),
-            "thresholds": vars(r.thresholds)}
+            "thresholds": vars(r.thresholds),
+            "window": {"start": r.window.start, "end": r.window.end}}
 
 
 if __name__ == "__main__":

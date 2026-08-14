@@ -40,7 +40,7 @@ import numpy as np
 
 from . import config
 from .config import OpsThresholds
-from .db import local_date
+from .db import OPEN_WINDOW, Window, local_date, utc_date
 from .flights import Flight, candidate_hexes, iter_flights
 
 MERGE_GAP_S = 60
@@ -86,7 +86,8 @@ class Contact:
     n_points: int
     arr_rwy: str | None = None
     dep_rwy: str | None = None
-    date: str = ""            # local date of t_start
+    date: str = ""            # local (America/New_York) date of t_start
+    date_utc: str = ""        # UTC date of t_start
 
     @property
     def ops(self) -> int:
@@ -171,6 +172,7 @@ def detect_flight_contacts(f: Flight, th: OpsThresholds,
             closest_nm=float(np.nanmin(f.dist_nm[i0:i1 + 1])),
             n_points=int(i1 - i0 + 1),
             date=local_date(int(f.ts[i0])),
+            date_utc=utc_date(int(f.ts[i0])),
         )
         if infer_rwy and kind in ("arrival", "departure", "touch"):
             c.arr_rwy, c.dep_rwy = _infer_runways(
@@ -186,6 +188,7 @@ def detect_flight_contacts(f: Flight, th: OpsThresholds,
 @dataclass
 class OpsResult:
     thresholds: OpsThresholds
+    window: Window = OPEN_WINDOW
     contacts: list = field(default_factory=list)     # arrival/departure/touch
     ground_only: int = 0
     transits: int = 0                                # low pass-throughs, 0 ops
@@ -213,10 +216,16 @@ class OpsResult:
     def unique_aircraft(self):
         return len({c.hex for c in self.contacts})
 
-    def ops_by_date(self) -> dict:
+    def ops_by_date(self, basis: str = "local") -> dict:
+        """Ops per calendar day. basis='local' buckets on the field's own day
+        (America/New_York — an evening of pattern work stays in one bucket);
+        basis='utc' buckets on UTC days, which is what a UTC analysis window
+        slices cleanly, at the cost of cutting 20:00 local through the
+        evening. Report which one a per-day statistic used."""
+        key = (lambda c: c.date_utc) if basis == "utc" else (lambda c: c.date)
         d = Counter()
         for c in self.contacts:
-            d[c.date] += c.ops
+            d[key(c)] += c.ops
         return dict(sorted(d.items()))
 
     def runway_split(self) -> dict:
@@ -230,13 +239,14 @@ class OpsResult:
 def run_detection(db: sqlite3.Connection,
                   th: OpsThresholds = config.DEFAULT_THRESHOLDS,
                   hexes: list[str] | None = None,
+                  w: Window = OPEN_WINDOW,
                   log=print) -> OpsResult:
     if hexes is None:
-        hexes = candidate_hexes(db, th.contact_dist_nm, th.contact_alt_msl_ft)
+        hexes = candidate_hexes(db, th.contact_dist_nm, th.contact_alt_msl_ft, w)
         log(f"  {len(hexes)} candidate aircraft"
             f" (<= {th.contact_dist_nm} nm, <= {th.contact_alt_msl_ft:.0f} ft)")
-    res = OpsResult(thresholds=th)
-    for f in iter_flights(db, hexes, th.flight_gap_s):
+    res = OpsResult(thresholds=th, window=w)
+    for f in iter_flights(db, hexes, th.flight_gap_s, w):
         res.flights_scanned += 1
         contacts = detect_flight_contacts(f, th)
         real = [c for c in contacts
@@ -258,6 +268,7 @@ def sensitivity(db: sqlite3.Connection,
                 dist_grid=config.SWEEP_DIST_NM,
                 gap_grid=config.SWEEP_GAP_S,
                 base: OpsThresholds = config.DEFAULT_THRESHOLDS,
+                w: Window = OPEN_WINDOW,
                 log=print) -> dict:
     """Op counts across the (alt x dist) grid for each flight-gap value.
 
@@ -270,7 +281,7 @@ def sensitivity(db: sqlite3.Connection,
     """
     from .flights import iter_hex_rows, segment_rows
 
-    hexes = candidate_hexes(db, max(dist_grid), max(alt_grid))
+    hexes = candidate_hexes(db, max(dist_grid), max(alt_grid), w)
     log(f"  sensitivity: {len(hexes)} candidate aircraft under loosest gates")
     combos = [OpsThresholds(contact_alt_msl_ft=a, contact_dist_nm=d,
                             flight_gap_s=g,
@@ -284,7 +295,7 @@ def sensitivity(db: sqlite3.Connection,
 
     # one DB pass: each aircraft's rows are read once, re-segmented in memory
     # for every gap value, and every gate combination evaluated on the result
-    for hexid, rows in iter_hex_rows(db, hexes):
+    for hexid, rows in iter_hex_rows(db, hexes, w):
         for gap_s in gap_grid:
             fls = list(segment_rows(hexid, rows, gap_s))
             for th in combos:
@@ -315,14 +326,25 @@ def sensitivity(db: sqlite3.Connection,
 # --- data quality ------------------------------------------------------------
 
 def data_quality(db: sqlite3.Connection, res: OpsResult,
-                 radius_nm: float = 3.0, pad_s: int = 300) -> dict:
-    """Median points-per-operation and update rate near the field."""
+                 radius_nm: float = 3.0, pad_s: int = 300,
+                 w: Window | None = None) -> dict:
+    """Median points-per-operation and update rate near the field.
+
+    The +/- pad_s context around each contact is clipped to the window, so a
+    contact near the boundary is not credited with reports from outside it.
+    """
+    w = res.window if w is None else w
     pts_per_op, intervals = [], []
     for c in res.contacts:
+        t0, t1 = c.t_start - pad_s, c.t_end + pad_s
+        if w.start is not None:
+            t0 = max(t0, w.start)
+        if w.end is not None:
+            t1 = min(t1, w.end)
         rows = db.execute(
             "SELECT ts FROM positions WHERE hex = ? AND ts BETWEEN ? AND ?"
             " AND dist_nm <= ? ORDER BY ts",
-            (c.hex, c.t_start - pad_s, c.t_end + pad_s, radius_nm)).fetchall()
+            (c.hex, t0, t1, radius_nm)).fetchall()
         n = len(rows)
         pts_per_op.append(n)
         if n > 1:

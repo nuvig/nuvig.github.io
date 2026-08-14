@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .db import OPEN_WINDOW, Window
+
 POINT_COLS = "ts, lat, lon, alt, gs, track, dist_nm, on_ground, baro_rate"
 
 
@@ -36,12 +38,13 @@ class Flight:
 
 
 def candidate_hexes(db: sqlite3.Connection, max_dist_nm: float,
-                    max_alt_ft: float) -> list[str]:
+                    max_alt_ft: float, w: Window = OPEN_WINDOW) -> list[str]:
     """Hexes with at least one plausibly-at-the-field point (loose gates)."""
+    wsql, wp = w.sql()
     return [r[0] for r in db.execute(
-        "SELECT DISTINCT hex FROM positions"
-        " WHERE dist_nm <= ? AND (on_ground = 1 OR alt <= ?)",
-        (max_dist_nm, max_alt_ft))]
+        f"SELECT DISTINCT hex FROM positions"
+        f" WHERE dist_nm <= ? AND (on_ground = 1 OR alt <= ?){wsql}",
+        (max_dist_nm, max_alt_ft) + wp)]
 
 
 def _to_flight(hexid: str, rows: list) -> Flight:
@@ -58,13 +61,20 @@ def _to_flight(hexid: str, rows: list) -> Flight:
     )
 
 
-def iter_hex_rows(db: sqlite3.Connection, hexes: list[str]):
+def iter_hex_rows(db: sqlite3.Connection, hexes: list[str],
+                  w: Window = OPEN_WINDOW):
     """Yield (hex, rows) one aircraft at a time (uses idx_pos_hex_ts), so
-    memory stays bounded by the busiest single aircraft, not the month."""
+    memory stays bounded by the busiest single aircraft, not the month.
+
+    The window is applied here rather than after segmentation so a flight
+    straddling the boundary is truncated, never dropped or double-counted:
+    an op is attributed to the window that holds its field contact.
+    """
+    wsql, wp = w.sql()
     for hexid in hexes:
         rows = db.execute(
-            f"SELECT {POINT_COLS} FROM positions WHERE hex = ? ORDER BY ts",
-            (hexid,)).fetchall()
+            f"SELECT {POINT_COLS} FROM positions"
+            f" WHERE hex = ?{wsql} ORDER BY ts", (hexid,) + wp).fetchall()
         if rows:
             yield hexid, rows
 
@@ -79,7 +89,8 @@ def segment_rows(hexid: str, rows: list, gap_s: int):
     yield _to_flight(hexid, rows[start:])
 
 
-def iter_flights(db: sqlite3.Connection, hexes: list[str], gap_s: int = 600):
+def iter_flights(db: sqlite3.Connection, hexes: list[str], gap_s: int = 600,
+                 w: Window = OPEN_WINDOW):
     """Yield Flight objects for the given hexes, split at gaps > gap_s."""
-    for hexid, rows in iter_hex_rows(db, hexes):
+    for hexid, rows in iter_hex_rows(db, hexes, w):
         yield from segment_rows(hexid, rows, gap_s)

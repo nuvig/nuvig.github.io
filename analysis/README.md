@@ -29,12 +29,39 @@ mirror step is stdlib-only like the rest of the repo's tooling).
     # 2. everything: prints the abstract summary, writes figures to output/
     python -m kanpops.report --db data/kanp_mirror.db --out output
 
+    # ...restricted to an explicit window, with a named density figure
+    python -m kanpops.report --db data/kanp_mirror.db --out output \
+        --start 2026-07-06 --end 2026-08-06 --gaps-since 2026-08-01 \
+        --density-fig figures/pattern_density
+
 The mirror is resumable (re-run after an interruption; completed windows are
 skipped) and verifies its row count against the Pi when done. All analysis
 opens the database with SQLite `mode=ro`.
 
 A scp'd copy of the real `/var/lib/kanp/kanp.db` drops in wherever the mirror
 is used — same schema (`mirror.py` reproduces `pi/collector.py`'s exactly).
+
+## The analysis window
+
+Every DB reader takes an optional `db.Window` (UTC, **inclusive both ends**);
+`report.py` exposes it as `--start` / `--end` (`YYYY-MM-DD` or unix). Defaults:
+`--start` = first row in the file, `--end` = **the last complete UTC day**. The
+collector is always still running, so the newest day in a fresh mirror is a
+partial one and would drag the mean/median ops-per-day down — the default
+excludes it rather than making every caller remember to.
+
+The window is applied at row level in `flights.iter_hex_rows`, before
+segmentation, so a flight straddling the boundary is *truncated* rather than
+dropped or double-counted; an operation belongs to the window holding its
+field contact. `db.coverage()` also treats a shortfall at either window edge
+as a gap, so a collector outage across the boundary can't masquerade as "no
+data yet". `--gaps-since YYYY-MM-DD` prints the gap list from a chosen date.
+
+**Day basis** (`--day-basis`, default `utc`): ops-per-day buckets on UTC days
+so they line up with the UTC window. Bucketing on the field's local day
+(`local`) keeps an evening of pattern work in one bucket but is cut by the
+UTC window at 20:00 EDT. The report prints both; say which one a quoted
+per-day figure used.
 
 ## Method notes
 

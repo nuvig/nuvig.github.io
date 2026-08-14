@@ -220,24 +220,60 @@ def mirror_positions(db: sqlite3.Connection, api: str, start: int, end: int,
     return total
 
 
+AIRCRAFT_CHUNK_S = 14 * 86400   # fortnightly — keeps each GROUP BY small
+AIRCRAFT_TIMEOUT = 1800
+
+
 def mirror_aircraft(db: sqlite3.Connection, api: str, start: int, end: int,
-                    log=print) -> int:
-    log("fetching aircraft table (one heavy GROUP BY on the Pi — be patient)…")
-    data = _get_json(api, "/api/aircraft", {"start": start, "end": end},
-                     timeout=600)
-    rows = [(a["hex"], a.get("reg"), a.get("type"), a.get("descr"),
-             a.get("military") or 0, a.get("first_ts"), a.get("last_ts"))
-            for a in data["aircraft"]]
+                    chunk_s: int = AIRCRAFT_CHUNK_S, log=print) -> int:
+    """Fetch aircraft metadata (reg/type/descr) in chunks.
+
+    /api/aircraft is a GROUP BY over the whole requested span; across a
+    multi-week DB that outgrew the old 600 s socket timeout and left the
+    table stale while positions mirrored fine. Chunking keeps each request
+    small, and later chunks overwrite earlier ones only with identity fields.
+
+    first_seen/last_seen are deliberately NOT taken from the response: those
+    are relative to the requested window, so a chunked (or partial) fetch
+    would record "first seen since chunk start". They are recomputed from
+    the mirrored positions in finalize(), which is both exact and local.
+    """
+    seen = {}
+    t = start
+    while t <= end:
+        c_end = min(t + chunk_s - 1, end)
+        data = _get_json(api, "/api/aircraft", {"start": t, "end": c_end},
+                         timeout=AIRCRAFT_TIMEOUT)
+        for a in data["aircraft"]:
+            seen[a["hex"]] = (a["hex"], a.get("reg"), a.get("type"),
+                              a.get("descr"), a.get("military") or 0)
+        log(f"  aircraft {_ts(t)}..{_ts(c_end)}: {len(data['aircraft']):,}"
+            f" -> {len(seen):,} distinct so far")
+        t = c_end + 1
     db.executemany(
-        "INSERT OR REPLACE INTO aircraft(hex, reg, type, descr, military,"
-        " first_seen, last_seen) VALUES(?,?,?,?,?,?,?)", rows)
+        "INSERT OR REPLACE INTO aircraft(hex, reg, type, descr, military)"
+        " VALUES(?,?,?,?,?)", list(seen.values()))
     db.commit()
-    return len(rows)
+    return len(seen)
+
+
+def rebuild_seen_times(db: sqlite3.Connection, log=print) -> int:
+    """Set aircraft.first_seen/last_seen from the mirrored positions."""
+    n = db.execute(
+        "UPDATE aircraft SET"
+        "   first_seen = (SELECT MIN(ts) FROM positions p WHERE p.hex = aircraft.hex),"
+        "   last_seen  = (SELECT MAX(ts) FROM positions p WHERE p.hex = aircraft.hex)"
+        " WHERE EXISTS (SELECT 1 FROM positions p WHERE p.hex = aircraft.hex)"
+    ).rowcount
+    db.commit()
+    log(f"  first_seen/last_seen rebuilt from positions for {n:,} aircraft")
+    return n
 
 
 def finalize(db: sqlite3.Connection, api: str, start: int, end: int, log=print):
     log("creating hex,ts index…")
     db.execute("CREATE INDEX IF NOT EXISTS idx_pos_hex_ts ON positions(hex, ts)")
+    rebuild_seen_times(db, log=log)
     for k, v in (("mirror_source", api), ("mirror_start", start),
                  ("mirror_end", end), ("mirror_fetched_utc", int(time.time()))):
         db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?,?)",
@@ -246,13 +282,22 @@ def finalize(db: sqlite3.Connection, api: str, start: int, end: int, log=print):
     db.execute("PRAGMA optimize")
 
 
-def verify(db: sqlite3.Connection, api: str, start: int, end: int, log=print):
-    """Cross-check local row count against the Pi for the mirrored window."""
+def verify(db: sqlite3.Connection, api: str, start: int, end: int,
+           chunk_s: int = AIRCRAFT_CHUNK_S, log=print):
+    """Cross-check local row count against the Pi for the mirrored window.
+
+    Chunked for the same reason mirror_aircraft is: sample counts are per
+    requested span, so chunk totals sum to the window total.
+    """
     local = db.execute("SELECT COUNT(*) FROM positions WHERE ts BETWEEN ? AND ?",
                        (start, end)).fetchone()[0]
-    data = _get_json(api, "/api/aircraft", {"start": start, "end": end},
-                     timeout=600)
-    remote = sum(a["samples"] for a in data["aircraft"])
+    remote, t = 0, start
+    while t <= end:
+        c_end = min(t + chunk_s - 1, end)
+        data = _get_json(api, "/api/aircraft", {"start": t, "end": c_end},
+                         timeout=AIRCRAFT_TIMEOUT)
+        remote += sum(a["samples"] for a in data["aircraft"])
+        t = c_end + 1
     ok = local == remote
     log(f"verify: local {local:,} rows vs Pi {remote:,} for the same window"
         f" — {'OK' if ok else 'MISMATCH'}")
