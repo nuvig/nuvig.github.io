@@ -63,6 +63,25 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   and captions only, not stats — `js/kanp-ops.js` remains the real classifier). **Deliberately
   unlinked and `noindex`** — an experiment; if promoted, remove the noindex meta and add the
   tools.html card + sitemap entry. Exposes read-only `window.FUGUE_DEBUG` for headless tests.
+- `mural.html` — Mural, an infinite collaborative canvas for two trusted people. Self-contained
+  like glow.html; **unlinked and `noindex`** — personal, not an aviation tool. Objects (strokes /
+  text / JPEG-downscaled images) live in world coordinates and re-render from geometry at any zoom;
+  a promoted object holds its own child world — zooming past a threshold crosses into it
+  (unbounded nesting, breadcrumbs surface back) — and a history scrubber replays any level's log
+  as a pure view. Persistence is an **append-only object log sharded by 2000×2000-unit chunk**:
+  `canvas/<path>/chunk_<x>_<y>.json` (`<path>` = `root/<objId>/…`; segments seal near 600 KB;
+  `large.json` per level for chunk-spanning objects; `canvas/__registry.json` maps promoted ids →
+  bbox for deep links). Erase/move/promote/undo are appended event records folded at read time in
+  `(t, id)` order — timestamps are per-client monotonic so same-ms causal chains fold correctly —
+  and every write is read → merge-by-id → compare-and-swap with conflict retry, so overwriting
+  someone's work is impossible by construction. Two storage adapters share that code path:
+  **Shared** (a separate GitHub data repo — create one empty, private is fine; each person a
+  fine-grained PAT, Contents R/W on just that repo, held in localStorage like the tracker's
+  RapidAPI key; sync polls one conditional request per 3 s — 304s don't count against the rate
+  limit) and **Solo** (localStorage; `?store=local&author=X&db=Y` lets two tabs play both people —
+  how it's tested). `?selftest=1` runs storage/fold assertions; `window.MURAL_DEBUG` drives it
+  headlessly. The GitHub adapter follows the documented contents/git-data API but hasn't run
+  against a live repo yet — first real session, watch the sync pill.
 
 ### Flight tracker
 

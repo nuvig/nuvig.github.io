@@ -1,0 +1,1939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Mural — an infinite canvas for two</title>
+  <meta name="description" content="A shared infinite canvas: draw together, zoom into any object to find a whole world inside, scrub time to watch it grow.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌌</text></svg>">
+  <!--
+  ============================================================================
+  MURAL — infinite collaborative canvas for two trusted people.
+  Self-contained like glow.html / fugue.html — no shared CSS/JS, no libs.
+  Deliberately unlinked from site navigation and noindex.
+
+  STORAGE (the part that must stay right):
+  - Append-only object log, sharded by 2000x2000 world-unit chunk.
+  - Conceptual key  canvas:<path>:chunk_<x>_<y>  maps to the file
+        canvas/<path>/chunk_<x>_<y>.json            (segment 1)
+        canvas/<path>/chunk_<x>_<y>.s<N>.json       (later segments)
+    where <path> is "root" or "root/<objId>/<objId>..." — the nesting location.
+    Objects whose bbox spans more than 6 chunks go to canvas/<path>/large.json
+    (always loaded with its level). canvas/__registry.json holds one entry per
+    promoted container (bbox + label) so deep links / "jump to activity" can
+    rebuild the level stack without loading every parent chunk.
+  - Every file is {"v":1,"objects":[...]}; objects are never edited or removed.
+    Erase/move/promote are appended event records folded at read time.
+  - Writes are read → merge by object id → compare-and-swap write (GitHub
+    contents API sha / local version counter). A stale write conflicts and is
+    re-merged; a full-canvas overwrite is impossible by construction.
+  - A segment that would exceed ~600 KB is sealed; new records roll to the
+    next segment, so sealed segments are immutable (their blob sha never
+    changes again).
+
+  BACKENDS (two, same code path — read/merge/write logic is shared):
+  - "Shared (GitHub)": a plain repo (create an EMPTY repo, private is fine,
+    e.g. <you>/mural-data, default branch main). Each person makes a
+    fine-grained PAT: Contents → Read and write, scoped to that one repo.
+    The PAT lives only in this browser's localStorage (same pattern as the
+    tracker's RapidAPI key). Polling is one conditional request every 3 s —
+    304s don't count against the API rate limit.
+  - "Solo (this browser)": localStorage-backed store, used for demos/tests.
+    Two tabs on the same origin sync through it exactly like two people.
+    Query overrides for testing: ?store=local&author=A&db=demo
+
+  DEBUG: window.MURAL_DEBUG (read-only-ish helpers; used by headless tests).
+  ?selftest=1 runs merge/fold/geometry assertions to the console.
+  ============================================================================
+  -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body {
+      background: #0f1216; color: #dfe6f2;
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      position: fixed; inset: 0;
+      user-select: none; -webkit-user-select: none;
+    }
+    #cv { position: fixed; inset: 0; touch-action: none; cursor: crosshair; }
+    button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+    .glass {
+      background: rgba(15, 19, 26, 0.82);
+      border: 1px solid rgba(255,255,255,0.09);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border-radius: 12px;
+    }
+    .btn {
+      min-width: 38px; height: 38px; padding: 0 9px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 9px; font-size: 17px; color: #c9d4e3;
+    }
+    .btn:hover { background: rgba(255,255,255,0.08); }
+    .btn.on { background: rgba(122,162,255,0.22); color: #aecbff; }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+
+    #topbar {
+      position: fixed; top: 10px; left: 10px; z-index: 30;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 20px);
+    }
+    .group { display: flex; gap: 2px; align-items: center; padding: 4px; }
+    #color { width: 30px; height: 30px; border: none; background: none; padding: 0; cursor: pointer; border-radius: 6px; }
+    #size { width: 90px; accent-color: #7aa2ff; }
+    #sizeval { font-size: 11px; color: #8a97a8; width: 26px; text-align: right; }
+
+    #crumbs {
+      position: fixed; top: 58px; left: 10px; z-index: 30;
+      padding: 6px 10px; font-size: 12.5px; color: #9fb0c4; display: flex; gap: 4px; align-items: center;
+      max-width: calc(100vw - 20px); flex-wrap: wrap;
+    }
+    #crumbs .crumb { cursor: pointer; padding: 2px 5px; border-radius: 6px; }
+    #crumbs .crumb:hover { background: rgba(255,255,255,0.08); color: #dfe6f2; }
+    #crumbs .here { color: #aecbff; cursor: default; }
+    #crumbs .sep { opacity: 0.45; }
+
+    #statusbar {
+      position: fixed; top: 10px; right: 10px; z-index: 30;
+      display: flex; gap: 8px; align-items: center;
+    }
+    #syncpill {
+      padding: 8px 12px; font-size: 12px; color: #9fb0c4; display: flex; gap: 7px; align-items: center;
+      max-width: 46vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+    #syncdot { width: 8px; height: 8px; border-radius: 50%; background: #5b6673; flex: none; }
+    #syncdot.ok { background: #58c08a; }
+    #syncdot.busy { background: #e3b341; }
+    #syncdot.err { background: #e05f55; }
+
+    #navbar {
+      position: fixed; right: 10px; bottom: 10px; z-index: 30;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    }
+    #coords { padding: 6px 10px; font-size: 11.5px; color: #8a97a8; font-variant-numeric: tabular-nums; }
+    #navbtns { display: flex; gap: 2px; padding: 4px; }
+
+    #minimap {
+      position: fixed; left: 10px; bottom: 10px; z-index: 30;
+      border-radius: 12px; border: 1px solid rgba(255,255,255,0.09);
+      background: rgba(15,19,26,0.82); cursor: pointer;
+    }
+
+    #histbar {
+      position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px; z-index: 40;
+      display: none; align-items: center; gap: 10px; padding: 9px 14px; width: min(680px, calc(100vw - 250px));
+    }
+    #histbar.show { display: flex; }
+    #histbar input[type=range] { flex: 1; accent-color: #e3b341; }
+    #histtime { font-size: 11.5px; color: #e3b341; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    #histspeed { background: #1a212b; color: #c9d4e3; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; font-size: 12px; padding: 3px; }
+
+    #banner {
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 35;
+      display: none; padding: 7px 14px; font-size: 12.5px; color: #e3b341;
+    }
+    #banner.show { display: block; }
+
+    #selpanel {
+      position: fixed; z-index: 32; display: none; gap: 2px; padding: 4px;
+    }
+    #selpanel.show { display: flex; }
+    #selpanel .btn { font-size: 12.5px; height: 30px; }
+
+    #textedit {
+      position: fixed; z-index: 33; display: none; min-width: 160px; min-height: 34px;
+      background: rgba(15,19,26,0.9); color: inherit; border: 1px dashed rgba(122,162,255,0.6);
+      border-radius: 6px; padding: 4px 6px; font-family: inherit; resize: both; outline: none;
+    }
+
+    #toast {
+      position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%); z-index: 50;
+      padding: 8px 14px; font-size: 12.5px; color: #dfe6f2; opacity: 0; transition: opacity 0.3s;
+      pointer-events: none; max-width: 80vw; text-align: center;
+    }
+
+    /* setup modal */
+    #setup {
+      position: fixed; inset: 0; z-index: 100; display: none;
+      align-items: center; justify-content: center; background: rgba(5,8,12,0.7);
+    }
+    #setup.show { display: flex; }
+    #setupcard { width: min(430px, calc(100vw - 30px)); padding: 22px; max-height: 92vh; overflow: auto; }
+    #setupcard h1 { font-size: 19px; font-weight: 600; margin-bottom: 4px; }
+    #setupcard .sub { font-size: 12.5px; color: #8a97a8; margin-bottom: 16px; }
+    #setupcard label { display: block; font-size: 11.5px; color: #9fb0c4; margin: 10px 0 3px; }
+    #setupcard input[type=text], #setupcard input[type=password] {
+      width: 100%; background: #131922; border: 1px solid rgba(255,255,255,0.13); border-radius: 7px;
+      color: #dfe6f2; padding: 8px 10px; font-size: 13.5px; outline: none;
+    }
+    #setupcard input:focus { border-color: rgba(122,162,255,0.6); }
+    .mode { display: flex; gap: 8px; margin: 8px 0 2px; }
+    .mode button { flex: 1; padding: 9px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.13); font-size: 13px; color: #c9d4e3; }
+    .mode button.on { border-color: rgba(122,162,255,0.7); background: rgba(122,162,255,0.14); color: #aecbff; }
+    #ghfields.off { display: none; }
+    .hint { font-size: 11.5px; color: #77828f; line-height: 1.45; margin-top: 8px; }
+    .hint code { color: #9fb0c4; }
+    #setupgo {
+      width: 100%; margin-top: 18px; padding: 11px; border-radius: 9px; font-size: 14.5px;
+      background: rgba(122,162,255,0.2); color: #aecbff; border: 1px solid rgba(122,162,255,0.5);
+    }
+    #setupgo:hover { background: rgba(122,162,255,0.3); }
+    #setuperr { color: #e05f55; font-size: 12px; margin-top: 10px; min-height: 15px; }
+
+    @media (max-width: 640px) {
+      #size { width: 60px; }
+      #minimap { width: 140px !important; height: 98px !important; }
+      #histbar { width: calc(100vw - 20px); bottom: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="cv"></canvas>
+
+  <div id="topbar">
+    <div class="group glass" id="tools">
+      <button class="btn" data-tool="draw"  title="Draw (B)">✏️</button>
+      <button class="btn" data-tool="erase" title="Erase objects (E)">⌫</button>
+      <button class="btn" data-tool="text"  title="Text (T)">T</button>
+      <button class="btn" data-tool="select" title="Select / move (V)">▭</button>
+      <button class="btn" data-tool="pan"   title="Pan (H · or right-drag / two fingers)">✋</button>
+    </div>
+    <div class="group glass">
+      <input type="color" id="color" title="Brush color">
+      <input type="range" id="size" min="1" max="48" step="1" value="4" title="Brush / text size">
+      <span id="sizeval">4</span>
+    </div>
+    <div class="group glass">
+      <button class="btn" id="undo" title="Undo my last action (Ctrl+Z)">↩</button>
+      <button class="btn" id="imgbtn" title="Insert image (or paste)">🖼</button>
+    </div>
+  </div>
+
+  <div id="crumbs" class="glass"></div>
+
+  <div id="statusbar">
+    <div id="syncpill" class="glass"><span id="syncdot"></span><span id="synctext">…</span></div>
+    <div class="group glass">
+      <button class="btn" id="jump" title="Jump to their latest work">⚡</button>
+      <button class="btn" id="gear" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <div id="navbar">
+    <div id="navbtns" class="glass">
+      <button class="btn" id="hist" title="History — watch it grow">⏱</button>
+      <button class="btn" id="origin" title="Return to origin">⌖</button>
+    </div>
+    <div id="coords" class="glass">x 0 · y 0 · 1.0×</div>
+  </div>
+
+  <canvas id="minimap" width="200" height="140"></canvas>
+
+  <div id="histbar" class="glass">
+    <button class="btn" id="histplay" title="Play / pause">▶</button>
+    <input type="range" id="histslider" min="0" max="1000" value="1000">
+    <select id="histspeed">
+      <option value="1.5">0.5×</option>
+      <option value="3" selected>1×</option>
+      <option value="8">3×</option>
+      <option value="20">8×</option>
+      <option value="60">25×</option>
+    </select>
+    <span id="histtime">—</span>
+    <button class="btn" id="histclose" title="Back to now">✕</button>
+  </div>
+
+  <div id="banner" class="glass">viewing history — drawing is paused</div>
+
+  <div id="selpanel" class="glass">
+    <button class="btn" id="selpromote">◱ give it a world</button>
+    <button class="btn" id="selenter">enter ↘</button>
+    <button class="btn" id="seldelete">delete</button>
+  </div>
+
+  <textarea id="textedit" rows="1" spellcheck="false"></textarea>
+  <input type="file" id="filein" accept="image/*" style="display:none">
+  <div id="toast" class="glass"></div>
+
+  <div id="setup">
+    <div id="setupcard" class="glass">
+      <h1>Mural</h1>
+      <div class="sub">An infinite canvas for two. Zoom into anything to find a world inside.</div>
+      <label>your name</label>
+      <input type="text" id="s_name" maxlength="24" placeholder="jesse">
+      <label>your color</label>
+      <input type="color" id="s_color" value="#7aa2ff" style="width:52px;height:34px;border:none;background:none;padding:0;cursor:pointer">
+      <label>where it lives</label>
+      <div class="mode">
+        <button id="m_gh">Shared · GitHub</button>
+        <button id="m_local">Solo · this browser</button>
+      </div>
+      <div id="ghfields">
+        <label>owner / repo</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="s_owner" placeholder="nuvig" style="flex:1">
+          <input type="text" id="s_repo" placeholder="mural-data" style="flex:1.4">
+        </div>
+        <label>branch</label>
+        <input type="text" id="s_branch" value="main">
+        <label>fine-grained token (stays in this browser)</label>
+        <input type="password" id="s_pat" placeholder="github_pat_…">
+        <div class="hint">
+          One-time setup: create an <b>empty</b> repo (private is fine), e.g. <code>mural-data</code>.
+          Each of you makes a fine-grained PAT — <code>Contents → Read and write</code>, scoped to just
+          that repo (github.com → Settings → Developer settings → Fine-grained tokens).
+          Same repo for both; your own token each.
+        </div>
+      </div>
+      <button id="setupgo">start drawing</button>
+      <div id="setuperr"></div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+/* ============================== constants ============================== */
+const CHUNK = 2000;            // world units per chunk side (spec)
+const PORTAL = 4000;           // child-world units spanning a container's larger side
+const ZMIN = 0.05, ZMAX = 20;  // per-level zoom range (spec)
+const OVERZOOM = 1000;         // only while diving into a container, to reach the threshold
+const ENTER_COV = 1.15;        // container fills 115% of viewport -> commit descent
+const EXIT_COV  = 0.55;        // portal under 55% of viewport -> surface to parent
+const FADE0     = 0.50;        // child world starts fading in at 50% coverage
+const MAXC = 6;                // bbox spanning more chunks than this -> large.json
+const SEG_CAP = 600000;        // bytes; a segment beyond this is sealed, roll to next
+const POLL_MS = 3000, FLUSH_MS = 3500;
+const GLOW_MS = 30 * 60 * 1000; // partner-presence highlight fade
+const WARM = '#ff9d5c';
+const BG = '#0f1216';
+
+/* ============================== utils ============================== */
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const uid = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function b64enc(str) {
+  const b = new TextEncoder().encode(str);
+  let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64dec(b64) {
+  const bin = atob(String(b64).replace(/\s/g, ''));
+  const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(b);
+}
+const fmtT = t => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('#toast'); el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.style.opacity = 0; }, 2600);
+}
+
+/* ============================== config ============================== */
+const Q = new URLSearchParams(location.search);
+const CFG_KEY = 'mural_cfg';
+let CFG = null; // {mode:'github'|'local', name, color, owner, repo, branch, pat, db}
+function loadCfg() {
+  try { CFG = JSON.parse(localStorage.getItem(CFG_KEY)) || null; } catch (e) { CFG = null; }
+  if (Q.get('store') === 'local') {
+    CFG = Object.assign({}, CFG, {
+      mode: 'local',
+      name: Q.get('author') || (CFG && CFG.name) || 'me',
+      color: Q.get('color') || (CFG && CFG.color) || '#7aa2ff',
+      db: Q.get('db') || 'demo'
+    });
+  }
+  return CFG && CFG.mode && CFG.name;
+}
+function saveCfg() { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); }
+function storeKey() {
+  // local mode includes the author so two demo tabs on one origin don't share outbox/view state
+  return CFG.mode === 'local' ? ('local:' + CFG.db + ':' + CFG.name) : ('gh:' + CFG.owner + '/' + CFG.repo + '@' + CFG.branch);
+}
+
+/* ============================== geometry ============================== */
+// record kinds: s stroke, t text, i image (base) · d del, r restore, m move, p promote, u demote, reg registry
+const BASE = { s: 1, t: 1, i: 1 };
+function recBounds(r) {
+  if (r.__bb) return r.__bb;
+  let bb;
+  if (r.k === 's') {
+    let x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18;
+    for (let i = 0; i < r.pts.length; i += 2) {
+      const x = r.pts[i], y = r.pts[i + 1];
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    const p = (r.w || 1) / 2;
+    bb = [x0 - p, y0 - p, x1 + p, y1 + p];
+  } else if (r.k === 't') bb = [r.x, r.y, r.x + (r.bw || 10), r.y + (r.bh || 10)];
+  else if (r.k === 'i') bb = [r.x, r.y, r.x + r.w, r.y + r.h];
+  else bb = [0, 0, 0, 0];
+  r.__bb = bb;
+  return bb;
+}
+const bbShift = (bb, dx, dy) => [bb[0] + dx, bb[1] + dy, bb[2] + dx, bb[3] + dy];
+const bbUnion = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+const bbHit = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+function chunksOfBB(bb) {
+  // storage-facing: never let a degenerate bbox iterate away — route it to large.json
+  if (!bb.every(isFinite)) return new Array(MAXC + 1).fill('0,0');
+  const x0 = Math.floor(bb[0] / CHUNK), y0 = Math.floor(bb[1] / CHUNK);
+  const x1 = Math.floor(bb[2] / CHUNK), y1 = Math.floor(bb[3] / CHUNK);
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAXC) return new Array(MAXC + 1).fill('0,0');
+  const out = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push(x + ',' + y);
+  return out;
+}
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+  t = clamp(t, 0, 1);
+  const x = ax + t * dx, y = ay + t * dy;
+  return Math.hypot(px - x, py - y);
+}
+
+/* ============================== model ============================== */
+// Per-path store of records; effective state is a fold over (t,id) order.
+const Model = {
+  paths: new Map(),
+  st(path) {
+    let s = this.paths.get(path);
+    if (!s) { s = { recs: new Map(), dirty: true, order: null, eff: null }; this.paths.set(path, s); }
+    return s;
+  },
+  add(path, r) {
+    const s = this.st(path);
+    if (s.recs.has(r.id)) return false;
+    s.recs.set(r.id, r);
+    s.dirty = true;
+    if (r.k === 'reg') Reg.set(r.g, r);
+    if (BASE[r.k] && r.a && r.a !== CFG.name && (!Sync.latestOther || r.t > Sync.latestOther.t)) {
+      const bb = recBounds(r);
+      Sync.latestOther = { t: r.t, path, x: (bb[0] + bb[2]) / 2, y: (bb[1] + bb[3]) / 2, a: r.a };
+    }
+    return true;
+  },
+  order(path) {
+    const s = this.st(path);
+    if (s.dirty || !s.order) {
+      s.order = [...s.recs.values()].sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1));
+      s.eff = null;
+    }
+    return s.order;
+  },
+  fold(path) {
+    const s = this.st(path);
+    const ord = this.order(path);
+    if (!s.eff) {
+      const eff = new Map();
+      for (const r of ord) applyRec(eff, r);
+      s.eff = eff; s.dirty = false;
+    }
+    return s.eff;
+  }
+};
+const Reg = new Map(); // objId -> registry rec {g, pp, x, y, w, h, lb}
+function applyRec(eff, r) {
+  if (BASE[r.k]) { eff.set(r.id, { r, dx: 0, dy: 0, dead: false, container: false, label: null }); return; }
+  const e = eff.get(r.g);
+  if (!e) return;
+  if (r.k === 'd') e.dead = true;
+  else if (r.k === 'r') e.dead = false;
+  else if (r.k === 'm') { e.dx += r.dx; e.dy += r.dy; }
+  else if (r.k === 'p') { e.container = true; if (r.lb) e.label = r.lb; }
+  else if (r.k === 'u') e.container = false;
+}
+function foldUpto(path, n) { // first n records applied — history scrubber view
+  const ord = Model.order(path);
+  const eff = new Map();
+  const m = Math.min(n, ord.length);
+  for (let i = 0; i < m; i++) applyRec(eff, ord[i]);
+  return eff;
+}
+const effBounds = e => (e.dx || e.dy) ? bbShift(recBounds(e.r), e.dx, e.dy) : recBounds(e.r);
+
+/* ============================== stores ============================== */
+/* Adapter interface:
+   head()                 -> null (unchanged) | {empty:true} | {treeSha}
+   listTree(treeSha)      -> [{path, sha, size}] under canvas/
+   read(path)             -> null | {text, sha}
+   write(path, text, sha) -> {sha} | {conflict:true}     (sha null = create) */
+
+function GitHubStore(cfg) {
+  const API = 'https://api.github.com';
+  const repoUrl = `/repos/${cfg.owner}/${cfg.repo}`;
+  let etag = null;
+  this.remaining = 5000;
+  const hdrs = extra => Object.assign({
+    'Authorization': 'Bearer ' + cfg.pat,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+  }, extra || {});
+  const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+  const chk = res => {
+    const rem = res.headers.get('X-RateLimit-Remaining');
+    if (rem !== null) this.remaining = +rem;
+    if (res.status === 401 || res.status === 403) {
+      const err = new Error(res.status === 401 ? 'token rejected — check it in ⚙' : 'rate-limited or forbidden');
+      err.auth = true; throw err;
+    }
+    return res;
+  };
+
+  this.head = async () => {
+    const res = chk(await fetch(`${API}${repoUrl}/commits/${encodeURIComponent(cfg.branch)}`, {
+      headers: hdrs(etag ? { 'If-None-Match': etag } : null)
+    }));
+    if (res.status === 304) return null;
+    if (res.status === 409 || res.status === 404) return { empty: true }; // empty repo / branch not born yet
+    if (!res.ok) throw new Error('head HTTP ' + res.status);
+    etag = res.headers.get('ETag');
+    const j = await res.json();
+    return { treeSha: j.commit.tree.sha, commitSha: j.sha };
+  };
+
+  this.listTree = async treeSha => {
+    const res = chk(await fetch(`${API}${repoUrl}/git/trees/${treeSha}?recursive=1`, { headers: hdrs() }));
+    if (!res.ok) throw new Error('tree HTTP ' + res.status);
+    const j = await res.json();
+    return (j.tree || [])
+      .filter(e => e.type === 'blob' && e.path.startsWith('canvas/'))
+      .map(e => ({ path: e.path, sha: e.sha, size: e.size || 0 }));
+  };
+
+  this.read = async path => {
+    const res = chk(await fetch(`${API}${repoUrl}/contents/${encPath(path)}?ref=${encodeURIComponent(cfg.branch)}`, { headers: hdrs() }));
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('read HTTP ' + res.status);
+    const j = await res.json();
+    if (j.content) return { text: b64dec(j.content), sha: j.sha };
+    // >1 MB: contents API omits inline content — fall back to the blob API
+    const bres = chk(await fetch(`${API}${repoUrl}/git/blobs/${j.sha}`, { headers: hdrs() }));
+    if (!bres.ok) throw new Error('blob HTTP ' + bres.status);
+    const bj = await bres.json();
+    return { text: b64dec(bj.content), sha: j.sha };
+  };
+
+  this.write = async (path, text, sha) => {
+    const body = { message: `mural: ${cfg.name} @ ${path.replace(/^canvas\//, '')}`, content: b64enc(text), branch: cfg.branch };
+    if (sha) body.sha = sha;
+    const res = chk(await fetch(`${API}${repoUrl}/contents/${encPath(path)}`, {
+      method: 'PUT', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify(body)
+    }));
+    if (res.status === 409 || res.status === 422) return { conflict: true };
+    if (!res.ok) throw new Error('write HTTP ' + res.status);
+    const j = await res.json();
+    return { sha: j.content.sha };
+  };
+}
+
+function LocalStore(cfg) {
+  const P = 'muralfs:' + cfg.db + ':';
+  const VK = P + '__ver';
+  let seen = -1;
+  this.remaining = 1e9;
+  const getf = p => { try { return JSON.parse(localStorage.getItem(P + p)); } catch (e) { return null; } };
+
+  this.head = async () => {
+    const v = +(localStorage.getItem(VK) || 0);
+    if (v === seen) return null;
+    seen = v;
+    return v === 0 ? { empty: true } : { treeSha: String(v) };
+  };
+  this.listTree = async () => {
+    const out = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(P) && k !== VK) {
+        const f = getf(k.slice(P.length));
+        if (f) out.push({ path: k.slice(P.length), sha: String(f.v), size: f.text.length });
+      }
+    }
+    return out;
+  };
+  this.read = async p => {
+    const f = getf(p);
+    return f ? { text: f.text, sha: String(f.v) } : null;
+  };
+  this.write = async (p, text, sha) => {
+    const cur = getf(p);
+    if ((cur ? String(cur.v) : null) !== (sha || null)) return { conflict: true };
+    const v = cur ? cur.v + 1 : 1;
+    localStorage.setItem(P + p, JSON.stringify({ v, text }));
+    localStorage.setItem(VK, String(+(localStorage.getItem(VK) || 0) + 1));
+    return { sha: String(v) };
+  };
+}
+
+/* ============================== sync engine ============================== */
+const Sync = {
+  store: null,
+  inventory: new Map(),   // filePath -> {sha, size}
+  fileState: new Map(),   // filePath -> sha merged into Model
+  fileIds: new Map(),     // filePath -> Set(recId)
+  outbox: [],             // {p, keys:[...], rec, done:[]}
+  latestOther: null,
+  booted: false,
+  fetching: 0,
+  lastOk: 0,
+  err: null,
+  pathFilesCache: null,   // path -> {chunks:Map('x,y'->[files]), large:[files], any:bool}
+  pathsWithFiles: new Set(),
+  ensureStamp: new Map(), // path -> last ensure ms
+  slowUntil: 0,
+
+  outboxKey() { return 'mural_outbox:' + storeKey(); },
+  persistOutbox() {
+    try {
+      localStorage.setItem(this.outboxKey(), JSON.stringify(this.outbox.map(e => ({ p: e.p, keys: e.keys, rec: stripBB(e.rec), done: e.done }))));
+    } catch (e) { /* quota — outbox survives in memory */ }
+  },
+  restoreOutbox() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(this.outboxKey())) || [];
+      for (const e of arr) { this.outbox.push(e); Model.add(e.p === '__reg' ? 'root' : e.p, e.rec); if (e.rec.k === 'reg') Reg.set(e.rec.g, e.rec); }
+    } catch (e) { /* fresh start */ }
+  },
+
+  invChanged() {
+    this.pathFilesCache = new Map();
+    this.pathsWithFiles = new Set();
+    for (const f of this.inventory.keys()) {
+      const m = f.match(/^canvas\/(.+)\/[^/]+$/);
+      if (m) this.pathsWithFiles.add(m[1]);
+    }
+  },
+  filesAt(path) { // direct chunk/large files of one level
+    let c = this.pathFilesCache && this.pathFilesCache.get(path);
+    if (c) return c;
+    c = { chunks: new Map(), large: [], any: false };
+    const pre = 'canvas/' + path + '/';
+    for (const [f, meta] of this.inventory) {
+      if (!f.startsWith(pre)) continue;
+      const rest = f.slice(pre.length);
+      if (rest.includes('/')) continue;
+      let m = rest.match(/^chunk_(-?\d+)_(-?\d+)(?:\.s\d+)?\.json$/);
+      if (m) {
+        const k = m[1] + ',' + m[2];
+        if (!c.chunks.has(k)) c.chunks.set(k, []);
+        c.chunks.get(k).push(f);
+        c.any = true;
+      } else if (/^large(?:\.s\d+)?\.json$/.test(rest)) { c.large.push(f); c.any = true; }
+    }
+    if (this.pathFilesCache) this.pathFilesCache.set(path, c);
+    return c;
+  },
+  hasWorld(path) { return this.pathsWithFiles.has(path) || (Model.paths.has(path) && Model.paths.get(path).recs.size > 0); },
+
+  async poll(force) {
+    if (this._polling) return; this._polling = true;
+    try {
+      if (!force && Date.now() < this.slowUntil) return;
+      const h = await this.store.head();
+      if (this.store.remaining < 150) this.slowUntil = Date.now() + 30000;
+      if (h === null) { this.lastOk = Date.now(); this.err = null; return; }
+      if (h.empty) { this.lastOk = Date.now(); this.err = null; this.booted = true; return; }
+      const entries = await this.store.listTree(h.treeSha);
+      const newInv = new Map(entries.map(e => [e.path, { sha: e.sha, size: e.size }]));
+      const toFetch = [];
+      for (const [f, meta] of newInv) {
+        const merged = this.fileState.get(f);
+        const known = this.inventory.has(f);
+        if (merged !== undefined && merged !== meta.sha) toFetch.push(f);              // a loaded file changed
+        else if (merged === undefined && this.booted && !known) toFetch.push(f);       // new file since last poll — live delta
+        else if (merged === undefined && f.startsWith('canvas/__registry')) toFetch.push(f);
+      }
+      this.inventory = newInv;
+      this.invChanged();
+      await this.fetchMany(toFetch);
+      this.booted = true;
+      this.lastOk = Date.now(); this.err = null;
+      needRender = true; miniDirty = true;
+      if (TT.on) TT.rebuild(true);
+    } catch (e) {
+      this.err = e.message || String(e);
+    } finally {
+      this._polling = false;
+      updateStatus();
+    }
+  },
+
+  async fetchMany(files) {
+    const q = files.slice();
+    const worker = async () => {
+      while (q.length) {
+        const f = q.shift();
+        try { await this.fetchFile(f); } catch (e) { this.err = e.message || String(e); }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  },
+
+  async fetchFile(f) {
+    this.fetching++; updateStatus();
+    try {
+      const got = await this.store.read(f);
+      if (!got) return;
+      this.mergeFile(f, got.text, got.sha);
+    } finally { this.fetching--; updateStatus(); }
+  },
+
+  mergeFile(f, text, sha) {
+    let j;
+    try { j = JSON.parse(text); } catch (e) { return; }
+    const path = f.startsWith('canvas/__registry') ? '__reg'
+      : (f.match(/^canvas\/(.+)\/[^/]+$/) || [])[1];
+    if (!path) return;
+    const ids = new Set();
+    for (const r of (j.objects || [])) {
+      if (!r || !r.id) continue;
+      ids.add(r.id);
+      if (path === '__reg') { if (r.k === 'reg' && (!Reg.has(r.g) || Reg.get(r.g).t <= r.t)) Reg.set(r.g, r); }
+      else Model.add(path, r);
+    }
+    this.fileState.set(f, sha);
+    this.fileIds.set(f, ids);
+    needRender = true; miniDirty = true;
+  },
+
+  ensureVisible(path, rect) {
+    // throttle per path — render calls this every frame for child previews
+    const last = this.ensureStamp.get(path) || 0;
+    if (Date.now() - last < 400) return;
+    this.ensureStamp.set(path, Date.now());
+    const fa = this.filesAt(path);
+    const want = [];
+    for (const f of fa.large) if (this.fileState.get(f) !== this.inventory.get(f).sha) want.push(f);
+    const x0 = Math.floor((rect[0] - CHUNK / 2) / CHUNK), y0 = Math.floor((rect[1] - CHUNK / 2) / CHUNK);
+    const x1 = Math.floor((rect[2] + CHUNK / 2) / CHUNK), y1 = Math.floor((rect[3] + CHUNK / 2) / CHUNK);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 900) {
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const fs = fa.chunks.get(x + ',' + y);
+        if (fs) for (const f of fs) if (this.fileState.get(f) !== this.inventory.get(f).sha) want.push(f);
+      }
+    } else { // zoomed way out: just take every chunk file at this level
+      for (const fs of fa.chunks.values()) for (const f of fs) if (this.fileState.get(f) !== this.inventory.get(f).sha) want.push(f);
+    }
+    if (want.length) this.fetchMany(want);
+  },
+
+  /* ---------- writes ---------- */
+  enqueue(path, keys, rec) {
+    this.outbox.push({ p: path, keys, rec, done: [] });
+    this.persistOutbox();
+    updateStatus();
+  },
+
+  fileBase(path, key) {
+    if (key === 'R') return 'canvas/__registry';
+    if (key === 'L') return 'canvas/' + path + '/large';
+    const [x, y] = key.slice(1).split(',');
+    return 'canvas/' + path + '/chunk_' + x + '_' + y;
+  },
+  segsOf(base) {
+    const out = [];
+    for (const f of this.inventory.keys()) {
+      if (f === base + '.json') out.push({ f, n: 1 });
+      else if (f.startsWith(base + '.s')) {
+        const m = f.match(/\.s(\d+)\.json$/);
+        if (m && f === base + '.s' + m[1] + '.json') out.push({ f, n: +m[1] });
+      }
+    }
+    out.sort((a, b) => a.n - b.n);
+    return out;
+  },
+  segFile: (base, n) => n <= 1 ? base + '.json' : base + '.s' + n + '.json',
+
+  async flush() {
+    if (this._flushing || !this.outbox.length || !this.booted) return;
+    this._flushing = true;
+    try {
+      // group pending records by target file base
+      const groups = new Map();
+      for (const e of this.outbox) {
+        for (const key of e.keys) {
+          if (e.done.includes(key)) continue;
+          const base = this.fileBase(e.p, key);
+          if (!groups.has(base)) groups.set(base, { path: e.p, key, entries: [] });
+          groups.get(base).entries.push(e);
+        }
+      }
+      for (const [base, g] of groups) {
+        const ok = await this.writeGroup(base, g);
+        if (ok) for (const e of g.entries) if (!e.done.includes(g.key)) e.done.push(g.key);
+      }
+      this.outbox = this.outbox.filter(e => e.done.length < e.keys.length);
+      this.persistOutbox();
+      this.err = null;
+    } catch (e) {
+      this.err = e.message || String(e);
+    } finally {
+      this._flushing = false;
+      updateStatus();
+    }
+  },
+
+  async writeGroup(base, g) {
+    const mpath = g.key === 'R' ? '__reg' : g.path;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const segs = this.segsOf(base);
+      let target = segs.length ? segs[segs.length - 1] : { f: this.segFile(base, 1), n: 1 };
+      // read-merge-write: never write over a file we haven't merged
+      if (this.inventory.has(target.f) && this.fileState.get(target.f) !== this.inventory.get(target.f).sha) {
+        await this.fetchFile(target.f);
+      }
+      const haveIds = this.fileIds.get(target.f) || new Set();
+      const st = Model.st(mpath === '__reg' ? '__reg' : mpath);
+      const remote = [];
+      if (mpath === '__reg') { for (const id of haveIds) { const r = findReg(id); if (r) remote.push(r); } }
+      else for (const id of haveIds) { const r = st.recs.get(id); if (r) remote.push(r); }
+      const fresh = [];
+      for (const e of g.entries) if (!haveIds.has(e.rec.id) && !fresh.some(r => r.id === e.rec.id)) fresh.push(stripBB(e.rec));
+      if (!fresh.length) return true;
+      let outRecs = remote.map(stripBB).concat(fresh);
+      let sha = this.fileState.get(target.f) || null;
+      let text = JSON.stringify({ v: 1, objects: outRecs });
+      if (sha && text.length > SEG_CAP) { // seal, roll to next segment
+        target = { f: this.segFile(base, target.n + 1), n: target.n + 1 };
+        if (this.inventory.has(target.f)) continue; // someone rolled first — re-resolve
+        sha = null;
+        outRecs = fresh;
+        text = JSON.stringify({ v: 1, objects: outRecs });
+      }
+      const res = await this.store.write(target.f, text, sha);
+      if (res.conflict) {
+        const got = await this.store.read(target.f);
+        if (got) { this.mergeFile(target.f, got.text, got.sha); this.inventory.set(target.f, { sha: got.sha, size: got.text.length }); this.invChanged(); }
+        continue;
+      }
+      this.fileState.set(target.f, res.sha);
+      this.fileIds.set(target.f, new Set(outRecs.map(r => r.id)));
+      this.inventory.set(target.f, { sha: res.sha, size: text.length });
+      this.invChanged();
+      this.lastOk = Date.now();
+      return true;
+    }
+    return false;
+  },
+
+  async boot() {
+    this.restoreOutbox();
+    await this.poll(true);
+  }
+};
+function stripBB(r) { if (r.__bb) { const c = Object.assign({}, r); delete c.__bb; return c; } return r; }
+function findReg(id) { for (const r of Reg.values()) if (r.id === id) return r; return null; }
+
+/* ============================== view / levels ============================== */
+const View = {
+  path: 'root',
+  stack: [],           // per descent: {id, label, K, cx, cy, pw, ph}
+  cam: { x: 0, y: 0, z: 0.5 }
+};
+let W = Math.max(innerWidth, 320), H = Math.max(innerHeight, 240), dpr = devicePixelRatio || 1;
+const activeT = () => ({ s: View.cam.z, ox: W / 2 - View.cam.x * View.cam.z, oy: H / 2 - View.cam.y * View.cam.z });
+const w2s = (T, x, y) => [x * T.s + T.ox, y * T.s + T.oy];
+const s2w = (T, sx, sy) => [(sx - T.ox) / T.s, (sy - T.oy) / T.s];
+function viewRect() {
+  const z = View.cam.z;
+  return [View.cam.x - W / 2 / z, View.cam.y - H / 2 / z, View.cam.x + W / 2 / z, View.cam.y + H / 2 / z];
+}
+const parentPathOf = p => p.slice(0, p.lastIndexOf('/'));
+
+function coverageOf(e) {
+  const bb = effBounds(e);
+  return Math.max((bb[2] - bb[0]) * View.cam.z / W, (bb[3] - bb[1]) * View.cam.z / H);
+}
+function enterCandidate() {
+  const eff = Model.fold(View.path);
+  let best = null, bestCov = 0;
+  const T = activeT();
+  for (const e of eff.values()) {
+    if (e.dead || !e.container) continue;
+    const cov = coverageOf(e);
+    if (cov < ENTER_COV || cov <= bestCov) continue;
+    const bb = effBounds(e);
+    const [sx0, sy0] = w2s(T, bb[0], bb[1]);
+    const [sx1, sy1] = w2s(T, bb[2], bb[3]);
+    if (W / 2 >= sx0 && W / 2 <= sx1 && H / 2 >= sy0 && H / 2 <= sy1) { best = e; bestCov = cov; }
+  }
+  return best;
+}
+function doEnter(e) {
+  const bb = effBounds(e);
+  const bw = Math.max(bb[2] - bb[0], 1e-6), bh = Math.max(bb[3] - bb[1], 1e-6);
+  const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+  const K = PORTAL / Math.max(bw, bh);
+  View.stack.push({ id: e.r.id, label: e.label || labelFor(e.r), K, cx, cy, pw: bw * K, ph: bh * K });
+  View.path = View.path + '/' + e.r.id;
+  View.cam = { x: (View.cam.x - cx) * K, y: (View.cam.y - cy) * K, z: View.cam.z / K };
+  onLevelChange();
+}
+function doExit() {
+  const top = View.stack.pop();
+  View.path = parentPathOf(View.path);
+  View.cam = { x: View.cam.x / top.K + top.cx, y: View.cam.y / top.K + top.cy, z: View.cam.z * top.K };
+  onLevelChange();
+}
+function onLevelChange() {
+  if (TT.on) TT.close();
+  Sel.clear();
+  Sync.ensureVisible(View.path, viewRect());
+  renderCrumbs(); updateCoords();
+  saveViewSoon(); needRender = true; miniDirty = true;
+}
+function checkTransitions() {
+  if (View.stack.length) {
+    const top = View.stack[View.stack.length - 1];
+    const pcov = Math.max(top.pw * View.cam.z / W, top.ph * View.cam.z / H);
+    if (pcov < EXIT_COV) { doExit(); return; }
+  }
+  const cand = enterCandidate();
+  if (cand) doEnter(cand);
+}
+function surfaceTo(depth) {
+  while (View.stack.length > depth) {
+    const top = View.stack[View.stack.length - 1];
+    doExit();
+    // land looking AT the world we just left, not lost inside its pixels
+    const bw = top.pw / top.K, bh = top.ph / top.K;
+    View.cam.z = clamp(Math.min(View.cam.z, 0.4 * Math.min(W, H) / Math.max(bw, bh)), ZMIN, ZMAX);
+  }
+}
+function buildStackFor(path) {
+  if (path === 'root') return [];
+  const ids = path.split('/').slice(1);
+  const stack = [];
+  for (const id of ids) {
+    const reg = Reg.get(id);
+    if (!reg) return null;
+    const bw = Math.max(reg.w, 1e-6), bh = Math.max(reg.h, 1e-6);
+    const K = PORTAL / Math.max(bw, bh);
+    stack.push({ id, label: reg.lb || id.slice(0, 6), K, cx: reg.x + bw / 2, cy: reg.y + bh / 2, pw: bw * K, ph: bh * K });
+  }
+  return stack;
+}
+function labelFor(r) {
+  if (r.k === 't') return (r.txt || '').split('\n')[0].slice(0, 22) || 'text';
+  if (r.k === 'i') return 'image';
+  return 'sketch';
+}
+
+/* camera ops */
+function panBy(dxs, dys) {
+  View.cam.x -= dxs / View.cam.z;
+  View.cam.y -= dys / View.cam.z;
+  afterCam();
+}
+function containerAt(sx, sy) {
+  const T = activeT();
+  const [wx, wy] = s2w(T, sx, sy);
+  for (const e of Model.fold(View.path).values()) {
+    if (e.dead || !e.container) continue;
+    const bb = effBounds(e);
+    if (wx >= bb[0] && wx <= bb[2] && wy >= bb[1] && wy <= bb[3]) return e;
+  }
+  return null;
+}
+function zoomAt(sx, sy, f) {
+  const z = View.cam.z;
+  let cap = ZMAX;
+  if (f > 1 && z * f > ZMAX && containerAt(sx, sy)) cap = OVERZOOM; // diving toward a nested world
+  if (z > cap) cap = z; // came out overzoomed — allow zooming back down
+  const nz = clamp(z * f, ZMIN, cap);
+  if (nz === z) return;
+  const T = activeT();
+  const [wx, wy] = s2w(T, sx, sy);
+  View.cam.z = nz;
+  View.cam.x = wx - (sx - W / 2) / nz;
+  View.cam.y = wy - (sy - H / 2) / nz;
+  afterCam();
+}
+let ensureTimer = 0;
+function afterCam() {
+  // a broken camera must never reach the geometry/storage layers
+  if (!isFinite(View.cam.x) || !isFinite(View.cam.y) || !isFinite(View.cam.z) || View.cam.z <= 0) {
+    View.cam = { x: 0, y: 0, z: 0.5 };
+  }
+  checkTransitions();
+  updateCoords();
+  clearTimeout(ensureTimer);
+  ensureTimer = setTimeout(() => Sync.ensureVisible(View.path, viewRect()), 220);
+  saveViewSoon();
+  needRender = true; miniDirty = true;
+}
+
+/* view persistence */
+let saveViewTimer = 0;
+function saveViewSoon() {
+  clearTimeout(saveViewTimer);
+  saveViewTimer = setTimeout(() => {
+    try { localStorage.setItem('mural_view:' + storeKey(), JSON.stringify({ path: View.path, cam: View.cam })); } catch (e) {}
+  }, 700);
+}
+function restoreView() {
+  try {
+    const v = JSON.parse(localStorage.getItem('mural_view:' + storeKey()));
+    if (!v) return;
+    if (v.path && v.path !== 'root') {
+      const stk = buildStackFor(v.path);
+      if (stk) { View.stack = stk; View.path = v.path; }
+    }
+    if (v.cam && isFinite(v.cam.x) && isFinite(v.cam.z) && v.cam.z > 0) View.cam = v.cam;
+  } catch (e) {}
+}
+
+/* ============================== records / actions ============================== */
+const UndoStack = [];
+function computeKeys(path, rec) {
+  if (rec.k === 'reg') return ['R'];
+  let bb;
+  if (BASE[rec.k]) bb = recBounds(rec);
+  else {
+    const e = Model.fold(path).get(rec.g);
+    if (!e) return ['L'];
+    bb = effBounds(e);
+    if (rec.k === 'm') bb = bbUnion(bb, bbShift(bb, rec.dx, rec.dy));
+  }
+  const cks = chunksOfBB(bb);
+  return cks.length > MAXC ? ['L'] : cks.map(c => 'C' + c);
+}
+let lastRecT = 0;
+function finalizeRecord(rec, opts) {
+  opts = opts || {};
+  rec.id = rec.id || uid();
+  // strictly monotonic per client: causally-ordered records (erase→undo in the
+  // same millisecond) must never tie in the (t, id) fold sort
+  rec.t = lastRecT = Math.max(Date.now(), lastRecT + 1);
+  rec.a = CFG.name;
+  rec.pp = opts.path || View.path;
+  const path = rec.pp;
+  // move: records may need to follow the object into newly-covered chunks
+  let copies = null;
+  if (rec.k === 'm') {
+    const e = Model.fold(path).get(rec.g);
+    if (e) {
+      const pre = new Set(computeKeys(path, { k: 'd', g: rec.g }));
+      const post = chunksOfBB(bbShift(effBounds(e), rec.dx, rec.dy));
+      if (!pre.has('L') && post.length <= MAXC) {
+        const fresh = post.map(c => 'C' + c).filter(k => !pre.has(k));
+        if (fresh.length) {
+          copies = [];
+          const st = Model.st(path);
+          const baseRec = st.recs.get(rec.g);
+          if (baseRec) copies.push({ keys: fresh, rec: baseRec });
+          for (const r of st.recs.values()) if (r.g === rec.g) copies.push({ keys: fresh, rec: r });
+        }
+      }
+    }
+  }
+  const keys = computeKeys(path, rec);
+  Model.add(path === '__reg' ? '__reg' : path, rec);
+  if (rec.k === 'reg') Reg.set(rec.g, rec);
+  Sync.enqueue(path, keys, rec);
+  if (copies) for (const c of copies) Sync.enqueue(path, c.keys, c.rec);
+  if (!opts.noUndo && rec.k !== 'reg') UndoStack.push({ rec, path });
+  needRender = true; miniDirty = true;
+  updateStatus();
+  if (TT.on) TT.rebuild(true);
+  return rec;
+}
+function undo() {
+  const it = UndoStack.pop();
+  if (!it) { toast('nothing of yours to undo'); return; }
+  const r = it.rec;
+  let comp = null;
+  if (BASE[r.k]) comp = { k: 'd', g: r.id };
+  else if (r.k === 'd') comp = { k: 'r', g: r.g };
+  else if (r.k === 'r') comp = { k: 'd', g: r.g };
+  else if (r.k === 'm') comp = { k: 'm', g: r.g, dx: -r.dx, dy: -r.dy };
+  else if (r.k === 'p') comp = { k: 'u', g: r.g };
+  else if (r.k === 'u') comp = { k: 'p', g: r.g };
+  if (comp) finalizeRecord(comp, { noUndo: true, path: it.path });
+}
+
+/* ============================== history scrubber (view mode only) ============================== */
+const TT = {
+  on: false, idx: 0, playing: false, speed: 3, path: null, _acc: 0, _cache: null,
+  open() {
+    this.on = true; this.path = View.path;
+    this.rebuild(false);
+    this.idx = this.n; this.playing = false; this._cache = null;
+    $('#histbar').classList.add('show'); $('#banner').classList.add('show');
+    this.ui(); needRender = true;
+  },
+  close() {
+    if (!this.on) return;
+    this.on = false; this.playing = false; this._cache = null;
+    $('#histbar').classList.remove('show'); $('#banner').classList.remove('show');
+    needRender = true;
+  },
+  rebuild(keepFrac) {
+    const frac = keepFrac && this.n ? this.idx / this.n : 1;
+    this.n = Model.order(this.path || View.path).length;
+    if (keepFrac) this.idx = Math.round(frac * this.n);
+    this._cache = null; this.ui();
+  },
+  fold() {
+    if (!this._cache || this._cache.idx !== this.idx) this._cache = { idx: this.idx, eff: foldUpto(this.path, this.idx) };
+    return this._cache.eff;
+  },
+  seek(idx) { this.idx = clamp(Math.round(idx), 0, this.n); this._cache = null; this.ui(); needRender = true; },
+  tick(dt) {
+    if (!this.playing) return;
+    this._acc += dt * this.speed;
+    if (this._acc >= 1) {
+      const step = Math.floor(this._acc); this._acc -= step;
+      this.seek(this.idx + step);
+      if (this.idx >= this.n) { this.playing = false; this.ui(); }
+    }
+    needRender = true;
+  },
+  ui() {
+    $('#histslider').value = this.n ? Math.round(1000 * this.idx / this.n) : 1000;
+    $('#histplay').textContent = this.playing ? '⏸' : '▶';
+    const ord = Model.order(this.path || View.path);
+    const t = this.idx > 0 && ord.length ? ord[Math.min(this.idx, ord.length) - 1].t : null;
+    $('#histtime').textContent = (t ? fmtT(t) : 'beginning') + ' · ' + this.idx + '/' + this.n;
+  }
+};
+
+/* ============================== rendering ============================== */
+const cv = $('#cv'), ctx = cv.getContext('2d');
+const mini = $('#minimap'), mctx = mini.getContext('2d');
+let needRender = true, miniDirty = true, lastFrame = 0;
+const ImgCache = new Map();
+function imgFor(r) {
+  let c = ImgCache.get(r.id);
+  if (!c) {
+    c = { el: new Image(), ok: false };
+    c.el.onload = () => { c.ok = true; needRender = true; };
+    c.el.src = r.d;
+    ImgCache.set(r.id, c);
+  }
+  return c;
+}
+function fit() {
+  if (innerWidth < 2 || innerHeight < 2) return; // collapsed/hidden viewport — keep last good size
+  W = innerWidth; H = innerHeight; dpr = devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  needRender = true;
+}
+addEventListener('resize', fit);
+
+function drawGrid(T) {
+  let sp = 1;
+  while (sp * T.s < 48) sp *= 10;
+  while (sp / 10 * T.s >= 48) sp /= 10;
+  if (sp / 5 * T.s >= 48) sp /= 5; else if (sp / 2 * T.s >= 48) sp /= 2;
+  const r = [(0 - T.ox) / T.s, (0 - T.oy) / T.s, (W - T.ox) / T.s, (H - T.oy) / T.s];
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+  ctx.beginPath();
+  for (let x = Math.ceil(r[0] / sp) * sp; x <= r[2]; x += sp) { const s = x * T.s + T.ox; ctx.moveTo(s, 0); ctx.lineTo(s, H); }
+  for (let y = Math.ceil(r[1] / sp) * sp; y <= r[3]; y += sp) { const s = y * T.s + T.oy; ctx.moveTo(0, s); ctx.lineTo(W, s); }
+  ctx.stroke();
+  // origin axes
+  ctx.strokeStyle = 'rgba(122,162,255,0.14)';
+  ctx.beginPath();
+  if (r[0] <= 0 && r[2] >= 0) { ctx.moveTo(T.ox, 0); ctx.lineTo(T.ox, H); }
+  if (r[1] <= 0 && r[3] >= 0) { ctx.moveTo(0, T.oy); ctx.lineTo(W, T.oy); }
+  ctx.stroke();
+}
+
+function strokePath(r, T, drag) {
+  const dx = drag ? drag[0] : 0, dy = drag ? drag[1] : 0;
+  const n = r.pts.length;
+  ctx.beginPath();
+  let lx = (r.pts[0] + dx) * T.s + T.ox, ly = (r.pts[1] + dy) * T.s + T.oy;
+  ctx.moveTo(lx, ly);
+  if (n <= 2) { ctx.lineTo(lx + 0.01, ly); return; }
+  let px = lx, py = ly;
+  for (let i = 2; i < n; i += 2) {
+    const x = (r.pts[i] + dx) * T.s + T.ox, y = (r.pts[i + 1] + dy) * T.s + T.oy;
+    if (i < n - 2 && Math.abs(x - px) < 1.4 && Math.abs(y - py) < 1.4) continue; // screen-space decimation
+    ctx.quadraticCurveTo(px, py, (px + x) / 2, (py + y) / 2);
+    px = x; py = y;
+  }
+  ctx.lineTo(px, py);
+}
+
+function drawObject(e, T, alpha, nowMs, drag) {
+  const r = e.r;
+  const dx = e.dx + (drag ? drag[0] : 0), dy = e.dy + (drag ? drag[1] : 0);
+  const glow = (r.a !== CFG.name && (nowMs - r.t) < GLOW_MS && !TT.on)
+    ? 0.35 * (1 - (nowMs - r.t) / GLOW_MS) : 0;
+  if (r.k === 's') {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (glow > 0) {
+      ctx.globalAlpha = glow * alpha;
+      ctx.strokeStyle = WARM;
+      ctx.lineWidth = Math.max(r.w * T.s + 9, 10);
+      strokePath(r, T, [dx, dy]); ctx.stroke();
+    }
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = r.c;
+    ctx.lineWidth = Math.max(r.w * T.s, 0.75);
+    strokePath(r, T, [dx, dy]); ctx.stroke();
+  } else if (r.k === 't') {
+    const [sx, sy] = w2s(T, r.x + dx, r.y + dy);
+    if (glow > 0) { ctx.globalAlpha = glow * alpha; ctx.fillStyle = WARM; ctx.fillRect(sx - 4, sy - 4, r.bw * T.s + 8, r.bh * T.s + 8); }
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = r.c;
+    const fs = r.fs * T.s;
+    if (fs < 0.5) { ctx.fillRect(sx, sy, Math.max(r.bw * T.s, 1), Math.max(r.bh * T.s, 1)); }
+    else {
+      ctx.font = fs + 'px "Segoe UI", system-ui, sans-serif';
+      ctx.textBaseline = 'top';
+      const lines = r.txt.split('\n');
+      for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], sx, sy + i * fs * 1.25);
+    }
+  } else if (r.k === 'i') {
+    const [sx, sy] = w2s(T, r.x + dx, r.y + dy);
+    const sw = r.w * T.s, sh = r.h * T.s;
+    if (glow > 0) { ctx.globalAlpha = glow * alpha; ctx.fillStyle = WARM; ctx.fillRect(sx - 5, sy - 5, sw + 10, sh + 10); }
+    ctx.globalAlpha = alpha;
+    const c = imgFor(r);
+    if (c.ok) ctx.drawImage(c.el, sx, sy, sw, sh);
+    else { ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(sx, sy, sw, sh); }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function roundRect(x, y, w, h, rad) {
+  const r = Math.min(rad, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawAffordance(e, T, alpha, path) {
+  const bb = effBounds(e);
+  const [x0, y0] = w2s(T, bb[0], bb[1]);
+  const w = (bb[2] - bb[0]) * T.s, h = (bb[3] - bb[1]) * T.s;
+  ctx.globalAlpha = 0.5 * alpha;
+  ctx.strokeStyle = '#7aa2ff';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([6, 5]);
+  roundRect(x0 - 5, y0 - 5, w + 10, h + 10, 8);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // nested-square glyph
+  const g = 13;
+  ctx.strokeRect(x0 - 5, y0 - 5 - g - 3, g, g);
+  ctx.strokeRect(x0 - 5 + 3.5, y0 - 5 - g + 0.5, g / 2, g / 2);
+  if (Sync.hasWorld(path + '/' + e.r.id)) { ctx.fillStyle = '#7aa2ff'; ctx.beginPath(); ctx.arc(x0 - 5 + g + 6, y0 - 5 - g + 3, 2.2, 0, 7); ctx.fill(); }
+  if (w > 90 && e.label) {
+    ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#7aa2ff';
+    ctx.fillText(e.label, x0 + g + 8 - 5, y0 - 10);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawLevel(path, T, alpha, nowMs, isActive) {
+  const eff = (TT.on && isActive) ? TT.fold() : Model.fold(path);
+  const wr = [(0 - T.ox) / T.s, (0 - T.oy) / T.s, (W - T.ox) / T.s, (H - T.oy) / T.s];
+  const dragSel = (isActive && Sel.id && Sel.drag && (Sel.drag[0] || Sel.drag[1])) ? Sel.id : null;
+  for (const e of eff.values()) {
+    if (e.dead) continue;
+    const drag = dragSel === e.r.id ? Sel.drag : null;
+    let bb = effBounds(e);
+    if (drag) bb = bbShift(bb, drag[0], drag[1]);
+    if (!bbHit(bb, wr)) continue;
+    const sizePx = Math.max((bb[2] - bb[0]) * T.s, (bb[3] - bb[1]) * T.s);
+    if (sizePx < 0.6 && !e.container) continue; // sub-pixel
+    drawObject(e, T, alpha, nowMs, drag);
+    if (e.container && !TT.on) drawAffordance(e, T, alpha, path);
+  }
+  return eff;
+}
+
+function portalScreenRect(entry, Tparent) {
+  const bw = entry.pw / entry.K, bh = entry.ph / entry.K;
+  const [x0, y0] = w2s(Tparent, entry.cx - bw / 2, entry.cy - bh / 2);
+  return [x0, y0, bw * Tparent.s, bh * Tparent.s];
+}
+
+function render() {
+  const nowMs = Date.now();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+  const T = activeT();
+  drawGrid(T);
+
+  // ancestor context (dim), innermost portal veiled
+  if (View.stack.length) {
+    // compute transforms root..active
+    const Ts = [T];
+    for (let j = View.stack.length - 1; j >= 0; j--) {
+      const en = View.stack[j], Tc = Ts[0];
+      Ts.unshift({ s: Tc.s * en.K, ox: Tc.ox - Tc.s * en.K * en.cx, oy: Tc.oy - Tc.s * en.K * en.cy });
+    }
+    const inner = portalScreenRect(View.stack[View.stack.length - 1], Ts[View.stack.length - 1]);
+    const coversAll = inner[0] < -8 && inner[1] < -8 && inner[0] + inner[2] > W + 8 && inner[1] + inner[3] > H + 8;
+    if (!coversAll) {
+      let p = 'root';
+      for (let j = 0; j < View.stack.length; j++) {
+        drawLevel(p, Ts[j], 0.35, nowMs, false);
+        const pr = portalScreenRect(View.stack[j], Ts[j]);
+        ctx.fillStyle = BG; ctx.globalAlpha = 0.82;
+        roundRect(pr[0], pr[1], pr[2], pr[3], 6); ctx.fill();
+        ctx.globalAlpha = 1;
+        p += '/' + View.stack[j].id;
+      }
+    }
+  }
+
+  // active level
+  const eff = drawLevel(View.path, T, 1, nowMs, true);
+
+  // children fading in as you dive (not during history view)
+  if (!TT.on) {
+    for (const e of eff.values()) {
+      if (e.dead || !e.container) continue;
+      const cov = coverageOf(e);
+      if (cov <= FADE0) continue;
+      const a = clamp((cov - FADE0) / (ENTER_COV - FADE0), 0, 1);
+      const bb = effBounds(e);
+      const bw = Math.max(bb[2] - bb[0], 1e-6), bh = Math.max(bb[3] - bb[1], 1e-6);
+      const K = PORTAL / Math.max(bw, bh);
+      const [cxs, cys] = w2s(T, (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2);
+      const Tc = { s: T.s / K, ox: cxs, oy: cys };
+      const childPath = View.path + '/' + e.r.id;
+      Sync.ensureVisible(childPath, [-(bw * K) / 2 - CHUNK, -(bh * K) / 2 - CHUNK, (bw * K) / 2 + CHUNK, (bh * K) / 2 + CHUNK]);
+      const [px0, py0] = w2s(T, bb[0], bb[1]);
+      ctx.save();
+      roundRect(px0, py0, bw * T.s, bh * T.s, 6);
+      ctx.clip();
+      ctx.fillStyle = BG; ctx.globalAlpha = 0.85 * a;
+      ctx.fillRect(px0, py0, bw * T.s, bh * T.s);
+      ctx.globalAlpha = 1;
+      drawLevel(childPath, Tc, a, nowMs, false);
+      ctx.restore();
+    }
+  }
+
+  // in-progress stroke overlay
+  if (Cur.stroke && Cur.stroke.pts.length >= 2) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = Cur.stroke.c;
+    ctx.lineWidth = Math.max(Cur.stroke.w * T.s, 0.75);
+    strokePath(Cur.stroke, T, null);
+    ctx.stroke();
+  }
+
+  // selection box
+  if (Sel.id) {
+    const e = (TT.on ? TT.fold() : Model.fold(View.path)).get(Sel.id);
+    if (e && !e.dead) {
+      let bb = effBounds(e);
+      if (Sel.drag) bb = bbShift(bb, Sel.drag[0], Sel.drag[1]);
+      const [x0, y0] = w2s(T, bb[0], bb[1]);
+      ctx.strokeStyle = '#e3b341';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(x0 - 4, y0 - 4, (bb[2] - bb[0]) * T.s + 8, (bb[3] - bb[1]) * T.s + 8);
+      ctx.setLineDash([]);
+    }
+  }
+
+  // eraser cursor
+  if (Tool.cur === 'erase' && Cur.mouse) {
+    ctx.strokeStyle = 'rgba(224,95,85,0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(Cur.mouse[0], Cur.mouse[1], 12, 0, 7); ctx.stroke();
+  }
+  updateSelPanel();
+}
+
+/* ---------- minimap ---------- */
+function renderMini() {
+  const mw = mini.width / (devicePixelRatio > 1.5 ? 1 : 1), mh = mini.height;
+  mctx.setTransform(1, 0, 0, 1, 0, 0);
+  mctx.clearRect(0, 0, mini.width, mini.height);
+  const eff = Model.fold(View.path);
+  const fa = Sync.filesAt(View.path);
+  let bb = null;
+  for (const e of eff.values()) { if (!e.dead) bb = bb ? bbUnion(bb, effBounds(e)) : effBounds(e).slice(); }
+  for (const k of fa.chunks.keys()) {
+    const [cx, cy] = k.split(',').map(Number);
+    const cb = [cx * CHUNK, cy * CHUNK, (cx + 1) * CHUNK, (cy + 1) * CHUNK];
+    bb = bb ? bbUnion(bb, cb) : cb;
+  }
+  const vr = viewRect();
+  bb = bb ? bbUnion(bb, vr) : vr;
+  const pad = 0.06 * Math.max(bb[2] - bb[0], bb[3] - bb[1], 100);
+  bb = [bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad];
+  const sc = Math.min(mini.width / (bb[2] - bb[0]), mini.height / (bb[3] - bb[1]));
+  const ox = (mini.width - (bb[2] - bb[0]) * sc) / 2 - bb[0] * sc;
+  const oy = (mini.height - (bb[3] - bb[1]) * sc) / 2 - bb[1] * sc;
+  mini.__map = { sc, ox, oy };
+  // chunk density from inventory (bytes)
+  for (const [k, files] of fa.chunks) {
+    const [cx, cy] = k.split(',').map(Number);
+    let bytes = 0;
+    for (const f of files) bytes += (Sync.inventory.get(f) || {}).size || 0;
+    const a = clamp(0.05 + Math.log10(1 + bytes / 1000) * 0.09, 0.05, 0.4);
+    mctx.fillStyle = 'rgba(122,162,255,' + a + ')';
+    mctx.fillRect(cx * CHUNK * sc + ox, cy * CHUNK * sc + oy, CHUNK * sc, CHUNK * sc);
+  }
+  // objects
+  for (const e of eff.values()) {
+    if (e.dead) continue;
+    const b = effBounds(e);
+    mctx.fillStyle = e.r.a === CFG.name ? 'rgba(174,203,255,0.85)' : 'rgba(255,157,92,0.9)';
+    mctx.fillRect(((b[0] + b[2]) / 2) * sc + ox - 1, ((b[1] + b[3]) / 2) * sc + oy - 1, 2, 2);
+  }
+  // partner's latest
+  const la = Sync.latestOther;
+  if (la && la.path === View.path) {
+    mctx.strokeStyle = WARM;
+    mctx.lineWidth = 1.5;
+    mctx.beginPath(); mctx.arc(la.x * sc + ox, la.y * sc + oy, 4.5, 0, 7); mctx.stroke();
+  }
+  // viewport
+  mctx.strokeStyle = 'rgba(255,255,255,0.65)';
+  mctx.lineWidth = 1;
+  mctx.strokeRect(vr[0] * sc + ox, vr[1] * sc + oy, (vr[2] - vr[0]) * sc, (vr[3] - vr[1]) * sc);
+}
+mini.addEventListener('click', ev => {
+  if (!mini.__map) return;
+  const r = mini.getBoundingClientRect();
+  const mx = (ev.clientX - r.left) * (mini.width / r.width);
+  const my = (ev.clientY - r.top) * (mini.height / r.height);
+  View.cam.x = (mx - mini.__map.ox) / mini.__map.sc;
+  View.cam.y = (my - mini.__map.oy) / mini.__map.sc;
+  afterCam();
+});
+
+/* ============================== input ============================== */
+const Tool = {
+  cur: 'draw',
+  set(t) {
+    this.cur = t;
+    document.querySelectorAll('#tools .btn').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+    cv.style.cursor = t === 'pan' ? 'grab' : t === 'text' ? 'text' : t === 'select' ? 'default' : 'crosshair';
+    if (t !== 'select') Sel.clear();
+    needRender = true;
+  }
+};
+const Cur = { stroke: null, t0: 0, mouse: null };
+const Sel = {
+  id: null, drag: null, dragging: false, downW: null,
+  clear() { this.id = null; this.drag = null; this.dragging = false; updateSelPanel(); needRender = true; }
+};
+const ptrs = new Map();
+let pinch = null, panDrag = null, spaceHeld = false, erased = null;
+
+function toolBlocked() {
+  if (TT.on) { toast('history view — press ✕ to draw again'); return true; }
+  return false;
+}
+function hitTest(wx, wy) {
+  const eff = Model.fold(View.path);
+  const tol = 6 / View.cam.z;
+  const arr = [...eff.values()];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const e = arr[i];
+    if (e.dead) continue;
+    const bb = effBounds(e);
+    if (wx < bb[0] - tol || wx > bb[2] + tol || wy < bb[1] - tol || wy > bb[3] + tol) continue;
+    if (e.r.k === 's') {
+      const p = e.r.pts, lim = e.r.w / 2 + tol;
+      const ox = e.dx, oy = e.dy;
+      if (p.length <= 2) { if (Math.hypot(wx - p[0] - ox, wy - p[1] - oy) <= lim) return e; continue; }
+      for (let j = 0; j + 3 < p.length; j += 2) {
+        if (segDist(wx, wy, p[j] + ox, p[j + 1] + oy, p[j + 2] + ox, p[j + 3] + oy) <= lim) return e;
+      }
+    } else return e;
+  }
+  return null;
+}
+function eraseAt(sx, sy) {
+  const [wx, wy] = s2w(activeT(), sx, sy);
+  const e = hitTest(wx, wy);
+  if (e && !erased.has(e.r.id)) {
+    erased.add(e.r.id);
+    finalizeRecord({ k: 'd', g: e.r.id });
+  }
+}
+function cancelPointerGesture() {
+  if (Cur.stroke) {
+    if (Date.now() - Cur.t0 > 400 && Cur.stroke.pts.length > 4) finishStroke();
+    else Cur.stroke = null;
+  }
+  panDrag = null;
+  if (Sel.dragging) { Sel.drag = null; Sel.dragging = false; }
+  needRender = true;
+}
+function finishStroke() {
+  const s = Cur.stroke;
+  Cur.stroke = null;
+  if (!s) return;
+  for (let i = 0; i < s.pts.length; i++) s.pts[i] = Math.round(s.pts[i] * 100) / 100;
+  finalizeRecord({ k: 's', pts: s.pts, w: s.w, c: s.c });
+}
+
+cv.addEventListener('pointerdown', ev => {
+  try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* pointer already gone */ }
+  ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  Cur.mouse = [ev.clientX, ev.clientY];
+  if (ptrs.size === 2) {
+    cancelPointerGesture();
+    const [a, b] = [...ptrs.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    return;
+  }
+  if (ptrs.size > 2) return;
+  const pan = ev.button === 1 || ev.button === 2 || spaceHeld || Tool.cur === 'pan';
+  if (pan) { panDrag = { x: ev.clientX, y: ev.clientY }; cv.style.cursor = 'grabbing'; return; }
+  if (ev.button !== 0) return;
+  const T = activeT();
+  const [wx, wy] = s2w(T, ev.clientX, ev.clientY);
+  if (Tool.cur === 'draw') {
+    if (toolBlocked()) return;
+    Cur.stroke = { pts: [wx, wy], w: +$('#size').value / View.cam.z, c: $('#color').value };
+    Cur.t0 = Date.now();
+  } else if (Tool.cur === 'erase') {
+    if (toolBlocked()) return;
+    erased = new Set();
+    eraseAt(ev.clientX, ev.clientY);
+  } else if (Tool.cur === 'select') {
+    const e = hitTest(wx, wy);
+    if (e) {
+      Sel.id = e.r.id; Sel.drag = [0, 0]; Sel.dragging = !TT.on; Sel.downW = [wx, wy];
+      updateSelPanel(); needRender = true;
+    } else { Sel.clear(); panDrag = { x: ev.clientX, y: ev.clientY }; }
+  }
+  // text handled on pointerup as a click
+});
+cv.addEventListener('pointermove', ev => {
+  const p = ptrs.get(ev.pointerId);
+  Cur.mouse = [ev.clientX, ev.clientY];
+  if (Tool.cur === 'erase') needRender = true;
+  if (p) { p.x = ev.clientX; p.y = ev.clientY; }
+  if (pinch && ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    if (pinch.d > 0 && d > 0) zoomAt(mx, my, d / pinch.d);
+    panBy(mx - pinch.mx, my - pinch.my);
+    pinch = { d, mx, my };
+    return;
+  }
+  if (panDrag) {
+    panBy(ev.clientX - panDrag.x, ev.clientY - panDrag.y);
+    panDrag = { x: ev.clientX, y: ev.clientY };
+    return;
+  }
+  if (!p) return;
+  if (Cur.stroke) {
+    const T = activeT();
+    const [wx, wy] = s2w(T, ev.clientX, ev.clientY);
+    const n = Cur.stroke.pts.length;
+    const lx = Cur.stroke.pts[n - 2], ly = Cur.stroke.pts[n - 1];
+    if (Math.hypot((wx - lx) * View.cam.z, (wy - ly) * View.cam.z) >= 1.5) {
+      Cur.stroke.pts.push(wx, wy);
+      needRender = true;
+    }
+  } else if (Tool.cur === 'erase' && erased) {
+    eraseAt(ev.clientX, ev.clientY);
+  } else if (Sel.dragging && Sel.downW) {
+    const [wx, wy] = s2w(activeT(), ev.clientX, ev.clientY);
+    Sel.drag = [wx - Sel.downW[0], wy - Sel.downW[1]];
+    needRender = true;
+  }
+});
+function pointerEnd(ev) {
+  const had = ptrs.has(ev.pointerId);
+  ptrs.delete(ev.pointerId);
+  if (ptrs.size < 2) pinch = null;
+  if (!had) return;
+  if (panDrag && !ptrs.size) { panDrag = null; if (Tool.cur === 'pan') cv.style.cursor = 'grab'; }
+  if (Cur.stroke) finishStroke();
+  if (erased) erased = null;
+  if (Sel.dragging) {
+    Sel.dragging = false;
+    const d = Sel.drag;
+    Sel.drag = null;
+    if (d && Math.hypot(d[0], d[1]) * View.cam.z > 3) finalizeRecord({ k: 'm', g: Sel.id, dx: Math.round(d[0] * 100) / 100, dy: Math.round(d[1] * 100) / 100 });
+    needRender = true;
+  }
+  if (Tool.cur === 'text' && ev.type === 'pointerup' && ev.button === 0 && !spaceHeld) {
+    if (!toolBlocked()) startText(ev.clientX, ev.clientY);
+  }
+}
+cv.addEventListener('pointerup', pointerEnd);
+cv.addEventListener('pointercancel', pointerEnd);
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+cv.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const f = Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.008 : 0.0016));
+  zoomAt(ev.clientX, ev.clientY, f);
+}, { passive: false });
+
+addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
+  if (ev.code === 'Space') { spaceHeld = true; ev.preventDefault(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); if (!toolBlocked()) undo(); return; }
+  const k = ev.key.toLowerCase();
+  if (k === 'b') Tool.set('draw');
+  else if (k === 'e') Tool.set('erase');
+  else if (k === 't') Tool.set('text');
+  else if (k === 'v') Tool.set('select');
+  else if (k === 'h') Tool.set('pan');
+  else if (k === 'delete' || k === 'backspace') { if (Sel.id && !toolBlocked()) { finalizeRecord({ k: 'd', g: Sel.id }); Sel.clear(); } }
+  else if (k === 'escape') { Sel.clear(); TT.close(); }
+});
+addEventListener('keyup', ev => { if (ev.code === 'Space') spaceHeld = false; });
+
+/* ---------- text tool ---------- */
+const textedit = $('#textedit');
+let textAt = null;
+function startText(sx, sy) {
+  textAt = { sx, sy, w: s2w(activeT(), sx, sy) };
+  textedit.style.left = sx + 'px';
+  textedit.style.top = sy + 'px';
+  textedit.style.fontSize = $('#size').value * 3 + 'px';
+  textedit.style.color = $('#color').value;
+  textedit.value = '';
+  textedit.style.display = 'block';
+  setTimeout(() => textedit.focus(), 0);
+}
+function commitText() {
+  const at = textAt;
+  textAt = null;
+  textedit.style.display = 'none';
+  if (!at) return;
+  const txt = textedit.value.replace(/\s+$/, '');
+  if (!txt) return;
+  const px = +$('#size').value * 3; // text renders bigger than brush width
+  const fs = px / View.cam.z;
+  ctx.font = px + 'px "Segoe UI", system-ui, sans-serif';
+  let bw = 0;
+  const lines = txt.split('\n');
+  for (const ln of lines) bw = Math.max(bw, ctx.measureText(ln).width);
+  finalizeRecord({
+    k: 't', x: at.w[0], y: at.w[1], fs, c: $('#color').value, txt,
+    bw: Math.max(bw / View.cam.z, 1), bh: lines.length * fs * 1.25
+  });
+}
+textedit.addEventListener('keydown', ev => {
+  ev.stopPropagation();
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); commitText(); }
+  if (ev.key === 'Escape') { textAt = null; textedit.style.display = 'none'; }
+});
+textedit.addEventListener('blur', () => { if (textAt) commitText(); });
+
+/* ---------- images ---------- */
+async function placeImage(blob, atW) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const sc = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx2 = c.getContext('2d');
+    cx2.fillStyle = '#fff'; cx2.fillRect(0, 0, w, h); // JPEG has no alpha
+    cx2.drawImage(bmp, 0, 0, w, h);
+    const d = c.toDataURL('image/jpeg', 0.82);
+    const ww = w / View.cam.z, wh = h / View.cam.z;
+    finalizeRecord({ k: 'i', x: atW[0] - ww / 2, y: atW[1] - wh / 2, w: ww, h: wh, d });
+    toast('image placed (' + Math.round(d.length / 1024) + ' KB stored)');
+  } catch (e) { toast('could not read that image'); }
+}
+addEventListener('paste', ev => {
+  if (TT.on) return;
+  const items = ev.clipboardData && ev.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type.startsWith('image/')) {
+      ev.preventDefault();
+      const at = Cur.mouse ? s2w(activeT(), Cur.mouse[0], Cur.mouse[1]) : [View.cam.x, View.cam.y];
+      placeImage(it.getAsFile(), at);
+      return;
+    }
+  }
+});
+$('#imgbtn').addEventListener('click', () => { if (!toolBlocked()) $('#filein').click(); });
+$('#filein').addEventListener('change', ev => {
+  const f = ev.target.files[0];
+  ev.target.value = '';
+  if (f) placeImage(f, [View.cam.x, View.cam.y]);
+});
+
+/* ---------- selection panel ---------- */
+function updateSelPanel() {
+  const el = $('#selpanel');
+  if (!Sel.id || TT.on) { el.classList.remove('show'); return; }
+  const e = Model.fold(View.path).get(Sel.id);
+  if (!e || e.dead) { el.classList.remove('show'); return; }
+  let bb = effBounds(e);
+  if (Sel.drag) bb = bbShift(bb, Sel.drag[0], Sel.drag[1]);
+  const T = activeT();
+  const [sx, sy] = w2s(T, bb[0], bb[1]);
+  el.style.left = clamp(sx, 8, W - 260) + 'px';
+  el.style.top = clamp(sy - 44, 8, H - 50) + 'px';
+  $('#selpromote').style.display = e.container ? 'none' : '';
+  $('#selenter').style.display = e.container ? '' : 'none';
+  el.classList.add('show');
+}
+$('#selpromote').addEventListener('click', () => {
+  if (!Sel.id || toolBlocked()) return;
+  const e = Model.fold(View.path).get(Sel.id);
+  if (!e) return;
+  const bb = effBounds(e);
+  const lb = labelFor(e.r);
+  finalizeRecord({ k: 'p', g: Sel.id, lb });
+  finalizeRecord({
+    id: 'reg:' + Sel.id, k: 'reg', g: Sel.id, x: bb[0], y: bb[1],
+    w: bb[2] - bb[0], h: bb[3] - bb[1], lb
+  }, { noUndo: true, path: '__reg' });
+  toast('it has a world inside now — zoom in to enter');
+  updateSelPanel(); needRender = true;
+});
+$('#selenter').addEventListener('click', () => {
+  if (!Sel.id) return;
+  const e = Model.fold(View.path).get(Sel.id);
+  if (e && e.container) { const id = Sel.id; Sel.clear(); doEnterAnimated(e); }
+});
+$('#seldelete').addEventListener('click', () => {
+  if (Sel.id && !toolBlocked()) { finalizeRecord({ k: 'd', g: Sel.id }); Sel.clear(); }
+});
+function doEnterAnimated(e) { // simple direct enter: aim camera then descend
+  const bb = effBounds(e);
+  View.cam.x = (bb[0] + bb[2]) / 2;
+  View.cam.y = (bb[1] + bb[3]) / 2;
+  View.cam.z = clamp(ENTER_COV * 1.05 * Math.min(W / (bb[2] - bb[0]), H / (bb[3] - bb[1])), ZMIN, OVERZOOM);
+  afterCam(); // checkTransitions will commit the descent
+}
+
+/* ============================== UI wiring ============================== */
+document.querySelectorAll('#tools .btn').forEach(b => b.addEventListener('click', () => Tool.set(b.dataset.tool)));
+$('#size').addEventListener('input', () => { $('#sizeval').textContent = $('#size').value; });
+$('#undo').addEventListener('click', () => { if (!toolBlocked()) undo(); });
+$('#origin').addEventListener('click', () => { View.cam = { x: 0, y: 0, z: 0.5 }; afterCam(); });
+$('#gear').addEventListener('click', () => openSetup(true));
+$('#jump').addEventListener('click', jumpToLatest);
+$('#hist').addEventListener('click', () => { TT.on ? TT.close() : TT.open(); });
+$('#histclose').addEventListener('click', () => TT.close());
+$('#histplay').addEventListener('click', () => {
+  if (!TT.on) return;
+  if (TT.idx >= TT.n) TT.seek(0);
+  TT.playing = !TT.playing; TT.ui();
+});
+$('#histslider').addEventListener('input', () => {
+  if (TT.on) { TT.playing = false; TT.seek(+$('#histslider').value / 1000 * TT.n); }
+});
+$('#histspeed').addEventListener('change', () => { TT.speed = +$('#histspeed').value; });
+
+function jumpToLatest() {
+  const la = Sync.latestOther;
+  if (!la) { toast('no activity from your partner yet'); return; }
+  if (la.path !== View.path) {
+    const stk = buildStackFor(la.path);
+    if (stk === null) { toast('their spot is inside a world I have not loaded yet'); return; }
+    View.stack = stk;
+    View.path = la.path;
+    onLevelChange();
+  }
+  View.cam = { x: la.x, y: la.y, z: clamp(View.cam.z, 0.4, 2) };
+  afterCam();
+  toast('latest from ' + la.a + ' · ' + fmtT(la.t));
+}
+
+function renderCrumbs() {
+  const el = $('#crumbs');
+  let html = '<span class="crumb' + (View.stack.length ? '' : ' here') + '" data-d="0">◉ root</span>';
+  View.stack.forEach((s, i) => {
+    const here = i === View.stack.length - 1;
+    html += '<span class="sep">▸</span><span class="crumb' + (here ? ' here' : '') + '" data-d="' + (i + 1) + '">' + esc(s.label || s.id.slice(0, 6)) + '</span>';
+  });
+  el.innerHTML = html;
+  el.querySelectorAll('.crumb').forEach(c => c.addEventListener('click', () => {
+    const d = +c.dataset.d;
+    if (d < View.stack.length) surfaceTo(d);
+  }));
+}
+function updateCoords() {
+  $('#coords').textContent =
+    'x ' + Math.round(View.cam.x) + ' · y ' + Math.round(View.cam.y) +
+    ' · ' + (View.cam.z >= 10 ? View.cam.z.toFixed(0) : View.cam.z.toFixed(View.cam.z < 0.3 ? 3 : 1)) + '×' +
+    (View.stack.length ? ' · depth ' + View.stack.length : '');
+}
+function updateStatus() {
+  const dot = $('#syncdot'), txt = $('#synctext');
+  const pending = Sync.outbox.length;
+  if (!Sync.store) { dot.className = ''; txt.textContent = '…'; return; }
+  if (Sync.err) { dot.className = 'err'; txt.textContent = Sync.err; return; }
+  if (Sync.fetching > 0 || pending > 0) {
+    dot.className = 'busy';
+    txt.textContent = (pending ? pending + ' to save' : 'loading…');
+    return;
+  }
+  dot.className = 'ok';
+  txt.textContent = (CFG.mode === 'local' ? 'solo · this browser' :
+    CFG.owner + '/' + CFG.repo) + (Sync.lastOk ? ' · ' + new Date(Sync.lastOk).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
+}
+
+/* ============================== setup modal ============================== */
+let setupMode = 'gh';
+function openSetup(prefill) {
+  $('#setup').classList.add('show');
+  if (prefill && CFG) {
+    $('#s_name').value = CFG.name || '';
+    $('#s_color').value = CFG.color || '#7aa2ff';
+    setupMode = CFG.mode === 'local' ? 'local' : 'gh';
+    $('#s_owner').value = CFG.owner || '';
+    $('#s_repo').value = CFG.repo || '';
+    $('#s_branch').value = CFG.branch || 'main';
+    $('#s_pat').value = CFG.pat || '';
+  }
+  syncModeBtns();
+}
+function syncModeBtns() {
+  $('#m_gh').classList.toggle('on', setupMode === 'gh');
+  $('#m_local').classList.toggle('on', setupMode === 'local');
+  $('#ghfields').classList.toggle('off', setupMode !== 'gh');
+}
+$('#m_gh').addEventListener('click', () => { setupMode = 'gh'; syncModeBtns(); });
+$('#m_local').addEventListener('click', () => { setupMode = 'local'; syncModeBtns(); });
+$('#setupgo').addEventListener('click', async () => {
+  const name = $('#s_name').value.trim();
+  if (!name) { $('#setuperr').textContent = 'name yourself first'; return; }
+  const next = { mode: setupMode === 'local' ? 'local' : 'github', name, color: $('#s_color').value };
+  if (next.mode === 'github') {
+    next.owner = $('#s_owner').value.trim();
+    next.repo = $('#s_repo').value.trim();
+    next.branch = $('#s_branch').value.trim() || 'main';
+    next.pat = $('#s_pat').value.trim();
+    if (!next.owner || !next.repo || !next.pat) { $('#setuperr').textContent = 'owner, repo and token are all needed'; return; }
+    $('#setuperr').textContent = 'checking the repo…';
+    try {
+      const st = new GitHubStore(next);
+      await st.head(); // throws on bad token; {empty} is fine
+    } catch (e) {
+      $('#setuperr').textContent = e.message || 'could not reach the repo';
+      return;
+    }
+  } else {
+    next.db = (CFG && CFG.db) || 'demo';
+  }
+  CFG = next;
+  saveCfg();
+  location.reload();
+});
+
+/* ============================== main loop / boot ============================== */
+function frame(ts) {
+  const dt = lastFrame ? Math.min((ts - lastFrame) / 1000, 0.1) : 0.016;
+  lastFrame = ts;
+  if (cv.width === 0) fit(); // page loaded while hidden — size up on first visible frame
+  TT.tick(dt);
+  if (needRender) { needRender = false; render(); }
+  if (miniDirty) { miniDirty = false; renderMini(); }
+  requestAnimationFrame(frame);
+}
+
+async function boot() {
+  if (!loadCfg()) { openSetup(false); return; }
+  $('#color').value = CFG.color || '#7aa2ff';
+  Tool.set('draw');
+  fit();
+  Sync.store = CFG.mode === 'local' ? new LocalStore(CFG) : new GitHubStore(CFG);
+  updateStatus();
+  try { await Sync.boot(); } catch (e) { Sync.err = e.message || String(e); updateStatus(); }
+  restoreView();
+  renderCrumbs(); updateCoords();
+  Sync.ensureVisible(View.path, viewRect());
+  setInterval(() => Sync.poll(false), POLL_MS);
+  setInterval(() => Sync.flush(), FLUSH_MS);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) Sync.flush(); else Sync.poll(true); });
+  needRender = true; miniDirty = true;
+  requestAnimationFrame(frame);
+}
+
+/* ============================== debug / selftest ============================== */
+window.MURAL_DEBUG = {
+  state: () => ({
+    path: View.path, depth: View.stack.length, cam: Object.assign({}, View.cam),
+    recs: Model.paths.has(View.path) ? Model.paths.get(View.path).recs.size : 0,
+    outbox: Sync.outbox.length, inventory: Sync.inventory.size,
+    booted: Sync.booted, err: Sync.err, tt: TT.on ? { idx: TT.idx, n: TT.n } : null,
+    latestOther: Sync.latestOther
+  }),
+  paths: () => [...Model.paths.keys()].map(p => [p, Model.paths.get(p).recs.size]),
+  stroke: (pts, o) => finalizeRecord(Object.assign({ k: 's', pts, w: 4 / View.cam.z, c: '#58c08a' }, o || {})),
+  promoteSel: () => $('#selpromote').click(),
+  select: id => { Sel.id = id; updateSelPanel(); needRender = true; },
+  undo: () => undo(),
+  flush: () => Sync.flush(),
+  poll: () => Sync.poll(true),
+  zoomAt: (x, y, f) => zoomAt(x, y, f),
+  panBy: (x, y) => panBy(x, y),
+  cam: (x, y, z) => { View.cam = { x, y, z }; afterCam(); },
+  enter: id => { const e = Model.fold(View.path).get(id); if (e) doEnter(e); },
+  exit: () => { if (View.stack.length) doExit(); },
+  tt: TT, view: View, model: Model, sync: Sync
+};
+
+function selftest() {
+  const out = { pass: 0, fail: 0, msgs: [] };
+  const ok = (cond, msg) => { if (cond) out.pass++; else { out.fail++; out.msgs.push('FAIL: ' + msg); console.error('FAIL:', msg); } };
+  // chunk math
+  ok(chunksOfBB([10, 10, 20, 20]).join(';') === '0,0', 'bb inside one chunk');
+  ok(chunksOfBB([-10, 10, 20, 20]).length === 2, 'bb straddles x boundary');
+  ok(chunksOfBB([-10, -10, 2010, 2010]).length === MAXC + 1, 'bb spanning 3x3 routes to large');
+  ok(chunksOfBB([0, 0, Infinity, 10]).length === MAXC + 1, 'degenerate bb routes to large, never iterates');
+  // fold semantics
+  const eff = new Map();
+  applyRec(eff, { id: 'a', t: 1, k: 's', pts: [0, 0, 10, 10], w: 2, c: '#fff' });
+  applyRec(eff, { id: 'm1', t: 2, k: 'm', g: 'a', dx: 5, dy: 0 });
+  applyRec(eff, { id: 'd1', t: 3, k: 'd', g: 'a' });
+  ok(eff.get('a').dead === true && eff.get('a').dx === 5, 'move then delete folds');
+  applyRec(eff, { id: 'r1', t: 4, k: 'r', g: 'a' });
+  ok(eff.get('a').dead === false, 'restore folds');
+  applyRec(eff, { id: 'p1', t: 5, k: 'p', g: 'a', lb: 'x' });
+  ok(eff.get('a').container === true && eff.get('a').label === 'x', 'promote folds');
+  // merge by id
+  const before = Model.st('__t').recs.size;
+  Model.add('__t', { id: 'dup', t: 1, k: 's', pts: [0, 0], w: 1, c: '#fff' });
+  const again = Model.add('__t', { id: 'dup', t: 9, k: 's', pts: [9, 9], w: 1, c: '#000' });
+  ok(again === false && Model.st('__t').recs.size === before + 1, 'merge by id refuses dupes');
+  Model.paths.delete('__t');
+  // b64 round trip
+  const s = 'héllo 🌌 "quotes" \n tabs\t';
+  ok(b64dec(b64enc(s)) === s, 'utf8 base64 round trip');
+  // local store CAS
+  (async () => {
+    const st = new LocalStore({ db: '__test' + Math.random().toString(36).slice(2) });
+    const w1 = await st.write('canvas/root/chunk_0_0.json', '{"v":1,"objects":[]}', null);
+    ok(w1.sha === '1', 'local create');
+    const w2 = await st.write('canvas/root/chunk_0_0.json', 'x', null);
+    ok(w2.conflict === true, 'stale create conflicts');
+    const w3 = await st.write('canvas/root/chunk_0_0.json', 'y', '1');
+    ok(w3.sha === '2', 'CAS write with fresh sha');
+    const w4 = await st.write('canvas/root/chunk_0_0.json', 'z', '1');
+    ok(w4.conflict === true, 'CAS write with stale sha conflicts');
+    console.log('MURAL selftest:', out.pass + ' pass, ' + out.fail + ' fail');
+    window.MURAL_TEST = out;
+  })();
+}
+if (Q.get('selftest')) selftest();
+
+boot();
+</script>
+</body>
+</html>
