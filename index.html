@@ -20,7 +20,7 @@
   <meta name="twitter:title" content="Jesse Levine — Flight Instructor | Annapolis, MD">
   <meta name="twitter:description" content="IFR training, multi-engine transition, checkride prep and scenario-based safety training at Lee Airport (KANP), Annapolis MD.">
   <meta name="twitter:image" content="https://jesselevine.net/assets/og.png">
-  <link rel="stylesheet" href="css/main.css?v=3">
+  <link rel="stylesheet" href="css/main.css?v=5">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -112,7 +112,29 @@
 
   <footer>
     <p>© Jesse Levine · <a href="/changelog.html">Changelog</a></p>
+    <p id="font-picker-row" style="font-size:12px;color:var(--faint)">
+      Font:
+      <select id="font-picker" style="background:var(--card);color:var(--muted);border:1px solid var(--border);
+              border-radius:5px;font-size:12px;padding:2px 6px;font-family:inherit">
+        <option value="'Noto Serif', Georgia, 'Times New Roman', serif">Noto Serif</option>
+        <option value="'Inter', 'Segoe UI', system-ui, sans-serif">Inter</option>
+        <option value="'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif">IBM Plex Sans</option>
+        <option value="'Segoe UI', system-ui, Arial, sans-serif">Segoe UI (old)</option>
+        <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+      </select>
+    </p>
   </footer>
+  <script>
+    (function () {
+      var sel = document.getElementById('font-picker');
+      var saved = localStorage.getItem('site_font');
+      if (saved) { document.body.style.fontFamily = saved; sel.value = saved; }
+      sel.addEventListener('change', function () {
+        document.body.style.fontFamily = sel.value;
+        localStorage.setItem('site_font', sel.value);
+      });
+    })();
+  </script>
 
   <!-- Neon ball-physics playground (easter egg) -->
   <div id="sim-controls">
