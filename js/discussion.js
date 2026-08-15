@@ -2487,11 +2487,13 @@ function peakIn(s, key, hours) {
   return best;
 }
 
-/* Overnight radiation-fog window: spread closing with the wind going calm. */
-function fogWindow(s) {
+/* Overnight radiation-fog window: spread closing with the wind going calm.
+   With dayKey, only that local day's hours are considered. */
+function fogWindow(s, dayKey) {
   for (let i = s.now; i < s.t.length; i++) {
     const h = localHour(s.t[i]);
     if (h > 9 || h < 1) continue;
+    if (dayKey && localDay(s.t[i]) !== dayKey) continue;
     const spread = s.t2m[i] - s.td[i];
     if (!Number.isFinite(spread) || spread > 1.2 || !(s.spd[i] <= 5)) continue;
     return { at: s.t[i], spreadF: Math.max(1, Math.round(spread * 9 / 5)), kt: Math.max(1, Math.round(s.spd[i])) };
@@ -2566,33 +2568,59 @@ function buildStories(s) {
     }
   }
 
-  /* --- thunder the NWS forecast carries that the model doesn't build --- */
-  /* The convection story above exists only when the GFS point read paints a
-     storm-grade episode; LWX carries thunder off mesoscale guidance a single
-     model at one point can't see. Read the raw periods, not FC.days — the
-     daily digest keeps daytime wording, so "storms tomorrow evening" often
-     lives only in a night period the digest drops. */
+  /* --- hazards the NWS forecast carries that the model doesn't show --- */
+  /* The convection and fog stories below exist only when the GFS point read
+     paints the setup itself; LWX carries thunder and fog off mesoscale
+     guidance a single model at one point can't see. Read the raw periods,
+     not FC.days — the daily digest keeps daytime wording, so "storms
+     tomorrow evening" often lives only in a night period the digest drops. */
   const perName = (n) => String(n).split(' ')
     .map((w) => /^(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day$/.test(w) ? w : w.toLowerCase()).join(' ');
+  const fw = s ? fogWindow(s) : null;              // the model fog story's window
   for (const p of FC.periods) {
     const t0 = Date.parse(p.startTime || ''), t1 = Date.parse(p.endTime || '');
     if (!Number.isFinite(t0) || t0 > now + 60 * 3600e3) continue;
     if (Number.isFinite(t1) && t1 < now) continue;
-    if (!CONVECTIVE.test(p.shortForecast || '')) continue;
-    const at = Math.max(t0, now);
-    const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === localDay(at));
-    if (stormEp && stormEp === ep) continue;       // the convection story above owns this day
-    const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
-    stories.push({
-      key: 'fcstorm',
-      score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
-      headline: `Thunderstorms in the forecast ${perName(p.name)}`,
-      deck: `LWX carries “${p.shortForecast}” for ${perName(p.name)}` +
-        `${pop != null ? ` — ${pop}% chance` : ''}. ` + (stormEp
-          ? `The GFS agrees, building ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
-          : 'The GFS point read at DC doesn\'t build a storm-grade episode then; believe LWX, ' +
-            'which weighs mesoscale guidance this single-model read can\'t see.'),
-    });
+    const short = p.shortForecast || '', detail = p.detailedForecast || '';
+
+    if (CONVECTIVE.test(short)) {
+      const at = Math.max(t0, now);
+      const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === localDay(at));
+      const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+      if (!stormEp || stormEp !== ep) {            // else the convection story above owns this day
+        stories.push({
+          key: 'fcstorm',
+          score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
+          headline: `Thunderstorms in the forecast ${perName(p.name)}`,
+          deck: `LWX carries “${short}” for ${perName(p.name)}` +
+            `${pop != null ? ` — ${pop}% chance` : ''}. ` + (stormEp
+              ? `The GFS agrees, building ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
+              : 'The GFS point read at DC doesn\'t build a storm-grade episode then; believe LWX, ' +
+                'which weighs mesoscale guidance this single-model read can\'t see.'),
+        });
+      }
+    }
+
+    if (/fog/i.test(short + ' ' + detail)) {
+      /* Fog lives at the morning end of a night period, not its 6 PM start. */
+      const morn = Math.max(p.isDaytime || !Number.isFinite(t1) ? t0 : t1, now);
+      const day = localDay(morn);
+      const fwHere = s ? fogWindow(s, day) : null;
+      if (!(fwHere && fw && localDay(fw.at) === day)) {  // else the fog story below owns it
+        const said = /fog/i.test(short) ? short
+          : ((detail.match(/[^.]*fog[^.]*\./i) || [detail])[0]).trim();
+        stories.push({
+          key: 'fcfog',
+          score: (/dense/i.test(short + detail) ? 58 : 48) - leadTimePenalty(morn),
+          headline: `Fog in the forecast ${whenPhrase(morn)}`,
+          deck: `LWX carries “${said}” for ${perName(p.name)}. ` + (fwHere
+            ? `The GFS shows the setup too — spread inside ${fwHere.spreadF}°F with ` +
+              `${fwHere.kt} kt of wind near ${clockPhrase(fwHere.at)}.`
+            : 'The GFS point read at DC doesn\'t close the spread then; believe LWX — fog is ' +
+              'local (river valleys, the bay shore), and a single model point misses it.'),
+        });
+      }
+    }
   }
 
   /* --- air-mass change --- */
