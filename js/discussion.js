@@ -2566,6 +2566,35 @@ function buildStories(s) {
     }
   }
 
+  /* --- thunder the NWS forecast carries that the model doesn't build --- */
+  /* The convection story above exists only when the GFS point read paints a
+     storm-grade episode; LWX carries thunder off mesoscale guidance a single
+     model at one point can't see. Read the raw periods, not FC.days — the
+     daily digest keeps daytime wording, so "storms tomorrow evening" often
+     lives only in a night period the digest drops. */
+  const perName = (n) => String(n).split(' ')
+    .map((w) => /^(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day$/.test(w) ? w : w.toLowerCase()).join(' ');
+  for (const p of FC.periods) {
+    const t0 = Date.parse(p.startTime || ''), t1 = Date.parse(p.endTime || '');
+    if (!Number.isFinite(t0) || t0 > now + 60 * 3600e3) continue;
+    if (Number.isFinite(t1) && t1 < now) continue;
+    if (!CONVECTIVE.test(p.shortForecast || '')) continue;
+    const at = Math.max(t0, now);
+    const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === localDay(at));
+    if (stormEp && stormEp === ep) continue;       // the convection story above owns this day
+    const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+    stories.push({
+      key: 'fcstorm',
+      score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
+      headline: `Thunderstorms in the forecast ${perName(p.name)}`,
+      deck: `LWX carries “${p.shortForecast}” for ${perName(p.name)}` +
+        `${pop != null ? ` — ${pop}% chance` : ''}. ` + (stormEp
+          ? `The GFS agrees, building ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
+          : 'The GFS point read at DC doesn\'t build a storm-grade episode then; believe LWX, ' +
+            'which weighs mesoscale guidance this single-model read can\'t see.'),
+    });
+  }
+
   /* --- air-mass change --- */
   if (s) {
     const fp = frontalPassage(s, s.t.length - 1);
@@ -2853,7 +2882,9 @@ function renderSplit(s) {
   let msg = null;
   if (officeStorm && !modelStorm) {
     msg = 'LWX carries thunder that the GFS point read at DC doesn\'t build. ' +
-      'Weight the office — one model at one point misses mesoscale triggers.';
+      'Believe LWX: forecasters weigh many models plus mesoscale guidance, while this page ' +
+      'reads one global model at one point — a view that misses the local triggers ' +
+      '(bay breeze, outflow boundaries) that fire storms here.';
   } else if (modelStorm && !officeStorm) {
     msg = 'The GFS builds storm fuel at DC that the NWS forecast doesn\'t carry — ' +
       'treat any storm line above as low-confidence until LWX picks it up.';
