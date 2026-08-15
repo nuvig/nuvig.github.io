@@ -2598,9 +2598,9 @@ function buildStories(s) {
           headline: `Thunderstorms in the forecast ${perName(p.name)}`,
           deck: `LWX carries “${short}” for ${perName(p.name)}` +
             `${pop != null ? ` — ${pop}% chance` : ''}. ` + (stormEp
-              ? `The GFS agrees, building ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
-              : 'The GFS point read at DC doesn\'t build a storm-grade episode then; believe LWX, ' +
-                'which weighs mesoscale guidance this single-model read can\'t see.'),
+              ? `The GFS backs it up with ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
+              : 'The GFS run behind this page doesn\'t show it — weak evidence against: ' +
+                'storms here hinge on small triggers one model can\'t resolve.'),
         });
       }
     }
@@ -2620,8 +2620,8 @@ function buildStories(s) {
           deck: `LWX carries “${said}” for ${perName(p.name)}. ` + (fwHere
             ? `The GFS shows the setup too — spread inside ${fwHere.spreadF}°F with ` +
               `${fwHere.kt} kt of wind near ${clockPhrase(fwHere.at)}.`
-            : 'The GFS point read at DC doesn\'t close the spread then; believe LWX — fog is ' +
-              'local (river valleys, the bay shore), and a single model point misses it.'),
+            : 'The GFS run doesn\'t show the setup — weak evidence against: fog is local ' +
+              '(river valleys, the bay shore) and usually too small for a model this coarse.'),
         });
       }
     }
@@ -2642,8 +2642,8 @@ function buildStories(s) {
           `${pop != null ? ` — ${pop}% chance` : ''}. ` + (epHere
             ? `The GFS paints the precip too (~${(epHere.total / 25.4).toFixed(2)}″ liquid) — ` +
               'it just can\'t say the phase; the wording can. '
-            : 'The GFS point read at DC stays dry then; believe LWX — phase and placement ' +
-              'ride on gradients a point read can\'t see. ') +
+            : 'The GFS run is dry then — weak evidence against: rain/snow lines move on ' +
+              'gradients too fine for one model to place. ') +
           'Anything that freezes to the airframe is a no-go without a way to shed it.',
       });
     }
@@ -2665,10 +2665,9 @@ function buildStories(s) {
           deck: `LWX carries “${said}” for ${perName(p.name)}` +
             `${gustMph ? ` — about ${Math.round(gustMph * 0.869)} kt` : ''}. ` +
             (at <= now + 24 * 3600e3
-              ? 'The GFS sustained wind at DC stays under the model story\'s bar — believe LWX; ' +
-                'gusts live between the hourly numbers.'
-              : 'Beyond the 24 h the model wind check watches — plan the crosswind off this, ' +
-                'not off the quiet model read.'),
+              ? 'The GFS hourly wind reads lower, but gusts never show in hourly sustained ' +
+                'numbers — the wording is the better read for what the windsock will do.'
+              : 'Past the 24 h this page\'s wind check watches, the wording is the only read.'),
         });
       }
     }
@@ -2972,19 +2971,18 @@ function renderSplit(s) {
   const modelWet = !!ep;
   let msg = null;
   if (officeStorm && !modelStorm) {
-    msg = 'LWX carries thunder that the GFS point read at DC doesn\'t build. ' +
-      'Believe LWX: forecasters weigh many models plus mesoscale guidance, while this page ' +
-      'reads one global model at one point — a view that misses the local triggers ' +
-      '(bay breeze, outflow boundaries) that fire storms here.';
+    msg = 'LWX has thunder in the forecast; the GFS run behind this page doesn\'t. ' +
+      'When they disagree on storms, LWX is usually right — it blends several models ' +
+      'with local detail, and storms here hinge on small triggers one model can\'t resolve.';
   } else if (modelStorm && !officeStorm) {
-    msg = 'The GFS builds storm fuel at DC that the NWS forecast doesn\'t carry — ' +
-      'treat any storm line above as low-confidence until LWX picks it up.';
+    msg = 'The GFS builds storm fuel that the LWX forecast doesn\'t mention. ' +
+      'A single model run is the weaker source — long odds unless LWX starts carrying thunder too.';
   } else if (officeWet && !modelWet) {
-    msg = 'NWS carries precip the GFS point read at DC misses — believe the forecast ' +
-      'over the model\'s silence.';
+    msg = 'LWX has precip in the forecast; the GFS run behind this page stays dry. ' +
+      'LWX is the stronger source — one dry model run doesn\'t outweigh it.';
   } else if (modelWet && !officeWet) {
-    msg = 'The GFS paints precip at DC that the NWS forecast doesn\'t mention — ' +
-      'low-confidence precip.';
+    msg = 'The GFS paints precip that the LWX forecast doesn\'t mention. ' +
+      'A single model run is the weaker source — long odds on that rain.';
   }
   if (msg) host.innerHTML = `<span class="lab">Model vs LWX</span>${esc(msg)}`;
 }
