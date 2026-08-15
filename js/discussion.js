@@ -2569,24 +2569,28 @@ function buildStories(s) {
   }
 
   /* --- hazards the NWS forecast carries that the model doesn't show --- */
-  /* The convection and fog stories below exist only when the GFS point read
-     paints the setup itself; LWX carries thunder and fog off mesoscale
-     guidance a single model at one point can't see. Read the raw periods,
+  /* The model-backed stories exist only when the GFS point read paints the
+     setup itself: thunder needs a storm-grade episode, fog a closing spread,
+     wind is only checked 24 h out, the rain story can't tell precip phase,
+     and smoke/haze has no model signal at all. LWX carries all of these off
+     mesoscale guidance and observations a single model at one point can't
+     see, so each gets a wording-sourced story here. Read the raw periods,
      not FC.days — the daily digest keeps daytime wording, so "storms
      tomorrow evening" often lives only in a night period the digest drops. */
   const perName = (n) => String(n).split(' ')
     .map((w) => /^(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day$/.test(w) ? w : w.toLowerCase()).join(' ');
   const fw = s ? fogWindow(s) : null;              // the model fog story's window
+  const wPeak = s ? peakIn(s, 'spd', 24) : null;   // the model wind story's peak
   for (const p of FC.periods) {
     const t0 = Date.parse(p.startTime || ''), t1 = Date.parse(p.endTime || '');
     if (!Number.isFinite(t0) || t0 > now + 60 * 3600e3) continue;
     if (Number.isFinite(t1) && t1 < now) continue;
     const short = p.shortForecast || '', detail = p.detailedForecast || '';
+    const at = Math.max(t0, now), day = localDay(at);
+    const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
 
     if (CONVECTIVE.test(short)) {
-      const at = Math.max(t0, now);
-      const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === localDay(at));
-      const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+      const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === day);
       if (!stormEp || stormEp !== ep) {            // else the convection story above owns this day
         stories.push({
           key: 'fcstorm',
@@ -2604,9 +2608,9 @@ function buildStories(s) {
     if (/fog/i.test(short + ' ' + detail)) {
       /* Fog lives at the morning end of a night period, not its 6 PM start. */
       const morn = Math.max(p.isDaytime || !Number.isFinite(t1) ? t0 : t1, now);
-      const day = localDay(morn);
-      const fwHere = s ? fogWindow(s, day) : null;
-      if (!(fwHere && fw && localDay(fw.at) === day)) {  // else the fog story below owns it
+      const mornDay = localDay(morn);
+      const fwHere = s ? fogWindow(s, mornDay) : null;
+      if (!(fwHere && fw && localDay(fw.at) === mornDay)) {  // else the fog story below owns it
         const said = /fog/i.test(short) ? short
           : ((detail.match(/[^.]*fog[^.]*\./i) || [detail])[0]).trim();
         stories.push({
@@ -2620,6 +2624,65 @@ function buildStories(s) {
               'local (river valleys, the bay shore), and a single model point misses it.'),
         });
       }
+    }
+
+    if (/\bsnow\b|sleet|freezing (?:rain|drizzle)|wintry mix|ice storm/i.test(short)) {
+      /* The model rain story reads liquid amounts and can't tell phase — a
+         snow day would headline as "Rain". The wording is the phase call. */
+      const phase = /freezing rain|ice storm/i.test(short) ? 'Freezing rain'
+        : /sleet/i.test(short) ? 'Sleet'
+        : /wintry mix|rain and snow|snow and rain/i.test(short) ? 'Wintry mix' : 'Snow';
+      const epHere = eps.find((e) => localDay(e.t0) === day);
+      stories.push({
+        key: 'fcwinter',
+        score: 56 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) +
+          (phase === 'Freezing rain' ? 8 : 0) - leadTimePenalty(at),
+        headline: `${phase} in the forecast ${perName(p.name)}`,
+        deck: `LWX carries “${short}” for ${perName(p.name)}` +
+          `${pop != null ? ` — ${pop}% chance` : ''}. ` + (epHere
+            ? `The GFS paints the precip too (~${(epHere.total / 25.4).toFixed(2)}″ liquid) — ` +
+              'it just can\'t say the phase; the wording can. '
+            : 'The GFS point read at DC stays dry then; believe LWX — phase and placement ' +
+              'ride on gradients a point read can\'t see. ') +
+          'Anything that freezes to the airframe is a no-go without a way to shed it.',
+      });
+    }
+
+    if (/windy|blustery/i.test(short) ||
+        (detail.match(/gusts as high as (\d+) mph/i) || [])[1] >= 35) {
+      /* The model wind story only checks the next 24 h, and gusts never show
+         in an hourly sustained number — LWX wording is the early warning. */
+      const gustMph = +(detail.match(/gusts as high as (\d+) mph/i) || [])[1] || null;
+      const w24 = wPeak && wPeak.v >= 16 ? wPeak : null;
+      if (!(w24 && localDay(w24.at) === day)) {    // else the wind story below owns this day
+        const said = /windy|blustery/i.test(short) ? short
+          : ((detail.match(/[^.]*\bwind\b[^.]*\./i) || [detail])[0]).trim();
+        stories.push({
+          key: 'fcwind',
+          score: (gustMph >= 45 ? 56 : 48) - leadTimePenalty(at),
+          headline: gustMph ? `Gusts to ${gustMph} mph in the forecast ${perName(p.name)}`
+            : `Windy in the forecast ${perName(p.name)}`,
+          deck: `LWX carries “${said}” for ${perName(p.name)}` +
+            `${gustMph ? ` — about ${Math.round(gustMph * 0.869)} kt` : ''}. ` +
+            (at <= now + 24 * 3600e3
+              ? 'The GFS sustained wind at DC stays under the model story\'s bar — believe LWX; ' +
+                'gusts live between the hourly numbers.'
+              : 'Beyond the 24 h the model wind check watches — plan the crosswind off this, ' +
+                'not off the quiet model read.'),
+        });
+      }
+    }
+
+    if (/smoke|haze/i.test(short)) {
+      /* No model signal exists for this at all — wording is the only source. */
+      stories.push({
+        key: 'fchaze',
+        score: (/smoke/i.test(short) ? 46 : 40) - leadTimePenalty(at),
+        headline: `${/smoke/i.test(short) ? 'Smoke' : 'Haze'} in the forecast ${perName(p.name)}`,
+        deck: `LWX carries “${short}” for ${perName(p.name)}. Nothing in the model read covers ` +
+          'this — and slant visibility goes first: legal VMC on the METAR can still mean no ' +
+          'horizon on final into the sun.',
+      });
     }
   }
 
