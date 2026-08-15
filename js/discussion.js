@@ -2566,9 +2566,9 @@ function buildStories(s) {
         score: 58 + (inches >= 0.3 ? 8 : 0) + (phase === 'Freezing rain' ? 10 : 0)
           + (pop >= 60 ? 6 : 0) - pen,
         headline: `${phase} ${whenPhrase(e.t0)}`,
-        deck: `The GFS breaks precip out ${span} — about ${inches.toFixed(2)}″ liquid — and ` +
-          `LWX calls it “${quote(WINTRY)}”${pop != null ? ` at ${pop}%` : ''}. Anything that ` +
-          'freezes to the airframe is a no-go without a way to shed it.',
+        deck: `Precip in the GFS ${span}, about ${inches.toFixed(2)}″ liquid. LWX calls it ` +
+          `${phase.toLowerCase()} — “${quote(WINTRY)}”${pop != null ? `, ${pop}%` : ''}. Anything ` +
+          'that freezes to the airframe is a no-go without a way to shed it.',
       });
     } else if (e.cape >= 900) {
       const cap = capStrength(s, e.i0, e.i1);
@@ -2576,15 +2576,15 @@ function buildStories(s) {
         : cap.mag >= 75 ? ` A cap worth ${Math.round(cap.mag / 10) * 10} J/kg has to erode first, so timing is the whole question.`
         : cap.mag <= 25 ? ' Next to nothing is capping the column — whatever fires, fires early.' : '';
       const lwx = !wtxt ? '' : CONVECTIVE.test(wtxt)
-        ? ` LWX carries the storms too${pop != null ? `, at ${pop}%` : ''}.`
-        : ' LWX isn\'t carrying thunder for these hours yet — coverage is the open question.';
+        ? ` LWX agrees: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}.`
+        : ' No thunder in the LWX forecast for these hours yet — coverage is the open question.';
       stories.push({
         key,
         score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
-        deck: `The model builds ${fmtJ(e.cape)} J/kg of CAPE over DC and breaks precip out ${span}` +
-          `${mech ? `, with ${mech}` : ''}. Peak rate near ${e.peak.toFixed(1)} mm/hr — about ` +
-          `${inches.toFixed(2)}″ if a cell tracks over the district.${lwx}${capNote}`,
+        deck: `${fmtJ(e.cape)} J/kg of storm fuel in the GFS, rain breaking out ${span}` +
+          `${mech ? ` with ${mech}` : ''} — about ${inches.toFixed(2)}″ if a cell tracks over ` +
+          `the district.${lwx}${capNote}`,
       });
     } else if (CONVECTIVE.test(wtxt)) {
       /* LWX says thunder over these hours; the GFS has the rain but not the
@@ -2594,9 +2594,9 @@ function buildStories(s) {
         key,
         score: 54 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
-        deck: `LWX carries “${quote(CONVECTIVE)}”${pop != null ? ` at ${pop}%` : ''}, and the ` +
-          `GFS times the precip ${span} while building little fuel at DC ` +
-          `(peak ${fmtJ(e.cape)} J/kg). On storm coverage LWX is the stronger source.`,
+        deck: `LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}. The GFS has the ` +
+          `rain ${span} but little storm fuel at DC. Coverage is LWX's call — storms here ` +
+          'start on triggers (bay breeze, outflow boundaries) smaller than one model resolves.',
       });
     } else {
       const heavy = inches >= 0.75, trace = inches < 0.15;
@@ -2605,10 +2605,10 @@ function buildStories(s) {
         score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - pen,
         headline: heavy ? `Soaking rain ${whenPhrase(e.t0)}`
           : trace ? `A few showers ${whenPhrase(e.t0)}` : `Rain ${whenPhrase(e.t0)}`,
-        deck: `Steady, largely stratiform precip ${span}${mech ? ` as ${mech} works in` : ''} — ` +
-          `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`} at DC in the GFS, peaking near ` +
+        deck: `Steady rain in the GFS ${span}${mech ? ` as ${mech} works in` : ''} — ` +
+          `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`}, peaking near ` +
           `${e.peak.toFixed(1)} mm/hr. Little instability to work with, so wet rather than stormy.` +
-          `${pop != null ? ` LWX has it at ${pop}%.` : ''}`,
+          `${pop != null ? ` LWX: ${pop}%.` : ''}`,
       });
     }
   }
@@ -2642,10 +2642,9 @@ function buildStories(s) {
         key: 'fcstorm',
         score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
         headline: `Thunderstorms in the forecast ${perName(p.name)}`,
-        deck: `LWX carries “${short}” for ${perName(p.name)}` +
-          `${pop != null ? ` — ${pop}% chance` : ''}. The GFS run behind this page is dry ` +
-          'then — weak evidence against: storms here hinge on small triggers one model ' +
-          'can\'t resolve.',
+        deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}. ` +
+          'Nothing in the GFS for those hours — weak evidence against; storms here start ' +
+          'on triggers (bay breeze, outflow boundaries) smaller than one model resolves.',
       });
     }
 
@@ -2661,11 +2660,11 @@ function buildStories(s) {
           key: 'fcfog',
           score: (/dense/i.test(short + detail) ? 58 : 48) - leadTimePenalty(morn),
           headline: `Fog in the forecast ${whenPhrase(morn)}`,
-          deck: `LWX carries “${said}” for ${perName(p.name)}. ` + (fwHere
+          deck: `LWX: “${said}” ${perName(p.name)}. ` + (fwHere
             ? `The GFS shows the setup too — spread inside ${fwHere.spreadF}°F with ` +
               `${fwHere.kt} kt of wind near ${clockPhrase(fwHere.at)}.`
-            : 'The GFS run doesn\'t show the setup — weak evidence against: fog is local ' +
-              '(river valleys, the bay shore) and usually too small for a model this coarse.'),
+            : 'The spread never closes in the GFS, which is normal — fog forms in river ' +
+              'valleys and along the bay shore, below what a global model sees.'),
         });
       }
     }
@@ -2677,10 +2676,10 @@ function buildStories(s) {
         score: 56 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) +
           (phase === 'Freezing rain' ? 8 : 0) - leadTimePenalty(at),
         headline: `${phase} in the forecast ${perName(p.name)}`,
-        deck: `LWX carries “${short}” for ${perName(p.name)}` +
-          `${pop != null ? ` — ${pop}% chance` : ''}. The GFS run is dry then — weak ` +
-          'evidence against: rain/snow lines move on gradients too fine for one model ' +
-          'to place. Anything that freezes to the airframe is a no-go without a way to shed it.',
+        deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}. ` +
+          'Nothing in the GFS yet — rain/snow lines move on temperature gradients finer ' +
+          'than one model resolves. Anything that freezes to the airframe is a no-go ' +
+          'without a way to shed it.',
       });
     }
 
@@ -2698,12 +2697,10 @@ function buildStories(s) {
           score: (gustMph >= 45 ? 56 : 48) - leadTimePenalty(at),
           headline: gustMph ? `Gusts to ${gustMph} mph in the forecast ${perName(p.name)}`
             : `Windy in the forecast ${perName(p.name)}`,
-          deck: `LWX carries “${said}” for ${perName(p.name)}` +
+          deck: `LWX: “${said}” ${perName(p.name)}` +
             `${gustMph ? ` — about ${Math.round(gustMph * 0.869)} kt` : ''}. ` +
-            (at <= now + 24 * 3600e3
-              ? 'The GFS hourly wind reads lower, but gusts never show in hourly sustained ' +
-                'numbers — the wording is the better read for what the windsock will do.'
-              : 'Past the 24 h this page\'s wind check watches, the wording is the only read.'),
+            'The GFS hourly wind reads lower because it lists sustained speeds; ' +
+            'gusts live between them.',
         });
       }
     }
@@ -2714,8 +2711,8 @@ function buildStories(s) {
         key: 'fchaze',
         score: (/smoke/i.test(short) ? 46 : 40) - leadTimePenalty(at),
         headline: `${/smoke/i.test(short) ? 'Smoke' : 'Haze'} in the forecast ${perName(p.name)}`,
-        deck: `LWX carries “${short}” for ${perName(p.name)}. Nothing in the model read covers ` +
-          'this — and slant visibility goes first: legal VMC on the METAR can still mean no ' +
+        deck: `LWX: “${short}” ${perName(p.name)}. Smoke and haze show up in no model number ` +
+          'here — and slant visibility goes first: legal VMC on the METAR can still mean no ' +
           'horizon on final into the sun.',
       });
     }
@@ -3011,18 +3008,16 @@ function renderSplit(s) {
   const modelWet = !!ep;
   let msg = null;
   if (officeStorm && !modelStorm) {
-    msg = 'LWX has thunder in the forecast; the GFS run behind this page doesn\'t. ' +
-      'When they disagree on storms, LWX is usually right — it blends several models ' +
-      'with local detail, and storms here hinge on small triggers one model can\'t resolve.';
+    msg = 'LWX has thunder in the forecast; the GFS doesn\'t. Most of these disagreements ' +
+      'go LWX\'s way — several models plus local knowledge, against one model at one point.';
   } else if (modelStorm && !officeStorm) {
-    msg = 'The GFS builds storm fuel that the LWX forecast doesn\'t mention. ' +
-      'A single model run is the weaker source — long odds unless LWX starts carrying thunder too.';
+    msg = 'Storm fuel in the GFS that isn\'t in the LWX forecast. One model alone is long ' +
+      'odds — watch whether the next LWX issuance adds thunder.';
   } else if (officeWet && !modelWet) {
-    msg = 'LWX has precip in the forecast; the GFS run behind this page stays dry. ' +
-      'LWX is the stronger source — one dry model run doesn\'t outweigh it.';
+    msg = 'LWX has precip in the forecast; the GFS is dry. One dry model doesn\'t outweigh ' +
+      'the forecast.';
   } else if (modelWet && !officeWet) {
-    msg = 'The GFS paints precip that the LWX forecast doesn\'t mention. ' +
-      'A single model run is the weaker source — long odds on that rain.';
+    msg = 'Precip in the GFS that isn\'t in the LWX forecast — one model alone, long odds.';
   }
   if (msg) host.innerHTML = `<span class="lab">Model vs LWX</span>${esc(msg)}`;
 }
