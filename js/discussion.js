@@ -2534,49 +2534,95 @@ function buildStories(s) {
   }
 
   const eps = s ? precipEpisodes(s, s.now) : [];
-  const ep = eps[0];
 
-  /* --- convection vs. plain rain --- */
-  if (ep) {
-    const inches = ep.total / 25.4;
-    const span = spanPhrase(ep.t0, ep.t1);
-    const mech = mechanismAt(ep.i0);
-    if (ep.cape >= 900) {
-      const cap = capStrength(s, ep.i0, ep.i1);
+  /* --- precip: one story per wet episode, GFS timing × LWX wording --- */
+  /* The GFS supplies the when and the how much; the LWX periods over those
+     hours supply the phase and the thunder call. One merged story per
+     episode means the page can never say "Rain" and "Snow" about the same
+     afternoon in two different cards, and every deck opens with the hours.
+     Keyed by day so a shower today and a soaker tomorrow both surface. */
+  const overlapPeriods = (a, b) => FC.periods.filter((p) => {
+    const p0 = Date.parse(p.startTime || ''), p1 = Date.parse(p.endTime || '');
+    return Number.isFinite(p0) && Number.isFinite(p1) && p1 > a && p0 < b;
+  });
+  for (const e of eps.slice(0, 3)) {
+    const inches = e.total / 25.4;
+    const span = spanPhrase(e.t0, e.t1);
+    const mech = mechanismAt(e.i0);
+    const pen = leadTimePenalty(e.t0);
+    const key = `precip:${localDay(e.t0)}`;
+    const pers = overlapPeriods(e.t0, e.t1 + 3600e3);
+    const wtxt = pers.map((p) => p.shortForecast || '').join(' ');
+    const pop = pers.reduce((m, p) => {
+      const v = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+      return v != null && (m == null || v > m) ? v : m;
+    }, null);
+    const quote = (re) => ((pers.find((p) => re.test(p.shortForecast || '')) || {}).shortForecast || '');
+
+    if (WINTRY.test(wtxt)) {
+      const phase = wintryPhase(wtxt);
+      stories.push({
+        key,
+        score: 58 + (inches >= 0.3 ? 8 : 0) + (phase === 'Freezing rain' ? 10 : 0)
+          + (pop >= 60 ? 6 : 0) - pen,
+        headline: `${phase} ${whenPhrase(e.t0)}`,
+        deck: `The GFS breaks precip out ${span} — about ${inches.toFixed(2)}″ liquid — and ` +
+          `LWX calls it “${quote(WINTRY)}”${pop != null ? ` at ${pop}%` : ''}. Anything that ` +
+          'freezes to the airframe is a no-go without a way to shed it.',
+      });
+    } else if (e.cape >= 900) {
+      const cap = capStrength(s, e.i0, e.i1);
       const capNote = !cap.have ? ''
         : cap.mag >= 75 ? ` A cap worth ${Math.round(cap.mag / 10) * 10} J/kg has to erode first, so timing is the whole question.`
         : cap.mag <= 25 ? ' Next to nothing is capping the column — whatever fires, fires early.' : '';
+      const lwx = !wtxt ? '' : CONVECTIVE.test(wtxt)
+        ? ` LWX carries the storms too${pop != null ? `, at ${pop}%` : ''}.`
+        : ' LWX isn\'t carrying thunder for these hours yet — coverage is the open question.';
       stories.push({
-        key: 'convection',
-        score: 64 + (ep.cape >= 2000 ? 16 : ep.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - leadTimePenalty(ep.t0),
-        headline: `Thunderstorms ${whenPhrase(ep.t0)}`,
-        deck: `The model builds ${fmtJ(ep.cape)} J/kg of CAPE over DC and breaks precip out ${span}` +
-          `${mech ? `, with ${mech}` : ''}. Peak rate near ${ep.peak.toFixed(1)} mm/hr — about ` +
-          `${inches.toFixed(2)}″ if a cell tracks over the district.${capNote}`,
+        key,
+        score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
+        headline: `Thunderstorms ${whenPhrase(e.t0)}`,
+        deck: `The model builds ${fmtJ(e.cape)} J/kg of CAPE over DC and breaks precip out ${span}` +
+          `${mech ? `, with ${mech}` : ''}. Peak rate near ${e.peak.toFixed(1)} mm/hr — about ` +
+          `${inches.toFixed(2)}″ if a cell tracks over the district.${lwx}${capNote}`,
+      });
+    } else if (CONVECTIVE.test(wtxt)) {
+      /* LWX says thunder over these hours; the GFS has the rain but not the
+         fuel. LWX is the stronger source on coverage — lead with its call,
+         keep the model's timing. */
+      stories.push({
+        key,
+        score: 54 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - pen,
+        headline: `Thunderstorms ${whenPhrase(e.t0)}`,
+        deck: `LWX carries “${quote(CONVECTIVE)}”${pop != null ? ` at ${pop}%` : ''}, and the ` +
+          `GFS times the precip ${span} while building little fuel at DC ` +
+          `(peak ${fmtJ(e.cape)} J/kg). On storm coverage LWX is the stronger source.`,
       });
     } else {
       const heavy = inches >= 0.75, trace = inches < 0.15;
       stories.push({
-        key: 'rain',
-        score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - leadTimePenalty(ep.t0),
-        headline: heavy ? `Soaking rain ${whenPhrase(ep.t0)}`
-          : trace ? `A few showers ${whenPhrase(ep.t0)}` : `Rain ${whenPhrase(ep.t0)}`,
+        key,
+        score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - pen,
+        headline: heavy ? `Soaking rain ${whenPhrase(e.t0)}`
+          : trace ? `A few showers ${whenPhrase(e.t0)}` : `Rain ${whenPhrase(e.t0)}`,
         deck: `Steady, largely stratiform precip ${span}${mech ? ` as ${mech} works in` : ''} — ` +
           `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`} at DC in the GFS, peaking near ` +
-          `${ep.peak.toFixed(1)} mm/hr. Little instability to work with, so wet rather than stormy.`,
+          `${e.peak.toFixed(1)} mm/hr. Little instability to work with, so wet rather than stormy.` +
+          `${pop != null ? ` LWX has it at ${pop}%.` : ''}`,
       });
     }
   }
 
   /* --- hazards the NWS forecast carries that the model doesn't show --- */
   /* The model-backed stories exist only when the GFS point read paints the
-     setup itself: thunder needs a storm-grade episode, fog a closing spread,
-     wind is only checked 24 h out, the rain story can't tell precip phase,
-     and smoke/haze has no model signal at all. LWX carries all of these off
-     mesoscale guidance and observations a single model at one point can't
-     see, so each gets a wording-sourced story here. Read the raw periods,
-     not FC.days — the daily digest keeps daytime wording, so "storms
-     tomorrow evening" often lives only in a night period the digest drops. */
+     setup itself: fog needs a closing spread, wind is only checked 24 h out,
+     and smoke/haze has no model signal at all. Precip wording that overlaps
+     a GFS wet episode is already folded into the merged episode stories
+     above, so the thunder and winter backstops here fire ONLY when the GFS
+     is dry over the period — the two sources can never tell two different
+     precip stories about the same hours. Read the raw periods, not FC.days
+     — the daily digest keeps daytime wording, so "storms tomorrow evening"
+     often lives only in a night period the digest drops. */
   const perName = (n) => String(n).split(' ')
     .map((w) => /^(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day$/.test(w) ? w : w.toLowerCase()).join(' ');
   const fw = s ? fogWindow(s) : null;              // the model fog story's window
@@ -2588,21 +2634,19 @@ function buildStories(s) {
     const short = p.shortForecast || '', detail = p.detailedForecast || '';
     const at = Math.max(t0, now), day = localDay(at);
     const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+    const pEnd = Number.isFinite(t1) ? t1 : t0 + 12 * 3600e3;
+    const gfsWet = eps.slice(0, 3).some((e) => e.t1 + 3600e3 > t0 && e.t0 < pEnd);
 
-    if (CONVECTIVE.test(short)) {
-      const stormEp = eps.find((e) => e.cape >= 900 && localDay(e.t0) === day);
-      if (!stormEp || stormEp !== ep) {            // else the convection story above owns this day
-        stories.push({
-          key: 'fcstorm',
-          score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
-          headline: `Thunderstorms in the forecast ${perName(p.name)}`,
-          deck: `LWX carries “${short}” for ${perName(p.name)}` +
-            `${pop != null ? ` — ${pop}% chance` : ''}. ` + (stormEp
-              ? `The GFS backs it up with ${fmtJ(stormEp.cape)} J/kg of CAPE ${whenPhrase(stormEp.t0)}.`
-              : 'The GFS run behind this page doesn\'t show it — weak evidence against: ' +
-                'storms here hinge on small triggers one model can\'t resolve.'),
-        });
-      }
+    if (CONVECTIVE.test(short) && !gfsWet) {
+      stories.push({
+        key: 'fcstorm',
+        score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
+        headline: `Thunderstorms in the forecast ${perName(p.name)}`,
+        deck: `LWX carries “${short}” for ${perName(p.name)}` +
+          `${pop != null ? ` — ${pop}% chance` : ''}. The GFS run behind this page is dry ` +
+          'then — weak evidence against: storms here hinge on small triggers one model ' +
+          'can\'t resolve.',
+      });
     }
 
     if (/fog/i.test(short + ' ' + detail)) {
@@ -2626,25 +2670,17 @@ function buildStories(s) {
       }
     }
 
-    if (/\bsnow\b|sleet|freezing (?:rain|drizzle)|wintry mix|ice storm/i.test(short)) {
-      /* The model rain story reads liquid amounts and can't tell phase — a
-         snow day would headline as "Rain". The wording is the phase call. */
-      const phase = /freezing rain|ice storm/i.test(short) ? 'Freezing rain'
-        : /sleet/i.test(short) ? 'Sleet'
-        : /wintry mix|rain and snow|snow and rain/i.test(short) ? 'Wintry mix' : 'Snow';
-      const epHere = eps.find((e) => localDay(e.t0) === day);
+    if (WINTRY.test(short) && !gfsWet) {
+      const phase = wintryPhase(short);
       stories.push({
         key: 'fcwinter',
         score: 56 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) +
           (phase === 'Freezing rain' ? 8 : 0) - leadTimePenalty(at),
         headline: `${phase} in the forecast ${perName(p.name)}`,
         deck: `LWX carries “${short}” for ${perName(p.name)}` +
-          `${pop != null ? ` — ${pop}% chance` : ''}. ` + (epHere
-            ? `The GFS paints the precip too (~${(epHere.total / 25.4).toFixed(2)}″ liquid) — ` +
-              'it just can\'t say the phase; the wording can. '
-            : 'The GFS run is dry then — weak evidence against: rain/snow lines move on ' +
-              'gradients too fine for one model to place. ') +
-          'Anything that freezes to the airframe is a no-go without a way to shed it.',
+          `${pop != null ? ` — ${pop}% chance` : ''}. The GFS run is dry then — weak ` +
+          'evidence against: rain/snow lines move on gradients too fine for one model ' +
+          'to place. Anything that freezes to the airframe is a no-go without a way to shed it.',
       });
     }
 
@@ -2885,6 +2921,10 @@ function afdKeyMessages() {
    message when the forecast hasn't budged. */
 
 const CONVECTIVE = /thunder|t-?storm/i;
+const WINTRY = /\bsnow\b|sleet|freezing (?:rain|drizzle)|wintry mix|ice storm/i;
+const wintryPhase = (t) => /freezing rain|ice storm/i.test(t) ? 'Freezing rain'
+  : /sleet/i.test(t) ? 'Sleet'
+  : /wintry mix|rain and snow|snow and rain/i.test(t) ? 'Wintry mix' : 'Snow';
 
 /* The forecast as it stood at the start of today — the version a morning
    decision was made against. */
