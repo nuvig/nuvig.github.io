@@ -2510,6 +2510,23 @@ function leadTimePenalty(ms) {
   return h > 30 ? 14 : h > 18 ? 7 : 0;
 }
 
+/* Where the moisture is coming from — dewpoint plus the low-level flow at one
+   model hour. One clause that answers "where is this rain from". */
+function moistureClause(s, i) {
+  if (!s || !Number.isFinite(s.td[i])) return '';
+  const td = Math.round(degF(s.td[i]));
+  const d = ((s.dir[i] % 360) + 360) % 360;
+  if (d >= 140 && d <= 250) return ` Dewpoints near ${td}°, fed from the south — Gulf and western-Atlantic moisture.`;
+  if (d >= 50 && d < 140) return ` Dewpoints near ${td}° on onshore flow off the Atlantic.`;
+  return ` Dewpoints near ${td}° in ${td >= 63 ? 'a humid' : 'a drier'} air mass.`;
+}
+
+function idxAt(s, ms) {
+  let k = s.now;
+  for (let i = s.now; i < s.t.length && s.t[i] <= ms; i++) k = i;
+  return k;
+}
+
 function buildStories(s) {
   const now = Date.now();
   const today = localDay(now), tmr = localDay(now + 86400000);
@@ -2566,7 +2583,8 @@ function buildStories(s) {
         score: 58 + (inches >= 0.3 ? 8 : 0) + (phase === 'Freezing rain' ? 10 : 0)
           + (pop >= 60 ? 6 : 0) - pen,
         headline: `${phase} ${whenPhrase(e.t0)}`,
-        deck: `Precip in the GFS ${span}, about ${inches.toFixed(2)}″ liquid. LWX calls it ` +
+        deck: `Precip in the GFS ${span}, about ${inches.toFixed(2)}″ liquid` +
+          `${mech ? `, lift from ${mech}` : ''}.${moistureClause(s, e.i0)} LWX calls it ` +
           `${phase.toLowerCase()} — “${quote(WINTRY)}”${pop != null ? `, ${pop}%` : ''}. Anything ` +
           'that freezes to the airframe is a no-go without a way to shed it.',
       });
@@ -2576,15 +2594,15 @@ function buildStories(s) {
         : cap.mag >= 75 ? ` A cap worth ${Math.round(cap.mag / 10) * 10} J/kg has to erode first, so timing is the whole question.`
         : cap.mag <= 25 ? ' Next to nothing is capping the column — whatever fires, fires early.' : '';
       const lwx = !wtxt ? '' : CONVECTIVE.test(wtxt)
-        ? ` LWX agrees: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}.`
-        : ' No thunder in the LWX forecast for these hours yet — coverage is the open question.';
+        ? ` LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}.`
+        : ' No thunder in the LWX forecast for these hours.';
       stories.push({
         key,
         score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
         deck: `${fmtJ(e.cape)} J/kg of storm fuel in the GFS, rain breaking out ${span}` +
           `${mech ? ` with ${mech}` : ''} — about ${inches.toFixed(2)}″ if a cell tracks over ` +
-          `the district.${lwx}${capNote}`,
+          `the district.${moistureClause(s, e.i0)}${lwx}${capNote}`,
       });
     } else if (CONVECTIVE.test(wtxt)) {
       /* LWX says thunder over these hours; the GFS has the rain but not the
@@ -2595,8 +2613,9 @@ function buildStories(s) {
         score: 54 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
         deck: `LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}. The GFS has the ` +
-          `rain ${span} but little storm fuel at DC. Coverage is LWX's call — storms here ` +
-          'start on triggers (bay breeze, outflow boundaries) smaller than one model resolves.',
+          `rain ${span} but only ${fmtJ(e.cape)} J/kg of storm fuel at DC.` +
+          `${moistureClause(s, e.i0)} With fuel that thin, storms hang on local triggers — ` +
+          'the bay breeze and leftover outflow boundaries.',
       });
     } else {
       const heavy = inches >= 0.75, trace = inches < 0.15;
@@ -2607,8 +2626,8 @@ function buildStories(s) {
           : trace ? `A few showers ${whenPhrase(e.t0)}` : `Rain ${whenPhrase(e.t0)}`,
         deck: `Steady rain in the GFS ${span}${mech ? ` as ${mech} works in` : ''} — ` +
           `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`}, peaking near ` +
-          `${e.peak.toFixed(1)} mm/hr. Little instability to work with, so wet rather than stormy.` +
-          `${pop != null ? ` LWX: ${pop}%.` : ''}`,
+          `${e.peak.toFixed(1)} mm/hr.${moistureClause(s, e.i0)} Little instability, so wet ` +
+          `rather than stormy.${pop != null ? ` LWX: ${pop}%.` : ''}`,
       });
     }
   }
@@ -2642,9 +2661,10 @@ function buildStories(s) {
         key: 'fcstorm',
         score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
         headline: `Thunderstorms in the forecast ${perName(p.name)}`,
-        deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}. ` +
-          'Nothing in the GFS for those hours — weak evidence against; storms here start ' +
-          'on triggers (bay breeze, outflow boundaries) smaller than one model resolves.',
+        deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}.` +
+          `${s ? moistureClause(s, idxAt(s, at)) : ''} Nothing convective in the GFS hourly ` +
+          'numbers at DC — storms in this pattern start on the bay breeze and outflow ' +
+          'boundaries, smaller features than the model grid.',
       });
     }
 
@@ -3008,16 +3028,18 @@ function renderSplit(s) {
   const modelWet = !!ep;
   let msg = null;
   if (officeStorm && !modelStorm) {
-    msg = 'LWX has thunder in the forecast; the GFS doesn\'t. Most of these disagreements ' +
-      'go LWX\'s way — several models plus local knowledge, against one model at one point.';
+    msg = 'Thunder in the LWX forecast; nothing convective in the GFS at DC. Storms in ' +
+      'this pattern start on the bay breeze and outflow boundaries — smaller features ' +
+      'than the model grid, so the hourly numbers stay quiet until they fire.';
   } else if (modelStorm && !officeStorm) {
-    msg = 'Storm fuel in the GFS that isn\'t in the LWX forecast. One model alone is long ' +
-      'odds — watch whether the next LWX issuance adds thunder.';
+    msg = 'Storm fuel in the GFS with no thunder in the LWX forecast — fuel without a ' +
+      'trigger often goes unused.';
   } else if (officeWet && !modelWet) {
-    msg = 'LWX has precip in the forecast; the GFS is dry. One dry model doesn\'t outweigh ' +
-      'the forecast.';
+    msg = 'Precip in the LWX forecast; the GFS at DC is dry. Rain areas at this range ' +
+      'wander tens of miles, so a dry point doesn\'t mean a dry day.';
   } else if (modelWet && !officeWet) {
-    msg = 'Precip in the GFS that isn\'t in the LWX forecast — one model alone, long odds.';
+    msg = 'Precip in the GFS that isn\'t in the LWX forecast — one wet model solution ' +
+      'among the many the forecast averages.';
   }
   if (msg) host.innerHTML = `<span class="lab">Model vs LWX</span>${esc(msg)}`;
 }
