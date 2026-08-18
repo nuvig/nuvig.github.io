@@ -219,6 +219,18 @@
     /* ---- verification card ---- */
     /* Act IV — the verification front. Left of "now" is settled, right of it
        is still open; the same reading as the tracker's markNow line. */
+    .vf-nav {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .vf-step {
+      background: #1e2630; border: 1px solid #2c3743; color: #b9c3cc;
+      border-radius: 5px; width: 24px; height: 22px; line-height: 1;
+      cursor: pointer; font-size: 14px; padding: 0;
+    }
+    .vf-step:hover:not(:disabled) { background: #263140; color: #e4eaf0; }
+    .vf-step:disabled { opacity: .35; cursor: default; }
+    .vf-day { color: #e4eaf0; font-weight: 600; min-width: 112px; text-align: center; }
     .vf-head {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
       font-size: 12px; margin-bottom: 12px;
@@ -606,8 +618,10 @@
       <p class="deck">Forecast windows close at different times, so each is checked when it closes and
         the rest stay listed as open — at noon that's last night's low and the morning's ceilings,
         not a verdict on storms that haven't fired yet. Day rows are the DC forecast against KDCA's
-        METARs; field rows are the KANP hourly grid against the same METARs. When something closed
-        and missed, the model's own hindcast says where it went sideways.</p>
+        METARs; field rows are the KANP hourly grid against the same METARs. Ceilings are checked
+        by height band, not just flight category — a 3,000 ft VFR deck and a clear sky are
+        different forecasts. When something closed and missed, the model's own hindcast says where
+        it went sideways. The ‹ › arrows step back through earlier days, every window closed.</p>
     </details>
   </div>
   <div class="card">
@@ -652,7 +666,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=30"></script>
+  <script src="js/discussion.js?v=31"></script>
   <script src="js/discussion-avn.js?v=4"></script>
 </body>
 </html>
