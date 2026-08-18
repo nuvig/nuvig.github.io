@@ -196,8 +196,10 @@ is classified there, check all four.
   stream doesn't reach degrade to day rows plus an unjudged "what fell" line rather than scoring
   a forecast that was never captured. The ceiling row judges **height bands on top of flight
   category** (`ceilBand()`: the LIFR/IFR/MVFR edges, then 3/5/10 k splits of VFR) — a 3,000 ft
-  deck and a clear sky are both VFR but not the same forecast, so the row prints both heights
-  and a same-category day ≥2 bands off scores ≈, not ✓. Sources are
+  deck and a clear sky are both VFR but not the same forecast, so the row prints both heights,
+  a same-category day ≥2 bands off scores ≈ not ✓, and a missed hour is named with
+  called-vs-saw (`catCause()`: the ceiling or the visibility, whichever drove the category).
+  Sources are
   labelled per row because four places are involved: **the DC point** is the forecast being
   discussed, **KDCA** (`obs/`) is what verifies it, **KANP** is the NWS hourly grid behind the
   field rows, and **KNAK** (`fieldobs/`, ~3 nm NE) is what those field rows verify against —
