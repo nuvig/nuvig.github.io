@@ -1740,6 +1740,15 @@ function ceilBand(ft) {
   return b;
 }
 const fmtCeil = (ft) => (ft == null ? 'no ceiling' : `${ft.toLocaleString('en-US')} ft`);
+const fmtVis = (v) => (v == null ? '' : v >= 7 ? 'P6SM' : `${+v.toFixed(1)} SM`);
+
+/* The measurement that put an hour in its category: the ceiling when the
+   ceiling alone reaches it, else the visibility ("700 ft" vs "2.5 SM") —
+   so a miss can say what actually went down, not just the category. */
+function catCause(visSM, ceilFt) {
+  const cat = catOf(visSM, ceilFt);
+  return catOf(null, ceilFt) === cat ? fmtCeil(ceilFt) : fmtVis(visSM);
+}
 
 /* "no ceiling", "ceil 3,000 ft", "ceil 2,500–4,000 ft, part clear" over a
    set of hourly ceilings. */
@@ -1838,6 +1847,7 @@ function hourlyPairs(metars, snap, date) {
       hr, obs: o,
       fCat: known ? catOf(fVis === undefined ? null : fVis, fCeil === undefined ? null : fCeil) : null,
       fCeil: fCeil === undefined ? null : fCeil,
+      fVis: fVis === undefined ? null : fVis,
       fCeilKnown: fCeil !== undefined,   // in-range hour: null there means "no ceiling advertised"
       fSpd: fSpd === undefined ? null : fSpd,
       fGst: fGst === undefined ? null : fGst,
@@ -2107,10 +2117,19 @@ async function vfBuild(date, off) {
       : `${esc(FIELD_ID)} grid ${CATS[Math.min(...fCats)]}–${CATS[Math.max(...fCats)]}`) + saidCeil;
     let state = 'hit', got, note = '';
     if (worse.length) {
+      /* A miss must say when and by how much, not just count hours: pick the
+         hour with the widest category gap (band gap breaks ties) and print
+         what was called against what was seen, each with the measurement
+         that put it there. */
       state = 'miss';
-      const w = worse.map((p) => p.hr);
-      got = `${esc(fieldStation)} <b>${CATS[Math.max(...worse.map((p) => p.obs.cat))]}</b> ${esc(hourSpan(w))}${gotCeil}`;
-      note = `${worse.length} h worse than advertised`;
+      const gap = (p) => p.obs.cat - p.fCat;
+      const worst = worse.reduce((a, p) =>
+        (gap(p) > gap(a) || (gap(p) === gap(a) && bandDiff(p) > bandDiff(a)) ? p : a));
+      const wCeil = worse.some((p) => p.obs.ceilFt != null) ? ` · ${esc(ceilSpan(worse.map((p) => p.obs.ceilFt)))}` : '';
+      got = `${esc(fieldStation)} <b>${CATS[Math.max(...worse.map((p) => p.obs.cat))]}</b> ${esc(hourSpan(worse.map((p) => p.hr)))}${wCeil}`;
+      note = `${worse.length} of ${catPairs.length} h worse — ${esc(hourLabel(worst.hr))} ` +
+        `called ${CATS[worst.fCat]} ${esc(catCause(worst.fVis, worst.fCeil))}, ` +
+        `saw ${CATS[worst.obs.cat]} ${esc(catCause(worst.obs.visSM, worst.obs.ceilFt))}`;
     } else if (better.length) {
       state = 'near';
       got = `${esc(fieldStation)} <b>${CATS[Math.min(...better.map((p) => p.obs.cat))]}</b>${gotCeil} — better than called`;
