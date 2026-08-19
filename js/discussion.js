@@ -2878,11 +2878,8 @@ function buildStories(s) {
         key: 'front',
         score: 48 + Math.min(22, Math.round(Math.abs(fp.d) * 3.5)) - leadTimePenalty(fp.at),
         headline: fp.cold ? `Cold front crosses ${whenPhrase(fp.at)}` : `Warm front lifts through ${whenPhrase(fp.at)}`,
-        deck: `Around ${clockPhrase(fp.at)} the temperature at 5,000 ft ${fp.cold ? 'drops' : 'rises'} ` +
-          `${Math.abs(fp.d).toFixed(1)} °C in six hours. Daily heating doesn't reach that high, so a ` +
-          `swing that sharp means the air over the region is being replaced — ` +
-          `${fp.cold ? 'colder, usually drier air behind a front' : 'warmer, moister air riding in ahead of one'}.` +
-          `${shift}${swing}`,
+        deck: `850 hPa temperatures ${fp.cold ? 'fall' : 'climb'} ${Math.abs(fp.d).toFixed(1)} °C in six hours ` +
+          `around ${clockPhrase(fp.at)} — the air mass itself changing, not just the sky.${shift}${swing}`,
       });
     }
   }
