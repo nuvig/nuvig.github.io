@@ -22,6 +22,9 @@ const TZ = SITE.weather.timeZone;
 const ARCHIVE = SITE.weather.archiveBase || null;   // scripts/wxarchive.py output (data/wx/)
 const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
+/* Printed in the footer so a stale deploy is visible at a glance.
+   Keep in step with the ?v= cache-buster on this file in discussion.html. */
+const DISC_VER = 34;
 
 const $ = (id) => document.getElementById(id);
 
@@ -4146,4 +4149,5 @@ async function init() {
 }
 
 $('refresh-btn').addEventListener('click', () => location.reload());
+$('disc-ver').textContent = `v${DISC_VER}`;
 init();

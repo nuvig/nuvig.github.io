@@ -20,6 +20,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - **Cache-busting is manual**: assets are referenced as `js/foo.js?v=N` / `css/main.css?v=N`.
   When you change a file that already carries a `?v=`, bump the number in every page referencing it
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
+  `discussion.html` prints the running JS version in its footer (`DISC_VER` in `js/discussion.js`,
+  bumped in step with the `?v=`) so a stale deploy is visible at a glance.
 - `.gitattributes` forces LF on `pi/*.{py,sh,service,timer}` — the Pi is Linux and CRLF breaks
   bash/systemd on checkout. Don't override it.
 - `.nojekyll` is present; GitHub Pages serves the tree as-is. `CNAME` pins jesselevine.net.
