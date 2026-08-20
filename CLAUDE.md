@@ -163,7 +163,22 @@ is classified there, check all four.
   daily forecast). Highest score leads, the rest become the "also" lines, and it degrades source by
   source: no grid → forecast + alerts, no NWS → model only, nothing → the AFD's own KEY MESSAGES.
   **The card must never go quiet about a day it could have mentioned** — a reader who cancelled a
-  flight on the morning forecast reads silence as "threat gone". The scored story stays in the
+  flight on the morning forecast reads silence as "threat gone". **And it answers "why", not just
+  "what"**: the LWX DISCUSSION is mined back into its KEY MESSAGE blocks (`afdStoryBlocks()` —
+  `KEY MESSAGE n...` heads, the `... DESCRIPTION` variant folded in, older NEAR/SHORT/LONG TERM
+  sections reading the day range from the header qualifier), each block mapped to local dates from
+  its own day words (`daysFromPhrase()`) and reduced to the one sentence naming the mechanism
+  (`driverSentence()`: driver terms + motion verbs score it, model-chat is docked, naming more of
+  the block's days wins ties — so "a surface low develops near the VA Tidewater" beats the
+  Friday-lull sentence for a Fri–Sat block). The lead story renders that sentence as
+  "The driver · LWX"; **"The week"** (7 forecast chips + one driver row per block, `renderWeek()`)
+  carries the coming days. Stories reach the **full 7-day forecast** — per-day
+  `fcstorm:`/`fcwinter:`/`fcwind:` keys so two storm days both surface, a flattened lead-time
+  penalty instead of the old +60 h cutoff — with decks honest about the ~2-day GFS window ("Past
+  the ~2-day GFS window this page reads", and no GFS claims at all when the grid never loaded),
+  the quiet story naming the first chance beyond the grid, and a lead that opens a multi-day wet
+  stretch saying so in one clause ("Not a one-day event — chances stay up through Sunday, drier
+  Monday"). The scored story stays in the
   headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes", and a
   "Model vs LWX" line — `renderSplit()` — that speaks only when the GFS point read and the
   NWS forecast/AFD disagree about precip or storms in the next 36 h, silent on agreement);
