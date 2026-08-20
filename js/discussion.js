@@ -2630,11 +2630,12 @@ function fogWindow(s, dayKey) {
 
 /* ------------------------------ the stories ------------------------------ */
 
-/* The grid runs out to +49 h; something two days out shouldn't outrank what
-   happens this afternoon just because it's bigger. */
+/* Stories now reach the full 7-day forecast; something days out shouldn't
+   outrank what happens this afternoon just because it's bigger — but it must
+   still exist, so the ladder flattens rather than cutting off. */
 function leadTimePenalty(ms) {
   const h = (ms - Date.now()) / 3600e3;
-  return h > 30 ? 14 : h > 18 ? 7 : 0;
+  return h > 96 ? 26 : h > 72 ? 22 : h > 48 ? 18 : h > 30 ? 14 : h > 18 ? 7 : 0;
 }
 
 /* Where the moisture is coming from — dewpoint plus the low-level flow at one
@@ -2670,6 +2671,7 @@ function buildStories(s) {
     if (Number.isFinite(endMs) && endMs > now) when += `${when ? ' to ' : ' until '}${clockPhrase(endMs)}`;
     stories.push({
       key: `alert:${a.event}`,
+      day: localDay(Number.isFinite(startMs) ? Math.max(startMs, now) : now),
       score: 58 + rank * 11,
       headline: `${a.event}${when}`,
       deck: alertWhat(a),
@@ -2694,7 +2696,8 @@ function buildStories(s) {
     const span = spanPhrase(e.t0, e.t1);
     const mech = mechanismAt(e.i0);
     const pen = leadTimePenalty(e.t0);
-    const key = `precip:${localDay(e.t0)}`;
+    const eDay = localDay(e.t0);
+    const key = `precip:${eDay}`;
     const pers = overlapPeriods(e.t0, e.t1 + 3600e3);
     const wtxt = pers.map((p) => p.shortForecast || '').join(' ');
     const pop = pers.reduce((m, p) => {
@@ -2707,6 +2710,7 @@ function buildStories(s) {
       const phase = wintryPhase(wtxt);
       stories.push({
         key,
+        day: eDay,
         score: 58 + (inches >= 0.3 ? 8 : 0) + (phase === 'Freezing rain' ? 10 : 0)
           + (pop >= 60 ? 6 : 0) - pen,
         headline: `${phase} ${whenPhrase(e.t0)}`,
@@ -2725,6 +2729,7 @@ function buildStories(s) {
         : ' No thunder in the LWX forecast for these hours.';
       stories.push({
         key,
+        day: eDay,
         score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
         deck: `${fmtJ(e.cape)} J/kg of storm fuel in the GFS, rain breaking out ${span}` +
@@ -2737,6 +2742,7 @@ function buildStories(s) {
          keep the model's timing. */
       stories.push({
         key,
+        day: eDay,
         score: 54 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
         deck: `LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}. The GFS has the ` +
@@ -2748,6 +2754,7 @@ function buildStories(s) {
       const heavy = inches >= 0.75, trace = inches < 0.15;
       stories.push({
         key,
+        day: eDay,
         score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - pen,
         headline: heavy ? `Soaking rain ${whenPhrase(e.t0)}`
           : trace ? `A few showers ${whenPhrase(e.t0)}` : `Rain ${whenPhrase(e.t0)}`,
@@ -2773,25 +2780,31 @@ function buildStories(s) {
     .map((w) => /^(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day$/.test(w) ? w : w.toLowerCase()).join(' ');
   const fw = s ? fogWindow(s) : null;              // the model fog story's window
   const wPeak = s ? peakIn(s, 'spd', 24) : null;   // the model wind story's peak
+  const gridEnd = s ? s.t[s.t.length - 1] : 0;     // the GFS window ends ~+2 days
   for (const p of FC.periods) {
     const t0 = Date.parse(p.startTime || ''), t1 = Date.parse(p.endTime || '');
-    if (!Number.isFinite(t0) || t0 > now + 60 * 3600e3) continue;
+    if (!Number.isFinite(t0) || t0 > now + 7 * 86400e3) continue;
     if (Number.isFinite(t1) && t1 < now) continue;
     const short = p.shortForecast || '', detail = p.detailedForecast || '';
     const at = Math.max(t0, now), day = localDay(at);
+    const inGrid = at <= gridEnd;
     const pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
     const pEnd = Number.isFinite(t1) ? t1 : t0 + 12 * 3600e3;
     const gfsWet = eps.slice(0, 3).some((e) => e.t1 + 3600e3 > t0 && e.t0 < pEnd);
 
     if (CONVECTIVE.test(short) && !gfsWet) {
       stories.push({
-        key: 'fcstorm',
+        key: 'fcstorm:' + day,
+        day,
         score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
         headline: `Thunderstorms in the forecast ${perName(p.name)}`,
         deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}.` +
-          `${s ? moistureClause(s, idxAt(s, at)) : ''} Nothing convective in the GFS hourly ` +
-          'numbers at DC — storms in this pattern start on the bay breeze and outflow ' +
-          'boundaries, smaller features than the model grid.',
+          (!s ? ''
+            : inGrid
+              ? `${moistureClause(s, idxAt(s, at))} Nothing convective in the GFS hourly ` +
+                'numbers at DC — storms in this pattern start on the bay breeze and outflow ' +
+                'boundaries, smaller features than the model grid.'
+              : ' Past the ~2-day GFS window this page reads.'),
       });
     }
 
@@ -2804,14 +2817,18 @@ function buildStories(s) {
         const said = /fog/i.test(short) ? short
           : ((detail.match(/[^.]*fog[^.]*\./i) || [detail])[0]).trim();
         stories.push({
-          key: 'fcfog',
+          key: 'fcfog:' + mornDay,
+          day: mornDay,
           score: (/dense/i.test(short + detail) ? 58 : 48) - leadTimePenalty(morn),
           headline: `Fog in the forecast ${whenPhrase(morn)}`,
           deck: `LWX: “${said}” ${perName(p.name)}. ` + (fwHere
             ? `The GFS shows the setup too — spread inside ${fwHere.spreadF}°F with ` +
               `${fwHere.kt} kt of wind near ${clockPhrase(fwHere.at)}.`
-            : 'The spread never closes in the GFS, which is normal — fog forms in river ' +
-              'valleys and along the bay shore, below what a global model sees.'),
+            : !s ? 'Fog forms in river valleys and along the bay shore, below what a global model sees.'
+            : morn <= gridEnd
+              ? 'The spread never closes in the GFS, which is normal — fog forms in river ' +
+                'valleys and along the bay shore, below what a global model sees.'
+              : 'Past the ~2-day GFS window this page reads.'),
         });
       }
     }
@@ -2819,14 +2836,18 @@ function buildStories(s) {
     if (WINTRY.test(short) && !gfsWet) {
       const phase = wintryPhase(short);
       stories.push({
-        key: 'fcwinter',
+        key: 'fcwinter:' + day,
+        day,
         score: 56 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) +
           (phase === 'Freezing rain' ? 8 : 0) - leadTimePenalty(at),
         headline: `${phase} in the forecast ${perName(p.name)}`,
         deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}. ` +
-          'Nothing in the GFS yet — rain/snow lines move on temperature gradients finer ' +
-          'than one model resolves. Anything that freezes to the airframe is a no-go ' +
-          'without a way to shed it.',
+          (!s ? ''
+            : inGrid
+              ? 'Nothing in the GFS yet — rain/snow lines move on temperature gradients finer ' +
+                'than one model resolves. '
+              : 'Past the ~2-day GFS window this page reads. ') +
+          'Anything that freezes to the airframe is a no-go without a way to shed it.',
       });
     }
 
@@ -2840,14 +2861,18 @@ function buildStories(s) {
         const said = /windy|blustery/i.test(short) ? short
           : ((detail.match(/[^.]*\bwind\b[^.]*\./i) || [detail])[0]).trim();
         stories.push({
-          key: 'fcwind',
+          key: 'fcwind:' + day,
+          day,
           score: (gustMph >= 45 ? 56 : 48) - leadTimePenalty(at),
           headline: gustMph ? `Gusts to ${gustMph} mph in the forecast ${perName(p.name)}`
             : `Windy in the forecast ${perName(p.name)}`,
           deck: `LWX: “${said}” ${perName(p.name)}` +
-            `${gustMph ? ` — about ${Math.round(gustMph * 0.869)} kt` : ''}. ` +
-            'The GFS hourly wind reads lower because it lists sustained speeds; ' +
-            'gusts live between them.',
+            `${gustMph ? ` — about ${Math.round(gustMph * 0.869)} kt` : ''}.` +
+            (!s ? ''
+              : inGrid
+                ? ' The GFS hourly wind reads lower because it lists sustained speeds; ' +
+                  'gusts live between them.'
+                : ' Past the ~2-day GFS window this page reads.'),
         });
       }
     }
@@ -2855,7 +2880,8 @@ function buildStories(s) {
     if (/smoke|haze/i.test(short)) {
       /* No model signal exists for this at all — wording is the only source. */
       stories.push({
-        key: 'fchaze',
+        key: 'fchaze:' + day,
+        day,
         score: (/smoke/i.test(short) ? 46 : 40) - leadTimePenalty(at),
         headline: `${/smoke/i.test(short) ? 'Smoke' : 'Haze'} in the forecast ${perName(p.name)}`,
         deck: `LWX: “${short}” ${perName(p.name)}. Smoke and haze show up in no model number ` +
@@ -2876,6 +2902,7 @@ function buildStories(s) {
         ? ` Highs go ${hiA.hi}° today → ${hiB.hi}° tomorrow.` : '';
       stories.push({
         key: 'front',
+        day: localDay(fp.at),
         score: 48 + Math.min(22, Math.round(Math.abs(fp.d) * 3.5)) - leadTimePenalty(fp.at),
         headline: fp.cold ? `Cold front crosses ${whenPhrase(fp.at)}` : `Warm front lifts through ${whenPhrase(fp.at)}`,
         deck: `850 hPa temperatures ${fp.cold ? 'fall' : 'climb'} ${Math.abs(fp.d).toFixed(1)} °C in six hours ` +
@@ -2894,6 +2921,7 @@ function buildStories(s) {
     if (score) {
       stories.push({
         key: 'heat',
+        day: hot.key,
         score,
         headline: hot.f >= 97 ? `Dangerous heat — ${hot.f}° ${hot.label}`
           : hot.f >= 93 ? `Heat peaks near ${hot.f}° ${hot.label}`
@@ -2910,6 +2938,7 @@ function buildStories(s) {
   if (lo && lo.f != null && lo.f <= 33) {
     stories.push({
       key: 'cold',
+      day: today,
       score: lo.f <= 15 ? 76 : lo.f <= 25 ? 58 : 50,
       headline: lo.f <= 20 ? `Hard freeze ${lo.label} — low near ${lo.f}°` : `Freezing ${lo.label} — low near ${lo.f}°`,
       deck: `${lo.src === 'NWS forecast' ? 'NWS' : 'The model'} bottoms DC out at ${lo.f}° ${lo.label}. ` +
@@ -2919,6 +2948,7 @@ function buildStories(s) {
   if (hot && hot.f != null && hot.f <= 38) {
     stories.push({
       key: 'coldday',
+      day: hot.key,
       score: 56,
       headline: `Cold day — high only ${hot.f}° ${hot.label}`,
       deck: `The air mass never really warms ${hot.label}: ${hot.src === 'NWS forecast' ? 'NWS' : 'the model'} ` +
@@ -2933,6 +2963,7 @@ function buildStories(s) {
       const xw = crosswindKANP(s.dir[w.i], w.v);
       stories.push({
         key: 'wind',
+        day: localDay(w.at),
         score: (w.v >= 25 ? 62 : w.v >= 20 ? 48 : 40) - leadTimePenalty(w.at),
         headline: `${w.v >= 25 ? 'Strong' : 'Breezy'} ${dir8(s.dir[w.i])} wind ${whenPhrase(w.at)}`,
         deck: `Sustained ${Math.round(w.v)} kt from ${String(Math.round(s.dir[w.i] / 10) * 10).padStart(3, '0')}°T ` +
@@ -2947,6 +2978,7 @@ function buildStories(s) {
     if (fog) {
       stories.push({
         key: 'fog',
+        day: localDay(fog.at),
         score: 44 - leadTimePenalty(fog.at),
         headline: `Fog likely ${whenPhrase(fog.at)}`,
         deck: `Temperature and dewpoint close to within ${fog.spreadF}°F with wind under ${fog.kt} kt near ` +
@@ -2962,12 +2994,17 @@ function buildStories(s) {
     const end = s.t[s.t.length - 1];
     const center = high ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${asNm(high.km)} nm ${high.dir}`} ` +
       `(${Math.round(high.v)} hPa) has the region subsiding` : low ? 'No organized forcing is close enough to matter' : '';
+    /* "Quiet through Friday" must not read as an all-clear for Saturday —
+       name the first chance the 7-day forecast carries past the grid. */
+    const later = weekAhead().find((d) => d.cls !== 'dry' && Date.parse(d.date + 'T12:00:00') > end);
     stories.push({
       key: 'quiet',
       score: eps.length ? 12 : 30,
       headline: eps.length ? 'Nothing dominant in the pattern' : 'Quiet pattern — nothing to dodge',
       deck: `${eps.length ? 'Beyond the precip above, the model has no other' : 'The model has no'} organized ` +
-        `weather at DC through ${whenPhrase(end)}.${center ? ` ${center} — sinking air, dry column, good flying.` : ''}`,
+        `weather at DC through ${whenPhrase(end)}.${center ? ` ${center} — sinking air, dry column, good flying.` : ''}` +
+        `${later ? ` First chance on the board after that: ${dayWord(later.date)}` +
+          `${later.pop != null ? ` (${later.pop}%)` : ''}.` : ''}`,
     });
   }
 
@@ -3133,6 +3170,237 @@ function firstSentence(t, max = 175) {
   return out;
 }
 
+/* ------------------- the drivers — why, not just what -------------------- */
+/* "Storms Saturday" without the why reads as an assertion; the reader who
+   wants to know what's actually coming has to go dig through the AFD. The
+   office already wrote the answer: the LWX DISCUSSION is structured as
+   KEY MESSAGE n blocks — a headline for a stretch of days, then the
+   reasoning under it. Mine each block for the days it covers and the one
+   sentence that names the mechanism doing the work — the front, the wave,
+   the low, the ridge — and attach it to the story about those days. Quoted,
+   not paraphrased: the analysis is LWX's, the extraction is ours. */
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const dowOf = (dateStr) => new Date(dateStr + 'T12:00:00Z').getUTCDay();
+
+/* Local date keys named by a stretch of forecast prose — "this afternoon",
+   "Friday night into Saturday", "the weekend", "early next week". */
+function daysFromPhrase(text) {
+  const t = String(text);
+  const today = localDay(Date.now());
+  const base = dowOf(today);
+  const off = new Set();
+  if (/\btoday\b|\bthis (?:morning|afternoon|evening)\b|\btonight\b|\bovernight\b/i.test(t)) off.add(0);
+  if (/\btomorrow\b/i.test(t)) off.add(1);
+  for (const m of t.matchAll(/\b(Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\b/gi)) {
+    const idx = WEEKDAYS.findIndex((w) => w.toLowerCase().startsWith(m[1].toLowerCase()));
+    if (idx >= 0) off.add((idx - base + 7) % 7);
+  }
+  if (/\bweekend\b/i.test(t)) {
+    off.add((6 - base + 7) % 7);
+    off.add(((0 - base + 7) % 7) || 7);
+  }
+  if (/\bnext week\b/i.test(t)) {
+    const mon = ((1 - base + 7) % 7) || 7;
+    off.add(mon); off.add(mon + 1);
+  }
+  /* "Friday through Sunday" means Saturday too — fill the span. */
+  if (/\bthrough\b/i.test(t) && off.size >= 2) {
+    const ks = [...off];
+    for (let k = Math.min(...ks); k <= Math.max(...ks); k++) off.add(k);
+  }
+  return new Set([...off].map((k) => shiftDay(today, k)));
+}
+
+/* The DISCUSSION body split back into the office's own story blocks. Falls
+   back to the older NEAR/SHORT/LONG TERM section format, where the day range
+   lives in the header qualifier ("/FRIDAY THROUGH SUNDAY/"). */
+let AFD_BLOCKS = { id: null, list: [] };
+function afdStoryBlocks() {
+  if (AFD_BLOCKS.id === AFD.newestId) return AFD_BLOCKS.list;
+  const secs = AFD.parsed.get(AFD.newestId) || [];
+  const list = [];
+  const disc = secs.find((x) => /^DISCUSSION/.test(x.name));
+  if (disc && /(?:^|\n)KEY MESSAGE \d/.test(disc.body)) {
+    /* Some issuances put the reasoning under a "KEY MESSAGE n DESCRIPTION..."
+       sub-header — drop the marker so it folds into its block. */
+    const body = disc.body.replace(/\n\s*KEY MESSAGE \d+ DESCRIPTION\.{2,}\s*/g, '\n\n');
+    for (const p of body.split(/\n(?=KEY MESSAGE \d)/)) {
+      const m = p.match(/^KEY MESSAGE \d+\.{2,}\s*([\s\S]*?)(?:\n\s*\n|$)/);
+      if (!m) continue;
+      const head = normText(m[1]);
+      const body = normText(p.slice(m[0].length));
+      if (head && body) list.push({ head, body, days: daysFromPhrase(head) });
+    }
+  } else {
+    for (const sec of secs) {
+      const m = sec.name.match(/^(?:NEAR TERM|SHORT TERM|LONG TERM)\s*\/(.+?)\/?$/);
+      if (!m) continue;
+      list.push({ head: m[1].trim(), body: normText(sec.body), days: daysFromPhrase(m[1]) });
+    }
+  }
+  AFD_BLOCKS = { id: AFD.newestId, list };
+  return list;
+}
+
+/* What counts as a driver, and as a driver on the move. */
+const DRIVER_RE = /\b(?:fronts?|frontal|prefrontal|shortwaves?|short-waves?|troughs?|troughing|ridge|ridging|surface lows?|low pressure|coastal lows?|upper[- ](?:level )?(?:lows?|trough|ridge|jet|wave)|cut-?off lows?|high pressure|(?:Bermuda|subtropical) high|jet(?: stream| streak)?|MCV|MCS|vort(?:icity)? max(?:imum)?|advection|theta-e|moisture|PWA?Ts?|PWs?|instability|CAPE|shear|remnants?|tropical (?:storm|depression|moisture|system)|isentropic|subsidence|drier air|air ?mass(?:es)?|outflow boundar(?:y|ies)|bay breeze|sea ?breeze|cold pool|warm sector|disturbances?)\b/gi;
+const MOTION_RE = /\b(?:approach(?:es|ing)?|cross(?:es|ing)?|arriv(?:es|ing)|mov(?:es|ing)|lift(?:s|ing)?|stall(?:s|ed|ing)?|develop(?:s|ing)?|deepen(?:s|ing)?|build(?:s|ing)?|rotat(?:es|ing)|pivot(?:s|ing)?|swing(?:s|ing)?|slid(?:es|ing)|push(?:es|ing)?|progress(?:es|ing|ion)?|depart(?:s|ing)?|exit(?:s|ing)?|settl(?:es|ing)|sink(?:s|ing)?|rid(?:es|ing)|track(?:s|ing)?|advanc(?:es|ing)|advect(?:s|ing)?|retreat(?:s|ing)?|linger(?:s|ing)?|remain(?:s|ing)?|persist(?:s|ing)?|weaken(?:s|ing)?|strengthen(?:s|ing)?|erod(?:es|ing)|wash(?:es|ing)? out|fills? in)\b/gi;
+const MODEL_CHAT_RE = /\b(?:guidance|models?|solutions?|ensembles?|deterministic|CAMs?|GFS|NAM|ECMWF|Euro|HRRR)\b/i;
+
+/* The one sentence in a block that best names what's doing the work: scored
+   by driver terms and motion verbs, docked for model-chat ("guidance has
+   trended...") so the pick describes the atmosphere, not the model runs, and
+   nudged toward sentences that name the days in question. */
+function driverSentence(body, days, max = 230) {
+  const sents = (String(body).match(SENT_RE) || [String(body)]).map((x) => x.trim());
+  const today = localDay(Date.now());
+  const wds = days ? [...new Set([...days].map((d) => WEEKDAYS[dowOf(d)]))] : [];
+  let best = null;
+  for (const x of sents) {
+    if (x.length < 40) continue;
+    const drv = (x.match(DRIVER_RE) || []).length;
+    if (!drv) continue;
+    /* Per-day bonus: the sentence about the whole stretch ("Friday night
+       into Saturday, a surface low develops...") beats the one about a
+       single day of it. */
+    let dayHits = wds.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(x)).length;
+    if (!dayHits && days && days.has(today) &&
+        /\b(?:today|tonight|this afternoon|this evening|this morning)\b/i.test(x)) dayHits = 1;
+    const score = drv * 2 + (x.match(MOTION_RE) || []).length
+      - (MODEL_CHAT_RE.test(x) ? 2 : 0)
+      - (x.length > max ? 2 : 0)
+      + dayHits * 2;
+    if (!best || score > best.score) best = { x, score };
+  }
+  if (!best) return null;
+  let out = best.x;
+  if (out.length > max) out = out.slice(0, max - 1).replace(/\s\S*$/, '') + '…';
+  return out;
+}
+
+/* The block covering a given local day; hazard words break ties when two
+   blocks mention the same day. */
+function blockFor(day, hazardRe) {
+  const hits = afdStoryBlocks().filter((b) => b.days.has(day));
+  if (!hits.length) return null;
+  if (hazardRe) {
+    const h = hits.find((b) => hazardRe.test(b.head));
+    if (h) return h;
+  }
+  return hits[0];
+}
+
+function whyFor(day, hazardRe) {
+  const b = blockFor(day, hazardRe);
+  return b ? driverSentence(b.body, b.days) : null;
+}
+
+const HAZ_RE = {
+  precip: /storm|thunder|shower|rain|severe|wet|unsettled/i,
+  fcstorm: /storm|thunder|severe/i,
+  fcwinter: /snow|sleet|ice|wintry|freezing/i,
+  fcfog: /fog/i, fog: /fog/i,
+  fcwind: /wind|gust/i, wind: /wind|gust/i,
+  front: /front/i,
+  heat: /heat|hot|humid/i,
+  cold: /cold|freez|frost/i, coldday: /cold|freez|frost/i,
+  quiet: /drier|dry|high pressure|sunn|quiet|ridg/i,
+  alert: /severe|storm|thunder|flood|wind|heat|winter|fog/i,
+};
+const hazardReFor = (key) => HAZ_RE[String(key).split(':')[0]] || null;
+
+/* --------------------------- the week, as one row ------------------------ */
+/* Seven chips off the NWS daily forecast, then one driver row per story
+   block — each stretch of days named with the mechanism the office says is
+   doing the work. This is the card's answer for days beyond the model grid:
+   the forecast wording says WHAT, these rows say WHY. */
+
+function weekAhead() {
+  const today = localDay(Date.now());
+  const out = [];
+  for (let k = 0; k < 7; k++) {
+    const date = shiftDay(today, k);
+    const d = FC.days && FC.days[date];
+    if (!d) continue;
+    const txt = d.short || '';
+    const cls = WINTRY.test(txt) ? 'wintry'
+      : CONVECTIVE.test(txt) ? 'storm'
+      : /rain|shower|drizzle/i.test(txt) || (d.pop || 0) >= 40 ? 'rain'
+      : 'dry';
+    out.push({ date, k, cls, pop: d.pop, short: txt, hi: d.hi });
+  }
+  return out;
+}
+
+/* Consecutive wet/dry runs of the week — the shape of the pattern. */
+function weekPhases(days) {
+  const phases = [];
+  for (const d of days) {
+    const wet = d.cls !== 'dry';
+    const last = phases[phases.length - 1];
+    if (last && last.wet === wet) last.days.push(d);
+    else phases.push({ wet, days: [d] });
+  }
+  return phases;
+}
+
+function dayWord(date) {
+  const k = Math.round((Date.parse(date + 'T00:00:00Z') -
+    Date.parse(localDay(Date.now()) + 'T00:00:00Z')) / 86400000);
+  return k === 0 ? 'today' : k === 1 ? 'tomorrow'
+    : fmtTime(new Date(date + 'T12:00:00'), { weekday: 'long' });
+}
+
+function renderWeek(s, leadWhy) {
+  const host = $('hl-week');
+  if (!host) return;
+  const days = weekAhead();
+  const chipName = (date) => date === localDay(Date.now()) ? 'Today'
+    : fmtTime(new Date(date + 'T12:00:00'), { weekday: 'short' });
+  const chips = days.length >= 3 ? days.map((d) =>
+    `<div class="wk-chip ${d.cls}${d.k === 0 ? ' now' : ''}" title="${esc(d.short)}">` +
+    `<span class="d">${esc(chipName(d.date))}</span>` +
+    `<span class="v">${d.cls !== 'dry' && d.pop != null ? `${d.pop}%`
+      : d.hi != null ? `${d.hi}°` : '·'}</span></div>`).join('') : '';
+
+  /* One row per office story block, in the office's own order. */
+  const inStrip = new Set(days.map((d) => d.date));
+  const rows = [];
+  for (const b of afdStoryBlocks()) {
+    const ds = [...b.days].filter((d) => days.length ? inStrip.has(d) : true).sort();
+    if (!ds.length) continue;
+    const why = driverSentence(b.body, b.days);
+    if (!why || why === leadWhy) continue;
+    const name = ds.length === 1 ? chipName(ds[0]) : `${chipName(ds[0])}–${chipName(ds[ds.length - 1])}`;
+    rows.push({ name, why, src: OFFICE });
+  }
+  if (!rows.length && s) {
+    /* No discussion to mine — inside the grid the model can still name the lift. */
+    const eps = precipEpisodes(s, s.now);
+    for (const ph of weekPhases(days)) {
+      if (!ph.wet) continue;
+      const span = new Set(ph.days.map((x) => x.date));
+      const e = eps.find((x) => span.has(localDay(x.t0)));
+      const mech = e && mechanismAt(e.i0);
+      if (!mech) continue;
+      const d0 = ph.days[0], d1 = ph.days[ph.days.length - 1];
+      rows.push({
+        name: d0.date === d1.date ? chipName(d0.date) : `${chipName(d0.date)}–${chipName(d1.date)}`,
+        why: `Lift from ${mech}.`,
+        src: 'GFS',
+      });
+    }
+  }
+  host.innerHTML = (chips || rows.length)
+    ? `<div class="wk-lab">The week</div>` +
+      (chips ? `<div class="wk-strip">${chips}</div>` : '') +
+      rows.slice(0, 4).map((r) =>
+        `<div class="wk-row"><span class="d">${esc(r.name)}</span>` +
+        `<span class="t">${esc(r.why)}</span><span class="s">${esc(r.src)}</span></div>`).join('')
+    : '';
+}
+
 /* Where the model read and the office disagree, say so — the split is itself
    a forecast signal, and staying quiet about it would read as agreement.
    Compares the GFS precip/CAPE picture at DC (next 36 h) against the NWS
@@ -3176,6 +3444,9 @@ function renderSplit(s) {
 function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
   $('hl-title').textContent = lead.headline;
   $('hl-deck').textContent = lead.deck;
+  $('hl-why').innerHTML = lead.why
+    ? `<span class="lab">The driver · ${esc(OFFICE)}</span>${esc(lead.why)}`
+    : '';
   $('hl-stamp').textContent =
     `as of ${fmtTime(new Date(), { hour: 'numeric', minute: '2-digit' })} · GFS + NWS ${OFFICE}`;
 
@@ -3223,6 +3494,7 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
     ? `<div class="sn-head">Also in play</div>` + alsos.map((x) =>
       `<div class="item"><b>${esc(x.title)}</b> — ${esc(x.text)}</div>`).join('')
     : '';
+  renderWeek(atmosSeries, lead.why || null);
   renderBigPicture(keyMsgs);
   renderAtmos(atmosSeries);
 }
@@ -3384,6 +3656,21 @@ function buildHeadline() {
       lead = text
         ? { headline: 'Straight from the forecast office', deck: text }
         : { headline: 'Headline unavailable', deck: 'None of the sources this page reads came back — try refreshing.' };
+    }
+
+    /* The driver: what the office says is doing the work behind the lead. */
+    lead.why = whyFor(lead.day || localDay(Date.now()), hazardReFor(lead.key || 'quiet'));
+
+    /* When the lead opens a multi-day stretch, say so — one clause of arc. */
+    const phases = weekPhases(weekAhead());
+    if (lead.day && phases.length && phases[0].wet && phases[0].days.length >= 2 &&
+        phases[0].days.some((d) => d.date === lead.day)) {
+      const lastWet = phases[0].days[phases[0].days.length - 1];
+      const nextDry = phases[1] ? phases[1].days[0] : null;
+      if (lastWet.date !== lead.day) {
+        lead.deck += ` Not a one-day event — chances stay up through ${dayWord(lastWet.date)}` +
+          `${nextDry ? `, drier ${dayWord(nextDry.date)}` : ''}.`;
+      }
     }
 
     const alsos = [];
