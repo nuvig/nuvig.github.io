@@ -4,19 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Changelog — jesselevine.net</title>
-  <meta name="description" content="What changed on jesselevine.net — every update to the flight tracker, weather hub, and aviation explainers, pulled live from the site's commit history.">
+  <meta name="description" content="What changed on jesselevine.net — every update to the flight tracker, weather hub, and aviation explainers, plus live health monitors for the weather archive and traffic snapshot pipelines.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="canonical" href="https://jesselevine.net/changelog.html">
   <link rel="stylesheet" href="css/main.css">
   <style>
+    /* Two columns: site changes left, the two data-health panels stacked
+       right. Under 920px the panels come first (they're compact; the commit
+       list below them is endless). */
+    body { max-width: 1200px; }
+    .cl-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0 28px; grid-template-areas: "changes health"; align-items: start; }
+    .cl-changes { grid-area: changes; }
+    .cl-health  { grid-area: health; }
+    /* pin the panels while scrolling the long list — only when they fit */
+    @media (min-width: 921px) and (min-height: 760px) {
+      .cl-health { position: sticky; top: 16px; }
+    }
+    @media (max-width: 920px) {
+      .cl-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "health" "changes"; }
+    }
+
     #back-link {
       display: inline-block; margin-top: 16px; font-size: 14px;
       text-decoration: none; color: #666;
     }
     #back-link:hover { color: #ccc; }
     .subtitle { color: #666; margin: 4px 0 20px; font-size: 14px; }
+    .col-title { font-size: 15px; font-weight: 600; color: #ccc; margin: 6px 0 2px; }
     .day {
       font-size: 13px; font-weight: 600; color: #aaa; letter-spacing: 0.05em;
       text-transform: uppercase; margin: 22px 0 6px;
@@ -31,6 +48,7 @@
     .entry .meta a { color: #666; text-decoration: none; }
     .entry .meta a:hover { color: #4a9eff; }
     #cl-status { color: #f59e0b; font-size: 13px; }
+    #cl-hidden { color: #555; font-size: 12px; display: block; margin-top: 14px; }
     .btn {
       background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
       font-size: 13px; padding: 6px 16px; border-radius: 5px;
@@ -39,23 +57,112 @@
     .btn:hover { background: #26497a; }
     footer.sources { margin-top: 30px; font-size: 12px; color: #555; line-height: 1.6; }
     footer.sources a { color: #777; }
+
+    /* ---- data-health panels (filled by js/data-health.js) ---- */
+    .dh-card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 12px 14px 10px; margin: 8px 0 14px; font-size: 13px; }
+    .dh-card h2 { margin: 0 0 8px; font-size: 14px; color: #ccc; }
+    .dh-fail { color: #f59e0b; font-size: 13px; }
+    .dh-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 10px; }
+    .dh-headline { color: #ddd; }
+    .dh-sub { color: #555; font-size: 12px; }
+    .dh-pill { font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid; }
+    .dh-pill.ok   { color: #22c55e; border-color: #22c55e44; background: #22c55e14; }
+    .dh-pill.warn { color: #f59e0b; border-color: #f59e0b44; background: #f59e0b14; }
+    .dh-pill.bad  { color: #ef4444; border-color: #ef444444; background: #ef444414; }
+
+    .dh-row { display: grid; grid-template-columns: 10px minmax(96px, auto) auto 1fr;
+      gap: 8px; align-items: center; padding: 3px 0; }
+    .dh-dot { width: 7px; height: 7px; border-radius: 50%; justify-self: center; }
+    .dh-dot.ok    { background: #22c55e; }
+    .dh-dot.warn  { background: #f59e0b; }
+    .dh-dot.bad   { background: #ef4444; }
+    .dh-dot.quiet { background: #444; }
+    .dh-name { color: #bbb; white-space: nowrap; }
+    .dh-note { color: #555; font-size: 11px; }
+    .dh-age { color: #888; font-size: 12px; white-space: nowrap;
+      font-variant-numeric: tabular-nums; }
+    .dh-word { font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .dh-word.warn { color: #f59e0b; }
+    .dh-word.bad  { color: #ef4444; }
+
+    /* day-coverage strip: one cell per day, oldest → today */
+    /* on narrow screens the coverage strip gets its own full-width line */
+    @media (max-width: 560px) {
+      .dh-row { grid-template-columns: 10px minmax(0, auto) 1fr; }
+      .dh-name { white-space: normal; }
+      .dh-age { justify-self: end; }
+      .dh-strip { grid-column: 1 / -1; margin: 1px 0 4px; }
+    }
+
+    .dh-strip { display: flex; gap: 2px; height: 10px; min-width: 0; }
+    .dh-strip i { flex: 1 1 0; min-width: 0; border-radius: 2px; }
+    .dh-strip i.on    { background: #2f6f43; }
+    .dh-strip i.quiet { background: #242424; }
+    .dh-strip i.pre   { background: #1e1e1e; }
+    .dh-strip i.off   { background: #7f1d1d; }
+
+    /* aircraft/day bars */
+    .dh-bars { position: relative; display: flex; align-items: flex-end; gap: 2px;
+      height: 64px; margin-top: 12px; border-bottom: 1px solid #2a2a2a;
+      padding-top: 12px; }
+    .dh-bars i { flex: 1 1 0; min-width: 0; background: #3d7dc4;
+      border-radius: 2px 2px 0 0; }
+    .dh-bars i.part { background: #274e7a; }
+    .dh-bars i.off  { height: 3px; background: #7f1d1d; border-radius: 2px; }
+    .dh-bars i.pre  { height: 3px; background: #1e1e1e; border-radius: 2px; }
+    .dh-peak { position: absolute; top: -4px; left: 0; color: #555;
+      font-size: 11px; }
+    .dh-axis { display: flex; justify-content: space-between; color: #555;
+      font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .dh-foot { color: #555; font-size: 11.5px; line-height: 1.5; margin-top: 10px; }
+    .dh-foot a { color: #777; }
   </style>
 </head>
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Changelog</h1>
-  <p class="subtitle">Every change to this site, newest first — read live from the
-    <a href="https://github.com/nuvig/nuvig.github.io/commits/main" style="color:#777">commit history</a>.</p>
+  <p class="subtitle">Site changes newest first, read live from the
+    <a href="https://github.com/nuvig/nuvig.github.io/commits/main" style="color:#777">commit history</a>
+    — with the automated hourly data drops filtered out and replaced by live
+    health monitors for the pipelines behind them.</p>
 
-  <span id="cl-status">loading…</span>
-  <div id="cl-list"></div>
-  <button class="btn" id="cl-more" style="display:none">Show older changes</button>
+  <div class="cl-layout">
+    <section class="cl-health">
+      <div class="dh-card">
+        <h2>Weather archive</h2>
+        <div id="dh-wx"><span class="dh-fail" style="color:#666">checking…</span></div>
+      </div>
+      <div class="dh-card">
+        <h2>Flight tracker data</h2>
+        <div id="dh-trk"><span class="dh-fail" style="color:#666">checking…</span></div>
+      </div>
+    </section>
+
+    <section class="cl-changes">
+      <div class="col-title">Site changes</div>
+      <span id="cl-status">loading…</span>
+      <div id="cl-list"></div>
+      <span id="cl-hidden"></span>
+      <button class="btn" id="cl-more" style="display:none">Show older changes</button>
+    </section>
+  </div>
 
   <footer class="sources">
-    Pulled from the GitHub API in your browser; if it rate-limits, the
+    Commits pulled from the GitHub API in your browser; if it rate-limits, the
     <a href="https://github.com/nuvig/nuvig.github.io/commits/main">full history</a> is on GitHub.
+    Health reads <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">data/wx</a>
+    (hourly weather-archive Action) and the
+    <a href="https://github.com/nuvig/nuvig.github.io/tree/traffic-data">traffic-data</a>
+    branch (Pi exporter snapshots).
   </footer>
 
-  <script src="js/changelog.js?v=1"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/wx-archive.js?v=1"></script>
+  <script src="js/changelog.js?v=2"></script>
+  <script src="js/data-health.js?v=1"></script>
 </body>
 </html>

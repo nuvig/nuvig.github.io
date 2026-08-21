@@ -42,6 +42,15 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `sitemap.xml` — hand-maintained XML sitemap, referenced from `robots.txt`. Public pages only:
   `noindex` pages (`404`, `atc`, `scanner`, `bubbles`) and the deliberately unlinked
   `glow` / `sky2` / `watercycle` are excluded on purpose. `lastmod` is the page's last commit date.
+- `changelog.html` + `js/changelog.js` + `js/data-health.js` — the site changelog (commit history of
+  `main` via the GitHub API, unauthenticated) side by side with two data-health panels. The commit
+  list **hides automated data drops** (`wx: archive`/`wx: backfill`/`ctaf: transcripts` titles and
+  any `*[bot]` author), chaining extra API pages (max 3/load) so a screenful of real changes still
+  renders; in their place `data-health.js` monitors the pipelines those commits come from: the
+  weather archive (via `WXA` — per-stream freshness judged against each stream's own cadence, plus
+  42-day coverage strips; alerts are event-driven, so absent days there are "quiet", never gaps)
+  and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
+  heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
