@@ -3,3 +3,5 @@ pi/*.py            text eol=lf
 pi/*.sh            text eol=lf
 pi/*.service       text eol=lf
 pi/*.timer         text eol=lf
+# Claude Code session hook — same LF rule (runs under bash in web sessions)
+.claude/hooks/*.sh text eol=lf
