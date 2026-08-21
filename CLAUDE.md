@@ -3,7 +3,7 @@
 Personal website (jesselevine.net, GitHub Pages from `main`) + KANP flight tracker, weather hub,
 and a set of interactive aviation explainers.
 Plain HTML/JS/CSS — **no build step, no framework, no npm**. Leaflet is vendored in `js/vendor/`.
-The only build tooling is two stdlib-Python data generators (`scripts/build_*.py`) whose output is
+The only build tooling is a few stdlib-Python data generators (`scripts/build_*.py`) whose output is
 committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapolis MD).
 
 ## Conventions
@@ -15,8 +15,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - **All headings/directions are °true** throughout the site (FAA true runway alignments; METAR and
   model winds are also true). Never magnetic.
 - `css/main.css` is the shared stylesheet (dark theme, CSS vars, 760 px max-width). Every page uses
-  it except the four self-contained toys/SDR pages (`bubbles.html`, `glow.html`, `ctaf.html`,
-  `scanner.html`).
+  it except the self-contained toys/SDR/personal pages (`bubbles.html`, `glow.html`, `ctaf.html`,
+  `scanner.html`, `fugue.html`, `mural.html`, `watercycle.html`, `zoey.html`).
 - **Cache-busting is manual**: assets are referenced as `js/foo.js?v=N` / `css/main.css?v=N`.
   When you change a file that already carries a `?v=`, bump the number in every page referencing it
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
@@ -40,8 +40,14 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**
   (and a `<url>` in `sitemap.xml`).
 - `sitemap.xml` — hand-maintained XML sitemap, referenced from `robots.txt`. Public pages only:
-  `noindex` pages (`404`, `atc`, `scanner`, `bubbles`) and the deliberately unlinked
-  `glow` / `sky2` / `watercycle` are excluded on purpose. `lastmod` is the page's last commit date.
+  `noindex` pages (`404`, `atc`, `scanner`, `bubbles`, `fugue`, `mural`) and the deliberately
+  unlinked `glow` / `sky2` / `watercycle` / `zoey` / `ctaf` are excluded on purpose. `lastmod` is
+  the page's last commit date.
+- `changelog.html` + `js/changelog.js` — public site changelog: renders `main`'s commit history
+  straight from the GitHub commits API (CORS-open, unauthenticated; ~60 requests/hr/IP is plenty
+  for a page view), grouped by day, trailer lines (`Co-Authored-By:` etc.) stripped from bodies,
+  load-more pagination. Only `main` is queried, so traffic-data snapshot commits never appear.
+  Linked from the homepage and tools.html footers.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
@@ -55,6 +61,15 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   palettes are shared between the shader and the canvas modes. **Deliberately unlinked from site
   navigation** — it is not an aviation tool, so it does not belong on `tools.html`; reachable only by
   direct URL (unlike bubbles.html it is still indexable, no `noindex`).
+- `watercycle.html` — The Water Machine: a self-contained side-on water-cycle/weather sim
+  (sea → coast → mountain range). Vapor/droplet particles carry latent-heat bookkeeping through
+  evaporation, thermals, orographic lift, condensation at the LCL, rain shadow, virga, night-time
+  radiation fog, snowcaps above the freezing level and aquifer baseflow ("counted, not drawn");
+  a pressure-picture overlay and an energy ledger tie it together. Click any parcel to follow it
+  (narrated journal + trace on the parcel card's mini sounding — environment temp, dew line, LCL);
+  click the sea or ground to stir an evaporation burst or a thermal; sliders for time of day
+  (with play/pause), humidity, wind and sea temp. **Deliberately unlinked** like glow (indexable,
+  no `noindex`).
 - `fugue.html` — Pattern Fugue: replays any archived day of real KANP-area traffic as generative
   music (WebAudio, all procedural) over a runway-frame stage — altitude picks each aircraft's note
   on a C-lydian scale, position pans it, distance sets volume/reverb, landings ring a bell, and the
@@ -84,6 +99,15 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   how it's tested). `?selftest=1` runs storage/fold assertions; `window.MURAL_DEBUG` drives it
   headlessly. The GitHub adapter follows the documented contents/git-data API but hasn't run
   against a live repo yet — first real session, watch the sync pill.
+- `zoey.html` — photo gallery for Zoey (the dog). Self-contained; masonry columns (2–4 by width),
+  album chips, shuffle, lightbox with keyboard nav, tiles lazy-rendered in batches of 48. Reads
+  `data/zoey.json`, built by `python scripts/build_zoey.py` (stdlib) from whatever sits under
+  `photos/zoey/` — a subfolder becomes an album, EXIF orientation/date are respected, captions
+  come from an optional `captions.txt` (else camera-ish filenames get none and anything else is
+  prettified), HEIC is skipped with a warning (browsers can't show it — export as JPEG). Commit
+  the photos *and* the regenerated JSON; the manifest shape is shared between the script and the
+  page — change them together. **Unlinked** (indexable, no `noindex`); the manifest is currently
+  empty and the page shows its own how-to.
 
 ### Flight tracker
 
@@ -121,10 +145,22 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   `kanp-climb.js`'s ground-fix-only estimate, which is fine there (it only uses differences) but
   degrades to charted elevation on the GitHub snapshots, where ground fixes carry no altitude. That
   fallback silently reported real 1,000 ft patterns as ~600 on a 30.2 inHg day. Don't unify the two.
+- `js/kanp-conflict.js` — Traffic Study sub-tool: proximity events. Finds pairs of airborne
+  aircraft that got close (user-set thresholds, default 0.5 nm / 500 ft), lists each event with
+  its closest point of approach and a severity tier, and replays any event as an animated
+  two-ship playback on the map. Method: every airborne track is linearly interpolated onto a
+  shared 10 s timeline (across gaps ≤ 240 s — the rule `ctaf.html`'s clip matching copies), a
+  (time × 1.5 nm grid-cell) hash finds candidate pairs cheaply, each refined at 1 s into
+  contiguous in-threshold runs; ≥ 180 s of proximity is flagged as formation-looking, and a
+  "pattern area only" toggle scopes the fetch. The page copy's honesty caveats are deliberate —
+  both data sources serve Douglas-Peucker-simplified tracks, so CPA numbers come from
+  interpolated straight segments (approximate, not evidentiary), only ADS-B-equipped aircraft
+  appear, and altitudes are barometric. Keep them.
 - `js/kanp-static.js` — GitHub-snapshot fallback data source (see Data flow).
 
-The three sub-tools above mirror `kanp-ops.js` detection logic — if you change how a field contact
-is classified there, check all four.
+The climb / final / pattern sub-tools mirror `kanp-ops.js` detection logic — if you change how a
+field contact is classified there, check all four (`kanp-conflict.js` is about aircraft pairs, not
+field contacts, and doesn't care).
 
 ### Aviation explainers (self-contained, no backend)
 
@@ -147,8 +183,26 @@ is classified there, check all four.
   converts to kt/hp/fpm.
 - `eights.html` + `js/eights.js` — Eights on Pylons: pivotal altitude `PA = GS²/11.3`, side-view
   geometry, wind-aware full-figure simulation.
+- `instruments.html` + `js/instruments.js` — Instrument Errors: block the pitot/static lines and
+  watch a live ASI/altimeter/VSI (ISA atmosphere + compressible qc↔CAS calibration), altimeter
+  setting and cold-weather errors flown against an obstacle, heading-indicator earth-rate drift and
+  attitude-indicator false climb, and a flyable magnetic-compass sim (dip, UNOS turning, ANDS
+  acceleration errors). No fetches, no `site-config.js`; inches Hg / ft / kt throughout. The
+  compass sections deal in *magnetic* headings — the subject demands it; that's the deliberate
+  exception to the site's °true rule.
 - `airlab.html` + `js/airlab.js` — Air Lab: atmosphere column, pressure/density altitude (NWS method,
   humidity), air-parcel stability sim, IAS→TAS→GS wind triangle.
+- `skew-t.html` + `js/skewt.js` + `js/skewt-obs.js` — Skew-T Explorer: canvas skew-T log-p
+  (1000→100 hPa, 21 levels) of Open-Meteo pressure-level forecast soundings, 3 days hourly, for
+  any US airport (coords resolved via `api.weather.gov/stations/{id}`; model selectable), with
+  parcel analysis. Thermo is Bolton (1980); CAPE/CIN are integrated from the plotted profile
+  **without virtual-temperature correction** (said in the UI — keep the disclosure if you change
+  the math). `skewt.js` exposes `window.SkewTCore`, which `skewt-obs.js` reuses for observed
+  soundings: the SPC SHARP gif (fixed 1180×826 layout, so hover regions live in fractional
+  coordinates; inside the diagram the pressure axis is log-p 100→1000 hPa, converting cursor
+  height to pressure) overlaid with explain-on-hover text read from the actual IEM RAOB JSON
+  (CORS-open) at that level — the text describes exactly what the pixels show. RAOBs launch
+  00Z/12Z; SPC images publish ~1.5 h later (`recentCycles()` accounts for it).
 - `knowledge.html` + `js/knowledge.js` — Aviation Knowledge Map: expandable canvas concept graph with
   dashed cross-links. See the build pipeline below.
 
@@ -156,6 +210,27 @@ is classified there, check all four.
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,
   TAFs, radar. See the hard constraints section below.
+- `sky.html` + `js/sky.js` — METAR Sky: the current observation painted as an animated canvas
+  scene — sky color from the real sun position (NOAA solar math anchored to the airport's TZ,
+  same rule as `solarTimes()`), cloud decks at their reported bases, precip/fog/lightning from
+  the present-weather groups, a windsock flying the actual wind — plus a token-by-token METAR
+  decoder, TAF timelines rendered as clickable mini-scenes, a ±12 h timeline (Open-Meteo
+  temp/dew/pressure between obs, bias-corrected against obs at "now"), a density-altitude series,
+  and a paste-any-METAR box. Stations = the field + `SITE.weather.nearbyAirports`. The renderer
+  is a **pure function of (conditions, sun, t)** — the same code paints the live scene, TAF
+  thumbnails and previews; keep it side-effect-free. Data: `api.weather.gov` (METAR obs +
+  IWXXM TAF) and Open-Meteo only — never aviationweather.gov.
+- `sky2.html` + `js/sky2.js` — METAR Sky II: sky.html's successor — a pinhole camera standing on
+  the field, pannable 360° and up to the zenith, everything placed by real azimuth/elevation:
+  sun/moon/planets and ~85 naked-eye stars from Meeus low-precision series (constellation
+  figures, Milky Way band), cloud decks in true perspective via a Mode-7-style row loop (a
+  ceiling closes overhead and converges at the horizon), Koschmieder distance fog so reported
+  visibility is where the treeline and runway lights actually vanish, and the runway on its real
+  true heading with the windsock streaming the wind. Adds a runway wind brief, density-altitude
+  performance and VFR-legality readouts, and a flight-category ribbon. Same data rules and
+  pure-painter design as sky.html, but the code is **copied forward, not shared** — a
+  parsing/data fix in one probably belongs in both. **Deliberately unlinked** (no tools.html
+  card, no sitemap entry; indexable) — sky.html is the one on tools.html.
 - `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
   ("the big story") and then laid out as a four-act story
   (I setup / II reasoning / III revisions / IV verdict). The headline engine scores candidate
