@@ -132,6 +132,12 @@
       font-size: 11px; }
     .dh-axis { display: flex; justify-content: space-between; color: #555;
       font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .dh-key { display: inline-flex; align-items: center; gap: 4px; }
+    .dh-key i { width: 8px; height: 8px; border-radius: 2px; margin-left: 8px; }
+    .dh-key i:first-child { margin-left: 0; }
+    .dh-key i.on  { background: #2f6f43; }
+    .dh-key i.off { background: #7f1d1d; }
+    .dh-key i.pre { background: #1e1e1e; border: 1px solid #333; }
     .dh-foot { color: #555; font-size: 11.5px; line-height: 1.5; margin-top: 10px; }
     .dh-foot a { color: #777; }
   </style>
@@ -139,10 +145,9 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Changelog</h1>
-  <p class="subtitle">Site changes newest first, read live from the
-    <a href="https://github.com/nuvig/nuvig.github.io/commits/main" style="color:#777">commit history</a>
-    — with the automated hourly data drops filtered out and replaced by live
-    health monitors for the pipelines behind them.</p>
+  <p class="subtitle">Every change to this site, newest first — read live from the
+    <a href="https://github.com/nuvig/nuvig.github.io/commits/main" style="color:#777">commit history</a>,
+    minus the automated data drops.</p>
 
   <div class="cl-layout">
     <section class="cl-health">
@@ -176,7 +181,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
-  <script src="js/changelog.js?v=2"></script>
-  <script src="js/data-health.js?v=1"></script>
+  <script src="js/changelog.js?v=3"></script>
+  <script src="js/data-health.js?v=2"></script>
 </body>
 </html>

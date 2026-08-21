@@ -143,7 +143,7 @@
     const el = $('dh-wx');
     const [idx, latest] = await Promise.all([WXA.index(), WXA.latest()]);
     if (!idx || !latest) {
-      return fail(el, 'Couldn’t read data/wx/ — the archive hasn’t deployed here, or the fetch failed.');
+      return fail(el, 'Couldn’t read data/wx.');
     }
     const t = now();
     const days = daySpan();
@@ -246,16 +246,13 @@
     if (!streams.some(s => s.cov)) {
       integrity = '<span class="dh-word warn">unknown</span> — no day index to check';
     } else if (!holed.length) {
-      integrity = `<span class="dh-word ok">complete</span> — every stream holds every day ` +
-        `since it started${oldest ? `, back to ${esc(shortDate(oldest))}` : ''}`;
+      integrity = `<span class="dh-word ok">complete</span>` +
+        (oldest ? ` — no gaps since ${esc(shortDate(oldest))}` : '');
     } else {
       const parts = holed.map(s => `${esc(s.short)} ${esc(fmtRanges(s.cov.missing))}` +
         (s.fill ? '' : ' <i>(unrecoverable)</i>'));
       integrity = `<span class="dh-word warn">${lost} missing day${lost === 1 ? '' : 's'}</span> — ` +
-        parts.join(' · ') +
-        (holed.some(s => s.fill)
-          ? ' · refill with <code>scripts/wxbackfill.py</code>'
-          : '');
+        parts.join(' · ');
     }
 
     el.innerHTML = `
@@ -263,14 +260,15 @@
         <span class="dh-headline">archiver ran ${esc(fmtAge(runAge))}</span>
         <span class="dh-sub">hourly GitHub Action</span></div>
       ${rows}
-      <div class="dh-axis"><span>${esc(days[0])}</span><span>today</span></div>
+      <div class="dh-axis"><span>${esc(days[0])}</span>
+        <span class="dh-key"><i class="on"></i>day held <i class="off"></i>missing
+          <i class="pre"></i>before start / quiet</span>
+        <span>today</span></div>
       <dl class="dh-cover">
-        <dt>Reach</dt><dd>${depth} days of history — first day held: ${reach || '—'}</dd>
+        <dt>Reach</dt><dd>${depth} days — ${reach || '—'}</dd>
         <dt>Integrity</dt><dd>${integrity}</dd>
       </dl>
-      <div class="dh-foot">Freshness is judged against each stream's own cadence; the
-        strip is the last ${SPAN} days, integrity covers everything ever archived
-        (alerts excepted — an alert-free day is quiet, not missing).
+      <div class="dh-foot">Strip: last ${SPAN} days · integrity: whole archive ·
         <a href="almanac.html">Browse the archive →</a></div>`;
   }
 
@@ -283,7 +281,7 @@
       if (r.ok) sum = await r.json();
     } catch { /* handled below */ }
     if (!sum || !Array.isArray(sum.days)) {
-      return fail(el, 'Couldn’t reach the traffic-data snapshots on GitHub — try again in a minute.');
+      return fail(el, 'Couldn’t reach the traffic-data snapshots.');
     }
     const t = now();
     const pushAge = sum.generated ? t - sum.generated : null;
@@ -321,9 +319,10 @@
       ${row('Archive', '', `${sum.days.length} days since ${firstDay || '—'}`, { cls: 'quiet', word: '' }, '')}
       <div class="dh-bars" aria-label="aircraft per day, last ${SPAN} days">
         <span class="dh-peak">peak ${peak.toLocaleString()}</span>${bars}</div>
-      <div class="dh-axis"><span>${esc(days[0])}</span><span>today</span></div>
-      <div class="dh-foot">Aircraft seen per day within ${SITE.tracker.radiusNm} nm.
-        A fresh push with an old “last heard” means the feeds, not the exporter.
+      <div class="dh-axis"><span>${esc(days[0])}</span>
+        <span class="dh-key"><i class="off"></i>missing day</span>
+        <span>today</span></div>
+      <div class="dh-foot">Aircraft per day within ${SITE.tracker.radiusNm} nm ·
         <a href="kanp.html">Open the tracker →</a></div>`;
   }
 
