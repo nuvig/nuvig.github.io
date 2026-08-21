@@ -43,13 +43,27 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   `noindex` pages (`404`, `atc`, `scanner`, `bubbles`, `fugue`, `mural`) and the deliberately
   unlinked `glow` / `sky2` / `watercycle` / `zoey` / `ctaf` are excluded on purpose. `lastmod` is
   the page's last commit date.
-- `changelog.html` + `js/changelog.js` — public site changelog: renders `main`'s commit history
-  straight from the GitHub commits API (CORS-open, unauthenticated; ~60 requests/hr/IP is plenty
-  for a page view), grouped by day, trailer lines (`Co-Authored-By:` etc.) stripped from bodies,
-  load-more pagination. Only `main` is queried, so traffic-data snapshot commits never appear.
-  Linked from the homepage and tools.html footers.
+- `changelog.html` + `js/changelog.js` + `js/data-health.js` — the site changelog (commit history of
+  `main` via the GitHub API, unauthenticated) side by side with two data-health panels. The commit
+  list **hides automated data drops** (`wx: archive`/`wx: backfill`/`ctaf: transcripts` titles and
+  any `*[bot]` author), chaining extra API pages (max 3/load) so a screenful of real changes still
+  renders; in their place `data-health.js` monitors the pipelines those commits come from: the
+  weather archive (via `WXA` — per-stream freshness judged against each stream's own cadence, plus
+  42-day coverage strips; alerts are event-driven, so absent days there are "quiet", never gaps —
+  and a **reach/integrity** pair read from `index.json` over the *whole* archive, not the drawn
+  window: first day held per stream, and the missing days collapsed into `--since/--until`-shaped
+  ranges, marked `(unrecoverable)` for the streams `wxbackfill.py` deliberately can't refill
+  (`forecast`/`grid`). Today is never counted a gap — a day-forward stream fills it as the day runs)
+  and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
+  heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
+- `fireworks.html` — Fireworks, a click-to-launch canvas fireworks show: peonies, willows, rings,
+  crossettes, strobe and crackle shells, procedural booms, an auto show and an on-demand grand
+  finale. Self-contained like glow.html (no shared CSS/JS, no `site-config.js`) — but unlike the
+  other toys on this list it **is** linked (tools.html "Just for Fun" category) and indexed
+  (sitemap entry); it's just not an aviation tool, hence its own category rather than a spot on
+  the explainer grid.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
   explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
   wave ribbons with click ripples, a flow-field particle swarm with an FPS governor that trims

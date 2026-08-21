@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Fireworks — an interactive fireworks show</title>
+  <meta name="description" content="A fireworks simulator: click the sky to launch shells — peonies, willows, rings, crossettes, strobes and crackles — with procedural booms, an auto show, and a grand finale. No login, no build, just canvas.">
+  <link rel="canonical" href="https://jesselevine.net/fireworks.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/fireworks.html">
+  <meta property="og:title" content="Fireworks — an interactive fireworks show">
+  <meta property="og:description" content="Click the sky to launch shells — peonies, willows, rings, crossettes, strobes and crackles — with procedural sound and a grand finale.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body {
+      background: #05080f;
+      color: #dfe6f2;
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      position: fixed;
+      inset: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #fx { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+    #title, #ui, #hint, #back {
+      position: fixed;
+      z-index: 2;
+      transition: opacity 0.55s ease;
+    }
+    body.idle #title, body.idle #ui, body.idle #hint, body.idle #back {
+      opacity: 0; pointer-events: none;
+    }
+    body.idle #fx { cursor: none; }
+
+    .glass {
+      background: rgba(10, 14, 24, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 12px;
+    }
+
+    #title {
+      top: max(14px, env(safe-area-inset-top));
+      left: max(16px, env(safe-area-inset-left));
+      pointer-events: none;
+    }
+    #title h1 { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.02em; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
+    #title p { font-size: 0.76rem; color: #93a1b8; margin-top: 2px; text-shadow: 0 1px 6px rgba(0,0,0,0.8); }
+
+    #ui {
+      top: max(14px, env(safe-area-inset-top));
+      right: max(16px, env(safe-area-inset-right));
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 9px;
+    }
+    #ui button, #ui select {
+      font: inherit;
+      font-size: 0.8rem;
+      color: #dfe6f2;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    #ui button:hover, #ui select:hover { background: rgba(255, 255, 255, 0.14); }
+    #ui button.off { opacity: 0.45; }
+    #ui select { appearance: none; -webkit-appearance: none; padding-right: 8px; }
+    #ui select option { background: #0d1220; }
+    #ui button:focus-visible, #ui select:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }
+
+    #hint {
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: max(18px, env(safe-area-inset-bottom));
+      font-size: 0.78rem;
+      color: #93a1b8;
+      padding: 6px 14px;
+      pointer-events: none;
+      text-align: center;
+    }
+
+    #back {
+      left: max(16px, env(safe-area-inset-left));
+      bottom: max(16px, env(safe-area-inset-bottom));
+      font-size: 0.78rem;
+      color: #667;
+      text-decoration: none;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+    }
+    #back:hover { color: #bcd; }
+
+    @media (max-width: 560px) {
+      #title p { display: none; }
+      #hint { display: none; }
+      #ui { flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="fx"></canvas>
+
+  <div id="title">
+    <h1>🎆 Fireworks</h1>
+    <p>Click the sky to launch a shell</p>
+  </div>
+
+  <div id="ui" class="glass">
+    <select id="shell" aria-label="Shell type">
+      <option value="random" selected>Random shell</option>
+      <option value="peony">Peony</option>
+      <option value="chrys">Chrysanthemum</option>
+      <option value="willow">Willow</option>
+      <option value="palm">Palm</option>
+      <option value="ring">Ring</option>
+      <option value="crossette">Crossette</option>
+      <option value="strobe">Strobe</option>
+      <option value="crackle">Crackle</option>
+    </select>
+    <button id="auto" aria-label="Toggle auto show" title="Auto show (A)">Auto</button>
+    <button id="finale" aria-label="Launch finale" title="Finale (F)">Finale 🎇</button>
+    <button id="sound" aria-label="Toggle sound" title="Sound (S)">🔊</button>
+  </div>
+
+  <div id="hint" class="glass">click / tap to launch &nbsp;·&nbsp; <b>F</b> finale &nbsp;·&nbsp; <b>A</b> auto show &nbsp;·&nbsp; <b>S</b> sound</div>
+
+  <a id="back" href="/tools.html">&larr; tools</a>
+
+<script>
+(() => {
+'use strict';
+
+const cv = document.getElementById('fx');
+const ctx = cv.getContext('2d');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let W = 0, H = 0, dpr = 1, groundY = 0;
+let stars = [], skyline = [];
+
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  groundY = H - Math.max(24, H * 0.06);
+
+  stars = [];
+  const n = Math.round(W * H / 9000);
+  for (let i = 0; i < n; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * groundY * 0.96,
+      r: Math.random() < 0.12 ? 1.1 : 0.6,
+      a: 0.15 + Math.random() * 0.5,
+      ph: Math.random() * Math.PI * 2,
+      sp: 0.4 + Math.random() * 1.6,
+    });
+  }
+
+  // Treeline silhouette: a wandering ridge with occasional taller clumps.
+  skyline = [];
+  let y = groundY;
+  for (let x = 0; x <= W + 20; x += 14) {
+    y += (Math.random() - 0.5) * 8;
+    y = Math.min(groundY + 4, Math.max(groundY - Math.max(14, H * 0.035), y));
+    skyline.push([x, y - (Math.random() < 0.1 ? 6 + Math.random() * 10 : 0)]);
+  }
+
+  // Repaint the base sky so a resize doesn't leave a stretched frame.
+  ctx.fillStyle = '#05080f';
+  ctx.fillRect(0, 0, W, H);
+}
+addEventListener('resize', resize);
+resize();
+
+/* ---------- audio (all procedural) ------------------------------------- */
+
+let AC = null, master = null, noiseBuf = null;
+let soundOn = true;
+
+function initAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) { AC = null; return; }
+    master = AC.createGain();
+    master.gain.value = 0.5;
+    master.connect(AC.destination);
+    const len = AC.sampleRate;
+    noiseBuf = AC.createBuffer(1, len, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended') AC.resume();
+}
+
+const sndOk = () => soundOn && AC && AC.state === 'running';
+
+function panNode(x) {
+  if (AC.createStereoPanner) {
+    const p = AC.createStereoPanner();
+    p.pan.value = Math.max(-0.8, Math.min(0.8, (x / W) * 2 - 1));
+    p.connect(master);
+    return p;
+  }
+  return master;
+}
+
+function launchSound(x) {
+  if (!sndOk()) return;
+  const t = AC.currentTime;
+  const src = AC.createBufferSource();
+  src.buffer = noiseBuf;
+  const bp = AC.createBiquadFilter();
+  bp.type = 'bandpass'; bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(400, t);
+  bp.frequency.exponentialRampToValueAtTime(1600, t + 0.45);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.055, t + 0.06);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  src.connect(bp).connect(g).connect(panNode(x));
+  src.start(t, Math.random() * 0.4);
+  src.stop(t + 0.55);
+}
+
+function boomSound(x, big) {
+  if (!sndOk()) return;
+  const t = AC.currentTime;
+  const p = panNode(x);
+  const o = AC.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(big ? 72 : 95, t);
+  o.frequency.exponentialRampToValueAtTime(28, t + 0.5);
+  const og = AC.createGain();
+  og.gain.setValueAtTime(big ? 0.85 : 0.5, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + (big ? 0.9 : 0.6));
+  o.connect(og).connect(p);
+  o.start(t); o.stop(t + 1);
+  const src = AC.createBufferSource();
+  src.buffer = noiseBuf;
+  const lp = AC.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(big ? 1500 : 900, t);
+  lp.frequency.exponentialRampToValueAtTime(110, t + 0.55);
+  const ng = AC.createGain();
+  ng.gain.setValueAtTime(big ? 0.6 : 0.35, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + (big ? 0.85 : 0.55));
+  src.connect(lp).connect(ng).connect(p);
+  src.start(t, Math.random() * 0.3);
+  src.stop(t + 1);
+}
+
+function crackleSound(x) {
+  if (!sndOk()) return;
+  const t0 = AC.currentTime;
+  const p = panNode(x);
+  const n = 14 + (Math.random() * 12 | 0);
+  for (let i = 0; i < n; i++) {
+    const t = t0 + 0.05 + Math.random() * 1.0;
+    const src = AC.createBufferSource();
+    src.buffer = noiseBuf;
+    src.playbackRate.value = 0.7 + Math.random() * 0.9;
+    const hp = AC.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 2400;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.04 + Math.random() * 0.05, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    src.connect(hp).connect(g).connect(p);
+    src.start(t, Math.random() * 0.6, 0.08);
+  }
+}
+
+/* ---------- simulation -------------------------------------------------- */
+
+const G = 300;                       // px/s² — burst gravity
+const rockets = [], parts = [], flashes = [], schedule = [];
+const MAX_PARTS = 3600;
+
+const HUES = [0, 18, 45, 130, 185, 210, 280, 320];
+const TYPES = ['peony', 'peony', 'chrys', 'willow', 'palm', 'ring', 'crossette', 'strobe', 'crackle'];
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.random() * arr.length | 0];
+
+function spawnPart(o) {
+  if (parts.length >= MAX_PARTS) return;
+  parts.push(Object.assign({
+    x: 0, y: 0, vx: 0, vy: 0,
+    age: 0, life: 1.5,
+    hue: 45, sat: 100, lum: 60,
+    size: 1.6, drag: 1.4, grav: 1,
+    flicker: 0, splitAt: 0, pop: 0,
+  }, o));
+}
+
+function launch(x, targetY, type) {
+  x = Math.max(20, Math.min(W - 20, x));
+  targetY = Math.max(H * 0.07, Math.min(H * 0.72, targetY));
+  const y0 = groundY + 4;
+  const vy = -Math.sqrt(2 * G * (y0 - targetY)) - 30;
+  rockets.push({
+    x, y: y0,
+    vx: rnd(-14, 14),
+    vy,
+    type: type && type !== 'random' ? type : pick(TYPES),
+    hue: pick(HUES),
+  });
+  launchSound(x);
+}
+
+function burst(x, y, type, hue) {
+  const u = Math.min(W, H) / 3.1;      // base burst speed, scaled to the screen
+  const hue2 = (hue + pick([30, 60, 180, 300])) % 360;
+  let n, big = false;
+
+  switch (type) {
+    case 'peony':
+      n = reduced ? 60 : 110;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.3 + 0.7 * Math.pow(Math.random(), 0.35));
+        const inner = Math.random() < 0.3;
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(1.2, 1.7), hue: inner ? hue2 : hue, lum: inner ? 68 : 60,
+          size: 1.7, drag: 1.5, grav: 0.55 });
+      }
+      break;
+
+    case 'chrys':
+      n = reduced ? 70 : 140;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.35 + 0.65 * Math.pow(Math.random(), 0.4));
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(1.7, 2.2), hue, sat: 85, lum: 62,
+          size: 1.4, drag: 1.1, grav: 0.6 });
+      }
+      break;
+
+    case 'willow':
+      n = reduced ? 50 : 90;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.45 + 0.45 * Math.random());
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(2.6, 3.4), hue: 45, sat: 90, lum: 58,
+          size: 1.2, drag: 0.55, grav: 0.35 });
+      }
+      break;
+
+    case 'palm':
+      n = 14;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.75 + 0.25 * Math.random());
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(1.4, 1.8), hue: 38, sat: 95, lum: 62,
+          size: 3.4, drag: 1.1, grav: 0.8 });
+      }
+      break;
+
+    case 'ring': {
+      n = reduced ? 44 : 70;
+      const tilt = rnd(0.45, 1.2), rot = Math.random() * Math.PI;
+      const cr = Math.cos(rot), sr = Math.sin(rot), ct = Math.cos(tilt);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const px = Math.cos(a), py = Math.sin(a) * ct;
+        const v = u * 0.82;
+        spawnPart({ x, y, vx: (px * cr - py * sr) * v, vy: (px * sr + py * cr) * v,
+          life: rnd(1.3, 1.6), hue, size: 1.8, drag: 1.5, grav: 0.5 });
+      }
+      break;
+    }
+
+    case 'crossette':
+      n = 22;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.5 + 0.35 * Math.random());
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: 2.2, hue, size: 2.6, drag: 1.2, grav: 0.6,
+          splitAt: rnd(0.45, 0.75) });
+      }
+      break;
+
+    case 'strobe':
+      n = reduced ? 70 : 120;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.3 + 0.6 * Math.pow(Math.random(), 0.45));
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(1.8, 2.5), hue, sat: 55, lum: 78,
+          size: 1.6, drag: 1.4, grav: 0.45, flicker: rnd(24, 40) });
+      }
+      break;
+
+    case 'crackle':
+      n = reduced ? 60 : 100;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.35 + 0.55 * Math.random());
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(0.9, 1.5), hue: 42, sat: 90, lum: 60,
+          size: 1.4, drag: 1.3, grav: 0.55, pop: 1 });
+      }
+      crackleSound(x);
+      break;
+
+    case 'salute':
+      n = 44; big = true;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = u * (0.6 + 0.5 * Math.random());
+        spawnPart({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: rnd(0.35, 0.6), hue: 0, sat: 0, lum: 95,
+          size: 2.2, drag: 2.0, grav: 0.4 });
+      }
+      break;
+  }
+
+  flashes.push({ x, y, r: Math.min(W, H) * (big ? 0.5 : 0.3), a: big ? 0.5 : 0.28 });
+  boomSound(x, big);
+}
+
+function finale() {
+  const t0 = now;
+  const count = reduced ? 9 : 16;
+  for (let i = 0; i < count; i++) {
+    schedule.push({
+      t: t0 + i * 0.17,
+      x: rnd(W * 0.08, W * 0.92),
+      y: rnd(H * 0.08, H * 0.4),
+      type: pick(TYPES),
+    });
+  }
+  for (let i = 0; i < 3; i++) {
+    schedule.push({ t: t0 + count * 0.17 + 0.6 + i * 0.28, x: rnd(W * 0.25, W * 0.75), y: rnd(H * 0.1, H * 0.3), type: 'salute' });
+  }
+}
+
+/* ---------- main loop --------------------------------------------------- */
+
+let now = 0, last = 0, nextAuto = 0;
+let autoOn = !reduced;
+
+function step(tms) {
+  requestAnimationFrame(step);
+  const t = tms / 1000;
+  let dt = t - last;
+  last = t; now = t;
+  if (dt <= 0 || dt > 0.1) dt = 0.033;   // tab was hidden or first frame
+
+  // auto show
+  if (autoOn && t >= nextAuto) {
+    launch(rnd(W * 0.12, W * 0.88), rnd(H * 0.1, H * 0.45), shellSel.value);
+    if (Math.random() < 0.22) {
+      schedule.push({ t: t + 0.18, x: rnd(W * 0.12, W * 0.88), y: rnd(H * 0.1, H * 0.45), type: shellSel.value });
+    }
+    nextAuto = t + rnd(0.8, 2.1);
+  }
+
+  // scheduled launches (volleys, finale)
+  for (let i = schedule.length - 1; i >= 0; i--) {
+    if (t >= schedule[i].t) {
+      const s = schedule[i];
+      schedule.splice(i, 1);
+      if (s.type === 'salute') burst(s.x, s.y, 'salute', 0);
+      else launch(s.x, s.y, s.type);
+    }
+  }
+
+  // fade the previous frame — this is what paints the trails
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(5, 8, 15, 0.22)';
+  ctx.fillRect(0, 0, W, H);
+
+  // treeline (solid, so the fade never streaks it)
+  ctx.fillStyle = '#04060b';
+  ctx.beginPath();
+  ctx.moveTo(-10, H + 10);
+  ctx.lineTo(-10, groundY);
+  for (const [x, y] of skyline) ctx.lineTo(x, y);
+  ctx.lineTo(W + 10, H + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.globalCompositeOperation = 'lighter';
+
+  // stars
+  for (const s of stars) {
+    const a = s.a * (0.65 + 0.35 * Math.sin(t * s.sp + s.ph));
+    ctx.fillStyle = `rgba(200, 215, 255, ${a * 0.5})`;
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+  }
+
+  // burst flashes
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const f = flashes[i];
+    const gr = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+    gr.addColorStop(0, `rgba(255, 245, 225, ${f.a})`);
+    gr.addColorStop(1, 'rgba(255, 245, 225, 0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2);
+    f.a -= dt * 2.2;
+    if (f.a <= 0.01) flashes.splice(i, 1);
+  }
+
+  // rockets
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const r = rockets[i];
+    r.vy += G * dt;
+    r.x += r.vx * dt;
+    r.y += r.vy * dt;
+    // sparkle tail
+    spawnPart({ x: r.x + rnd(-1, 1), y: r.y + rnd(0, 6), vx: rnd(-12, 12), vy: rnd(10, 40),
+      life: rnd(0.25, 0.5), hue: 40, sat: 90, lum: 62, size: 1.1, drag: 2.5, grav: 0.3 });
+    ctx.fillStyle = 'rgba(255, 235, 200, 0.9)';
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (r.vy >= -40) {
+      rockets.splice(i, 1);
+      burst(r.x, r.y, r.type, r.hue);
+    }
+  }
+
+  // particles
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.age += dt;
+    if (p.age >= p.life || p.y > H + 20) { parts.splice(i, 1); continue; }
+
+    const k = Math.exp(-p.drag * dt);
+    p.vx *= k; p.vy *= k;
+    p.vy += G * p.grav * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    if (p.splitAt && p.age >= p.splitAt) {
+      p.life = 0;    // parent dies; children carry on
+      for (let j = 0; j < 5; j++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = rnd(40, 110);
+        spawnPart({ x: p.x, y: p.y, vx: p.vx * 0.3 + Math.cos(a) * v, vy: p.vy * 0.3 + Math.sin(a) * v,
+          life: rnd(0.6, 1.0), hue: (p.hue + 40) % 360, size: 1.5, drag: 1.6, grav: 0.5 });
+      }
+      continue;
+    }
+
+    if (p.pop && p.age > 0.35 && Math.random() < dt * 1.6) {
+      p.life = 0;
+      for (let j = 0; j < 3; j++) {
+        spawnPart({ x: p.x, y: p.y, vx: rnd(-60, 60), vy: rnd(-60, 60),
+          life: rnd(0.15, 0.3), hue: 0, sat: 0, lum: 95, size: 1.6, drag: 2, grav: 0.3 });
+      }
+      continue;
+    }
+
+    const u = p.age / p.life;
+    let alpha = u < 0.7 ? 1 : 1 - (u - 0.7) / 0.3;
+    if (p.flicker && u > 0.35 && Math.sin(p.age * p.flicker + p.hue) < 0) continue;
+
+    const r = p.size * (1 - u * 0.4);
+    ctx.fillStyle = `hsla(${p.hue}, ${p.sat}%, ${p.lum}%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (r > 1.3) {   // hot white core on the bigger sparks
+      ctx.fillStyle = `hsla(${p.hue}, 30%, 92%, ${alpha * 0.55})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+}
+requestAnimationFrame(step);
+
+/* ---------- input & UI -------------------------------------------------- */
+
+const shellSel = document.getElementById('shell');
+const autoBtn = document.getElementById('auto');
+const soundBtn = document.getElementById('sound');
+const finaleBtn = document.getElementById('finale');
+
+function paintUI() {
+  autoBtn.classList.toggle('off', !autoOn);
+  soundBtn.textContent = soundOn ? '🔊' : '🔇';
+  soundBtn.classList.toggle('off', !soundOn);
+}
+paintUI();
+
+autoBtn.addEventListener('click', () => { autoOn = !autoOn; nextAuto = now + 0.3; paintUI(); });
+soundBtn.addEventListener('click', () => { soundOn = !soundOn; if (soundOn) initAudio(); paintUI(); });
+finaleBtn.addEventListener('click', () => { initAudio(); finale(); });
+
+cv.addEventListener('pointerdown', e => {
+  initAudio();
+  launch(e.clientX + rnd(-8, 8), e.clientY, shellSel.value);
+});
+
+addEventListener('keydown', e => {
+  if (e.target && /SELECT|INPUT/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'f') { initAudio(); finale(); }
+  else if (k === 'a') { autoOn = !autoOn; nextAuto = now + 0.3; paintUI(); }
+  else if (k === 's') { soundOn = !soundOn; if (soundOn) initAudio(); paintUI(); }
+  initAudio();
+});
+
+// chrome fades when idle, like glow.html
+let idleTimer = 0;
+function poke() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 3500);
+}
+addEventListener('pointermove', poke);
+addEventListener('pointerdown', poke);
+addEventListener('keydown', poke);
+poke();
+
+})();
+</script>
+</body>
+</html>

@@ -14,7 +14,7 @@
 
   <url>
     <loc>https://jesselevine.net/tools.html</loc>
-    <lastmod>2026-08-04</lastmod>
+    <lastmod>2026-08-21</lastmod>
   </url>
 
   <url>
@@ -82,9 +82,15 @@
     <lastmod>2026-07-28</lastmod>
   </url>
 
+  <!-- Just for fun -->
+  <url>
+    <loc>https://jesselevine.net/fireworks.html</loc>
+    <lastmod>2026-08-21</lastmod>
+  </url>
+
   <url>
     <loc>https://jesselevine.net/changelog.html</loc>
-    <lastmod>2026-07-27</lastmod>
+    <lastmod>2026-08-21</lastmod>
   </url>
 
 </urlset>
