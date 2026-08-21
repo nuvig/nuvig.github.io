@@ -268,8 +268,7 @@
         <dt>Reach</dt><dd>${depth} days — ${reach || '—'}</dd>
         <dt>Integrity</dt><dd>${integrity}</dd>
       </dl>
-      <div class="dh-foot">Strip: last ${SPAN} days · integrity: whole archive ·
-        <a href="almanac.html">Browse the archive →</a></div>`;
+      <div class="dh-foot"><a href="almanac.html">Browse the archive →</a></div>`;
   }
 
   // ------------------------------------------------------------------ tracker
