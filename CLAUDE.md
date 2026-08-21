@@ -22,8 +22,15 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
   `discussion.html` prints the running JS version in its footer (`DISC_VER` in `js/discussion.js`,
   bumped in step with the `?v=`) so a stale deploy is visible at a glance.
-- `.gitattributes` forces LF on `pi/*.{py,sh,service,timer}` — the Pi is Linux and CRLF breaks
-  bash/systemd on checkout. Don't override it.
+- `.gitattributes` forces LF on `pi/*.{py,sh,service,timer}` and `.claude/hooks/*.sh` — the Pi and
+  the web-session containers are Linux and CRLF breaks bash/systemd on checkout. Don't override it.
+- **Commits are authored as `nuvig` everywhere.** `.claude/settings.json` blanks Claude Code's
+  commit/PR attribution (`attribution` empty + `sessionUrl: false`, so no `Co-Authored-By` or
+  `Claude-Session` trailers), and its SessionStart hook (`.claude/hooks/session-start.sh`,
+  remote-only via `CLAUDE_CODE_REMOTE`) sets the git identity in web sessions, whose containers
+  otherwise commit as "Claude". Jesse's choice — don't re-add attribution. (`.gitignore` ignores
+  `.claude/` wholesale to keep local state private; these files, like `.claude/skills/`, are
+  force-added — a new file under `.claude/` meant for the repo needs `git add -f`.)
 - `.nojekyll` is present; GitHub Pages serves the tree as-is. `CNAME` pins jesselevine.net.
 - Never commit API keys — this repo is public. The tracker's optional RapidAPI key lives only in
   the visitor's `localStorage`.
