@@ -48,7 +48,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   any `*[bot]` author), chaining extra API pages (max 3/load) so a screenful of real changes still
   renders; in their place `data-health.js` monitors the pipelines those commits come from: the
   weather archive (via `WXA` — per-stream freshness judged against each stream's own cadence, plus
-  42-day coverage strips; alerts are event-driven, so absent days there are "quiet", never gaps)
+  42-day coverage strips; alerts are event-driven, so absent days there are "quiet", never gaps —
+  and a **reach/integrity** pair read from `index.json` over the *whole* archive, not the drawn
+  window: first day held per stream, and the missing days collapsed into `--since/--until`-shaped
+  ranges, marked `(unrecoverable)` for the streams `wxbackfill.py` deliberately can't refill
+  (`forecast`/`grid`). Today is never counted a gap — a day-forward stream fills it as the day runs)
   and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
   heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
