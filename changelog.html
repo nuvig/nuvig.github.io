@@ -86,8 +86,22 @@
     .dh-age { color: #888; font-size: 12px; white-space: nowrap;
       font-variant-numeric: tabular-nums; }
     .dh-word { font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .dh-word.ok   { color: #22c55e; }
     .dh-word.warn { color: #f59e0b; }
     .dh-word.bad  { color: #ef4444; }
+    .dh-gap { font-size: 11px; color: #f59e0b; border: 1px solid #f59e0b44;
+      background: #f59e0b14; border-radius: 4px; padding: 0 5px; margin-left: 4px;
+      cursor: help; }
+
+    /* reach + integrity over the whole archive (the strip is only 42 days) */
+    .dh-cover { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px;
+      margin: 12px 0 0; padding-top: 10px; border-top: 1px solid #2a2a2a;
+      font-size: 12px; }
+    .dh-cover dt { color: #777; font-weight: 600; }
+    .dh-cover dd { margin: 0; color: #999; line-height: 1.5; }
+    .dh-cover b { color: #bbb; font-weight: 600; }
+    .dh-cover i { color: #777; font-style: normal; }
+    .dh-cover code { color: #888; font-size: 11px; }
 
     /* day-coverage strip: one cell per day, oldest → today */
     /* on narrow screens the coverage strip gets its own full-width line */
