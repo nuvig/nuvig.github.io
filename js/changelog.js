@@ -61,7 +61,7 @@
     }
     if (hidden) {
       $('cl-hidden').textContent =
-        `${hidden.toLocaleString()} automated data commits hidden — the data health panels cover those.`;
+        `${hidden.toLocaleString()} automated data commits hidden`;
     }
     return shown;
   }
