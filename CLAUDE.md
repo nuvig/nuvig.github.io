@@ -22,6 +22,12 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
   `discussion.html` prints the running JS version in its footer (`DISC_VER` in `js/discussion.js`,
   bumped in step with the `?v=`) so a stale deploy is visible at a glance.
+  **Every page references `css/main.css?v=3`** (normalized 2026-08-21; a bare unversioned
+  reference is a different cache key and reintroduces the split-cache bug).
+- **Every public page** (the pages that load `js/nav.js`) carries, just before `</body>`, the
+  GoatCounter analytics snippet (jesselevine.goatcounter.com — cookie-less, nothing secret) and
+  `js/pagever.js`, which shows a "vN · updated <date>" badge (N = the page's commit count on
+  `main` via the GitHub API, cached 6 h in localStorage). Add both to any new public page.
 - `.gitattributes` forces LF on `pi/*.{py,sh,service,timer}` and `.claude/hooks/*.sh` — the Pi and
   the web-session containers are Linux and CRLF breaks bash/systemd on checkout. Don't override it.
 - **Commits are authored as `nuvig` everywhere.** `.claude/settings.json` blanks Claude Code's
@@ -226,6 +232,14 @@ field contacts, and doesn't care).
   00Z/12Z; SPC images publish ~1.5 h later (`recentCycles()` accounts for it).
 - `knowledge.html` + `js/knowledge.js` — Aviation Knowledge Map: expandable canvas concept graph with
   dashed cross-links. See the build pipeline below.
+- `terps.html` + `js/terps.js` — TERPS, Demystified: pilot-first tabbed explorer of FAA Order
+  8260.3G (the 2024 "G" revision; all paragraph refs cite it). Six tabs: rulebook overview,
+  Approach Anatomy (the one interactive: shared-axis plan+profile canvas, draggable obstacle,
+  navaid morphing, real 3-3-1/3-3-3/3-3-4 visibility logic, 102/GPA ILS OCS with the ≈1.78
+  ft-per-ft DA slide-up approximation), minimums, departures, controller side, field guide.
+  Tabs deep-link by hash (`#anatomy`), `?nav=`/`?cat=` preselect the interactive. **Currently an
+  unlinked `noindex` draft** — on promotion: remove the noindex meta, add the tools.html card,
+  nav.js TOOLS entry, and sitemap.xml `<url>`.
 
 ### Weather
 

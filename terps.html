@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TERPS, Demystified — how instrument procedures are designed</title>
+  <meta name="description" content="An interactive exploration of FAA Order 8260.3G (TERPS): how instrument approaches, departures, and minimums are actually designed, and what that means for IFR pilots and controllers.">
+  <!-- Draft: remove noindex + add tools.html card, nav.js entry, and sitemap.xml entry on promotion -->
+  <meta name="robots" content="noindex">
+  <link rel="canonical" href="https://jesselevine.net/terps.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1050px; padding-bottom: 48px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 18px; font-size: 14px; max-width: 880px; line-height: 1.6; }
+    .subtitle b { color: #bbb; }
+
+    /* ---- tabs (kanp.html pattern) ---- */
+    .tab-nav { display: flex; gap: 4px; border-bottom: 1px solid #333; margin-bottom: 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: #777; font-size: 14px; padding: 8px 14px; cursor: pointer; font-family: inherit;
+    }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active { color: #fff; border-bottom-color: #4a9eff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd; margin: 30px 0 4px;
+      letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-title .ref { color: #4a9eff; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 880px; line-height: 1.65; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+    .card p { font-size: 13px; color: #999; line-height: 1.65; margin: 6px 0; }
+    .card p b, .card li b { color: #ccc; }
+    .card ul { font-size: 13px; color: #999; line-height: 1.65; margin: 6px 0; padding-left: 20px; }
+
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 150px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+
+    canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; touch-action: none; }
+
+    .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .tile { background: #14181e; border: 1px solid #2a3040; border-radius: 6px; padding: 7px 12px; min-width: 96px; }
+    .tile .k { font-size: 10.5px; color: #778; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tile .v { font-size: 17px; font-weight: 600; color: #e8eef6; font-variant-numeric: tabular-nums; }
+    .tile .v .u { font-size: 11px; color: #778; font-weight: 400; }
+    .tile.hot { border-color: #4a9eff55; }
+
+    .verdict { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; line-height: 1.5; }
+    .verdict.ok   { background: #10251a; border: 1px solid #1f5c39; color: #7fd8a2; }
+    .verdict.warn { background: #26140f; border: 1px solid #6b3524; color: #f0a97f; }
+    .verdict.info { background: #101c2a; border: 1px solid #2a4a6d; color: #8ec2f2; }
+
+    .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
+    .mode-btn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .mode-btn.active { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .mode-btn:hover { border-color: #4a9eff; }
+
+    table.tt { border-collapse: collapse; font-size: 12.5px; margin: 8px 0; width: 100%; max-width: 880px; }
+    table.tt th, table.tt td { border: 1px solid #2c2c30; padding: 5px 9px; text-align: left; color: #aab; }
+    table.tt th { background: #1d2026; color: #ccd; font-weight: 600; }
+    table.tt td.num { font-variant-numeric: tabular-nums; text-align: right; }
+    table.tt tr.hl td { background: #16202c; color: #cfe6ff; }
+
+    .notes { font-size: 12.5px; color: #777; line-height: 1.7; max-width: 880px; }
+    .notes b { color: #aaa; }
+    .footer-note { margin-top: 34px; font-size: 12px; color: #555; line-height: 1.6; }
+    .footer-note a { color: #666; }
+    @media (max-width: 700px) { .ctl-row label { min-width: 112px; } }
+  </style>
+</head>
+<body>
+  <script src="js/nav.js?v=1"></script>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">📐 TERPS, Demystified</h1>
+  <p class="subtitle">
+    Every instrument approach and departure you fly was drawn by hand-applying one 564-page rulebook:
+    <b>FAA Order 8260.3G</b>, the <b>United States Standard for Terminal Instrument Procedures</b>.
+    This page opens that rulebook up — the obstacle-clearance geometry behind every plate, why your
+    minimums are the numbers they are, and what the same document tells controllers they may do with you.
+  </p>
+
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-overview">The Rulebook</button>
+    <button class="tab-btn" data-tab="tab-anatomy">Approach Anatomy</button>
+    <button class="tab-btn" data-tab="tab-minimums">Minimums</button>
+    <button class="tab-btn" data-tab="tab-departures">Departures</button>
+    <button class="tab-btn" data-tab="tab-atc">The Controller's Copy</button>
+    <button class="tab-btn" data-tab="tab-fieldguide">Field Guide</button>
+  </div>
+
+  <div id="tab-overview" class="tab-panel active">
+    <div class="section-title">What this document is <span class="ref">Ch 1</span></div>
+    <p class="section-lede">
+      Order 8260.3G — everyone calls it <b>TERPS</b> — is the standard the FAA (and the military services)
+      must apply when designing any instrument procedure in US airspace: approaches, departures, STARs,
+      airways, holding, and the controllers' vectoring charts. It's written for procedure designers, not
+      pilots — which is exactly why it's worth reading as a pilot: every number on a plate is the output
+      of a rule in here, and the rules are more knowable than they look. Effective 7/1/2024, 564 pages,
+      cancels 8260.3F.
+    </p>
+    <div class="card">
+      <h3>The one idea underneath everything: ROC</h3>
+      <p><b>Required Obstacle Clearance</b> is the contract. TERPS defines it as the minimum vertical
+      protection the FAA considers satisfactory, valid only while the aircraft flies "normal operations"
+      with systems working (2-1-2). The whole order is machinery for delivering ROC in two shapes:</p>
+      <ul>
+        <li><b>Level surfaces</b> — for segments flown at a fixed altitude. The ROC band sits on the
+          <b>highest obstacle in the segment</b>: obstacle + ROC, rounded up, is your minimum altitude.
+          The ladder (2-1-3): <b>1,000 ft</b> en route / feeder / initial (2,000 in designated mountainous
+          terrain) → <b>500 ft</b> intermediate → <b>250–500 ft</b> final. An approach is a funnel of
+          shrinking guaranteed clearance.</li>
+        <li><b>Sloping surfaces</b> — for climbs and glidepath descents. On a glidepath, the surface under
+          you has slope <b>102 ÷ glidepath angle</b> (a 3.00° glideslope is protected by a 34:1 surface).
+          In a climb, ROC is <b>24% of your climb gradient</b> — at the standard 200 ft/NM you keep just
+          48 ft/NM of clearance while the evaluation surface rises at 152 ft/NM (the famous
+          <b>40:1 surface</b>, 2-1-4).</li>
+      </ul>
+      <p>Everything else — trapezoids, tables, formulas — is bookkeeping about <i>where</i> those surfaces
+      apply and <i>which obstacles count</i>.</p>
+    </div>
+    <div class="card">
+      <h3>Primary and secondary areas</h3>
+      <p>Almost every segment is a corridor with a <b>primary area</b> (full ROC) flanked by
+      <b>secondary areas</b> where ROC tapers linearly from full value at the primary boundary to
+      <b>zero at the outer edge</b>. The taper encodes a probability statement: you're very unlikely to be
+      that far off course, so an obstacle out there needs less clearance. An obstacle just outside the
+      secondary edge doesn't exist to the procedure at all. The Approach Anatomy tab lets you drag an
+      obstacle through this and watch the ROC change.</p>
+    </div>
+    <div class="card">
+      <h3>The final approach course is designed first</h3>
+      <p>Paragraph 2-1-8 is the design philosophy in one sentence: a procedure has at most four segments
+      (initial, intermediate, final, missed) plus a circling area, and the <b>final approach segment is
+      designed first</b> — "least flexible and most critical" — with everything else fitted around it.
+      When a plate routes you somewhere strange, it's usually the scaffolding bending so the final
+      doesn't have to.</p>
+    </div>
+    <div class="card">
+      <h3>What this order is <i>not</i></h3>
+      <p>8260.3G carries the <b>conventional</b> (ground-based navaid) criteria plus everything generic:
+      minimums, departures, holding, MVAs. The RNAV/RNP approach criteria — LPV, LNAV/VNAV, RNP AR —
+      live in the sibling <b>Order 8260.58</b>, which borrows this order's chapters 1–3 machinery. So a
+      GPS approach's minimums and departure procedures still trace back here even though its final-segment
+      geometry doesn't.</p>
+    </div>
+    <div class="card">
+      <h3>The lifecycle a pilot never sees</h3>
+      <ul>
+        <li>Anyone can trigger a procedure, but it flows through airspace analysis, airport-standards
+          checks, obstacle surveys, and <b>flight inspection</b> of every navaid before publication (1-2-3).</li>
+        <li><b>A complete civil approach can never be issued by NOTAM</b> (1-7-3) — full procedures only
+          arrive on the 28-day publication cycle.</li>
+        <li>Deviations from criteria need a documented waiver showing an <b>equivalent level of safety</b>;
+          the order insists "a nonstandard IFP is not substandard" (1-4-2). Military procedures that
+          deviate <i>without</i> equivalent safety are marked <b>"NOT FOR CIVIL USE"</b> — on an NDB
+          procedure that can literally mean 50 ft less obstacle clearance (6-2-4).</li>
+        <li>Weather reporting on the field is an <b>alternate-airport</b> requirement — destination
+          minimums work from area weather plus a usable altimeter source (1-2-3.f).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Why plates are named the way they are <span style="color:#667; font-weight:400;">(1-6)</span></h3>
+      <ul>
+        <li>Duplicate straight-in procedures to a runway take suffixes <b>Z, Y, X…</b> — assigned in
+          reverse alphabetical order, so "Z" is just the first (usually primary) one, not a quality grade.
+          <b>"V" is reserved</b> for simultaneous converging approaches.</li>
+        <li>Circling-only procedures use <b>A through H</b>, assigned forward — and the sequence is shared
+          across <i>all airports with the same city name in the same state</i>. The three Atlanta airports
+          share one sequence: a VOR-A at one field, NDB-B at the next, LDA-C at the third.</li>
+        <li>A "VOR-A" isn't a style choice: the final missed the straight-in alignment or descent-angle
+          limits, and the letter tells you circling is all it's allowed to offer.</li>
+      </ul>
+    </div>
+    <div class="section-title">Map of the order</div>
+    <table class="tt">
+      <tr><th>Chapter</th><th>What it holds</th><th>What it explains on your plate</th></tr>
+      <tr><td>1</td><td>Administration, naming, waivers</td><td>Z/Y suffixes, VOR-A letters, "Not for Civil Use"</td></tr>
+      <tr><td>2</td><td>General criteria — segments, ROC, circling, missed, fixes</td><td>PT distances, stepdowns, circling radii, "climb to X then turn"</td></tr>
+      <tr><td>3</td><td>Landing &amp; takeoff minimums</td><td>Every DA/MDA/visibility number, alternate mins, takeoff mins</td></tr>
+      <tr><td>4–9</td><td>Conventional finals: VOR, TACAN, NDB, LOC/LDA, SDF</td><td>Why NDB &gt; VOR &gt; LOC minimums, LOC-only lines</td></tr>
+      <tr><td>10</td><td>Precision: ILS, PAR, LDA w/ GS, CAT I/II/III</td><td>The 200-ft DH, RVR ladders, CAT II authorization</td></tr>
+      <tr><td>11</td><td>Radar approaches &amp; MVA charts</td><td>What the controller's scope guarantees when you're vectored</td></tr>
+      <tr><td>12</td><td>Helicopter procedures</td><td>COPTER minimums (not covered on this page)</td></tr>
+      <tr><td>13</td><td>Departures — diverse, ODP, SID, VCOA, DVA</td><td>Climb gradients, "cross DER at 35 ft", low-close-in notes</td></tr>
+      <tr><td>14</td><td>En route</td><td>Airway widths, MEA/MOCA/MCA machinery</td></tr>
+      <tr><td>15</td><td>Simultaneous approaches</td><td>PRM, NTZ, SOIA, why spacing tiers exist</td></tr>
+      <tr><td>16</td><td>Holding</td><td>Max holding speeds, why protected airspace is huge</td></tr>
+    </table>
+  </div>
+  <div id="tab-anatomy" class="tab-panel">
+    <div class="section-title">Design an approach, break an approach <span class="ref">Ch 2, 4–10</span></div>
+    <p class="section-lede">
+      A plan view and a profile of a complete approach, drawn from the order's own geometry.
+      <b>Drag the obstacle</b> — sideways in the plan view (into the secondary area, or out of the
+      evaluation entirely), along the approach or into the missed in either view, up and down in the
+      profile — and watch the minimums respond the way a procedure designer's software would.
+      Switch the navaid and the protected trapezoid, the ROC, and the achievable minimums all morph.
+    </p>
+    <div class="card">
+      <div class="ctl-row"><label>Navaid</label>
+        <div class="mode-row" id="grp-navaid" style="margin:0;">
+          <button class="mode-btn active" data-v="ils">ILS</button>
+          <button class="mode-btn" data-v="loc">LOC</button>
+          <button class="mode-btn" data-v="vor">VOR/DME</button>
+          <button class="mode-btn" data-v="ndb">NDB</button>
+        </div>
+      </div>
+      <div class="ctl-row"><label>Approach category</label>
+        <div class="mode-row" id="grp-cat" style="margin:0;">
+          <button class="mode-btn" data-v="A">A</button>
+          <button class="mode-btn active" data-v="B">B</button>
+          <button class="mode-btn" data-v="C">C</button>
+          <button class="mode-btn" data-v="D">D</button>
+        </div>
+      </div>
+      <div class="ctl-row"><label>Approach lights</label>
+        <div class="mode-row" id="grp-lights" style="margin:0;">
+          <button class="mode-btn active" data-v="0">FALS</button>
+          <button class="mode-btn" data-v="1">IALS</button>
+          <button class="mode-btn" data-v="2">BALS</button>
+          <button class="mode-btn" data-v="3">None</button>
+        </div>
+      </div>
+      <div class="ctl-row" id="row-gpa"><label>Glidepath angle</label>
+        <input type="range" id="sl-gpa" min="275" max="450" value="300">
+        <span class="val" id="v-gpa"></span>
+      </div>
+      <div class="ctl-row" id="row-fafalt" style="display:none;"><label>FAF crossing altitude</label>
+        <input type="range" id="sl-fafalt" min="1000" max="3200" step="20" value="1800">
+        <span class="val" id="v-fafalt"></span>
+      </div>
+      <div class="ctl-row"><label>FAF distance</label>
+        <input type="range" id="sl-fafd" min="40" max="80" value="50">
+        <span class="val" id="v-fafd"></span>
+      </div>
+      <div class="ctl-row"><label>Obstacle height</label>
+        <input type="range" id="sl-obsh" min="0" max="3200" step="10" value="420">
+        <span class="val" id="v-obsh"></span>
+      </div>
+      <canvas id="anatomy-cv" class="viz"></canvas>
+      <div class="readout-grid">
+        <div class="tile hot"><div class="k">Minimums</div><div class="v" id="ro-min">—</div></div>
+        <div class="tile"><div class="k">Visibility</div><div class="v" id="ro-vis">—</div></div>
+        <div class="tile"><div class="k">Angle</div><div class="v" id="ro-vda">—</div></div>
+        <div class="tile" style="min-width:220px;"><div class="k">Obstacle sits in</div><div class="v" id="ro-zone" style="font-size:13px; line-height:1.5;">—</div></div>
+      </div>
+      <div id="anatomy-verdicts"></div>
+      <p class="notes" style="margin-top:10px;">
+        Simplifications, so you know where the toy ends and the order begins: one obstacle; sea-level
+        airport; the facility sits on the field; no remote-altimeter, precipitous-terrain, or
+        excessive-length adjustments; the ILS DA adjustment uses the ≈1.78 ft-per-ft-of-penetration
+        slide-up-the-glideslope approximation rather than formulas 10-2-15/16; the missed splay and
+        intermediate taper are drawn schematically. ROC values, area formulas, visibility tables
+        (3-3-1 / 3-3-3 / 3-3-4 / 3-3-5 gate), the GPA↔HAT ladder (3-2-2) and the 102/GPA surface are
+        the order's own.
+      </p>
+    </div>
+
+    <div class="section-title">Why the navaid sets the minimums</div>
+    <p class="section-lede">
+      The interactive's trapezoids come from this table. Coarser guidance → wider protected area →
+      more obstacles captured → higher minimums. It's that mechanical.
+    </p>
+    <table class="tt">
+      <tr><th>Final segment</th><th>Primary width</th><th>ROC</th><th>Floor (HAT)</th><th>Source</th></tr>
+      <tr><td>ILS / PAR</td><td class="num">±400 ft (W) near threshold</td><td>sloping OCS, 102/GPA</td><td class="num">200 ft</td><td>Ch 10</td></tr>
+      <tr><td>LOC / LDA</td><td class="num">±700 ft near threshold</td><td class="num">250 ft</td><td class="num">250 ft</td><td>Ch 8</td></tr>
+      <tr><td>SDF</td><td class="num">±500–1,400 ft at threshold (fixed 6–12° course)</td><td class="num">250 ft</td><td class="num">250 ft</td><td>Ch 9</td></tr>
+      <tr><td>VOR with FAF</td><td class="num">±2 NM at the facility</td><td class="num">250 ft</td><td class="num">250 ft</td><td>Ch 5</td></tr>
+      <tr><td>VOR on-field, no FAF</td><td class="num">±2 NM, splaying faster</td><td class="num">300 ft</td><td class="num">300 ft</td><td>Ch 4</td></tr>
+      <tr><td>NDB with FAF</td><td class="num">±2.5 NM at the facility</td><td class="num">300 ft</td><td class="num">300 ft</td><td>Ch 7</td></tr>
+      <tr><td>NDB on-field, no FAF</td><td class="num">±2.5 NM, splaying faster</td><td class="num">350 ft</td><td class="num">350 ft</td><td>Ch 6</td></tr>
+      <tr><td>DME arc final / teardrop</td><td class="num">±4 NM along the arc</td><td class="num">500 ft</td><td class="num">—</td><td>Ch 5 / 4-3</td></tr>
+    </table>
+    <p class="notes">
+      A localizer's protected area is measured in <b>feet</b>; a VOR's in <b>miles</b> — that, plus 50 ft
+      of ROC, is the entire "why LOC minimums beat VOR minimums" story. The NDB's extra half-mile of
+      width and 50–100 ft of ROC is the entire "why NDB minimums are high" story: an ADF bearing is
+      simply trusted less, so more sky is protected and more obstacles get a vote. Adding a FAF to a VOR
+      buys 50 ft of ROC (300→250) and a much slimmer trapezoid — why "VOR/DME" beats plain "VOR" to the
+      same runway. Uniquely, a DME-arc final's straight-in MDA may never be <i>lower</i> than its own
+      circling MDA (5-3-4.b(6)).
+    </p>
+
+    <div class="card">
+      <h3>What makes it straight-in at all</h3>
+      <p>Straight-in minimums require the final course within <b>30°</b> of the runway (15° for arcs;
+      3° to keep the name "LOC" — one degree more and the identical antenna is charted as an <b>LDA</b>),
+      crossing the extended centerline about 3,000 ft out, <i>and</i> a descent angle inside table
+      2-6-1's per-category caps (CAT A 5.70°, B 4.20°, C 3.77°, D 3.50°; floor 2.75°). Fail either test
+      and the procedure survives as circling-only — that's the birth of every "VOR-A". Try it in the
+      interactive: lower the FAF crossing distance until the VDA busts your category.</p>
+    </div>
+    <div class="card">
+      <h3>Course reversals — why the PT says what it says</h3>
+      <ul>
+        <li>"Remain within 10 NM" is the standard CAT B–D maneuvering allotment (2-4-5); 5 NM appears at
+          CAT-A-only fields, 15 NM for CAT E or extra descent — and the PT distance grows 1 NM per 200 ft
+          of extra altitude to lose.</li>
+        <li>PT completion altitude may sit at most 1,000–3,000 ft above the FAF crossing altitude
+          (table 2-4-5, scaling with PT distance) — which is why PT altitudes always hug the profile.</li>
+        <li>A <b>hold-in-lieu-of-PT over the FAF</b> may be charted no more than <b>300 ft</b> above the
+          FAF altitude (2-4-5.e) — those holds feel "already on profile" because the rule forces them to be.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Fixes are areas, not points</h3>
+      <p>Every intersection fix is a quadrangle of uncertainty, and protection starts at the <i>earliest</i>
+      point you could believe you're there (2-9-9.b). System accuracies (2-9-6): VOR ±4.5° along the course
+      you fly but <b>±3.6° for a crossing radial</b> — the radial you're <i>not</i> flying is trusted more,
+      because flight technical error only applies to the course being flown. DME: ±0.5 NM or 3%.
+      A stepdown fix in the final segment earns publication only if it buys <b>≥60 ft of MDA or a
+      visibility credit</b> (2-9-9.c) — the level ROC band sits on the highest obstacle in the segment,
+      and a stepdown is the designer's knife for cutting one rock out of the segment that holds the
+      whole MDA hostage.</p>
+    </div>
+    <div class="card">
+      <h3>The missed approach, briefly</h3>
+      <p>The 40:1 surface starts over the MAP at <b>MDA minus the final ROC</b> — the evaluation assumes
+      you might arrive at the MAP having already eaten the entire final-segment clearance (2-8-5).
+      Turning misseds are never designed below <b>400 ft</b> above the field (2-8-6); if the numbers
+      don't work, you get "climb to ___, then turn" — and that altitude is exactly what the 40:1 needs
+      to out-climb the obstacle in the turn area, rounded up to 20 ft (2-8-8). On a standard 200 ft/NM
+      climb you keep 48 ft/NM over the surface. ILS misseds are stricter still: the first 1,460 ft of the
+      missed keeps the final's frozen surfaces and <b>must not be penetrated at all</b> (10-3).</p>
+    </div>
+  </div>
+  <div id="tab-minimums" class="tab-panel">
+    <div class="section-title">Where the numbers on the minimums line come from <span class="ref">Ch 3</span></div>
+    <p class="section-lede">
+      Chapter 3 is the order's cash register: it converts the obstacle evaluation into the DA/MDA and
+      visibility you brief. Almost nothing in it is arbitrary — most plate oddities are this chapter's
+      arithmetic showing through.
+    </p>
+    <div class="card">
+      <h3>The altitude side</h3>
+      <ul>
+        <li><b>MDAs round up in 20-ft steps; DAs in 1-ft steps</b> (3-2-1). An MDA of 821 becomes 840.
+          That alone explains most "odd" minimums.</li>
+        <li><b>HAT floors</b>: 200 ft for CAT I ILS/LPV — but <b>250 ft</b> for LNAV/VNAV, RNP AR, and
+          LDA-with-glideslope, by rule, not obstacles (table 3-2-2). A 250-ft line next to a 200-ft ILS
+          on the same runway isn't hiding a tower.</li>
+        <li><b>Steeper glidepath, higher floor</b>: above 3.10° the minimum HAT climbs per category —
+          at 3.6° a CAT D floor is 300 ft; past 3.80° CAT D is simply NA (table 3-2-2). And once a
+          penetration forces a DA adjustment, the floor becomes (GPA/3)×250 — a steeper-than-3° ILS
+          can never claw back a 200-ft DH.</li>
+        <li><b>Circling HAA floors</b>: 350 ft CAT A, 450 B, 550 C/D (table 3-2-1); the circling MDA may
+          never undercut the highest straight-in MDA on the same chart (3-2-1.h).</li>
+        <li><b>Remote altimeter</b>: when the setting comes from more than 5 NM away, the penalty is a
+          formula — <b>2.30 ft per NM + 0.14 ft per foot of terrain differential</b> (3-2-2.c), and in
+          adverse terrain the differential is measured across the whole 5-NM-wide corridor between
+          source and field. That's how "when using X altimeter setting" notes add 80 ft at one airport
+          and 700 at another. Hard caps: 75 NM, 6,000 ft differential. Alternate minimums never use
+          remote-altimeter lines.</li>
+        <li><b>Long finals cost extra</b>: an NPA final over 6 NM adds 5 ft of ROC per 0.1 NM (3-2-2.d).
+          Precipitous terrain adds more (software-computed; +10% of HAT for precision approaches).
+          Multiple adjustments sum <i>before</i> the single final rounding (3-2-2.e).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>The visibility side — a contest, not a lookup</h3>
+      <p>Published visibility is the <b>highest</b> of several independent tests (3-3-2): the table value
+      for your HAT and lighting; the physical MAP-to-threshold distance; the visual-area surface
+      evaluation; and runway-characteristic floors. Each has a story:</p>
+      <ul>
+        <li><b>Lighting is credited by class, not hardware</b> (table 3-1-2): FALS = ALSF-1/2, SSALR —
+          <b>and MALSR</b>. The economy MALSR at a regional field buys the same ½-SM CAT I minimum as a
+          hub's ALSF-2. IALS = MALS/SSALS/SALS family; BALS = ODALS; under 700 ft of lights = none.</li>
+        <li><b>The credit is literally geometric</b>: with lights, the MAP-to-threshold distance test
+          subtracts the light system's physical length — 2,400 ft for FALS, 1,400 IALS, 700 BALS
+          (3-3-2.b). The lights extend the runway environment toward you by exactly their length.</li>
+        <li><b>Why ½ becomes ¾ when the ALS is out</b>: at HAT 200–320, the FALS column reads ½ SM while
+          every other column reads ¾ (table 3-3-1). The inop-components table is this difference.</li>
+        <li><b>RVR 1800</b> requires ILS/LPV/GLS <i>plus</i> touchdown-zone and centerline lights — and an
+          <b>offset final caps you at RVR 2400</b> no matter the equipment (table 3-3-1 notes).</li>
+        <li><b>Category changes the table</b>: CAT A and B NPAs get their own friendlier tables
+          (3-3-3/3-3-4 — ½ SM to HAT 880/740 with FALS); CAT C/D must pass a five-condition gate
+          (table 3-3-5: not NDB, ≤5° offset, ≥3 NM final, a FAF, ≤8 NM FAF-to-threshold) to keep ½ —
+          which is why one LOC line reads ½ for A/B and ¾ for C/D.</li>
+        <li><b>Runway characteristics set silent floors</b> (table 3-3-6): no full-length parallel
+          taxiway → 1 SM (waived while a tower is open — some plates literally say "visibility increased
+          when tower closed"); no HIRL/MIRL → 1 SM; turf → ¾; runway shorter than 4,200 ft → ¾.
+          A visibility minimum driven by <i>taxiing</i>.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>The 34:1 and 20:1 visual surfaces — the night-restriction machinery</h3>
+      <p>Beyond the electronic final there's a visual-segment check from the MDA/DA point to the runway
+      (3-3-2.c). Penetrate the <b>34:1</b> surface and visibility floors at ¾ SM. Penetrate the
+      <b>20:1</b> and: visibility floors at 1 SM, <b>the VDP is deleted</b> (a missing VDP on an NPA
+      usually means exactly this), and if the obstacle is unlighted the chart denies the approach —
+      or those minimums — <b>at night</b>. One unlighted 20:1 penetration on one straight-in kills night
+      circling to that runway on <i>every procedure at the airport</i> (3-3-2.c(4)(b)). A VGSI can
+      substitute for lighting the obstacle, which is why some fields' night authorization hangs on a
+      PAPI staying in service.</p>
+    </div>
+    <div class="card">
+      <h3>Circling — a formula, not a table</h3>
+      <p>Each category's circling area is built from arcs around each runway end with radius computed
+      from <b>true airspeed + a 25-kt wind pad at 20–25° of bank</b> at the circling altitude (2-7-1) —
+      at sea level roughly <b>1.3 / 1.8 / 2.8 / 3.7 NM</b> for CAT A–D, growing with field elevation
+      and MDA (the inverse-"C" icon on modern plates marks these expanded radii). ROC over the whole
+      area: a flat <b>300 ft</b> — the thinnest protection you'll ever maneuver under, which is the
+      quantitative case for treating circling MDAs with respect. Circling visibility can never undercut
+      the chart's straight-in visibility (3-3-3.d). "Circling NA east of Rwy 17-35" is a trade — a
+      forbidden sector bought a lower MDA — and the excluded side still keeps a hidden 10° protective
+      splay past each runway end (2-7-2).</p>
+    </div>
+    <div class="card">
+      <h3>Alternate and takeoff lines</h3>
+      <ul>
+        <li>Standard alternate minimums: <b>800-2 nonprecision, 600-2 precision</b> — and LPV/LNAV-VNAV
+          count as <i>non</i>precision here (3-4-1). The nonstandard-alternate triangle usually exists
+          because of the line most pilots skip: the circling row, evaluated without light credit.</li>
+        <li>Standard takeoff minimums are real numbers: <b>1 SM</b> (1–2 engines) / <b>½ SM</b> (3+),
+          from table 3-5-1. Everything else on the takeoff-minimums page is Chapter 13's obstacle story —
+          see the Departures tab.</li>
+      </ul>
+    </div>
+  </div>
+  <div id="tab-departures" class="tab-panel">
+    <div class="section-title">The departure bargain <span class="ref">Ch 13, § 3-5</span></div>
+    <p class="section-lede">
+      Every IFR departure rests on one assumption: you cross the departure end climbing at least
+      <b>200 ft/NM</b>, and TERPS draws a surface underneath you rising at <b>152 ft/NM — the 40:1</b>.
+      The gap is the "24% rule": <b>ROC in a climb is 24% of the gradient</b>, so at the standard climb
+      you keep just 48 ft per NM over the evaluation surface. Everything on a takeoff-minimums page is
+      what happens when an obstacle pokes through that 40:1.
+    </p>
+    <div class="card">
+      <h3>The diverse departure — protection in every direction</h3>
+      <p>First the runway gets an <b>Initial Climb Area</b>: 1,000 ft wide at the DER, splaying 15°,
+      normally 2 NM long, evaluating the climb to 400 ft above the DER (13-1-2). Then the whole
+      compass: <b>Diverse A</b> (everything ahead of a reference line 2,000 ft down the runway) takes
+      the 40:1 from the ICA's end; <b>Diverse B</b> (everything behind it) takes a 40:1 that starts
+      <b>400 ft above the airport</b> — the design assumes you never turn below 400 AGL, which is where
+      that habit's number comes from. Assessment runs to <b>25 NM</b> (46 NM near designated mountainous
+      terrain) (13-2-1). If nothing penetrates: no ODP is published — and the order <b>forbids</b>
+      publishing one (13-2-2). Silence is the message: any heading, standard climb, protected.</p>
+    </div>
+    <div class="card">
+      <h3>When something penetrates — the designer's hierarchy (13-2-2)</h3>
+      <ul>
+        <li><b>Low, close-in obstacles</b> (would need a gradient only to ≤200 ft above the DER):
+          published as <b>notes</b>, not gradients — the order forbids fixing them with a climb gradient
+          (3-5-3.a). The theory: you can see and avoid a 40-ft tree off the end. That's the whole
+          "numerous trees beginning 200 ft from DER" section.</li>
+        <li><b>DER crossing height</b>: penetrations ≤150 ft inside the ICA can be solved by requiring
+          you to cross the DER at a stated height — "cross DER at or above 35 ft" is a measured
+          penetration, to the foot (3-5-4).</li>
+        <li><b>Ceiling and visibility</b>: a "300-1" style takeoff minimum is see-and-avoid over a
+          specific charted obstacle — ceiling is never published at ≤200 ft, visibility never above
+          3 SM (3-5-2).</li>
+        <li><b>Nonstandard climb gradient</b>: computed as <b>CG = height ÷ (0.76 × distance)</b> —
+          the obstacle surface is drawn at only 76% of the published gradient, so an aircraft exactly
+          making the number still banks 24% of it as clearance. The "to 2400" altitude is where the
+          standard surface takes over. Gradients over <b>500 ft/NM</b> need Flight Standards approval;
+          beyond the hierarchy entirely: "an IFR departure must not be authorized."</li>
+        <li><b>Reduced takeoff runway length</b>: penetrations ≤35 ft can be bought back by shortening
+          the usable runway — about 30 ft of runway per foot of penetration (3-5-5).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ODP vs SID vs DVA — same geometry, different reasons to exist</h3>
+      <ul>
+        <li>An <b>ODP</b> exists <i>only because</i> obstacles penetrate the 40:1 — one may not be
+          designed otherwise.</li>
+        <li>A <b>SID</b> exists because <i>ATC asked</i> for a route; its surfaces may be perfectly
+          clean. Same Chapter 13 construction, opposite motivation.</li>
+        <li>A <b>DVA</b> lets ATC radar-vector departures below the MVA — but it is valid <b>only
+          during an uninterrupted climb</b> from runway to MVA (13-5-1). Level off early and the DVA's
+          guarantee is void by definition: its whole obstacle case is a sloping surface. DVAs also
+          can't use ceiling/visibility as mitigation — climb gradient only (3-5-2.c).</li>
+        <li>"Climb to 800 before turning" pins the end of an <b>extended ICA</b>: turn protection is
+          only constructed beyond it, so turning early exits every surface that was evaluated (13-1-4).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>VCOA — the slow airplane's exit</h3>
+      <p>Whenever a nonstandard gradient covers obstacles outside the ICA, the order <b>requires</b> a
+      Visual Climb Over Airport option (13-4-1). Construction: take the highest obstacle in a visual
+      climb circle around the airport (radius from a speed table — about 2 NM at 90–120 KIAS), run a
+      40:1 outward at least 19 NM, add 250 ft, round up — that's the published "climb to" altitude.
+      The ceiling requirement is always that altitude + 100 ft (minimum 1,000); visibility is always
+      3 SM (5 SM if climbing to ≥10,000 MSL) — you can reverse-engineer a VCOA's climb-to altitude
+      from its ceiling (3-5-2.b). It's the legal out when your airplane can't make the published
+      gradient: spiral up visually over the field, then depart with normal protection.</p>
+    </div>
+    <div class="card">
+      <h3>Worked example — the whole machine in one obstacle</h3>
+      <p>A 1,200-ft tower 3 NM from the DER (field at sea level). The 40:1 surface at 3 NM sits at
+      3 × 152 = 456 ft — penetrated by ~744 ft. Required gradient: 1200 ÷ (0.76 × 3) ≈ <b>527 ft/NM</b> —
+      above the 500 ceiling, so expect ceiling-and-visibility minimums or a VCOA instead of (or beside)
+      the gradient. Move the same tower to 8 NM: surface at 1,216 ft, penetration 0 — no ODP at all.
+      Distance is everything; the 40:1 forgives anything far enough away.</p>
+    </div>
+  </div>
+  <div id="tab-atc" class="tab-panel">
+    <div class="section-title">The parts of TERPS the controller flies for you <span class="ref">Ch 11, 14–16</span></div>
+    <p class="section-lede">
+      When you're on a vector, an airway, or in a hold, your obstacle protection still comes from this
+      order — just from chapters whose output you never see charted. This is what the controller's copy
+      guarantees, and where its edges are.
+    </p>
+    <div class="card">
+      <h3>The MVA chart — the approach segments you can't see</h3>
+      <ul>
+        <li>The order explicitly lets a Minimum Vectoring Altitude chart <b>replace the feeder, initial,
+          and intermediate segments</b> of a radar approach (11-3-2). A vector-to-final clearance carries
+          no published altitudes because the controller's chart holds them.</li>
+        <li>Each sector guarantees <b>1,000 ft ROC (2,000 mountainous — reducible, never below 1,000)</b>
+          over every obstacle in the sector <b>plus a 3–5 NM buffer past the sector boundary</b> —
+          3 NM within 40 NM of a single sensor, 5 NM beyond or with multi-sensor data. Crossing a sector
+          line early is protected by the buffer.</li>
+        <li><b>Isolation areas</b>: any obstacle can be carved into its own 3–5-NM-radius high-MVA island
+          so the surrounding sector can drop. An MVA that looks too low against a charted tower is
+          usually an island you can't see.</li>
+        <li>Sector altitudes normally round to the next higher 100 ft, but <b>nearest</b>-100-ft rounding
+          is allowed under tight conditions gated by a <b>cold-temperature table</b>: at an Average Cold
+          Temperature of +7°C, 951 ft of clearance suffices; at −40°C the same rounding needs 1,851 ft
+          (11-3-6). An obstacle-clearance rule with a climate input.</li>
+        <li>Why the MVA sits far below the MEA: the airway's MEA protects an 8-NM-wide corridor plus
+          signal and communications margins; the MVA protects a radar-monitored sector with the same
+          ROC and none of the nav-signal baggage.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Radar approaches — ASR and PAR</h3>
+      <p>An ASR approach is a real procedure, not a courtesy: final ROC <b>250 ft</b> — the same as a
+      localizer — over an area whose width is the radar's lateral accuracy, with the controller issuing
+      <b>recommended altitudes each mile, in 20-ft increments, never below the MDA</b> (11-2-5). PAR
+      applies ILS criteria wholesale — same OCS, same DA logic, no fix tolerances (radar sees you
+      continuously); military-only PARs may publish a <b>100-ft HAT</b> (11-2-4).</p>
+    </div>
+    <div class="card">
+      <h3>Simultaneous approaches — spacing is the master variable</h3>
+      <table class="tt">
+        <tr><th>Runway spacing</th><th>Operation</th><th>What it costs</th></tr>
+        <tr><td class="num">≥ 4,300 ft</td><td>Independent parallels (SIPIA)</td><td>Missed approaches must diverge ≥45° combined; vertical guidance required</td></tr>
+        <tr><td class="num">3,000–4,300 ft</td><td>Close parallels — <b>PRM</b></td><td>Monitor controllers watching a no-transgression zone on a second frequency; under 3,600 ft one final gets offset 2.5–3.0°</td></tr>
+        <tr><td class="num">750–2,500 ft</td><td><b>SOIA</b></td><td>One ILS + one offset LDA-with-glideslope whose DA sits miles out; from there the LDA pilot proceeds visually alongside traffic</td></tr>
+      </table>
+      <p>The strangest fact in Chapter 15: <b>breakout protection is borrowed from the opposite runway's
+      departure assessment</b> (15-4). "What happens if the monitor controller turns you off final" is
+      evaluated as the reciprocal runway's diverse departure — and an allowed mitigation is simply
+      drawing the obstacle on the controller's scope.</p>
+    </div>
+    <div class="card">
+      <h3>Holding — why the protected box is huge, and when it isn't yours</h3>
+      <ul>
+        <li>The AIM's maximum holding speeds (<b>200/230/265 KIAS</b> by altitude) are <i>design
+          inputs</i> — patterns are sized for them, plus a <b>120-kt design wind</b> and the assumption
+          you achieve only <b>25° of bank</b> even though you're told 30° ("a constant 30 degrees of bank
+          is seldom achieved", 16-1-2).</li>
+        <li>Primary protected areas run from about <b>14 × 9 NM</b> (slow, low) to <b>85 × 57 NM</b>
+          (FL500-class), plus a 2-NM secondary belt used only for obstacle math — ATC's charted holding
+          shape shows the primary only (16-1-8).</li>
+        <li>Exceed the speeds, hold uncharted, or hold above the designed altitude and the box no longer
+          applies — the order transfers obstacle responsibility to ATC in those cases, which in practice
+          means: tell them.</li>
+        <li>A <b>climb-in-hold</b> pattern is evaluated at <b>310 KIAS</b> with a 40:1 climb surface —
+          why the chart annotation exists, and why you must climb continuously in one (16-7).</li>
+        <li>Turbulent-air protection (sized for 280 KIAS) exists <b>only where charted</b> — the airspace
+          doesn't grow because it's bumpy (16-12).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>En route, in four numbers</h3>
+      <p>An airway is <b>4 NM of primary each side</b> plus 2 NM of secondary, until VOR system accuracy
+      (4.5°) overtakes the parallel boundary at <b>51 NM</b> and the corridor starts widening (14-1-2).
+      ROC is 1,000 ft — <b>2,000 mountainous</b>, the order citing mountain-wave pressure deficits and
+      the Bernoulli effect by name — reducible to 1,500/1,700 but never over man-made obstacles (14-2-1).
+      MCAs assume you climb at only <b>150/120/100 ft/NM</b> depending on altitude — gentler than the
+      departure standard; the same airplane is assumed to climb worse the higher it is (14-3-1). And an
+      MEA may legally contain a <b>navigation-signal gap</b> — up to ~65 NM at FL450 — that the chart
+      never announces (14-4-1).</p>
+    </div>
+  </div>
+  <div id="tab-fieldguide" class="tab-panel">
+    <div class="section-title">Plate forensics</div>
+    <p class="section-lede">
+      Things you've seen on charts, decoded back to the rule that produced them. Every row is somewhere
+      on the other tabs; this is the quick-reference version.
+    </p>
+    <table class="tt">
+      <tr><th>On the plate</th><th>The rule behind it</th></tr>
+      <tr><td>DA(H) 200 ft on an ILS</td><td>CAT I HAT floor — survives only while the 34:1 (102/GPA) surface under the glideslope is clean (Ch 10)</td></tr>
+      <tr><td>Visibility ½ SM → ¾ SM when "ALS out"</td><td>The FALS column vs every other column of table 3-3-1 at low HAT</td></tr>
+      <tr><td>RVR 1800 authorized</td><td>ILS/LPV/GLS + touchdown-zone and centerline lights (table 3-3-1 note); offset finals cap at 2400</td></tr>
+      <tr><td>"VOR-A" instead of "VOR RWY 12"</td><td>Final course &gt;30° off the runway, or descent angle past the category caps (2-6-4) — circling-only, letters shared citywide</td></tr>
+      <tr><td>½ SM for CAT A/B but ¾ for C/D on one line</td><td>A/B use their own tables; C/D must pass table 3-3-5's five-condition gate</td></tr>
+      <tr><td>No VDP on a straight-in NPA</td><td>Usually a 20:1 visual-surface penetration (2-6-5) — the same one that may deny the approach at night</td></tr>
+      <tr><td>"Procedure NA at night" / "Circling NA at night"</td><td>An unlighted obstacle in the 20:1; one such obstacle kills night circling to that runway airport-wide (3-3-2.c)</td></tr>
+      <tr><td>"Circling NA east of Rwy 17-35"</td><td>A sector traded away for a lower MDA — with a hidden 10° protective splay into the dead side (2-7-2)</td></tr>
+      <tr><td>"When local altimeter not received… increase all MDAs 80 ft"</td><td>2.30 ft/NM + 0.14 ft/ft of terrain differential to the remote source (3-2-2.c)</td></tr>
+      <tr><td>"Climb to 1080, then right turn…"</td><td>Exactly the altitude the 40:1 missed surface needs before the turn area's obstacle wins (2-8-8); turns are never designed below 400 AGL</td></tr>
+      <tr><td>"Cross DER at or above 35 ft"</td><td>A measured 40:1 penetration of ≤150 ft inside the initial climb area (3-5-4)</td></tr>
+      <tr><td>"Numerous trees beginning 200 ft from DER…"</td><td>Low close-in obstacles — the order forbids fixing them with a climb gradient, so they become notes (3-5-3.a)</td></tr>
+      <tr><td>"Climb of 350 ft/NM to 2400"</td><td>height ÷ (0.76 × distance) over the controlling obstacle; the aircraft keeps 24% of the gradient as clearance; 2400 is where the standard surface takes over</td></tr>
+      <tr><td>VCOA: "ceiling 1100, vis 3 SM"</td><td>Ceiling is always climb-to + 100 ft; the climb-to altitude is the VCA's worst obstacle + 250, rounded up (13-4)</td></tr>
+      <tr><td>No ODP published at all</td><td>The diverse assessment came back clean — publishing one is forbidden; any heading at 200 ft/NM is protected to 25/46 NM (13-2-2)</td></tr>
+      <tr><td>Nonstandard alternate minimums (the ▲)</td><td>Some line — usually the circling row, judged without light credit — exceeds 800-2 / 600-2 (3-4-1)</td></tr>
+      <tr><td>LNAV/VNAV DA higher than the LPV DA</td><td>250-ft HAT floor for LNAV/VNAV and RNP AR by rule (table 3-2-2), plus different OCS geometry — not necessarily an obstacle</td></tr>
+      <tr><td>"Hold-in-lieu-of-PT" altitude right at the FAF altitude</td><td>The rule caps it at 300 ft above the FAF crossing altitude (2-4-5.e)</td></tr>
+      <tr><td>Stepdown fix that saves 60 ft</td><td>The publication threshold itself — a stepdown that buys less isn't allowed on the chart (2-9-9.c)</td></tr>
+      <tr><td>"ILS PRM" title + AAUP page</td><td>Runway spacing under 4,300 ft: monitor controllers, a no-transgression zone, a second frequency (Ch 15)</td></tr>
+    </table>
+
+    <div class="section-title">Ten things worth knowing that almost nobody knows</div>
+    <div class="card"><ul>
+      <li><b>The 24% rule.</b> On every climb — departure or missed — your obstacle clearance is 24% of
+        your gradient. At the standard 200 ft/NM that's 48 ft per NM. One mile past the MAP you may be,
+        legally, 48 ft above the evaluation surface.</li>
+      <li><b>102 ÷ GPA.</b> One constant ties every glidepath to its protecting surface. It's also why
+        the fix for an obstacle under an ILS is to <i>steepen</i> the glideslope — the surface steepens
+        with it.</li>
+      <li><b>MALSR is a "full" approach light system</b> — the same visibility-credit class as ALSF-2
+        (table 3-1-2).</li>
+      <li><b>Crossing radials are trusted more than the radial you fly</b> (±3.6° vs ±4.5°) — flight
+        technical error only applies to the course being flown (2-9-6).</li>
+      <li><b>Circling protection carries a +25 kt wind pad</b> and is recomputed for field elevation —
+        the same CAT C circle is bigger in Denver than at sea level (2-7-1).</li>
+      <li><b>A DVA evaporates when your climb stops</b> — vectors below the MVA are protected only
+        during an uninterrupted climb (13-5-1).</li>
+      <li><b>Taxiing aircraft are obstacles.</b> Below 800-2, ground traffic within 2 NM of an arrival
+        formally penetrates the ILS final surfaces unless positive control keeps it clear — one reason
+        CAT II operations hold short at the farther hold line (10-6-2).</li>
+      <li><b>PAPIs legally penetrate the OCS.</b> Visual-aid infrastructure is exempted by name
+        (table 10-6-1).</li>
+      <li><b>Holding assumes you can't hold 30° of bank</b> — every pattern is sized for 25°, a 6-second
+        fix-recognition delay, and a 120-kt design wind (16-1-2).</li>
+      <li><b>PRM breakout protection is the other runway's departure assessment</b> — and "draw the
+        obstacle on the controller's scope" is a legal mitigation (15-4).</li>
+    </ul></div>
+
+    <div class="section-title">Glossary</div>
+    <div class="card"><ul style="columns: 2; column-gap: 28px;">
+      <li><b>ROC</b> — required obstacle clearance; the guaranteed vertical margin</li>
+      <li><b>OCS</b> — obstacle clearance surface; the level or sloping sheet obstacles are measured against</li>
+      <li><b>OEA</b> — obstacle evaluation area; where obstacles count at all</li>
+      <li><b>Primary / secondary area</b> — full ROC / ROC tapering to zero at the edge</li>
+      <li><b>DA / MDA / CMDA</b> — decision altitude (precision, 1-ft rounding) / minimum descent altitude (nonprecision, 20-ft rounding) / circling MDA</li>
+      <li><b>HAT / HAA</b> — height above touchdown / above airport; what the tables index on</li>
+      <li><b>PFAF (FAF)</b> — precise final approach fix; where final begins</li>
+      <li><b>MAP</b> — missed approach point; where the 40:1 starts, at MDA − ROC</li>
+      <li><b>VDA</b> — the computed nonprecision descent angle (min 2.75°, capped per category)</li>
+      <li><b>VDP</b> — visual descent point; where the VGSI angle meets the MDA</li>
+      <li><b>GPA / TCH</b> — glidepath angle / threshold crossing height</li>
+      <li><b>DER</b> — departure end of runway; where the departure clock starts</li>
+      <li><b>ICA</b> — initial climb area; 1,000 ft wide, 15° splay, to 400 ft above DER</li>
+      <li><b>ODP / SID / DVA</b> — obstacle-driven departure / ATC-requested route / vector-below-MVA area</li>
+      <li><b>VCOA</b> — visual climb over airport; the slow airplane's alternative to a gradient</li>
+      <li><b>MVA / MIA</b> — minimum vectoring / IFR altitude; the controller's sector chart</li>
+      <li><b>RASS</b> — remote altimeter setting source; 2.30 ft/NM + 0.14 ft/ft penalty</li>
+      <li><b>NTZ / PRM</b> — no-transgression zone / precision runway monitor (close parallels)</li>
+      <li><b>FALS / IALS / BALS / NALS</b> — full / intermediate / basic / no approach light system</li>
+      <li><b>40:1</b> — the departure &amp; missed climb surface: 152 ft/NM, i.e. 76% of the standard gradient</li>
+    </ul></div>
+
+    <p class="notes">
+      Want the primary sources? The order is free:
+      <a href="https://www.faa.gov/documentLibrary/media/Order/Order_8260.3G.pdf" style="color:#4a9eff;">FAA Order 8260.3G (PDF)</a> —
+      and its RNAV sibling 8260.58, the processing order 8260.19, and the AIM's TERPS-derived guidance
+      all live on the FAA's document library. For the design side in practice, the FAA's Flight
+      Procedures &amp; Airspace group publishes the forms (8260-series) each procedure is documented on.
+    </p>
+  </div>
+
+  <p class="footer-note">
+    Source: FAA Order 8260.3G, <i>United States Standard for Terminal Instrument Procedures (TERPS)</i>,
+    effective 07/01/2024. Paragraph references like <b>2-6-2</b> point into that order. This page is an
+    educational companion, not design guidance — procedure designers use the order itself plus the 8260-series
+    companions (8260.58 for RNAV, 8260.19 for processing). Nothing here changes what a plate requires of you.
+  </p>
+
+  <script src="js/terps.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

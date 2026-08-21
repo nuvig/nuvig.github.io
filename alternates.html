@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alternate Rules &amp; Advisement — FAA alternate airport requirements, part by part</title>
+  <meta name="description" content="Every FAA alternate airport rule in one place — Part 91, 121, 135 and 125 requirements, alternate weather minima, takeoff alternates, and an interactive flowchart for each part.">
+  <!-- Draft: remove noindex + add tools.html card, nav.js entry, and sitemap.xml entry on promotion -->
+  <meta name="robots" content="noindex">
+  <link rel="canonical" href="https://jesselevine.net/alternates.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1050px; padding-bottom: 48px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 18px; font-size: 14px; max-width: 880px; line-height: 1.6; }
+    .subtitle b { color: #bbb; }
+
+    /* ---- tabs (terps.html / kanp.html pattern) ---- */
+    .tab-nav { display: flex; gap: 4px; border-bottom: 1px solid #333; margin-bottom: 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: #777; font-size: 14px; padding: 8px 14px; cursor: pointer; font-family: inherit;
+    }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active { color: #fff; border-bottom-color: #4a9eff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd; margin: 30px 0 4px;
+      letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-title .ref { color: #4a9eff; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 880px; line-height: 1.65; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+    .card h3 .ref { color: #4a9eff; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+    .card p { font-size: 13px; color: #999; line-height: 1.65; margin: 6px 0; }
+    .card p b, .card li b { color: #ccc; }
+    .card ul, .card ol { font-size: 13px; color: #999; line-height: 1.65; margin: 6px 0; padding-left: 20px; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .grid2 .card { margin: 0; }
+    @media (max-width: 780px) { .grid2 { grid-template-columns: 1fr; } }
+
+    table.tt { border-collapse: collapse; font-size: 12.5px; margin: 8px 0; width: 100%; }
+    table.tt th, table.tt td { border: 1px solid #2c2c30; padding: 6px 9px; text-align: left; color: #aab; vertical-align: top; line-height: 1.5; }
+    table.tt th { background: #1d2026; color: #ccd; font-weight: 600; white-space: nowrap; }
+    table.tt td b { color: #cfe6ff; }
+    .tt-wrap { overflow-x: auto; }
+    .tt-wrap table.tt { min-width: 900px; }
+
+    .notes { font-size: 12.5px; color: #777; line-height: 1.7; max-width: 880px; }
+    .notes b { color: #aaa; }
+    .footer-note { margin-top: 34px; font-size: 12px; color: #555; line-height: 1.6; }
+    .footer-note a { color: #666; }
+
+    /* ---- flowchart ---- */
+    .fc-card { border-color: #2a3f57; box-shadow: 0 0 24px rgba(74, 158, 255, 0.07); }
+    .fc-svg-wrap { overflow-x: auto; border-radius: 6px; background: #101418; }
+    .fc-svg-wrap svg { display: block; }
+    .fc-node { cursor: pointer; }
+    .fc-node rect { fill: #14181e; stroke: #333c4a; stroke-width: 1; }
+    .fc-node text { fill: #8b95a3; font-size: 11px; }
+    .fc-node.dim { opacity: 0.5; }
+    .fc-node.vis rect { stroke: #3d6ea8; fill: #131c26; }
+    .fc-node.vis text { fill: #c8daee; }
+    .fc-node.cur rect { stroke: #4a9eff; stroke-width: 2; fill: #16273a; }
+    .fc-node.cur text { fill: #fff; }
+    .fc-node.end-ok rect   { stroke: #1f5c39; fill: #0f2015; }
+    .fc-node.end-req rect  { stroke: #6b5a24; fill: #211c0e; }
+    .fc-node.end-bad rect  { stroke: #6b3524; fill: #22120d; }
+    .fc-node.end-info rect { stroke: #2a4a6d; fill: #101c2a; }
+    .fc-node.end-ok.cur rect   { stroke: #34d399; }
+    .fc-node.end-req.cur rect  { stroke: #f0c860; }
+    .fc-node.end-bad.cur rect  { stroke: #f0836a; }
+    .fc-node.end-info.cur rect { stroke: #4a9eff; }
+    .fc-node.end-ok.cur text, .fc-node.end-req.cur text, .fc-node.end-bad.cur text { fill: #fff; }
+    .fc-edge { stroke: #2c333d; stroke-width: 1.2; fill: none; }
+    .fc-edge.taken { stroke: #4a9eff; stroke-width: 2; }
+    .fc-elabel { fill: #5b6470; font-size: 10px; paint-order: stroke; stroke: #101418; stroke-width: 3px; }
+    .fc-elabel.taken { fill: #8ec2f2; font-weight: 600; }
+
+    .fc-panel { margin-top: 12px; border-top: 1px solid #262b33; padding-top: 12px; }
+    .fc-q { font-size: 14.5px; color: #e8eef6; font-weight: 600; line-height: 1.5; margin: 0 0 6px; }
+    .fc-d { font-size: 12.5px; color: #99a; line-height: 1.65; margin: 0 0 8px; max-width: 820px; }
+    .fc-d b { color: #ccc; }
+    .fc-refs { margin: 0 0 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .fc-ref { font-size: 11px; color: #7fa8d0; background: #101820; border: 1px solid #22303f; border-radius: 4px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+    .fc-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fc-btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-family: inherit;
+    }
+    .fc-btn:hover { background: #26497a; }
+    .fc-btn.ghost { background: #22262c; border-color: #3a3f47; color: #aab; }
+    .fc-btn.ghost:hover { background: #2b3038; }
+    .fc-verdict { font-size: 13.5px; font-weight: 600; padding: 9px 13px; border-radius: 6px; margin: 0 0 8px; line-height: 1.5; }
+    .fc-verdict.ok   { background: #10251a; border: 1px solid #1f5c39; color: #7fd8a2; }
+    .fc-verdict.req  { background: #241d0e; border: 1px solid #6b5a24; color: #f0c860; }
+    .fc-verdict.bad  { background: #26140f; border: 1px solid #6b3524; color: #f0a97f; }
+    .fc-verdict.info { background: #101c2a; border: 1px solid #2a4a6d; color: #8ec2f2; }
+    .fc-hint { font-size: 11.5px; color: #556; margin: 8px 0 0; }
+  </style>
+</head>
+<body>
+  <script src="js/nav.js?v=1"></script>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">🛬 Alternate Rules &amp; Advisement</h1>
+  <p class="subtitle">
+    Every FAA rule about <b>alternate airports</b> — who must file one, when the requirement goes away,
+    what weather a candidate must be forecast to have, and how the answer changes between
+    <b>Part 91</b>, <b>121</b>, <b>135</b> and <b>125</b>. Each part gets its own tab with the rules laid
+    out and an <b>interactive flowchart</b>: answer the questions and it walks your exact situation to a verdict.
+  </p>
+
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-91">Part 91</button>
+    <button class="tab-btn" data-tab="tab-121">Part 121</button>
+    <button class="tab-btn" data-tab="tab-135">Part 135</button>
+    <button class="tab-btn" data-tab="tab-125">Part 125</button>
+    <button class="tab-btn" data-tab="tab-compare">Side by Side</button>
+    <button class="tab-btn" data-tab="tab-advise">Advisement</button>
+  </div>
+
+  <!-- ================= PART 91 ================= -->
+  <div id="tab-91" class="tab-panel active">
+    <p class="section-lede">
+      General aviation IFR. Two regulations carry the whole subject: <b>§91.167</b> (the fuel you must
+      carry) and <b>§91.169</b> (when the flight plan must name an alternate, and what weather that
+      alternate must be forecast to have) — plus the AIM's <b>GPS/WAAS planning rules</b>, which decide
+      whether the approach you're counting on at the alternate may be satellite-based at all. The
+      flowchart walks all three: requirement, equipment, weather.
+    </p>
+
+    <div class="card fc-card">
+      <h3>Interactive — do I need an alternate, and does mine qualify?</h3>
+      <div class="flowchart" data-chart="p91"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>The fuel rule <span class="ref">§91.167</span></h3>
+        <p>No IFR operation unless you carry enough fuel (considering weather reports, forecasts and
+        conditions) to:</p>
+        <ol>
+          <li>Fly to the <b>first airport of intended landing</b>;</li>
+          <li>Fly from there to the <b>alternate</b> — <i>when one is required</i>; and</li>
+          <li>Fly <b>after that</b> for <b>45 minutes at normal cruising speed</b>
+            (<b>30 minutes</b> for helicopters).</li>
+        </ol>
+        <p>The alternate leg drops out of the fuel calculation only when the §91.169(b) exception —
+        the flowchart's "1-2-3" branch — applies.</p>
+      </div>
+      <div class="card">
+        <h3>The 1-2-3 exception <span class="ref">§91.169(b)</span></h3>
+        <p>An alternate must be filed <b>unless both</b> are true:</p>
+        <ul>
+          <li>The destination has at least one <b>published instrument approach</b> (a Part 97
+            procedure, or a special IAP issued to you); and</li>
+          <li>For <b>1 hour before through 1 hour after your ETA</b>, forecasts show ceiling at least
+            <b>2,000 ft above the field</b> and visibility at least <b>3 SM</b>.</li>
+        </ul>
+        <p><b>Helicopters:</b> from ETA through ETA + 1 hour, ceiling at least <b>1,000 ft above the
+        field</b> — or <b>400 ft above the lowest applicable approach minima</b>, whichever is higher —
+        and visibility at least <b>2 SM</b>.</p>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Qualifying the alternate <span class="ref">§91.169(c)</span></h3>
+        <p>The candidate must be forecast, <b>at your ETA at the alternate</b>, to meet:</p>
+        <ul>
+          <li><b>Non-standard minima published?</b> The TPP's Alternate Minimums section (▲A on the
+            plate) overrides the standard numbers — and "<b>NA</b>" means the airport can't be filed as
+            an alternate at all (arrival that way, at least).</li>
+          <li>Otherwise, standard: <b>precision approach 600-2</b> · <b>nonprecision 800-2</b>.
+            (LPV counts as nonprecision for this planning — see the WAAS card.)</li>
+          <li><b>No instrument approach at the candidate?</b> Still legal <i>if</i> the ceiling and
+            visibility let you descend from the <b>MEA</b>, approach, and land under <b>basic VFR</b>.</li>
+        </ul>
+        <p><b>Helicopters:</b> 200 ft above the minima for the approach to be flown, visibility at least
+        1 SM but never below the procedure's own minimum.</p>
+      </div>
+      <div class="card">
+        <h3>WAAS &amp; GPS at the alternate <span class="ref">AIM 1-1-17 / 1-1-18</span></h3>
+        <ul>
+          <li><b>Non-WAAS GPS (TSO-C129/C196):</b> with FDE and a preflight RAIM prediction, you may
+            base planning on a GPS approach at the destination <b>or</b> the alternate — <b>not
+            both</b>. The other end needs a conventional approach you're equipped to fly, ground
+            station operational. At the alternate you may plan against the <b>LNAV or circling
+            MDA</b> (LNAV/VNAV with approved baro-VNAV; RNP 0.3 if authorized).</li>
+          <li><b>WAAS (TSO-C145/146):</b> RNAV (GPS) may be planned at <b>both</b> ends — but the
+            alternate's weather test uses the <b>LNAV or circling line</b> (LNAV/VNAV with approved
+            baro-VNAV), or a conventional procedure with "or GPS" in the title. <b>Never the LPV
+            line</b>: for planning it's nonprecision <b>800-2</b>; on arrival you fly the LPV.</li>
+          <li>Watch the ▲A listing and NOTAMs for GPS-specific "NA" notes, and think twice when both
+            the destination and the alternate are <b>GPS-only airports</b> — one constellation
+            problem takes out plan A and plan B together.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>What the alternate is — and isn't</h3>
+      <p>The alternate is a <b>planning and fuel requirement</b>, not a commitment. It lives in the
+      flight plan; ATC will not automatically clear you there, and once airborne you may divert to
+      any airport that makes sense. The regulation's job is to guarantee that at your planning
+      moment there existed somewhere you could realistically get into, with fuel to reach it.</p>
+      <p>Local note: <b>KANP has no instrument approach</b>, so an IFR arrival to KANP always
+      requires an alternate — no forecast is good enough to waive it.</p>
+    </div>
+  </div>
+
+  <!-- ================= PART 121 ================= -->
+  <div id="tab-121" class="tab-panel">
+    <p class="section-lede">
+      Airline flying. Part 121 splits the alternate question three ways by kind of operation —
+      <b>domestic</b> (§121.619), <b>flag</b> (international, §121.621) and <b>supplemental</b>
+      (charter/cargo, §121.623) — adds a <b>takeoff alternate</b> (§121.617), and replaces the 600-2/800-2
+      alternate test with <b>derived minima from the operator's OpSpecs</b> (§121.625). Dispatch shares
+      responsibility: every required alternate must be listed in the dispatch or flight release.
+    </p>
+
+    <div class="card fc-card">
+      <h3>Interactive — takeoff and destination alternates under 121</h3>
+      <div class="flowchart" data-chart="p121"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Takeoff alternate <span class="ref">§121.617</span></h3>
+        <p>If departure weather is <b>below the landing minimums</b> in the operator's OpSpecs for that
+        airport — you could leave but not come back — the release must name a takeoff alternate:</p>
+        <ul>
+          <li><b>2 engines:</b> within <b>1 hour</b> at normal cruise, still air, <b>one engine
+            inoperative</b>;</li>
+          <li><b>3+ engines:</b> within <b>2 hours</b>, same conditions.</li>
+        </ul>
+        <p>Its weather must meet the OpSpec alternate minima when you'd arrive.</p>
+      </div>
+      <div class="card">
+        <h3>Destination alternate, by operation</h3>
+        <p><b>Domestic <span style="color:#4a9eff">§121.619</span>:</b> at least one alternate unless the
+        <b>1-2-3</b> test passes (same numbers as Part 91). When destination <i>and</i> first alternate
+        are both forecast <b>marginal</b>, a <b>second alternate</b> must be designated.</p>
+        <p><b>Flag <span style="color:#4a9eff">§121.621</span>:</b> alternate required unless the flight is
+        scheduled <b>≤ 6 hours</b> and, ETA ±1 h: ceiling ≥ <b>1,500 ft above the lowest circling MDA</b>
+        (no circling: 1,500 above the lowest published minimum or 2,000 above the field, whichever
+        greater) and visibility ≥ <b>3 mi</b> (or lowest landing vis + 2, whichever greater). Island
+        routes approved with no alternate: carry fuel to destination <b>+ 2 hours</b> at normal cruise.</p>
+        <p><b>Supplemental <span style="color:#4a9eff">§121.623</span>:</b> an alternate is <b>always</b>
+        required under IFR or over-the-top — no weather escape — except approved no-alternate routes
+        outside the lower 48, with fuel per §§121.643/121.645.</p>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Derived alternate minima <span class="ref">§121.625 · OpSpec C055</span></h3>
+        <p>The carrier's alternate weather test comes from its OpSpecs, and the standard C055 formula
+        replaces 600-2/800-2:</p>
+        <ul>
+          <li><b>One usable approach</b> (one suitable runway): add <b>400 ft</b> to the DA/MDA and
+            <b>1 SM</b> to the visibility of the approach to be used;</li>
+          <li><b>Two usable approaches to different suitable runways</b>: add <b>200 ft</b> and
+            <b>½ SM</b> to the <i>higher</i> of the two DA/MDAs and visibilities.</li>
+        </ul>
+        <p>Same formula pattern applies to 135 and 125 operators — it rewards airports with redundant
+        approaches, which is exactly what you want in an alternate.</p>
+      </div>
+      <div class="card">
+        <h3>Fuel &amp; the conditional-language problem</h3>
+        <p><b>Fuel:</b> domestic — destination, then most-distant required alternate, then <b>45 min</b>
+        (§121.639). Turbine flag — destination <b>+ 10 %</b> of total time, alternate, then <b>30 min
+        hold at 1,500 ft</b> (§121.645).</p>
+        <p><b>Exemption 3585:</b> when a TAF's <b>TEMPO/PROB</b> language dips below minima while the
+        main body is at or above them, carriers holding this long-standing exemption may still dispatch —
+        with a second alternate and tighter fuel. Without it, conditional language below minima kills
+        the release. (Part 91 flying has no such relief — see Advisement.)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PART 135 ================= -->
+  <div id="tab-135" class="tab-panel">
+    <p class="section-lede">
+      Charter and air taxi. Part 135 gates the departure on the <b>destination's own forecast</b>
+      (§135.219 — you can't even launch IFR toward a below-minimums destination), requires a
+      <b>takeoff alternate</b> at 1 hour <i>normal</i> cruise (§135.217), uses a <b>1,500-above-minimums</b>
+      test instead of Part 91's 1-2-3 (§135.223), and sends the alternate's weather test to the
+      <b>OpSpecs</b> (§135.221).
+    </p>
+
+    <div class="card fc-card">
+      <h3>Interactive — takeoff, destination and alternate under 135</h3>
+      <div class="flowchart" data-chart="p135"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Before you can even go <span class="ref">§135.219 · §135.217</span></h3>
+        <p><b>§135.219:</b> no IFR takeoff (and no beginning an IFR or over-the-top segment) unless
+        reports/forecasts show the <b>destination at or above authorized IFR landing minimums at your
+        ETA</b>. Part 91 has no equivalent — a 91 pilot may legally launch at a below-minimums
+        destination and "take a look."</p>
+        <p><b>§135.217:</b> departure weather at/above takeoff minimums but <b>below authorized IFR
+        landing minimums</b> → a takeoff alternate within <b>1 hour at normal cruising speed, still
+        air</b>. Note: no one-engine-inoperative condition here, unlike 121/125.</p>
+      </div>
+      <div class="card">
+        <h3>Destination alternate <span class="ref">§135.223</span></h3>
+        <p>Fuel must cover destination → alternate → <b>45 min</b> at normal cruise (helicopters
+        <b>30 min</b>). The alternate — and its fuel leg — drop out only if:</p>
+        <ul>
+          <li>The destination has a <b>Part 97 standard</b> instrument approach (a special won't do), and</li>
+          <li>ETA ±1 h: ceiling ≥ <b>1,500 ft above the lowest circling MDA</b> — or, no circling
+            authorized, 1,500 ft above the lowest published minimum or <b>2,000 ft above the field</b>,
+            whichever higher — and visibility ≥ <b>3 mi</b>, or 2 mi above the lowest applicable
+            minimum, whichever greater.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Qualifying the alternate <span class="ref">§135.221</span></h3>
+      <p><b>Airplanes:</b> forecast at/above the <b>authorized alternate minima in the OpSpecs</b> at
+      your ETA there — the derived C055-style numbers described on the 121 tab, not 600-2/800-2.</p>
+      <p><b>Rotorcraft:</b> at ETA, ceiling <b>200 ft above the minima for the approach to be flown</b>
+      and visibility at least <b>1 SM</b> (never below the procedure's minimum); with no IAP at the
+      alternate, ceiling/vis must allow <b>descent from the MEA, approach and landing under basic
+      VFR</b> — the same structure Part 91 gives helicopters.</p>
+    </div>
+  </div>
+
+  <!-- ================= PART 125 ================= -->
+  <div id="tab-125" class="tab-panel">
+    <p class="section-lede">
+      The quiet one: <b>Part 125</b> covers large airplanes (20+ passenger seats or 7,500 lb+ payload)
+      operated <b>noncommercially</b> — corporate shuttles, private 737s. Its alternate rules read like
+      Part 121 supplemental: <b>no weather exception at all</b> for the destination alternate.
+    </p>
+
+    <div class="card fc-card">
+      <h3>Interactive — alternates under 125</h3>
+      <div class="flowchart" data-chart="p125"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Departure alternate <span class="ref">§125.365</span></h3>
+        <p>Departure weather below the OpSpec <b>landing minimums</b> → the flight release must name an
+        alternate within <b>1 hour</b> (2 engines) or <b>2 hours</b> (3+ engines) at normal cruise,
+        still air, <b>one engine inoperative</b> — the same shape as §121.617.</p>
+      </div>
+      <div class="card">
+        <h3>Destination alternate <span class="ref">§125.367 · §125.369</span></h3>
+        <p>Every release under <b>IFR or over-the-top</b> lists at least one alternate per destination.
+        There is <b>no 1-2-3 and no 6-hour escape</b> — the only out is an approved no-alternate route
+        outside the lower 48, with fuel per §§125.375/125.377. The alternate's forecast must meet the
+        <b>OpSpec alternate weather minima</b> at arrival (§125.369), and every required alternate is
+        listed in the flight release.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SIDE BY SIDE ================= -->
+  <div id="tab-compare" class="tab-panel">
+    <p class="section-lede">
+      The same four questions, across every part. The pattern to notice: as operations get more
+      commercial, the <b>escape hatches narrow</b> (1-2-3 → 1,500-above-minimums → none) while the
+      <b>alternate weather test</b> moves from fixed numbers to OpSpec-derived ones.
+    </p>
+    <div class="tt-wrap"><table class="tt">
+      <tr>
+        <th></th><th>Part 91</th><th>121 Domestic</th><th>121 Flag</th><th>121 Supplemental</th><th>Part 135</th><th>Part 125</th>
+      </tr>
+      <tr>
+        <th>Alternate required…</th>
+        <td>Always, unless destination has an IAP <b>and</b> 1-2-3 passes (§91.169)</td>
+        <td>Always, unless 1-2-3 passes (§121.619)</td>
+        <td>Always, unless flight ≤ 6 h <b>and</b> ceiling ≥ 1,500 above circling MDA / 2,000 AGL + vis 3 mi tests pass (§121.621)</td>
+        <td><b>Always</b> under IFR / over-the-top (§121.623)</td>
+        <td>Always, unless destination has a <b>standard</b> IAP <b>and</b> the 1,500 / 2,000 + 3 mi test passes (§135.223)</td>
+        <td><b>Always</b> under IFR / over-the-top (§125.367)</td>
+      </tr>
+      <tr>
+        <th>Weather window</th>
+        <td>ETA ±1 h (heli: ETA to +1 h)</td>
+        <td>ETA ±1 h</td>
+        <td>ETA ±1 h</td>
+        <td>—</td>
+        <td>ETA ±1 h</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <th>Second alternate</th>
+        <td>Never required</td>
+        <td>When destination <b>and</b> first alternate are forecast marginal</td>
+        <td>Per OpSpecs / dispatch</td>
+        <td>Per OpSpecs</td>
+        <td>Never required by rule</td>
+        <td>Never required by rule</td>
+      </tr>
+      <tr>
+        <th>No-alternate escape (island routes)</th>
+        <td>—</td>
+        <td>—</td>
+        <td>Approved routes: fuel to destination + 2 h cruise</td>
+        <td>Outside lower 48: fuel per §§121.643/645</td>
+        <td>—</td>
+        <td>Outside lower 48: fuel per §§125.375/377</td>
+      </tr>
+      <tr>
+        <th>Alternate weather test</th>
+        <td>▲A published values, else <b>600-2</b> precision / <b>800-2</b> nonprecision; no IAP → VFR descent from MEA (§91.169(c))</td>
+        <td colspan="3">OpSpec derived minima (C055): 1 approach → DA/MDA + 400 &amp; vis + 1; 2 approaches, different runways → higher + 200 &amp; + ½ (§121.625)</td>
+        <td>OpSpec derived minima; rotorcraft: minima + 200 ft &amp; 1 SM (§135.221)</td>
+        <td>OpSpec alternate minima (§125.369)</td>
+      </tr>
+      <tr>
+        <th>Takeoff alternate</th>
+        <td>None</td>
+        <td colspan="3">Departure below OpSpec landing minima → within 1 h (2-eng) / 2 h (3+), still air, <b>one engine out</b> (§121.617)</td>
+        <td>Departure below authorized landing minima → within <b>1 h normal cruise</b> (§135.217)</td>
+        <td>Same as 121: 1 h / 2 h, one engine out (§125.365)</td>
+      </tr>
+      <tr>
+        <th>Fuel reserve</th>
+        <td>Dest + alt + <b>45 min</b> (heli 30) (§91.167)</td>
+        <td>Dest + most distant alt + 45 min (§121.639)</td>
+        <td>Turbine: dest + 10 % + alt + 30 min hold at 1,500 ft (§121.645)</td>
+        <td>Same as flag (§121.645)</td>
+        <td>Dest + alt + 45 min (heli 30) (§135.223(a))</td>
+        <td>Dest + alt + reserve per §125.377</td>
+      </tr>
+      <tr>
+        <th>Destination forecast gate</th>
+        <td>None — may launch and "take a look"</td>
+        <td colspan="3">Dispatch requires destination at/above minima per OpSpecs (§§121.613/121.625 family)</td>
+        <td>May not launch IFR unless destination ≥ landing minima at ETA (§135.219)</td>
+        <td>Release rules, Subpart J</td>
+      </tr>
+    </table></div>
+  </div>
+
+  <!-- ================= ADVISEMENT ================= -->
+  <div id="tab-advise" class="tab-panel">
+    <p class="section-lede">
+      The rules above are the floor. This tab is the judgment layer — how to read forecasts against
+      them, the GPS fine print, and how to pick an alternate you'd actually be glad to see.
+    </p>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Read the whole TAF — TEMPO counts</h3>
+        <p>FAA legal interpretations treat <b>conditional forecast language as controlling</b>: if a
+        TEMPO or PROB group drops the destination below 2,000-3 in your window, the 1-2-3 exception
+        fails and you file the alternate; if it drops your candidate below its alternate minima at
+        ETA, the candidate doesn't qualify. Part 121 carriers buy relief through
+        <b>Exemption 3585</b>; Part 91 and most 135 operators have none — plan to the worst line of
+        the forecast.</p>
+      </div>
+      <div class="card">
+        <h3>▲A, NA, and the NOTAM check</h3>
+        <p>Before filing any alternate, open the TPP <b>Alternate Minimums</b> section (▲A) <i>and</i>
+        the NOTAMs. Common traps:</p>
+        <ul>
+          <li>"<b>NA</b>" — alternate use not authorized, usually an unmonitored navaid or no local
+            weather reporting;</li>
+          <li>Conditions like "NA when tower closed" or "NA when local weather not available" — an
+            airport that qualifies at 2 PM may be unusable at 2 AM;</li>
+          <li>A navaid outage NOTAM can turn the only non-GPS approach off — which matters for the
+            GPS rules in the next card.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>GPS &amp; WAAS at the alternate <span class="ref">AIM 1-1-17 / 1-1-18</span></h3>
+        <ul>
+          <li><b>Non-WAAS GPS (TSO-C129/C196):</b> with FDE and a RAIM check, you may plan a GPS-based
+            approach at the destination <b>or</b> the alternate — <b>not both</b>. The other airport
+            needs an approach you can fly conventionally, with the ground equipment operational.</li>
+          <li><b>WAAS (TSO-C145/146):</b> you may plan RNAV (GPS) approaches at both — but the
+            alternate planning must use the <b>LNAV or circling line</b> (LNAV/VNAV with approved
+            baro-VNAV), never the LPV line. So a WAAS airplane plans the alternate as
+            <b>nonprecision: 800-2</b>, then happily flies the LPV on arrival.</li>
+          <li>Plates whose alternate minima carry the <b>"N/A" against GPS</b> notes, and airports with
+            GPS-only approaches, deserve extra attention when the destination is also GPS-only.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Legal ≠ smart</h3>
+        <ul>
+          <li><b>600-2 at the alternate means an approach to minimums after a diversion</b> — tired,
+            low on fuel, weather trending who-knows. Personal minima belong here more than anywhere.</li>
+          <li>Pick an alternate under <b>different weather</b> — upwind of the front, out of the fog
+            bank — not just the nearest legal field. If one air mass took out the destination, it took
+            out everything nearby.</li>
+          <li>Think services: fuel at 11 PM, an FBO, ground transport, an ILS rather than the bare
+            legal minimum approach.</li>
+          <li><b>45 minutes of reserve is a floor, not a plan.</b> Diversions come with vectors,
+            weather deviations and go-arounds; carry real margin.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Filed vs flown</h3>
+        <p>The filed alternate binds your <b>planning</b>, not your flying. ATC doesn't hold it in
+        your clearance, and when the miss happens you divert wherever is best <i>then</i> — which may
+        well not be the filed field. Brief the realistic divert before the approach: with two-crew
+        operations that's the "what are we doing at minimums" call; single-pilot, it's the same call,
+        made on the ground when you're smart.</p>
+        <p>Nothing forbids filing an alternate when none is required — on a marginal 2,500-and-4 day
+        it costs one line of the flight plan and buys a pre-thought-out plan B.</p>
+      </div>
+      <div class="card">
+        <h3>The KANP angle</h3>
+        <ul>
+          <li><b>KANP has no instrument approach</b> → an IFR flight plan to KANP always names an
+            alternate, in any weather. Common picks with real approaches and TAF coverage: KBWI, KMTN,
+            KDCA — or KESN/KSBY across the Bay under a different air mass.</li>
+          <li>KANP can serve as someone's <i>alternate</i> only through the no-IAP rule: weather
+            allowing descent from the MEA and a basic-VFR landing (§91.169(c)(2)).</li>
+          <li>KANP has <b>no on-field weather and no TAF</b> — plan off the KMTN/KBWI/KDCA TAFs and
+            KNAK obs, the same stations this site's weather pages watch.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <p class="footer-note">
+    Sources: 14 CFR <a href="https://www.law.cornell.edu/cfr/text/14/91.169">§91.169</a> /
+    <a href="https://www.law.cornell.edu/cfr/text/14/91.167">§91.167</a>;
+    <a href="https://www.law.cornell.edu/cfr/text/14/121.617">§§121.617–121.625</a>;
+    <a href="https://www.law.cornell.edu/cfr/text/14/135.217">§§135.217–135.223</a>;
+    <a href="https://www.law.cornell.edu/cfr/text/14/125.365">§§125.365–125.369</a>;
+    AIM 1-1-17 / 1-1-18 (GPS &amp; WAAS alternate planning); FAA OpSpec C055 (derived alternate minima);
+    Exemption 3585. Educational summary for study and flight planning discussion — the regulations,
+    your OpSpecs and current NOTAMs govern. Verified against the eCFR, August 2026.
+  </p>
+
+  <script src="js/alternates.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
