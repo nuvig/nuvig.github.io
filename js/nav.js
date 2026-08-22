@@ -7,7 +7,10 @@
 
    Deliberately NOT used by the self-contained toys/experiments
    (bubbles, glow, ctaf, scanner, mural, fugue, sky2, watercycle) —
-   those stay standalone and unlinked.
+   those stay standalone and unlinked — nor by index.html, which is the
+   landing page and carries its own cards instead of a bar (removed
+   2026-08-21 at Jesse's request; the `body.sim-open` rule below is what
+   used to hide the bar behind the homepage sim overlay).
 
    The TOOLS list mirrors tools.html's categories — when a tool is added
    there, add it here too (same drill as sitemap.xml). */

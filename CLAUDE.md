@@ -24,7 +24,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   bumped in step with the `?v=`) so a stale deploy is visible at a glance.
   **Every page references `css/main.css?v=3`** (normalized 2026-08-21; a bare unversioned
   reference is a different cache key and reintroduces the split-cache bug).
-- **Every public page** (the pages that load `js/nav.js`) carries, just before `</body>`, the
+- **Every public page** (the pages that load `js/nav.js`, plus `index.html`, which deliberately
+  carries no nav bar — it is the landing page and its cards are the navigation) carries, just
+  before `</body>`, the
   GoatCounter analytics snippet (jesselevine.goatcounter.com — cookie-less, nothing secret) and
   `js/pagever.js`, which shows a "vN · updated <date>" badge (N = the page's commit count on
   `main` via the GitHub API, cached 6 h in localStorage). Add both to any new public page.
@@ -46,6 +48,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 ### Personal site
 
 - `index.html` + `js/home.js` — landing page (flight-training services, contact, live card teasers).
+  **No `js/nav.js` bar** (removed 2026-08-21) — the Tracker / Weather / Tools cards *are* the
+  navigation here, so keep their blurbs in step with `tools.html`.
   `js/home.js` lazy-loads `js/sim.js` (neon ball-physics easter egg) on first click of the ▶ toggle
   so its ~13 KB never costs a normal visit. `js/sim.js` is loaded *only* this way — it is not
   referenced from any HTML.
