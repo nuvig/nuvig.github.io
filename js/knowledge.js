@@ -725,7 +725,10 @@
     panelGroup.style.background = hexA(g.color, 0.16);
     panelGroup.style.color = g.color;
     panelGroup.style.borderColor = hexA(g.color, 0.5);
-    panelBody.textContent = node.s || 'No description.';
+    /* A node may deliberately carry no summary (the root does) — leave the
+       body out entirely rather than printing a placeholder. */
+    panelBody.textContent = node.s || '';
+    panelBody.style.display = node.s ? '' : 'none';
 
     // clickable breadcrumb path
     panelPath.innerHTML = '';

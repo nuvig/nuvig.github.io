@@ -31,13 +31,10 @@
       ['/almanac.html', '📚', 'Weather Almanac']
     ]},
     { cat: 'Atmosphere &amp; Performance', hue: '#fbbf24', items: [
-      ['/airlab.html', '🎈', 'Air Lab'],
-      ['/power.html', '⚡', 'The Power Curve'],
-      ['/eights.html', '✈️', 'Eights on Pylons']
+      ['/airlab.html', '🎈', 'Air Lab']
     ]},
     { cat: 'Cockpit &amp; Procedures', hue: '#a78bfa', items: [
-      ['/procedures.html', '🛫', 'Procedure Explorer'],
-      ['/instruments.html', '🎛', 'Instrument Errors']
+      ['/procedures.html', '🛫', 'Procedure Explorer']
     ]},
     { cat: 'Study &amp; Reference', hue: '#34d399', items: [
       ['/knowledge.html', '🧭', 'Aviation Knowledge Map']

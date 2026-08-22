@@ -73,10 +73,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `fireworks.html` — Fireworks, a click-to-launch canvas fireworks show: peonies, willows, rings,
   crossettes, strobe and crackle shells, procedural booms, an auto show and an on-demand grand
-  finale. Self-contained like glow.html (no shared CSS/JS, no `site-config.js`) — but unlike the
-  other toys on this list it **is** linked (tools.html "Just for Fun" category) and indexed
-  (sitemap entry); it's just not an aviation tool, hence its own category rather than a spot on
-  the explainer grid.
+  finale. Self-contained like glow.html (no shared CSS/JS, no `site-config.js`). **Unlinked**
+  (its tools.html "Just for Fun" card was removed 2026-08-21 along with the section, which held
+  nothing else) but still indexed — the sitemap entry stays, so the page is reachable by URL and
+  by search.
 - `glow.html` — Glow, an interactive generative-art toy: WebGL Julia/Mandelbrot/Burning Ship
   explorer (cursor morphs the Julia c; iterations and palette re-center with zoom depth), additive
   wave ribbons with click ripples, a flow-field particle swarm with an FPS governor that trims
@@ -205,6 +205,11 @@ field contacts, and doesn't care).
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
   a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
   documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
+**`power.html`, `eights.html` and `instruments.html` are unlinked as of 2026-08-21** — removed from
+`js/nav.js`'s TOOLS list and from `tools.html` (cards + JSON-LD list) at Jesse's request. The pages
+and their sitemap entries are untouched, and `js/knowledge.js` still deep-links to them from the
+relevant concepts; to relink, add the nav entry and the tools.html card back.
+
 - `power.html` + `js/power.js` — The Power Curve: parasite vs induced power, minimum-power speed, the
   region of reversed command, slow flight, and a point-mass approach sim. Internals are SI; display
   converts to kt/hp/fpm.
