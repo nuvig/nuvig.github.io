@@ -24,9 +24,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   bumped in step with the `?v=`) so a stale deploy is visible at a glance.
   **Every page references `css/main.css?v=3`** (normalized 2026-08-21; a bare unversioned
   reference is a different cache key and reintroduces the split-cache bug).
-- **Every public page** (the pages that load `js/nav.js`, plus `index.html`, which deliberately
-  carries no nav bar — it is the landing page and its cards are the navigation) carries, just
-  before `</body>`, the
+- **There is no site-wide navigation bar.** `js/nav.js` existed for one day and was deleted
+  2026-08-21 — Jesse didn't like it. Navigation is: the homepage cards → `tools.html` → a tool,
+  plus each page's own `#back-link` to `/`. Don't reintroduce a shared bar without being asked.
+- **Every public page** (the ones listed under Layout, i.e. everything but the self-contained
+  toys/SDR/personal pages) carries, just before `</body>`, the
   GoatCounter analytics snippet (jesselevine.goatcounter.com — cookie-less, nothing secret) and
   `js/pagever.js`, which shows a "vN · updated <date>" badge (N = the page's commit count on
   `main` via the GitHub API, cached 6 h in localStorage). Add both to any new public page.
@@ -48,8 +50,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 ### Personal site
 
 - `index.html` + `js/home.js` — landing page (flight-training services, contact, live card teasers).
-  **No `js/nav.js` bar** (removed 2026-08-21) — the Tracker / Weather / Tools cards *are* the
-  navigation here, so keep their blurbs in step with `tools.html`.
+  The Tracker / Weather / Tools cards *are* the site's navigation, so keep their blurbs in step
+  with `tools.html`.
   `js/home.js` lazy-loads `js/sim.js` (neon ball-physics easter egg) on first click of the ▶ toggle
   so its ~13 KB never costs a normal visit. `js/sim.js` is loaded *only* this way — it is not
   referenced from any HTML.
@@ -209,10 +211,10 @@ field contacts, and doesn't care).
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
   a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
   documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
-**`power.html`, `eights.html` and `instruments.html` are unlinked as of 2026-08-21** — removed from
-`js/nav.js`'s TOOLS list and from `tools.html` (cards + JSON-LD list) at Jesse's request. The pages
-and their sitemap entries are untouched, and `js/knowledge.js` still deep-links to them from the
-relevant concepts; to relink, add the nav entry and the tools.html card back.
+**`power.html`, `eights.html` and `instruments.html` are unlinked as of 2026-08-21** — their
+`tools.html` cards (and JSON-LD list entries) were removed at Jesse's request. The pages and their
+sitemap entries are untouched, and `js/knowledge.js` still deep-links to them from the relevant
+concepts; to relink, add the tools.html card back.
 
 - `power.html` + `js/power.js` — The Power Curve: parasite vs induced power, minimum-power speed, the
   region of reversed command, slow flight, and a point-mass approach sim. Internals are SI; display
@@ -247,8 +249,8 @@ relevant concepts; to relink, add the nav entry and the tools.html card back.
   navaid morphing, real 3-3-1/3-3-3/3-3-4 visibility logic, 102/GPA ILS OCS with the ≈1.78
   ft-per-ft DA slide-up approximation), minimums, departures, controller side, field guide.
   Tabs deep-link by hash (`#anatomy`), `?nav=`/`?cat=` preselect the interactive. **Currently an
-  unlinked `noindex` draft** — on promotion: remove the noindex meta, add the tools.html card,
-  nav.js TOOLS entry, and sitemap.xml `<url>`.
+  unlinked `noindex` draft** — on promotion: remove the noindex meta and add the tools.html card
+  and sitemap.xml `<url>`.
 
 ### Weather
 
