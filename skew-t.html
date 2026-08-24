@@ -11,7 +11,7 @@
   <link rel="canonical" href="https://jesselevine.net/skew-t.html">
   <link rel="stylesheet" href="css/main.css?v=3">
   <style>
-    body { max-width: 1100px; padding-bottom: 40px; }
+    body { max-width: 1650px; padding-bottom: 40px; }
     #back-link {
       display: inline-block; margin-top: 16px; font-size: 14px;
       text-decoration: none; color: #666;
@@ -68,11 +68,13 @@
     }
     .hoverbox b { color: #ddd; }
 
-    /* observed-sounding image card: drag the corner to resize, up to 150% of the content width */
+    /* observed-sounding image card: drag the corner to resize, up to 150% of the content width.
+       The SPC gif is a fixed 1180 px raster, so it defaults to its native width — past that
+       it only gets blurrier, not more readable. */
     #obs-img-wrap {
       padding: 6px; position: relative;
       resize: horizontal; overflow: hidden;
-      width: 100%; min-width: 360px; max-width: 150%;
+      width: min(100%, 1192px); min-width: 360px; max-width: 150%;
     }
     .obs-cards {
       display: grid; grid-template-columns: repeat(3, 1fr);
@@ -353,7 +355,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/skewt.js?v=4"></script>
+  <script src="js/skewt.js?v=5"></script>
   <script src="js/skewt-obs.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
