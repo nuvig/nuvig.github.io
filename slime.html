@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>Slime Simulator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🟢</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{ --ink:#223528; --slime:hsl(100 75% 38%); }
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;}
+body{
+  font-family:"Baloo 2", ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(900px 500px at 78% -8%, rgba(255,255,255,.9), rgba(255,255,255,0) 60%),
+    linear-gradient(180deg,#f3faee 0%, #e2f1e0 55%, #cfe6d2 100%);
+  user-select:none; -webkit-user-select:none;
+}
+body::after{content:""; position:fixed; inset:0; pointer-events:none;
+  background-image:radial-gradient(rgba(34,53,40,.05) 1px, transparent 1.4px);
+  background-size:26px 26px;}
+canvas{position:fixed; inset:0; touch-action:none; cursor:grab;}
+canvas:active{cursor:grabbing;}
+header{position:fixed; top:max(12px, env(safe-area-inset-top)); left:14px; pointer-events:none;
+  line-height:1; z-index:2; padding:10px 16px 11px; border-radius:18px;
+  background:rgba(255,255,255,.62); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  border:2px solid rgba(34,53,40,.13); box-shadow:0 6px 18px rgba(34,53,40,.14);}
+h1{margin:0; font-weight:800; font-size:clamp(22px,4.5vw,34px); letter-spacing:-.02em;}
+#slimeWord{color:var(--slime); text-shadow:0 2px 0 rgba(34,53,40,.10);}
+header p{margin:5px 0 0 1px; font-size:13px; font-weight:600; opacity:.6; letter-spacing:.03em;}
+nav{position:fixed; left:50%; bottom:max(12px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:2;
+  display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px 14px; border-radius:22px;
+  background:rgba(255,255,255,.68); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:2px solid rgba(34,53,40,.14); box-shadow:0 8px 24px rgba(34,53,40,.16);
+  max-width:calc(100vw - 14px);}
+.row{display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:center;}
+#swatches{display:flex; gap:8px;}
+.sw{width:26px;height:26px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(34,53,40,.25);cursor:pointer;padding:0;transition:transform .15s;}
+.sw.on{transform:scale(1.18); outline:3px solid var(--ink); outline-offset:1px;}
+.sep{width:2px;height:22px;background:rgba(34,53,40,.15);border-radius:2px;}
+.pill{font:inherit;font-weight:700;font-size:13px;letter-spacing:.03em;padding:6px 13px;border-radius:999px;border:2px solid var(--ink);background:transparent;color:var(--ink);cursor:pointer;}
+.pill.on{background:var(--ink);color:#fff;}
+.type{font:inherit;font-weight:700;font-size:13px;letter-spacing:.02em;padding:6px 13px;border-radius:999px;border:2px solid rgba(34,53,40,.35);background:transparent;color:var(--ink);cursor:pointer;transition:all .15s;}
+.type.on{border-color:var(--slime);background:var(--slime);color:#fff;box-shadow:0 3px 10px rgba(34,53,40,.25);}
+.pill:focus-visible,.sw:focus-visible,.type:focus-visible{outline:3px solid var(--slime);outline-offset:2px;}
+@media (max-width:480px){
+  nav{padding:8px 10px; gap:6px;}
+  .pill,.type{font-size:12px; padding:5px 10px;}
+  .sw{width:22px;height:22px;}
+  .sep{display:none;}
+  header{padding:8px 12px 9px;}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<header>
+  <h1><span id="slimeWord">slime</span> simulator</h1>
+  <p id="subline">stretchy &amp; shiny &middot; poke it, smear it</p>
+</header>
+<nav aria-label="slime controls">
+  <div class="row" id="typebar"></div>
+  <div class="row">
+    <div id="swatches"></div>
+    <span class="sep"></span>
+    <button id="soundBtn" class="pill on">sound</button>
+    <button id="eyesBtn" class="pill on">eyes</button>
+    <button id="resetBtn" class="pill">reset</button>
+  </div>
+</nav>
+<script>
+"use strict";
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const RM = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const WOB = !RM;
+
+let W = 0, H = 0, M = 16, CR = 60, SCL = 1;
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  M = Math.max(10, Math.min(22, Math.min(W, H) * 0.028));
+  CR = Math.max(26, Math.min(100, Math.min(W, H) * 0.10));
+  SCL = Math.max(0.7, Math.min(1.4, Math.min(W, H) / 700));
+}
+
+/* ================= slime types =================
+   Four real-world slimes, each with its own physics + texture + sound:
+   glossy  — classic glue slime: viscous, stretchy, shiny, holds fingerprints a while
+   cloud   — creamy butter/cloud slime: matte, plastic (smears persist and slowly self-heal)
+   crunch  — floam: slime full of sprinkles that get stirred around, crackly
+   water   — borax water slime: translucent jelly, barely damped so it jiggles and ripples */
+const TYPES = {
+  glossy: {
+    name:"glossy", sub:"stretchy &amp; shiny &middot; poke it, smear it",
+    hues:[["lime",100],["bubblegum",330],["sky",199],["grape",268],["mango",33]],
+    p:{damp:.90, springK:.055, couple:.32, grabR:130, grab:.42, carry:.72, dent:30,
+       wob:.28, wobF:1.6, plastic:0, heal:0, shadeHi:.07, shadeLo:.09,
+       impLife:9, whorl:true, trailLife:5, sheen:.5, splash:9}
+  },
+  cloud: {
+    name:"cloud", sub:"creamy &amp; soft &middot; spread it like frosting",
+    hues:[["strawberry",340],["mint",150],["periwinkle",230],["lemon",55],["lilac",280]],
+    p:{damp:.78, springK:.05, couple:.22, grabR:140, grab:.5, carry:.9, dent:20,
+       wob:.07, wobF:1.0, plastic:1.1, heal:.05, shadeHi:.06, shadeLo:.10,
+       impLife:22, whorl:true, trailLife:14, sheen:0, splash:5}
+  },
+  crunch: {
+    name:"sprinkles", sub:"crunchy floam &middot; stir it, hear it crackle",
+    hues:[["vanilla",45],["caramel",25],["berry",330],["mint chip",160],["blueberry",215]],
+    p:{damp:.88, springK:.065, couple:.28, grabR:120, grab:.36, carry:.7, dent:24,
+       wob:.2, wobF:1.5, plastic:0, heal:0, shadeHi:.06, shadeLo:.08,
+       impLife:8, whorl:true, trailLife:6, sheen:.22, splash:7}
+  },
+  water: {
+    name:"water", sub:"borax jelly &middot; wobbly, wet, see-through",
+    hues:[["aqua",190],["seafoam",160],["blue razz",215],["grape soda",265],["watermelon",345]],
+    p:{damp:.982, springK:.03, couple:.5, grabR:150, grab:.25, carry:.45, dent:34,
+       wob:.5, wobF:2.6, plastic:0, heal:0, shadeHi:.08, shadeLo:.07,
+       impLife:1.4, whorl:false, trailLife:1.2, sheen:.45, splash:14}
+  }
+};
+let curKey = "glossy", cur = TYPES[curKey], P = cur.p, pal = null;
+
+function makePal(key, h){
+  if (key === "cloud" || key === "crunch"){
+    const s = key === "cloud" ? 60 : 62;
+    return {
+      light:`hsl(${h} ${s + 12}% 95%)`, base:`hsl(${h} ${s}% 85%)`, dark:`hsl(${h} ${s - 16}% 72%)`,
+      edge:`hsl(${h} 26% 50%)`, rim:`hsl(${h} 30% 58%)`,
+      dent:`hsl(${h} 32% 42% / 0.22)`, dent0:`hsl(${h} 32% 42% / 0)`, ridge:`hsl(${h} 30% 42% / 0.32)`,
+      drop:`hsl(${h} ${s}% 82%)`, accent:`hsl(${h} 48% 48%)`, sw:`hsl(${h} ${s}% 80%)`
+    };
+  }
+  if (key === "water"){
+    return {
+      light:`hsl(${h} 72% 78%)`, base:`hsl(${h} 76% 60%)`, dark:`hsl(${h} 80% 42%)`,
+      edge:`hsl(${h} 70% 26%)`, rim:`hsl(${h} 72% 34%)`,
+      dent:`hsl(${h} 60% 20% / 0.20)`, dent0:`hsl(${h} 60% 20% / 0)`, ridge:`hsl(${h} 60% 22% / 0.3)`,
+      drop:`hsl(${h} 80% 66%)`, accent:`hsl(${h} 75% 36%)`, sw:`hsl(${h} 76% 58%)`
+    };
+  }
+  return { // glossy
+    light:`hsl(${h} 95% 74%)`, base:`hsl(${h} 78% 50%)`, dark:`hsl(${h} 72% 34%)`,
+    edge:`hsl(${h} 62% 22%)`, rim:`hsl(${h} 70% 28%)`,
+    dent:`hsl(${h} 60% 18% / 0.30)`, dent0:`hsl(${h} 60% 18% / 0)`, ridge:`hsl(${h} 62% 20% / 0.40)`,
+    drop:`hsl(${h} 78% 50%)`, accent:`hsl(${h} 75% 38%)`, sw:`hsl(${h} 78% 50%)`
+  };
+}
+
+/* ================= deformation grid =================
+   A spring mesh covering the whole screen. Every texture layer samples its
+   displacement, so dragging visibly stretches the slime and everything in it. */
+let GP = [], gw = 0, gh = 0, gx0 = 0, gy0 = 0, gsp = 52, T = 0;
+function initGrid(){
+  gsp = Math.max(40, Math.min(64, Math.round(Math.min(W, H) / 14)));
+  gx0 = -gsp; gy0 = -gsp;
+  gw = Math.ceil((W + gsp * 2) / gsp) + 1;
+  gh = Math.ceil((H + gsp * 2) / gsp) + 1;
+  GP = [];
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++){
+    const x = gx0 + i * gsp, y = gy0 + j * gsp;
+    GP.push({ ox:x, oy:y, rx:x, ry:y, x, y, px:x, py:y });
+  }
+}
+const _d = { x:0, y:0 };
+function dispAt(x, y, out){
+  out = out || _d;
+  const fx = (x - gx0) / gsp, fy = (y - gy0) / gsp;
+  const i = Math.max(0, Math.min(gw - 2, Math.floor(fx)));
+  const j = Math.max(0, Math.min(gh - 2, Math.floor(fy)));
+  const tx = Math.max(0, Math.min(1, fx - i)), ty = Math.max(0, Math.min(1, fy - j));
+  const a = GP[j * gw + i], b = GP[j * gw + i + 1], c = GP[(j + 1) * gw + i], d = GP[(j + 1) * gw + i + 1];
+  const top_x = (a.x - a.ox) + ((b.x - b.ox) - (a.x - a.ox)) * tx;
+  const bot_x = (c.x - c.ox) + ((d.x - d.ox) - (c.x - c.ox)) * tx;
+  const top_y = (a.y - a.oy) + ((b.y - b.oy) - (a.y - a.oy)) * tx;
+  const bot_y = (c.y - c.oy) + ((d.y - d.oy) - (c.y - c.oy)) * tx;
+  out.x = top_x + (bot_x - top_x) * ty;
+  out.y = top_y + (bot_y - top_y) * ty;
+  return out;
+}
+function dragField(x, y, ddx, ddy){
+  const r = P.grabR * SCL, r2 = r * r;
+  const i0 = Math.max(0, Math.floor((x - r - gx0) / gsp)), i1 = Math.min(gw - 1, Math.ceil((x + r - gx0) / gsp));
+  const j0 = Math.max(0, Math.floor((y - r - gy0) / gsp)), j1 = Math.min(gh - 1, Math.ceil((y + r - gy0) / gsp));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++){
+    const p = GP[j * gw + i];
+    const dx = p.ox - x, dy = p.oy - y, d2 = dx * dx + dy * dy;
+    if (d2 > r2) continue;
+    const f = 1 - d2 / r2, w = f * f * P.grab;
+    p.x += ddx * w; p.y += ddy * w;
+    p.px += ddx * w * P.carry; p.py += ddy * w * P.carry;
+  }
+}
+function dent(x, y, force){
+  const r = P.grabR * SCL * 1.1, r2 = r * r;
+  const i0 = Math.max(0, Math.floor((x - r - gx0) / gsp)), i1 = Math.min(gw - 1, Math.ceil((x + r - gx0) / gsp));
+  const j0 = Math.max(0, Math.floor((y - r - gy0) / gsp)), j1 = Math.min(gh - 1, Math.ceil((y + r - gy0) / gsp));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++){
+    const p = GP[j * gw + i];
+    let dx = p.ox - x, dy = p.oy - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > r2) continue;
+    let d = Math.sqrt(d2);
+    if (d < 1){ dx = Math.random() - 0.5; dy = Math.random() - 0.5; d = Math.hypot(dx, dy) || 1; }
+    const imp = force * (1 - d / r);
+    p.x += dx / d * imp; p.y += dy / d * imp;
+  }
+}
+
+/* ================= rim (the slime's wobbly edge) ================= */
+let RIM = [];
+function initRim(){
+  RIM = [];
+  const m = M, cr = CR;
+  function line(x0, y0, x1, y1){
+    const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(d / 24));
+    for (let i = 0; i < n; i++){ const t = i / n; RIM.push({ ox:x0 + (x1 - x0) * t, oy:y0 + (y1 - y0) * t }); }
+  }
+  function arc(cx, cy, a0, a1){
+    const n = Math.max(2, Math.round(cr * Math.abs(a1 - a0) / 18));
+    for (let i = 0; i < n; i++){ const a = a0 + (a1 - a0) * i / n; RIM.push({ ox:cx + Math.cos(a) * cr, oy:cy + Math.sin(a) * cr }); }
+  }
+  line(m + cr, m, W - m - cr, m);
+  arc(W - m - cr, m + cr, -Math.PI / 2, 0);
+  line(W - m, m + cr, W - m, H - m - cr);
+  arc(W - m - cr, H - m - cr, 0, Math.PI / 2);
+  line(W - m - cr, H - m, m + cr, H - m);
+  arc(m + cr, H - m - cr, Math.PI / 2, Math.PI);
+  line(m, H - m - cr, m, m + cr);
+  arc(m + cr, m + cr, Math.PI, Math.PI * 1.5);
+}
+const _rx = [], _ry = [];
+function rimPath(t){
+  const n = RIM.length, path = new Path2D();
+  for (let i = 0; i < n; i++){
+    const r = RIM[i]; dispAt(r.ox, r.oy, _d);
+    _rx[i] = r.ox + _d.x * 0.9 + (WOB ? Math.sin(t * 2.1 + i * 0.55) * 1.3 : 0);
+    _ry[i] = r.oy + _d.y * 0.9 + (WOB ? Math.cos(t * 1.7 + i * 0.71) * 1.3 : 0);
+  }
+  path.moveTo((_rx[n - 1] + _rx[0]) / 2, (_ry[n - 1] + _ry[0]) / 2);
+  for (let i = 0; i < n; i++){
+    const j = (i + 1) % n;
+    path.quadraticCurveTo(_rx[i], _ry[i], (_rx[i] + _rx[j]) / 2, (_ry[i] + _ry[j]) / 2);
+  }
+  path.closePath();
+  return path;
+}
+
+/* ================= decorations ================= */
+let blotches = [], swirls = [], bubbles = [], sprinkles = [], trails = [], imprints = [], rings = [], parts = [];
+const SPRINKLE_COLS = ["#e5484d","#f76b15","#ffd23f","#46a758","#0090ff","#8e4ec6","#e93d82","#fffaf0"];
+function initDecor(){
+  blotches = []; swirls = []; bubbles = []; sprinkles = [];
+  trails = []; imprints = []; rings = []; parts = [];
+  for (let i = 0; i < 22; i++){
+    blotches.push({ u:Math.random(), v:Math.random(), r:0.05 + Math.random() * 0.10,
+                    sign:Math.random() < 0.5 ? 1 : -1, a:0.05 + Math.random() * 0.07 });
+  }
+  for (let i = 0; i < 15; i++){
+    swirls.push({ u:Math.random(), v:Math.random(), r:30 + Math.random() * 90,
+                  a0:Math.random() * Math.PI * 2, len:1.6 + Math.random() * 2.6,
+                  lw:10 + Math.random() * 22, light:Math.random() < 0.5 });
+  }
+  if (curKey === "glossy" || curKey === "crunch"){
+    const n = curKey === "glossy" ? 26 : 10;
+    for (let i = 0; i < n; i++){
+      bubbles.push({ u:Math.random(), v:Math.random(), r:3 + Math.random() * 9,
+                     ph:Math.random() * 6.28, sp:0.1 + Math.random() * 0.3, pop:0 });
+    }
+  } else if (curKey === "water"){
+    for (let i = 0; i < 42; i++){
+      bubbles.push({ u:Math.random(), v:Math.random(), r:1.5 + Math.random() * 3.5,
+                     ph:Math.random() * 6.28, sp:0.008 + Math.random() * 0.02, pop:0 });
+    }
+  }
+  if (curKey === "crunch"){
+    const n = Math.min(260, Math.round(W * H / 3800));
+    for (let i = 0; i < n; i++) sprinkles.push(newSprinkle());
+  }
+}
+function newSprinkle(){
+  return { x:M + 14 + Math.random() * (W - 2 * M - 28), y:M + 14 + Math.random() * (H - 2 * M - 28),
+           rot:Math.random() * Math.PI, len:9 + Math.random() * 8, w:3.4 + Math.random() * 1.4,
+           col:SPRINKLE_COLS[(Math.random() * SPRINKLE_COLS.length) | 0], lx:0, ly:0 };
+}
+
+/* fingerprints — pressed into the surface, healing at the slime's own rate.
+   A deliberate press leaves a whorled print; a smear leaves only soft dents. */
+const IMP_SPACING = 34;
+function addImprint(x, y, s, whorl){
+  dispAt(x, y, _d);
+  imprints.push({ x:x - _d.x, y:y - _d.y, rot:Math.random() * Math.PI, seed:Math.random(),
+                  life:P.impLife, max:P.impLife, s, whorl:!!whorl && P.whorl });
+  if (imprints.length > 60) imprints.shift();
+}
+
+/* ================= physics ================= */
+const STEP = 1 / 60;
+function physics(dt){
+  T += dt;
+  const damp = P.damp, k = P.springK;
+  for (const p of GP){
+    const vx = (p.x - p.px) * damp, vy = (p.y - p.py) * damp;
+    p.px = p.x; p.py = p.y;
+    p.x += vx; p.y += vy;
+    p.x += (p.rx - p.x) * k;
+    p.y += (p.ry - p.y) * k;
+    if (WOB){
+      p.x += Math.sin(T * P.wobF + p.oy * 0.017 + p.ox * 0.011) * P.wob;
+      p.y += Math.cos(T * P.wobF * 0.9 + p.ox * 0.019) * P.wob;
+    }
+  }
+  // neighbor coupling: displacement diffuses sideways (waves, for water especially)
+  const cp = P.couple * 0.5;
+  for (let pass = 0; pass < 2; pass++){
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++){
+      const p = GP[j * gw + i];
+      let sx = 0, sy = 0, n = 0, q;
+      if (i > 0){ q = GP[j * gw + i - 1]; sx += q.x - q.ox; sy += q.y - q.oy; n++; }
+      if (i < gw - 1){ q = GP[j * gw + i + 1]; sx += q.x - q.ox; sy += q.y - q.oy; n++; }
+      if (j > 0){ q = GP[(j - 1) * gw + i]; sx += q.x - q.ox; sy += q.y - q.oy; n++; }
+      if (j < gh - 1){ q = GP[(j + 1) * gw + i]; sx += q.x - q.ox; sy += q.y - q.oy; n++; }
+      p.x += (sx / n - (p.x - p.ox)) * cp;
+      p.y += (sy / n - (p.y - p.oy)) * cp;
+    }
+  }
+  // plasticity (cloud): smears become the new rest shape, then slowly self-heal
+  if (P.plastic){
+    const f = Math.min(1, P.plastic * dt), hl = Math.min(1, P.heal * dt);
+    for (const p of GP){
+      p.rx += (p.x - p.rx) * f; p.ry += (p.y - p.ry) * f;
+      p.rx += (p.ox - p.rx) * hl; p.ry += (p.oy - p.ry) * hl;
+    }
+  }
+  // keep displacement bounded
+  const lim = gsp * 1.4;
+  for (const p of GP){
+    const dx = p.x - p.ox, dy = p.y - p.oy;
+    const d = Math.hypot(dx, dy);
+    if (d > lim){ p.x = p.ox + dx / d * lim; p.y = p.oy + dy / d * lim; }
+  }
+  // sprinkles ride the slime — carried hard while stirred, slipping on the way back
+  if (curKey === "crunch"){
+    for (const s of sprinkles){
+      dispAt(s.x, s.y, _d);
+      const ddx = _d.x - s.lx, ddy = _d.y - s.ly;
+      s.lx = _d.x; s.ly = _d.y;
+      const outward = ddx * _d.x + ddy * _d.y > 0;
+      const f = outward ? 1 : 0.25;
+      s.x += ddx * f; s.y += ddy * f;
+      if (outward && (ddx || ddy)) s.rot += (Math.random() - 0.5) * Math.min(0.5, Math.hypot(ddx, ddy) * 0.12);
+      s.x = Math.max(M + 10, Math.min(W - M - 10, s.x));
+      s.y = Math.max(M + 10, Math.min(H - M - 10, s.y));
+    }
+  }
+  // water bubbles rise
+  if (curKey === "water"){
+    for (const b of bubbles){
+      b.v -= b.sp * dt * 8;
+      if (b.v < -0.02){ b.v = 1.02; b.u = Math.random(); }
+    }
+  }
+  for (let i = rings.length - 1; i >= 0; i--){
+    const r = rings[i];
+    r.r += r.v * dt; r.life -= dt;
+    if (r.life <= 0) rings.splice(i, 1);
+  }
+  for (let i = parts.length - 1; i >= 0; i--){
+    const q = parts[i];
+    q.x += q.vx * dt; q.y += q.vy * dt;
+    q.vx *= 0.96; q.vy *= 0.96;
+    if (q.kind === "tuft") q.r += 26 * dt;
+    q.life -= dt;
+    if (q.life <= 0) parts.splice(i, 1);
+  }
+  for (let i = imprints.length - 1; i >= 0; i--){
+    imprints[i].life -= dt;
+    if (imprints[i].life <= 0) imprints.splice(i, 1);
+  }
+  for (let i = trails.length - 1; i >= 0; i--){
+    trails[i].life -= dt;
+    if (trails[i].life <= 0) trails.splice(i, 1);
+  }
+}
+
+/* ================= interaction ================= */
+const pointers = new Map();
+let lastPoint = { x: innerWidth / 2, y: innerHeight / 3, ts: -1e4 };
+
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+  ensureAudio();
+  canvas.setPointerCapture(e.pointerId);
+  const x = e.clientX, y = e.clientY;
+  pointers.set(e.pointerId, { x, y, x0:x, y0:y, t0:performance.now(), moved:0, ix:x, iy:y, sp:0, trail:null });
+  lastPoint = { x, y, ts: performance.now() };
+  dent(x, y, P.dent * 0.45 * SCL);
+  addImprint(x, y, 1, true);
+  popBubblesNear(x, y, 46);
+  pressSound(0.5);
+});
+canvas.addEventListener("pointermove", e => {
+  const pt = pointers.get(e.pointerId);
+  if (!pt) return;
+  const dx = e.clientX - pt.x, dy = e.clientY - pt.y;
+  const d = Math.hypot(dx, dy);
+  pt.moved += d;
+  pt.sp = pt.sp * 0.7 + d * 0.3;
+  pt.x = e.clientX; pt.y = e.clientY;
+  lastPoint = { x: pt.x, y: pt.y, ts: performance.now() };
+  if (d > 0) dragField(pt.x, pt.y, dx, dy);
+  // trail: recorded in rest space so it sticks to the slime as it springs back
+  if (pt.moved > 6){
+    dispAt(pt.x, pt.y, _d);
+    const rx2 = pt.x - _d.x, ry2 = pt.y - _d.y;
+    if (!pt.trail){
+      pt.trail = { pts:[{ x:rx2, y:ry2 }], life:P.trailLife, max:P.trailLife };
+      trails.push(pt.trail);
+      if (trails.length > 22) trails.shift();
+    } else {
+      const lp = pt.trail.pts[pt.trail.pts.length - 1];
+      if (Math.hypot(rx2 - lp.x, ry2 - lp.y) > 8){
+        pt.trail.pts.push({ x:rx2, y:ry2 });
+        pt.trail.life = pt.trail.max;
+        if (pt.trail.pts.length > 90) pt.trail.pts.shift();
+      }
+    }
+  }
+  if (Math.hypot(pt.x - pt.ix, pt.y - pt.iy) > IMP_SPACING){
+    pt.ix = pt.x; pt.iy = pt.y;
+    addImprint(pt.x, pt.y, 0.7 + Math.random() * 0.3, false);
+    popBubblesNear(pt.x, pt.y, 34);
+    dragSound(Math.min(1, pt.sp / 22));
+  }
+});
+function release(e){
+  const pt = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  if (!pt) return;
+  if (performance.now() - pt.t0 < 220 && pt.moved < 12){
+    poke(e.clientX, e.clientY);
+  } else if (pt.sp > 6){
+    releaseSound(Math.min(1, pt.sp / 30));
+  }
+}
+canvas.addEventListener("pointerup", release);
+canvas.addEventListener("pointercancel", release);
+
+function poke(x, y){
+  dent(x, y, P.dent * SCL);
+  addImprint(x, y, 1.1, true);
+  const nR = curKey === "water" ? 3 : 1;
+  for (let i = 0; i < nR; i++){
+    rings.push({ x, y, r:12 + i * 22, v:150 + i * 60, life:0.7 + i * 0.15, max:0.7 + i * 0.15 });
+  }
+  const n = P.splash;
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 240;
+    parts.push({ x, y, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp,
+                 r:curKey === "cloud" ? 6 + Math.random() * 8 : 2 + Math.random() * 3,
+                 life:0.5 + Math.random() * 0.4, max:0.9,
+                 kind:curKey === "cloud" ? "tuft" : "drop" });
+  }
+  popBubblesNear(x, y, 80);
+  pokeSound();
+}
+function popBubblesNear(x, y, r){
+  if (curKey === "cloud") return;
+  for (const b of bubbles){
+    if (b.pop > 0) continue;
+    const bx = b.u * W, by = b.v * H;
+    if (Math.hypot(bx - x, by - y) < r + b.r){
+      b.pop = 0.25;
+      popSound();
+    }
+  }
+}
+
+/* ================= sound (all synthesized) ================= */
+let AC = null, MG = null, noiseB = null, soundOn = true;
+const lastS = {};
+function ensureAudio(){
+  if (!AC){
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      MG = AC.createGain(); MG.gain.value = 1; MG.connect(AC.destination);
+      const len = Math.floor(AC.sampleRate * 0.35);
+      noiseB = AC.createBuffer(1, len, AC.sampleRate);
+      const d = noiseB.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    } catch (err){ AC = null; }
+  }
+  if (AC && AC.state === "suspended") AC.resume();
+}
+function gate(name, ms){
+  const n = performance.now();
+  if (lastS[name] && n - lastS[name] < ms) return false;
+  lastS[name] = n;
+  return true;
+}
+function env(node, t0, peak, atk, rel){
+  node.gain.setValueAtTime(0.0001, t0);
+  node.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + atk);
+  node.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + rel);
+}
+function noiseHit(t0, f0, f1, q, peak, atk, rel, hp){
+  const ns = AC.createBufferSource(); ns.buffer = noiseB;
+  const bp = AC.createBiquadFilter(); bp.type = hp ? "highpass" : "bandpass"; bp.Q.value = q;
+  bp.frequency.setValueAtTime(f0, t0);
+  if (f1 !== f0) bp.frequency.exponentialRampToValueAtTime(f1, t0 + atk + rel);
+  const g = AC.createGain(); env(g, t0, peak, atk, rel);
+  ns.connect(bp).connect(g).connect(MG);
+  ns.start(t0); ns.stop(t0 + atk + rel + 0.05);
+}
+function squelch(v){
+  if (!soundOn || !AC || !gate("sq", 90)) return;
+  const t0 = AC.currentTime;
+  const o = AC.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(150 + 140 * v, t0);
+  o.frequency.exponentialRampToValueAtTime(55, t0 + 0.14);
+  const og = AC.createGain(); env(og, t0, 0.10 + 0.16 * v, 0.018, 0.18);
+  o.connect(og).connect(MG); o.start(t0); o.stop(t0 + 0.22);
+  noiseHit(t0, 900, 200, 1.4, 0.05 + 0.12 * v, 0.012, 0.16);
+}
+function puff(v){
+  if (!soundOn || !AC || !gate("pf", 110)) return;
+  const t0 = AC.currentTime;
+  const ns = AC.createBufferSource(); ns.buffer = noiseB;
+  const lp = AC.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 700 + 400 * v;
+  const g = AC.createGain(); env(g, t0, 0.05 + 0.09 * v, 0.03, 0.22);
+  ns.connect(lp).connect(g).connect(MG);
+  ns.start(t0); ns.stop(t0 + 0.3);
+}
+function crackle(v){
+  if (!soundOn || !AC || !gate("cr", 80)) return;
+  const t0 = AC.currentTime;
+  const n = 4 + Math.round(v * 6);
+  for (let i = 0; i < n; i++){
+    noiseHit(t0 + Math.random() * 0.09, 2200 + Math.random() * 2600, 2600, 1,
+             0.02 + Math.random() * 0.05 * (0.5 + v), 0.004, 0.03, true);
+  }
+}
+function plip(v){
+  if (!soundOn || !AC || !gate("pl", 100)) return;
+  const t0 = AC.currentTime;
+  const o = AC.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(420 + 320 * v, t0);
+  o.frequency.exponentialRampToValueAtTime(130, t0 + 0.09);
+  const og = AC.createGain(); env(og, t0, 0.09 + 0.12 * v, 0.01, 0.10);
+  o.connect(og).connect(MG); o.start(t0); o.stop(t0 + 0.14);
+  noiseHit(t0, 1400, 480, 1.6, 0.04 + 0.07 * v, 0.01, 0.09);
+}
+function slosh(v){
+  if (!soundOn || !AC || !gate("sl", 200)) return;
+  const t0 = AC.currentTime;
+  noiseHit(t0, 300, 900, 1.2, 0.05 + 0.08 * v, 0.09, 0.26);
+}
+function stickTick(){
+  if (!soundOn || !AC || !gate("tk", 70)) return;
+  noiseHit(AC.currentTime, 1600 + Math.random() * 900, 1600, 2.5, 0.025 + Math.random() * 0.02, 0.008, 0.05);
+}
+function peel(v){
+  if (!soundOn || !AC || !gate("pe", 120)) return;
+  const t0 = AC.currentTime;
+  noiseHit(t0, 260, 1700, 1.8, 0.04 + 0.06 * v, 0.02, 0.14);
+}
+function popSound(){
+  if (!soundOn || !AC || !gate("po", 130)) return;
+  const t0 = AC.currentTime;
+  const o = AC.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(900 + Math.random() * 500, t0);
+  o.frequency.exponentialRampToValueAtTime(300, t0 + 0.05);
+  const g = AC.createGain(); env(g, t0, 0.03, 0.005, 0.05);
+  o.connect(g).connect(MG); o.start(t0); o.stop(t0 + 0.08);
+}
+function pressSound(v){
+  if (curKey === "glossy") squelch(v);
+  else if (curKey === "cloud") puff(v);
+  else if (curKey === "crunch"){ crackle(v); squelch(v * 0.4); }
+  else plip(v);
+}
+function pokeSound(){
+  if (curKey === "glossy") squelch(0.9);
+  else if (curKey === "cloud") puff(0.85);
+  else if (curKey === "crunch"){ crackle(0.9); squelch(0.3); }
+  else { plip(1); slosh(0.4); }
+}
+function dragSound(v){
+  if (curKey === "glossy") stickTick();
+  else if (curKey === "cloud") puff(0.2 + v * 0.3);
+  else if (curKey === "crunch") crackle(0.3 + v * 0.5);
+  else slosh(0.2 + v * 0.4);
+}
+function releaseSound(v){
+  if (curKey === "glossy") peel(v);
+  else if (curKey === "cloud") puff(v * 0.7);
+  else if (curKey === "crunch") crackle(v * 0.7);
+  else slosh(v);
+}
+
+/* ================= googly eyes ================= */
+let eyesOn = true, nextBlink = 2.5;
+const eyes = [
+  { u:0.42, v:0.32, gx:0, gy:2, gpx:0, gpy:2, cx:0, cy:0, pcx:null, pcy:null },
+  { u:0.58, v:0.32, gx:0, gy:2, gpx:0, gpy:2, cx:0, cy:0, pcx:null, pcy:null }
+];
+function eyeStep(){
+  const er = Math.max(16, Math.min(34, Math.min(W, H) * 0.05));
+  const fresh = performance.now() - lastPoint.ts < 3500;
+  for (const ey of eyes){
+    dispAt(ey.u * W, ey.v * H, _d);
+    ey.cx = ey.u * W + _d.x * 1.05;
+    ey.cy = ey.v * H + _d.y * 1.05;
+    if (ey.pcx === null){ ey.pcx = ey.cx; ey.pcy = ey.cy; }
+    // googly pupil: shaken by the slime, pulled by gravity + a glance at your finger
+    let ax = -(ey.cx - ey.pcx) * 0.9, ay = -(ey.cy - ey.pcy) * 0.9 + 0.35;
+    if (fresh){
+      const lx = lastPoint.x - ey.cx, ly = lastPoint.y - ey.cy;
+      const d = Math.hypot(lx, ly) || 1;
+      ax += lx / d * 0.22; ay += ly / d * 0.22;
+    }
+    ey.pcx = ey.cx; ey.pcy = ey.cy;
+    let vx = (ey.gx - ey.gpx) * 0.9, vy = (ey.gy - ey.gpy) * 0.9;
+    ey.gpx = ey.gx; ey.gpy = ey.gy;
+    ey.gx += vx + ax; ey.gy += vy + ay;
+    const lim = er * 0.5;
+    const d = Math.hypot(ey.gx, ey.gy);
+    if (d > lim){
+      const nx = ey.gx / d, ny = ey.gy / d;
+      ey.gx = nx * lim; ey.gy = ny * lim;
+      // bounce: reflect a bit of velocity
+      const vn = vx * nx + vy * ny;
+      ey.gpx = ey.gx - (vx - nx * vn * 1.4) * 0.6;
+      ey.gpy = ey.gy - (vy - ny * vn * 1.4) * 0.6;
+    }
+  }
+}
+function drawEyes(t){
+  const er = Math.max(16, Math.min(34, Math.min(W, H) * 0.05));
+  let closed = false;
+  if (t >= nextBlink && t < nextBlink + 0.13) closed = true;
+  else if (t >= nextBlink + 0.13) nextBlink = t + 2.2 + Math.random() * 3.5;
+  for (const ey of eyes){
+    if (closed){
+      ctx.strokeStyle = pal.edge; ctx.lineWidth = er * 0.3; ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(ey.cx, ey.cy, er * 0.7, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+      continue;
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath(); ctx.arc(ey.cx, ey.cy, er, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(34,53,40,0.30)"; ctx.lineWidth = 2;
+    ctx.stroke();
+    const px = ey.cx + ey.gx, py = ey.cy + ey.gy;
+    ctx.fillStyle = "#2a2f28";
+    ctx.beginPath(); ctx.arc(px, py, er * 0.42, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.arc(px - er * 0.13, py - er * 0.13, er * 0.11, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ================= drawing ================= */
+const sheens = [{ u:0.24, v:0.18, r:0.5 }, { u:0.7, v:0.62, r:0.36 }, { u:0.5, v:0.85, r:0.3 }];
+function draw(t){
+  ctx.clearRect(0, 0, W, H);
+  const path = rimPath(t);
+  // drop shadow — the slab sits on the table
+  ctx.save();
+  ctx.shadowColor = "rgba(24,44,28,0.30)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 9;
+  ctx.fillStyle = pal.dark; ctx.fill(path);
+  ctx.restore();
+  const g = ctx.createLinearGradient(0, 0, W * 0.75, H);
+  g.addColorStop(0, pal.light); g.addColorStop(0.5, pal.base); g.addColorStop(1, pal.dark);
+  ctx.fillStyle = g; ctx.fill(path);
+  ctx.save();
+  ctx.clip(path);
+  if (curKey === "water") drawRefraction();
+  drawBlotches();
+  if (curKey === "cloud") drawSwirls();
+  drawShading();
+  drawImprints();
+  drawTrails();
+  if (curKey === "crunch") drawSprinkles();
+  drawBubbles(t);
+  drawRings();
+  drawSheen(t);
+  ctx.globalAlpha = 0.30;
+  ctx.strokeStyle = pal.rim; ctx.lineWidth = 16; ctx.stroke(path);
+  ctx.globalAlpha = 1;
+  if (eyesOn){ eyeStep(); drawEyes(t); }
+  ctx.restore();
+  ctx.strokeStyle = pal.edge; ctx.lineWidth = 3; ctx.stroke(path);
+  drawParts();
+}
+function drawRefraction(){
+  // the table's dot grid seen *through* the jelly, shifted by the deformation
+  const sp = Math.max(26, Math.round(gsp * 0.62));
+  ctx.fillStyle = "rgba(20,40,30,0.12)";
+  ctx.beginPath();
+  for (let y = M; y < H - M; y += sp){
+    for (let x = M + ((y / sp) % 2 ? sp / 2 : 0); x < W - M; x += sp){
+      dispAt(x, y, _d);
+      ctx.rect(x - _d.x * 0.5 - 1.4, y - _d.y * 0.5 - 1.4, 2.8, 2.8);
+    }
+  }
+  ctx.fill();
+}
+function drawBlotches(){
+  for (const b of blotches){
+    const bx = b.u * W, by = b.v * H;
+    dispAt(bx, by, _d);
+    const x = bx + _d.x, y = by + _d.y, r = b.r * Math.min(W, H);
+    const gr = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+    const col = b.sign > 0 ? pal.light : pal.dark;
+    gr.addColorStop(0, col); gr.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalAlpha = b.a;
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawSwirls(){
+  ctx.lineCap = "round";
+  for (const s of swirls){
+    const sx = s.u * W, sy = s.v * H;
+    dispAt(sx, sy, _d);
+    ctx.strokeStyle = s.light ? pal.light : pal.dark;
+    ctx.globalAlpha = 0.30;
+    ctx.lineWidth = s.lw;
+    ctx.beginPath();
+    ctx.arc(sx + _d.x, sy + _d.y, s.r, s.a0, s.a0 + s.len);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+let spriteHi = null, spriteLo = null;
+function makeSprite(rgb){
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 64;
+  const c2 = cv.getContext("2d");
+  const g = c2.createRadialGradient(32, 32, 2, 32, 32, 32);
+  g.addColorStop(0, `rgba(${rgb},0.85)`);
+  g.addColorStop(0.6, `rgba(${rgb},0.30)`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  c2.fillStyle = g;
+  c2.fillRect(0, 0, 64, 64);
+  return cv;
+}
+function drawShading(){
+  // stretched slime goes pale, squished slime goes deep — soft blobs, per grid cell
+  if (!spriteHi){ spriteHi = makeSprite("255,255,255"); spriteLo = makeSprite("10,25,15"); }
+  const sz = gsp * 2.3, off = sz / 2;
+  for (let j = 0; j < gh - 1; j++){
+    for (let i = 0; i < gw - 1; i++){
+      const a = GP[j * gw + i], b = GP[j * gw + i + 1], c = GP[(j + 1) * gw + i], d = GP[(j + 1) * gw + i + 1];
+      const ad = Math.abs(a.x - a.ox) + Math.abs(a.y - a.oy) + Math.abs(d.x - d.ox) + Math.abs(d.y - d.oy);
+      if (ad < 2) continue;
+      const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2
+                 + Math.abs((b.x - d.x) * (c.y - d.y) - (c.x - d.x) * (b.y - d.y)) / 2;
+      const dev = area / (gsp * gsp) - 1;
+      if (dev > -0.06 && dev < 0.06) continue;
+      const al = Math.min(1, (Math.abs(dev) - 0.06) * 2.5);
+      ctx.globalAlpha = al * (dev > 0 ? P.shadeHi : P.shadeLo) * 2.2;
+      const cx4 = (a.x + b.x + c.x + d.x) / 4, cy4 = (a.y + b.y + c.y + d.y) / 4;
+      ctx.drawImage(dev > 0 ? spriteHi : spriteLo, cx4 - off, cy4 - off, sz, sz);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawTrails(){
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const tr of trails){
+    if (tr.pts.length < 2) continue;
+    const a = Math.min(1, tr.life / tr.max);
+    ctx.beginPath();
+    for (let i = 0; i < tr.pts.length; i++){
+      const p = tr.pts[i];
+      dispAt(p.x, p.y, _d);
+      const x = p.x + _d.x, y = p.y + _d.y;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    if (curKey === "cloud"){
+      ctx.strokeStyle = pal.dark; ctx.globalAlpha = a * 0.28; ctx.lineWidth = 18; ctx.stroke();
+      ctx.strokeStyle = pal.light; ctx.globalAlpha = a * 0.5; ctx.lineWidth = 5; ctx.stroke();
+    } else if (curKey === "water"){
+      ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.globalAlpha = a * 0.25; ctx.lineWidth = 6; ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.globalAlpha = a * 0.22; ctx.lineWidth = 11; ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.globalAlpha = a * 0.3; ctx.lineWidth = 3.5; ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawImprints(){
+  for (const im of imprints){
+    const fade = Math.min(1, im.life / (im.max * 0.35)) * (im.whorl ? 1 : 0.45);
+    dispAt(im.x, im.y, _d);
+    const rr = 22 * SCL * (0.75 + im.s * 0.35);
+    ctx.save();
+    ctx.translate(im.x + _d.x, im.y + _d.y);
+    ctx.rotate(im.rot);
+    ctx.globalAlpha = fade;
+    const dg = ctx.createRadialGradient(0, 0, rr * 0.1, 0, 0, rr * 1.5);
+    dg.addColorStop(0, pal.dent);
+    dg.addColorStop(1, pal.dent0);
+    ctx.fillStyle = dg;
+    ctx.beginPath(); ctx.arc(0, 0, rr * 1.5, 0, Math.PI * 2); ctx.fill();
+    if (im.whorl){
+      ctx.strokeStyle = pal.ridge;
+      ctx.lineWidth = 1.3;
+      ctx.lineCap = "round";
+      for (let k = 1; k <= 4; k++){
+        const a0 = im.seed * 6.28 + k * 0.9;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rr * k / 4, rr * 0.8 * k / 4, 0, a0, a0 + 5.0);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawSprinkles(){
+  ctx.lineCap = "round";
+  for (const s of sprinkles){
+    dispAt(s.x, s.y, _d);
+    const x = s.x + _d.x * 0.15, y = s.y + _d.y * 0.15;
+    const c = Math.cos(s.rot) * s.len / 2, sn = Math.sin(s.rot) * s.len / 2;
+    ctx.strokeStyle = "rgba(30,25,20,0.18)";
+    ctx.lineWidth = s.w;
+    ctx.beginPath(); ctx.moveTo(x - c + 1, y - sn + 1.4); ctx.lineTo(x + c + 1, y + sn + 1.4); ctx.stroke();
+    ctx.strokeStyle = s.col;
+    ctx.beginPath(); ctx.moveTo(x - c, y - sn); ctx.lineTo(x + c, y + sn); ctx.stroke();
+  }
+}
+function drawBubbles(t){
+  for (const b of bubbles){
+    const bx = b.u * W + (curKey !== "water" && WOB ? Math.sin(t * b.sp * 4 + b.ph) * 8 : 0);
+    const by = b.v * H;
+    dispAt(bx, by, _d);
+    const x = bx + _d.x, y = by + _d.y;
+    if (b.pop > 0){
+      b.pop -= 1 / 60;
+      const pr = b.r + (0.25 - Math.max(0, b.pop)) * 30;
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.globalAlpha = Math.max(0, b.pop) * 4 * 0.6;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.stroke();
+      if (b.pop <= 0){ b.u = Math.random(); b.v = Math.random(); b.pop = -1; setTimeout(() => { b.pop = 0; }, 600 + Math.random() * 2000); }
+      continue;
+    }
+    if (b.pop < 0) continue;
+    ctx.globalAlpha = curKey === "water" ? 0.5 : 0.55;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(x, y, b.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.beginPath(); ctx.arc(x - b.r * 0.3, y - b.r * 0.3, b.r * 0.25, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawRings(){
+  for (const r of rings){
+    dispAt(r.x, r.y, _d);
+    ctx.globalAlpha = Math.max(0, r.life / r.max) * 0.5;
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(r.x + _d.x, r.y + _d.y, r.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawSheen(t){
+  if (P.sheen <= 0){
+    // cloud: just a soft top light
+    const gg = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+    gg.addColorStop(0, "rgba(255,255,255,0.18)");
+    gg.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gg;
+    ctx.fillRect(0, 0, W, H * 0.5);
+    return;
+  }
+  for (let i = 0; i < sheens.length; i++){
+    const s = sheens[i];
+    const sx = s.u * W + (WOB ? Math.sin(t * 0.13 + i * 2.1) * 24 : 0);
+    const sy = s.v * H + (WOB ? Math.cos(t * 0.11 + i * 1.7) * 16 : 0);
+    dispAt(sx, sy, _d);
+    const x = sx + _d.x * 1.3, y = sy + _d.y * 1.3, r = s.r * Math.min(W, H);
+    const gg = ctx.createRadialGradient(x, y, r * 0.05, x, y, r);
+    gg.addColorStop(0, `rgba(255,255,255,${P.sheen * (i === 0 ? 0.55 : 0.3)})`);
+    gg.addColorStop(0.55, `rgba(255,255,255,${P.sheen * 0.10})`);
+    gg.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  if (curKey === "water" || curKey === "glossy"){
+    // crisp little glints
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    for (let i = 0; i < 3; i++){
+      const gx2 = (0.2 + i * 0.3) * W, gy2 = (0.22 + (i % 2) * 0.4) * H;
+      dispAt(gx2, gy2, _d);
+      ctx.beginPath();
+      ctx.ellipse(gx2 + _d.x, gy2 + _d.y, 20 * SCL, 7 * SCL, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+function drawParts(){
+  for (const q of parts){
+    const a = Math.max(0, Math.min(1, q.life / q.max));
+    if (q.kind === "tuft"){
+      ctx.globalAlpha = a * 0.5;
+      ctx.fillStyle = pal.light;
+    } else {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = pal.drop;
+    }
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ================= loop ================= */
+let last = performance.now(), acc = 0;
+function frame(now){
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.05) dt = 0.05;
+  acc += dt;
+  let steps = 0;
+  while (acc >= STEP && steps < 3){ physics(STEP); acc -= STEP; steps++; }
+  if (acc >= STEP) acc = 0;
+  draw(now / 1000);
+  requestAnimationFrame(frame);
+}
+
+/* ================= ui ================= */
+const swDiv = document.getElementById("swatches");
+const typeBar = document.getElementById("typebar");
+const subline = document.getElementById("subline");
+const hueSel = {};
+function store(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
+function read(k){ try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+function setType(key, first){
+  curKey = key; cur = TYPES[key]; P = cur.p;
+  const hi = hueSel[key] ?? 0;
+  pal = makePal(key, cur.hues[hi][1]);
+  document.documentElement.style.setProperty("--slime", pal.accent);
+  subline.innerHTML = cur.sub;
+  typeBar.querySelectorAll(".type").forEach(el => el.classList.toggle("on", el.dataset.key === key));
+  buildSwatches();
+  initGrid(); initDecor();
+  for (const ey of eyes){ ey.pcx = null; ey.gx = 0; ey.gy = 2; ey.gpx = 0; ey.gpy = 2; }
+  store("slime_type", key);
+  if (!first){ ensureAudio(); pressSound(0.6); }
+}
+function buildSwatches(){
+  swDiv.innerHTML = "";
+  cur.hues.forEach(([name, h], i) => {
+    const b = document.createElement("button");
+    b.className = "sw" + (i === (hueSel[curKey] ?? 0) ? " on" : "");
+    b.style.background = makePal(curKey, h).sw;
+    b.setAttribute("aria-label", name + " " + cur.name + " slime");
+    b.title = name;
+    b.addEventListener("click", () => {
+      hueSel[curKey] = i;
+      pal = makePal(curKey, h);
+      document.documentElement.style.setProperty("--slime", pal.accent);
+      swDiv.querySelectorAll(".sw").forEach(el => el.classList.remove("on"));
+      b.classList.add("on");
+      store("slime_hue_" + curKey, i);
+      ensureAudio(); pressSound(0.4);
+    });
+    swDiv.appendChild(b);
+  });
+}
+Object.keys(TYPES).forEach(key => {
+  const b = document.createElement("button");
+  b.className = "type";
+  b.dataset.key = key;
+  b.textContent = TYPES[key].name;
+  b.addEventListener("click", () => { if (key !== curKey) setType(key); });
+  typeBar.appendChild(b);
+  const saved = parseInt(read("slime_hue_" + key), 10);
+  if (!isNaN(saved) && saved >= 0 && saved < TYPES[key].hues.length) hueSel[key] = saved;
+});
+const soundBtn = document.getElementById("soundBtn");
+if (read("slime_sound") === "off"){ soundOn = false; soundBtn.classList.remove("on"); }
+soundBtn.addEventListener("click", () => {
+  soundOn = !soundOn;
+  soundBtn.classList.toggle("on", soundOn);
+  store("slime_sound", soundOn ? "on" : "off");
+  if (soundOn){ ensureAudio(); lastS.sq = 0; pressSound(0.5); }
+});
+const eyesBtn = document.getElementById("eyesBtn");
+if (read("slime_eyes") === "off"){ eyesOn = false; eyesBtn.classList.remove("on"); }
+eyesBtn.addEventListener("click", () => {
+  eyesOn = !eyesOn;
+  eyesBtn.classList.toggle("on", eyesOn);
+  store("slime_eyes", eyesOn ? "on" : "off");
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  initGrid(); initDecor();
+  ensureAudio(); pressSound(0.5);
+});
+addEventListener("resize", () => {
+  fit(); initGrid(); initRim(); initDecor();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) last = performance.now();
+});
+
+fit();
+initRim();
+const qsType = new URLSearchParams(location.search).get("type");
+const savedType = qsType || read("slime_type");
+setType(savedType && TYPES[savedType] ? savedType : "glossy", true);
+requestAnimationFrame(now => { last = now; frame(now); });
+</script>
+</body>
+</html>

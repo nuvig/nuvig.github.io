@@ -59,8 +59,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**
   (and a `<url>` in `sitemap.xml`).
 - `sitemap.xml` — hand-maintained XML sitemap, referenced from `robots.txt`. Public pages only:
-  `noindex` pages (`404`, `atc`, `scanner`, `bubbles`, `fugue`, `mural`) and the deliberately
-  unlinked `glow` / `sky2` / `watercycle` / `zoey` / `ctaf` are excluded on purpose. `lastmod` is
+  `noindex` pages (`404`, `atc`, `scanner`, `bubbles`, `fugue`, `mural`, `slime`) and the
+  deliberately unlinked `glow` / `sky2` / `watercycle` / `zoey` / `ctaf` are excluded on purpose. `lastmod` is
   the page's last commit date.
 - `changelog.html` + `js/changelog.js` + `js/data-health.js` — the site changelog (commit history of
   `main` via the GitHub API, unauthenticated) side by side with two data-health panels. The commit
@@ -77,6 +77,18 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
+- `slime.html` — Slime Simulator: a full-screen slime slab (wobbly rim inset a few px from the
+  viewport edge) with four slime types, each with distinct physics/texture/sound: glossy (viscous,
+  shiny, holds fingerprints), cloud (matte creamy — smears are *plastic*: the deformation grid's
+  rest positions chase the smear and self-heal over ~30 s), sprinkles (floam — sprinkles advect
+  with the flow, carried hard while stirred and slipping on the spring-back, so stirring
+  redistributes them permanently; crackle audio), and water (borax jelly — low damping so it
+  jiggles, refracted dot-grid seen through it, prints won't hold). One spring-mesh deformation
+  grid covers the screen and every texture layer samples it, so drags visibly stretch everything;
+  googly eyes have real Verlet pupil physics (shaken by the slime, gravity, bounce). All audio
+  synthesized (squelch/puff/crackle/plip families). `?type=` deep-links a type; selections persist
+  in localStorage. Self-contained like glow.html. **Unlinked and `noindex`** by request — to
+  promote: drop the noindex meta, add a tools.html card + sitemap `<url>`.
 - `fireworks.html` — Fireworks, a click-to-launch canvas fireworks show: peonies, willows, rings,
   crossettes, strobe and crackle shells, procedural booms, an auto show and an on-demand grand
   finale. Self-contained like glow.html (no shared CSS/JS, no `site-config.js`). **Unlinked**
