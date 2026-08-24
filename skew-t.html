@@ -108,14 +108,11 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Skew-T Explorer</h1>
-  <p class="subtitle">A guided walk through atmospheric soundings — forecast soundings for any US
-    airport, today's real balloon data, how those balloons feed the models, and how to read
-    the diagram.</p>
 
   <div class="section-title">1 · Forecast soundings — <span id="model-site-name">KDCA</span></div>
   <p class="subtitle" style="margin-top:0">
-    A model's virtual balloon for any US airport, any hour out to 72 hours.
-    Type an airport id and press Go.
+    A model's virtual balloon for any US station, any hour out to 72 hours.
+    Type a station id and press Go.
   </p>
 
   <div class="controls">
@@ -158,8 +155,7 @@
         <h3>Derived indices</h3>
         <div id="indices"></div>
         <div class="idx-note">
-          Surface-based parcel, no virtual-temperature correction — CAPE runs
-          slightly low in moist air. Heights AGL from model geopotential.
+          Surface-based parcel, no virtual-temperature correction. Heights AGL from model geopotential.
         </div>
       </div>
       <div class="card" style="margin-top:14px">
@@ -302,10 +298,6 @@
         balloon against the model's 12Z column (set the slider in section 1 to the same hour) is the
         honest way to judge how much to trust today's forecast soundings.</li>
     </ul>
-    <p class="idx-note">
-      Good habit: check the morning IAD balloon here, note where the inversions and moisture
-      really are, then watch how the forecast soundings evolve them through the day.
-    </p>
   </div>
 
   <div class="section-title">4 · How to read a Skew-T</div>
@@ -342,7 +334,7 @@
       fuel. If it's <em>colder</em>, it sinks back — that's <strong>CIN</strong>, the lid that
       keeps a hot humid day quiet until it suddenly isn't.
     </p>
-    <h4>Five things a pilot pulls off it</h4>
+    <h4>Quick pulls:</h4>
     <ul>
       <li><strong>Cloud bases</strong> — where red and green pinch together.</li>
       <li><strong>Bumps or smooth</strong> — steep red line = thermals and bumps; red line leaning right (inversion) = smooth on top, haze below.</li>
@@ -350,11 +342,6 @@
       <li><strong>Freezing level</strong> — where the red line crosses the 0 °C line.</li>
       <li><strong>Wind shear</strong> — barbs that twist or grow suddenly over a short height.</li>
     </ul>
-    <p class="idx-note">
-      Two ways to get a sounding: a real balloon (section 2, twice a day at fixed sites) or
-      a model's virtual column (section 1, any airport, any hour). Section 3 explains how
-      the first becomes the second.
-    </p>
   </div>
 
   <footer class="sources">
