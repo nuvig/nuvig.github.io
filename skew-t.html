@@ -108,57 +108,65 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Skew-T Explorer</h1>
-  <p class="subtitle">A guided walk through atmospheric soundings — how to read the diagram, today's real
-    balloon data, how those balloons feed the models, and forecast soundings for any US airport.
-    Not for operational use.</p>
+  <p class="subtitle">A guided walk through atmospheric soundings — forecast soundings for any US
+    airport, today's real balloon data, how those balloons feed the models, and how to read
+    the diagram.</p>
 
-  <div class="section-title">1 · How to read a Skew-T</div>
-  <div class="card explain">
-    <p>
-      A Skew-T looks intimidating; it isn't. It's just a weather report turned on its side:
-      <strong>the bottom of the chart is the runway, the top is airline cruise altitude</strong>,
-      and everything in between is what the air is doing as you climb.
-    </p>
-    <p>Ignore the busy background for a moment. Only two lines carry data:</p>
-    <ul>
-      <li><span class="swatch" style="background:#ef4444"></span><strong>Red — temperature</strong> as you go up.</li>
-      <li><span class="swatch" style="background:#22c55e"></span><strong>Green — dewpoint</strong>, i.e. how much moisture is up there.</li>
-    </ul>
-    <p>
-      And one rule: <strong>where the two lines squeeze together, there's cloud; where they
-      spread apart, the air is dry.</strong> That single idea is most of reading a Skew-T.
-      The feathers on the right are wind at each height (full barb = 10 kt, flag = 50 kt).
-    </p>
-    <h4>The busy background? Just graph paper.</h4>
-    <p>
-      The skewed blue lines mark temperature (the 0 °C one is your freezing level), the brown
-      and green curves are the paths rising air cools along, and the dashed purple lines track
-      moisture. You never read them directly — they're rails that the interesting lines get
-      compared against. Hover the diagram in section 4 and the boxes under it will do the
-      comparing for you.
-    </p>
-    <h4>One bubble of air tells the future</h4>
-    <p>
-      Take air from the surface and imagine lifting it. It cools as it rises; where it gets
-      as cool as its dewpoint, a cloud forms — that height is a good guess at the day's
-      <strong>cumulus cloud base</strong>. Keep lifting: if the bubble ends up <em>warmer</em>
-      than the air around it, it floats up on its own — that's <strong>CAPE</strong>, storm
-      fuel. If it's <em>colder</em>, it sinks back — that's <strong>CIN</strong>, the lid that
-      keeps a hot humid day quiet until it suddenly isn't.
-    </p>
-    <h4>Five things a pilot pulls off it</h4>
-    <ul>
-      <li><strong>Cloud bases</strong> — where red and green pinch together.</li>
-      <li><strong>Bumps or smooth</strong> — steep red line = thermals and bumps; red line leaning right (inversion) = smooth on top, haze below.</li>
-      <li><strong>Icing</strong> — moisture where the temperature sits between 0 and −20 °C.</li>
-      <li><strong>Freezing level</strong> — where the red line crosses the 0 °C line.</li>
-      <li><strong>Wind shear</strong> — barbs that twist or grow suddenly over a short height.</li>
-    </ul>
-    <p class="idx-note">
-      Two ways to get a sounding: a real balloon (section 2, twice a day at fixed sites) or
-      a model's virtual column (section 4, any airport, any hour). Section 3 explains how
-      the first becomes the second.
-    </p>
+  <div class="section-title">1 · Forecast soundings — <span id="model-site-name">KDCA</span></div>
+  <p class="subtitle" style="margin-top:0">
+    A model's virtual balloon for any US airport, any hour out to 72 hours.
+    Type an airport id and press Go.
+  </p>
+
+  <div class="controls">
+    <label>Any airport
+      <input type="text" id="site-input" placeholder="e.g. BWI" size="6" maxlength="4"
+             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
+    </label>
+    <button class="btn" id="site-go">Go</button>
+    <label>Model
+      <select id="model-select">
+        <option value="best_match">Best match</option>
+        <option value="gfs_seamless">GFS + HRRR</option>
+        <option value="gfs_global">GFS global</option>
+        <option value="icon_seamless">ICON</option>
+      </select>
+    </label>
+    <button class="btn" id="prev-hr">−1 h</button>
+    <input type="range" id="hour-slider" min="0" max="48" step="1" value="0">
+    <button class="btn" id="next-hr">+1 h</button>
+    <span id="valid-label">—</span>
+    <span id="status-msg"></span>
+  </div>
+
+  <div class="layout">
+    <div class="card" id="skewt-wrap">
+      <canvas id="skewt"></canvas>
+      <div class="hover-boxes">
+        <div class="hoverbox">
+          <h4 id="hov-what-t"></h4>
+          <div id="hov-what-b"></div>
+        </div>
+        <div class="hoverbox">
+          <h4 id="hov-here-t"></h4>
+          <div id="hov-here-b"></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Derived indices</h3>
+        <div id="indices"></div>
+        <div class="idx-note">
+          Surface-based parcel, no virtual-temperature correction — CAPE runs
+          slightly low in moist air. Heights AGL from model geopotential.
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Quick take</h3>
+        <div id="summary" class="explain" style="font-size:13px"></div>
+      </div>
+    </div>
   </div>
 
   <div class="section-title">2 · The real thing — observed balloon soundings (SPC)</div>
@@ -240,7 +248,7 @@
       <div class="idx-note">
         Computed here from the raw balloon data (via the Iowa Environmental
         Mesonet archive) using the same surface-parcel engine as the forecast
-        section below — they will differ slightly from SPC's numbers, which
+        section above — they will differ slightly from SPC's numbers, which
         use virtual temperature and effective-layer parcels.
       </div>
     </div>
@@ -275,7 +283,7 @@
     <p>
       The model's output is a grid — for the GFS, roughly 13 nm between points; for the HRRR,
       about 1.6 nm — with values stored at standard pressure levels (1000, 975, 950 … 100 hPa).
-      When you type an airport code in section 4 below, the page looks up its coordinates, and Open-Meteo
+      When you type an airport code in section 1 above, the page looks up its coordinates, and Open-Meteo
       pulls the model column nearest that point: temperature, humidity, wind, and geopotential
       height at each level. This page then reconstructs dewpoint from humidity, lifts a surface
       parcel, and draws the same kind of diagram SPC draws — except the "balloon" is virtual,
@@ -291,7 +299,7 @@
         estimate, but for any hour and any point.</li>
       <li><strong>Drift with lead time</strong> — a model sounding valid an hour from now is usually
         excellent; at 48 h, timing errors in fronts and moisture grow. Comparing the 12Z IAD
-        balloon against the model's 12Z column (set the slider in section 4 to the same hour) is the
+        balloon against the model's 12Z column (set the slider in section 1 to the same hour) is the
         honest way to judge how much to trust today's forecast soundings.</li>
     </ul>
     <p class="idx-note">
@@ -300,65 +308,56 @@
     </p>
   </div>
 
-  <div class="section-title">4 · Forecast soundings — <span id="model-site-name">KDCA</span></div>
-  <p class="subtitle" style="margin-top:0">
-    The same diagram, but from a model — a virtual balloon for any US airport, any hour out to
-    72 hours. Type an airport id and press Go.
-  </p>
-
-  <div class="controls">
-    <label>Any airport
-      <input type="text" id="site-input" placeholder="e.g. BWI" size="6" maxlength="4"
-             style="background:#222;color:#ddd;border:1px solid #444;border-radius:5px;font-size:13px;padding:4px 6px;font-family:inherit;text-transform:uppercase">
-    </label>
-    <button class="btn" id="site-go">Go</button>
-    <label>Model
-      <select id="model-select">
-        <option value="best_match">Best match</option>
-        <option value="gfs_seamless">GFS + HRRR</option>
-        <option value="gfs_global">GFS global</option>
-        <option value="icon_seamless">ICON</option>
-      </select>
-    </label>
-    <button class="btn" id="prev-hr">−1 h</button>
-    <input type="range" id="hour-slider" min="0" max="48" step="1" value="0">
-    <button class="btn" id="next-hr">+1 h</button>
-    <span id="valid-label">—</span>
-    <span id="status-msg"></span>
-  </div>
-
-  <div class="layout">
-    <div class="card" id="skewt-wrap">
-      <canvas id="skewt"></canvas>
-      <div class="hover-boxes">
-        <div class="hoverbox">
-          <h4 id="hov-what-t"></h4>
-          <div id="hov-what-b"></div>
-        </div>
-        <div class="hoverbox">
-          <h4 id="hov-here-t"></h4>
-          <div id="hov-here-b"></div>
-        </div>
-      </div>
-    </div>
-    <div>
-      <div class="card">
-        <h3>Derived indices</h3>
-        <div id="indices"></div>
-        <div class="idx-note">
-          Surface-based parcel, no virtual-temperature correction — CAPE runs
-          slightly low in moist air. Heights AGL from model geopotential.
-        </div>
-      </div>
-      <div class="card" style="margin-top:14px">
-        <h3>Quick take</h3>
-        <div id="summary" class="explain" style="font-size:13px"></div>
-      </div>
-    </div>
+  <div class="section-title">4 · How to read a Skew-T</div>
+  <div class="card explain">
+    <p>
+      A Skew-T looks intimidating; it isn't. It's just a weather report turned on its side:
+      <strong>the bottom of the chart is the runway, the top is airline cruise altitude</strong>,
+      and everything in between is what the air is doing as you climb.
+    </p>
+    <p>Ignore the busy background for a moment. Only two lines carry data:</p>
+    <ul>
+      <li><span class="swatch" style="background:#ef4444"></span><strong>Red — temperature</strong> as you go up.</li>
+      <li><span class="swatch" style="background:#22c55e"></span><strong>Green — dewpoint</strong>, i.e. how much moisture is up there.</li>
+    </ul>
+    <p>
+      And one rule: <strong>where the two lines squeeze together, there's cloud; where they
+      spread apart, the air is dry.</strong> That single idea is most of reading a Skew-T.
+      The feathers on the right are wind at each height (full barb = 10 kt, flag = 50 kt).
+    </p>
+    <h4>The busy background? Just graph paper.</h4>
+    <p>
+      The skewed blue lines mark temperature (the 0 °C one is your freezing level), the brown
+      and green curves are the paths rising air cools along, and the dashed purple lines track
+      moisture. You never read them directly — they're rails that the interesting lines get
+      compared against. Hover the diagram in section 1 and the boxes under it will do the
+      comparing for you.
+    </p>
+    <h4>One bubble of air tells the future</h4>
+    <p>
+      Take air from the surface and imagine lifting it. It cools as it rises; where it gets
+      as cool as its dewpoint, a cloud forms — that height is a good guess at the day's
+      <strong>cumulus cloud base</strong>. Keep lifting: if the bubble ends up <em>warmer</em>
+      than the air around it, it floats up on its own — that's <strong>CAPE</strong>, storm
+      fuel. If it's <em>colder</em>, it sinks back — that's <strong>CIN</strong>, the lid that
+      keeps a hot humid day quiet until it suddenly isn't.
+    </p>
+    <h4>Five things a pilot pulls off it</h4>
+    <ul>
+      <li><strong>Cloud bases</strong> — where red and green pinch together.</li>
+      <li><strong>Bumps or smooth</strong> — steep red line = thermals and bumps; red line leaning right (inversion) = smooth on top, haze below.</li>
+      <li><strong>Icing</strong> — moisture where the temperature sits between 0 and −20 °C.</li>
+      <li><strong>Freezing level</strong> — where the red line crosses the 0 °C line.</li>
+      <li><strong>Wind shear</strong> — barbs that twist or grow suddenly over a short height.</li>
+    </ul>
+    <p class="idx-note">
+      Two ways to get a sounding: a real balloon (section 2, twice a day at fixed sites) or
+      a model's virtual column (section 1, any airport, any hour). Section 3 explains how
+      the first becomes the second.
+    </p>
   </div>
 
   <footer class="sources">
-    Not for operational use — always get an official briefing.
     Sounding data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
     pressure-level forecasts (1000–100 hPa). Winds are °true. CAPE/CIN and other
     indices computed client-side from the plotted profile and will differ from
