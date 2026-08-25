@@ -371,13 +371,7 @@
 
   function sizeCanvas() {
     const cw = canvas.clientWidth || 700;
-    // Near-square by preference, but never taller than the window: on a wide
-    // screen the square aspect would push the bottom of the sounding (and the
-    // hover boxes) below the fold. The 45° skew is a pixel offset, so a
-    // wider-than-tall plot is still a correct skew-T — it just spends the
-    // extra width on temperature resolution.
-    const ch = Math.round(Math.min(cw * 1.02,
-                                   Math.max(520, window.innerHeight * 0.85)));
+    const ch = Math.round(cw * 1.02);
     const dpr = window.devicePixelRatio || 1;
     canvas.width = cw * dpr; canvas.height = ch * dpr;
     canvas.style.height = ch + 'px';
