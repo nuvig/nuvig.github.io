@@ -40,8 +40,22 @@
     #hour-slider { flex: 1 1 160px; min-width: 120px; accent-color: #4a9eff; }
     #status-msg { color: #f59e0b; }
 
-    .layout { display: grid; grid-template-columns: 1fr 300px; gap: 14px; align-items: start; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    /* forecast chart row: drag the corner to widen, up to 150% of the content width.
+       The sidebar stays 300 px, so the growth all goes to the plot. */
+    .layout {
+      display: grid; grid-template-columns: 1fr 300px; gap: 14px; align-items: start;
+      resize: horizontal; overflow: hidden;
+      width: 100%; min-width: 360px;
+      /* Stop at the viewport's right edge — the column is centred, so the room to
+         its right is (100vw + column)/2. Without this the indices get dragged
+         off-screen. 150% is the upper bound on very wide monitors. */
+      max-width: min(150%, calc((100vw + 1100px) / 2 - 24px));
+    }
+    .resize-hint { font-size: 11px; color: #555; text-align: right; padding: 8px 2px 0; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; resize: none; }
+      .resize-hint { display: none; }
+    }
 
     .card {
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
@@ -163,6 +177,7 @@
         <h3>Quick take</h3>
         <div id="summary" class="explain" style="font-size:13px"></div>
       </div>
+      <div class="resize-hint">drag the corner to resize ⇲</div>
     </div>
   </div>
 
@@ -353,7 +368,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/skewt.js?v=4"></script>
+  <script src="js/skewt.js?v=6"></script>
   <script src="js/skewt-obs.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>

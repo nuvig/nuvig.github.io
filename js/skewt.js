@@ -727,6 +727,19 @@
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(draw, 150); });
 
+  // The chart row is user-resizable (CSS `resize` on .layout), which fires no
+  // window resize event — watch the card itself. Width only: redrawing changes
+  // the canvas height, which would otherwise retrigger this observer forever.
+  if (window.ResizeObserver) {
+    let lastW = 0, roT;
+    new ResizeObserver(entries => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w === lastW) return;
+      lastW = w;
+      clearTimeout(roT); roT = setTimeout(draw, 60);
+    }).observe(canvas.parentElement);
+  }
+
   setSiteTitle();
   load();
 
