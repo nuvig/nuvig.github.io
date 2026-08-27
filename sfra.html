@@ -195,6 +195,21 @@
     .bust-list li { font-size: 13px; color: #a7b0bc; line-height: 1.65; margin: 8px 0; }
     .bust-list li b { color: #e8b0a8; }
 
+    /* ---- ASRS record browser ---- */
+    canvas.lab { display: block; width: 100%; touch-action: none; border-radius: 6px; }
+    .fchip {
+      font-size: 11.5px; color: #8ab8e8; background: #161d26; border: 1px solid #2a3a4d;
+      border-radius: 99px; padding: 2px 11px; cursor: pointer; user-select: none;
+    }
+    .fchip:hover { border-color: #4a9eff; color: #cfe6ff; }
+    .fchip.on { background: #1d3a5f; border-color: #4a9eff; color: #fff; }
+    .asrs-row { border-top: 1px solid #242424; padding: 9px 2px; }
+    .asrs-row:first-child { border-top: none; }
+    .asrs-row .hd { font-size: 12px; color: #8a94a4; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+    .asrs-row .hd b { color: #cfd8e3; font-variant-numeric: tabular-nums; }
+    .asrs-row .hd .vflag { color: #e8a49a; font-weight: 600; font-size: 11px; }
+    .asrs-row .syn { font-size: 12.5px; color: #a7b0bc; line-height: 1.55; margin-top: 3px; }
+
     footer.sources { margin-top: 34px; margin-bottom: 52px; font-size: 11px; color: #555; line-height: 1.7; }
     footer.sources a { color: #666; }
   </style>
@@ -216,7 +231,8 @@
     <a href="#sec-lee"><b>4</b> from Lee</a><span class="arr">→</span>
     <a href="#sec-tree"><b>5</b> decision tree</a><span class="arr">→</span>
     <a href="#sec-wrong"><b>6</b> when it breaks</a><span class="arr">→</span>
-    <a href="#sec-bust"><b>7</b> how pilots bust it</a>
+    <a href="#sec-bust"><b>7</b> how pilots bust it</a><span class="arr">→</span>
+    <a href="#sec-record"><b>8</b> the record</a>
   </div>
   <p class="flow-lede">
     Since 2003, flying anywhere near Washington means flying inside <b>national defense airspace</b> —
@@ -580,6 +596,60 @@
   </details>
   </section>
 
+  <!-- ================= 8. THE RECORD ================= -->
+  <section id="sec-record" style="display:none">
+  <div class="section-title"><span class="num">8</span> The violation record</div>
+  <p class="section-lede">
+    Two very different datasets. The <b>official counts</b> are fragmentary — they surface in GAO testimony
+    and congressional hearings, then go dark (FAA's per-year deviation and enforcement numbers live in
+    internal systems reachable only by FOIA). The continuous record is <b>NASA ASRS</b>: the voluntary,
+    de-identified reports pilots file about their own incursions and close calls — a shadow of the true
+    count, but a shadow with narratives.
+  </p>
+  <div class="two-col">
+    <div class="card">
+      <h3>The official tally — such as it exists</h3>
+      <div class="kv"><span class="k">2003 violations of DC-area airspace</span><span class="v"><b>998</b></span></div>
+      <div class="kv"><span class="k">2004</span><span class="v"><b>600</b></span></div>
+      <div class="kv"><span class="k">NCR incursions, Jan 2003 – Jul 2005</span><span class="v"><b>3,495</b></span></div>
+      <div class="kv"><span class="k">…that launched or diverted defense assets</span><span class="v"><b>655</b></span></div>
+      <div class="kv"><span class="k">Nationwide restricted-airspace violations, 9/11–2004</span><span class="v">~3,400 · ~88% GA</span></div>
+      <div class="kv"><span class="k">“Unauthorized flights” by ~2008 (AOPA)</span><span class="v">1,000+</span></div>
+      <div class="kv"><span class="k">Official per-year series after ~2005</span><span class="v muted">none public — FOIA only</span></div>
+      <div class="cite">Sources: Rep. Mica &amp; Chairman Shays, House Government Reform hearing, Jul 21 2005
+        (govinfo CHRG-109hhrg22809) · GAO-05-928T · AOPA air-traffic-services brief. These figures come from
+        <b>different agencies counting different things</b> — they don't merge into one series, so they aren't merged here.</div>
+    </div>
+    <div class="card">
+      <h3>Pilots' own accounts — ASRS reports by year</h3>
+      <canvas id="asrs-chart" class="lab" style="height:240px;cursor:crosshair"></canvas>
+      <div class="canvas-note" id="asrs-chart-note">Hover a bar for the year's numbers.</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>Browse the reports</h3>
+    <div id="asrs-filters" style="display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px"></div>
+    <div id="asrs-list"></div>
+    <div style="margin-top:10px"><button id="asrs-more" class="btn secondary">Show 20 more</button></div>
+  </div>
+  <details class="explain">
+    <summary>Read this data honestly — what ASRS is and isn't</summary>
+    <div class="body">
+      <p><b>ASRS is voluntary and immunity-driven.</b> Pilots file partly because a timely report waives most
+      enforcement sanctions — so filing behavior tracks fear and awareness, not the violation rate. Compare
+      the FAA's 998 counted violations in 2003 with the 413 ASRS reports here that even <i>mention</i> the airspace.</p>
+      <p><b>A mention is not a violation.</b> The set is every report whose narrative or synopsis contains
+      SFRA, ADIZ, FRZ, or P-56 — that includes near-misses, controllers' reports, and procedural gripes;
+      the “violation-flagged” filter narrows to reports ASRS itself coded as an airspace violation.
+      Hits before 2003 are mostly the <i>coastal</i> ADIZ — the term predates Washington's.</p>
+      <p><b>De-identification is by design.</b> Dates are year-month only, no tail numbers, no names.
+      Each row's ACN is the report's accession number in the
+      <a href="https://asrs.arc.nasa.gov/search/database.html">ASRS Database Online</a>, where the full
+      narrative is public. Data is a point-in-time export; the archive updates when the export is re-run.</p>
+    </div>
+  </details>
+  </section>
+
   <footer class="sources">
     Educational only — never a substitute for the current Washington TAC/sectional, Chart Supplement
     special notice, NOTAMs, or an official briefing. Sources: 14 CFR Part 93 Subpart V &amp; 14 CFR 91.161
@@ -587,11 +657,13 @@
     FAA Order JO 7400.10H (P-56A/B, P-73, P-40, R-4009 legal descriptions); FAA ALC-405 course materials
     (gate/frequency kneeboards, Jan 2020); AIM 5-6-2 &amp; 5-6-16. FRZ polygon and prohibited-area
     boundaries plotted from their legal descriptions. All map boundaries approximate.
+    Violation record: NASA ASRS Database Online export (public domain, de-identified; see the section's
+    caveats) reduced by <code>scripts/build_sfra_reports.py</code>; official counts as cited in place.
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/sfra.js?v=3"></script>
+  <script src="js/sfra.js?v=4"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

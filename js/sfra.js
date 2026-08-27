@@ -692,11 +692,149 @@
       `<p class="oq" style="color:#8ab8e8">${TREE.ROOT.q}</p>` + walk('ROOT');
   }
 
+  // ---------------------------------------------------------------- ASRS record
+  // Reads data/sfra/asrs.json (built by scripts/build_sfra_reports.py from
+  // ASRS Database Online exports — change the two together). The section
+  // stays hidden if the file is missing.
+  const REC = { data: null, filter: 'all', shown: 20 };
+  const FILTERS = [
+    ['all', 'All reports'], ['viol', 'Violation-flagged'], ['SFRA', 'SFRA'],
+    ['ADIZ', 'ADIZ'], ['FRZ', 'FRZ'], ['P-56', 'P-56'], ['anp', 'At Lee (ANP)'],
+  ];
+
+  function recFiltered() {
+    const evs = REC.data.events;
+    if (REC.filter === 'all') return evs;
+    if (REC.filter === 'viol') return evs.filter(e => e.viol);
+    if (REC.filter === 'anp') return evs.filter(e => e.loc.startsWith('ANP'));
+    return evs.filter(e => e.terms.includes(REC.filter));
+  }
+
+  function drawAsrsChart(hoverYear) {
+    const cv = $('asrs-chart'), ctx = cv.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const years = REC.data.years;
+    const y0 = Math.min(...Object.keys(years).map(Number));
+    const y1 = Math.max(...Object.keys(years).map(Number));
+    const n = y1 - y0 + 1;
+    const padL = 30, padB = 18, padT = 14;
+    const bw = (W - padL - 4) / n;
+    const max = Math.max(...Object.values(years).map(v => v.n));
+    // sqrt scale: the 2003 ADIZ spike (413) would flatten the modern era on
+    // a linear axis. Labelled ticks keep it honest.
+    const sy = v => H - padB - Math.sqrt(v / max) * (H - padB - padT);
+
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#555'; ctx.strokeStyle = '#262626';
+    for (const t of [10, 50, 100, 200, 400].filter(t => t <= max * 1.05)) {
+      const y = sy(t);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W, y); ctx.stroke();
+      ctx.fillText(String(t), 2, y + 3);
+    }
+    for (let y = y0; y <= y1; y++) {
+      const d = years[String(y)] || { n: 0, viol: 0 };
+      const x = padL + (y - y0) * bw;
+      const hv = String(y) === String(hoverYear);
+      if (d.n) {
+        ctx.fillStyle = hv ? '#ffd75a' : (y < 2003 ? '#6b6255' : '#f0b45a');
+        ctx.fillRect(x + 1, sy(d.n), Math.max(1, bw - 2), H - padB - sy(d.n));
+        ctx.fillStyle = hv ? '#e86a5a' : '#b0543f';
+        ctx.fillRect(x + 1, sy(d.viol), Math.max(1, bw - 2), H - padB - sy(d.viol));
+      }
+      if (y % 5 === 0) {
+        ctx.fillStyle = '#666';
+        ctx.fillText(String(y), x - 6, H - 5);
+      }
+    }
+    // era markers
+    ctx.fillStyle = '#8a94a4'; ctx.strokeStyle = '#3a4450';
+    for (const [yy, lbl] of [[2003, 'ADIZ'], [2009, 'SFRA']]) {
+      const x = padL + (yy - y0) * bw;
+      ctx.beginPath(); ctx.setLineDash([3, 4]); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(lbl, x + 3, padT + 8);
+    }
+  }
+
+  function renderAsrsList() {
+    const evs = recFiltered();
+    const list = $('asrs-list');
+    list.innerHTML = evs.slice(0, REC.shown).map(e => {
+      const ym = e.ym.length === 6 ? `${e.ym.slice(0, 4)}-${e.ym.slice(4)}` : e.ym;
+      const anom = e.anom.split(';')[0].trim();
+      return `<div class="asrs-row">
+        <div class="hd"><b>${ym}</b><span>${e.loc || '—'}${e.st ? ' · ' + e.st : ''}</span>
+          <span class="faint">ACN ${e.acn}</span><span class="faint">${anom}</span>
+          ${e.viol ? '<span class="vflag">airspace violation</span>' : ''}</div>
+        <div class="syn">${e.syn}</div>
+      </div>`;
+    }).join('') || '<div class="canvas-note">No reports match this filter.</div>';
+    $('asrs-more').style.display = evs.length > REC.shown ? 'inline-block' : 'none';
+    $('asrs-more').textContent = `Show 20 more (${evs.length - Math.min(REC.shown, evs.length)} remaining)`;
+  }
+
+  function renderAsrsFilters() {
+    const evs = REC.data.events;
+    const counts = {
+      all: evs.length, viol: evs.filter(e => e.viol).length,
+      anp: evs.filter(e => e.loc.startsWith('ANP')).length,
+      'SFRA': 0, 'ADIZ': 0, 'FRZ': 0, 'P-56': 0,
+    };
+    for (const e of evs) for (const t of e.terms) counts[t]++;
+    $('asrs-filters').innerHTML = FILTERS.map(([k, lbl]) =>
+      `<span class="fchip${REC.filter === k ? ' on' : ''}" data-f="${k}">${lbl} · ${counts[k]}</span>`).join('');
+    for (const c of $('asrs-filters').children) {
+      c.onclick = () => { REC.filter = c.dataset.f; REC.shown = 20; renderAsrsFilters(); renderAsrsList(); };
+    }
+  }
+
+  async function initRecord() {
+    try {
+      const r = await fetch('data/sfra/asrs.json');
+      if (!r.ok) return;
+      REC.data = await r.json();
+    } catch { return; }
+    document.getElementById('sec-record').style.display = 'block';
+    drawAsrsChart();
+    renderAsrsFilters();
+    renderAsrsList();
+    $('asrs-more').onclick = () => { REC.shown += 20; renderAsrsList(); };
+    const cv = $('asrs-chart');
+    const years = Object.keys(REC.data.years).map(Number);
+    const y0 = Math.min(...years), y1 = Math.max(...years);
+    cv.addEventListener('mousemove', ev => {
+      const rc = cv.getBoundingClientRect();
+      const y = y0 + Math.floor((ev.clientX - rc.left - 30) / ((rc.width - 34) / (y1 - y0 + 1)));
+      const d = REC.data.years[String(y)];
+      if (y >= y0 && y <= y1) {
+        drawAsrsChart(y);
+        $('asrs-chart-note').textContent = d
+          ? `${y} — ${d.n} report${d.n === 1 ? '' : 's'} mentioning the airspace, ${d.viol} flagged as airspace violations` +
+            (y === 2003 ? ' · the ADIZ appeared that February' : y < 2003 ? ' · pre-2003 hits are mostly the coastal ADIZ' : '')
+          : `${y} — no reports`;
+      }
+    });
+    cv.addEventListener('mouseleave', () => {
+      drawAsrsChart();
+      $('asrs-chart-note').textContent =
+        `${REC.data.count} reports, ${y0}–${y1} · amber = mentions, red = ASRS-coded airspace violations · square-root scale · retrieved ${REC.data.retrieved}`;
+    });
+    $('asrs-chart-note').textContent =
+      `${REC.data.count} reports, ${y0}–${y1} · amber = mentions, red = ASRS-coded airspace violations · square-root scale · retrieved ${REC.data.retrieved}`;
+    window.addEventListener('resize', () => drawAsrsChart());
+  }
+
   // ---------------------------------------------------------------- boot
   document.addEventListener('DOMContentLoaded', () => {
     initMap();
     renderTree();
     buildOutline();
+    initRecord();
     $('tree-back').onclick = () => { if (path.length) { path.pop(); renderTree(); } };
     $('tree-restart').onclick = () => { path.length = 0; renderTree(); };
   });

@@ -272,6 +272,16 @@ concepts; to relink, add the tools.html card back.
   closed 2022 so the "Maryland Three" is two; the gate/sector frequency table is the Jan 2020
   ALC-405 kneeboard and is labelled "verify on the current TAC" — keep that hedge, and don't
   present 124.55 (GRACO LiveATC lore) as the ANP-area SFRA frequency (published App/Dep is 119.7).
+  The **violation record** section reads `data/sfra/asrs.json`, built by
+  `python scripts/build_sfra_reports.py <sfra.csv> <p56.csv>` from NASA ASRS Database Online CSV
+  exports (queries "SFRA OR ADIZ OR FRZ" and "P56" over narrative+synopsis;
+  `scripts/fetch_asrs.py` replays the ASP.NET query wizard to fetch them — works as of 2026-08 but
+  brittle, run by hand, never in CI). JSON shape is documented in the build script and consumed by
+  `js/sfra.js` — change the two together; the section hides itself if the JSON is missing. ASRS is
+  voluntary/de-identified (month-granularity dates, mention ≠ violation — the caveats block says so;
+  keep it). The official counts card is hand-cited (Mica/Shays Jul 2005 House hearing, GAO-05-928T,
+  AOPA brief) — there is NO public official per-year series after ~2005 (FAA EIS/deviation data is
+  FOIA-only), so never extend that card with uncited numbers.
 - `terps.html` + `js/terps.js` — TERPS, Demystified: pilot-first tabbed explorer of FAA Order
   8260.3G (the 2024 "G" revision; all paragraph refs cite it). Six tabs: rulebook overview,
   Approach Anatomy (the one interactive: shared-axis plan+profile canvas, draggable obstacle,
