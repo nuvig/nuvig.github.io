@@ -557,17 +557,25 @@
       map draws each fix, its slice, and the dotted tie between them). Frequencies below are from
       the FAA's ALC-405 course kneeboard (Jan 2020) and are stamped <i>“frequencies subject to change —
       always check NOTAMs”</i>; the current Washington TAC is the authority:</p>
+      <div style="overflow-x:auto">
       <table class="tbl">
-        <tr><th>Gate</th><th>Side of the ring</th><th>Kneeboard freq</th></tr>
-        <tr><td>WOOLY</td><td>N — I-270 to I-95</td><td>132.775</td></tr>
-        <tr><td>PALEO</td><td>NE→E — I-95 to Chesapeake Beach <span class="faint">(Lee's usual eastbound door)</span></td><td>132.775</td></tr>
-        <tr><td>WHINO</td><td>SE — to the Wicomico River</td><td>125.125</td></tr>
-        <tr><td>GRUBY</td><td>S — to the Potomac at Widewater</td><td>125.125</td></tr>
-        <tr><td>BRV</td><td>SSW — Brooke VORTAC corner</td><td>127.325</td></tr>
-        <tr><td>FLUKY</td><td>SW — to VA Rte 29</td><td>127.325</td></tr>
-        <tr><td>JASEN</td><td>W — to VA Rte 7</td><td>127.325</td></tr>
-        <tr><td>LUCKE</td><td>NW — to I-270</td><td>127.325</td></tr>
+        <tr><th>Gate</th><th>DCA radials</th><th>Side of the ring</th><th>Kneeboard freq</th></tr>
+        <tr><td>WOOLY</td><td>R-341 → R-046</td><td>N — I-270 to I-95</td><td>132.775</td></tr>
+        <tr><td>PALEO</td><td>R-047 → R-119</td><td>NE→E — I-95 to Chesapeake Beach <span class="faint">(Lee's usual eastbound door)</span></td><td>132.775</td></tr>
+        <tr><td>WHINO</td><td>R-120 → R-172</td><td>SE — to the Wicomico River</td><td>125.125</td></tr>
+        <tr><td>GRUBY</td><td>R-173 → R-214</td><td>S — to the Potomac at Widewater</td><td>125.125</td></tr>
+        <tr><td>BRV</td><td>R-215 → R-236</td><td>SSW — Brooke VORTAC corner</td><td>127.325</td></tr>
+        <tr><td>FLUKY</td><td>R-237 → R-269</td><td>SW — to VA Rte 29</td><td>127.325</td></tr>
+        <tr><td>JASEN</td><td>R-270 → R-309</td><td>W — to VA Rte 7</td><td>127.325</td></tr>
+        <tr><td>LUCKE</td><td>R-310 → R-340</td><td>NW — to I-270</td><td>127.325</td></tr>
       </table>
+      </div>
+      <p class="faint" style="font-size:11px;margin:8px 0 0;line-height:1.6">
+        Sources — radial ranges, checkpoints &amp; frequencies: FAA ALC-405 course kneeboard (Jan 2020, the
+        last edition to print the table; the current Chart Supplement notice defers to the Washington TAC).
+        Fix positions: FAA CIFP / OpenNav, agreeing to 4+ decimals. The map converts these DCA radials to
+        true bearings using the ≈9°W station declination derived from §93.335's own radial↔coordinate pairs.
+      </p>
     </div>
   </details>
   </section>
@@ -583,7 +591,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/sfra.js?v=2"></script>
+  <script src="js/sfra.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

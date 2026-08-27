@@ -136,10 +136,11 @@
 
   // NAS navaids in/around the SFRA (coords verified against FAA NASR-derived
   // sources, 2026-08 data cycle). BRV (Brooke VORTAC) is drawn with the gates.
+  // OTT (Nottingham) is deliberately absent — its VOR was decommissioned under
+  // the MON program (TACAN remains); don't re-add it as a VOR.
   const NAVAIDS = [
     { id: 'DCA', name: 'Washington',  type: 'VOR/DME', freq: '111.0',  ll: [38.85945, -77.03644] },
     { id: 'ADW', name: 'Andrews',     type: 'VORTAC',  freq: '113.1',  ll: [38.80722, -76.86626] },
-    { id: 'OTT', name: 'Nottingham',  type: 'TACAN (VOR decommissioned — DME only for civilians)', freq: '113.7', ll: [38.70587, -76.74475] },
     { id: 'BAL', name: 'Baltimore',   type: 'VORTAC',  freq: '115.1',  ll: [39.17106, -76.66126] },
     { id: 'EMI', name: 'Westminster', type: 'VORTAC',  freq: '117.9',  ll: [39.49501, -76.97857] },
     { id: 'AML', name: 'Armel',       type: 'VOR/DME', freq: '113.5',  ll: [38.93459, -77.46670] },
