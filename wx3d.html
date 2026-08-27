@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Air Above — the forecast in three dimensions</title>
+  <meta name="description" content="The GFS forecast over the Chesapeake as a rotatable 3-D block of sky: cloud decks at their modeled altitudes, winds aloft on their pressure levels, the freezing surface, rain columns, and live radar draped on the ground.">
+  <link rel="canonical" href="https://jesselevine.net/wx3d.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/wx3d.html">
+  <meta property="og:title" content="The Air Above — the forecast in three dimensions">
+  <meta property="og:description" content="Spin a 3-D block of the forecast: cloud decks at altitude, winds aloft, the freezing surface, rain reaching the ground, radar on the map.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #888; margin: 4px 0 16px; font-size: 14px; max-width: 760px; }
+
+    .top-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 10px; font-size: 13px; color: #888;
+    }
+    .top-bar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .btn {
+      background: #333; color: #ddd; border: 1px solid #444;
+      font-size: 13px; padding: 5px 12px; border-radius: 5px;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #444; }
+
+    /* ---- the volume ---- */
+    #scene-wrap {
+      position: relative; border: 1px solid #333; border-radius: 12px;
+      overflow: hidden; background: #0a0e18;
+    }
+    #scene { display: block; width: 100%; aspect-ratio: 16 / 9; cursor: grab; touch-action: none; }
+    #scene:active { cursor: grabbing; }
+    @media (max-width: 640px) { #scene { aspect-ratio: 1 / 1; } }
+    .scene-chip {
+      position: absolute; display: flex; align-items: center; gap: 8px;
+      background: rgba(10, 14, 24, 0.6); backdrop-filter: blur(3px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+      padding: 5px 10px; font-size: 13px; color: #eee; pointer-events: none;
+    }
+    #chip-time { top: 10px; left: 12px; }
+    #chip-time b { letter-spacing: 0.02em; }
+    #chip-rel { color: #f0c040; font-weight: 600; font-size: 12px; }
+    #chip-model { top: 10px; right: 12px; color: #9aa; font-size: 11.5px; }
+    #scene-note {
+      position: absolute; left: 12px; bottom: 10px; max-width: 70%;
+      font-size: 11.5px; color: #778; pointer-events: none;
+    }
+    #scene-hint {
+      position: absolute; right: 12px; bottom: 10px;
+      font-size: 11.5px; color: #667; pointer-events: none;
+    }
+    @media (max-width: 640px) { #scene-hint { display: none; } }
+    #scene-status {
+      display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+      color: #889; font-size: 14px; text-align: center; padding: 20px; pointer-events: none;
+    }
+
+    /* ---- time + layer controls ---- */
+    #time-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-top: 10px; padding: 8px 12px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      font-size: 13px; color: #888;
+    }
+    #hour-slider { flex: 1 1 220px; accent-color: #4a9eff; height: 18px; }
+    #play-btn { min-width: 40px; }
+    #layers-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: 8px; padding: 8px 12px;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      font-size: 12.5px; color: #778;
+    }
+    .tg, .chip {
+      background: #222; border: 1px solid #3a3a3a; color: #999;
+      padding: 4px 10px; border-radius: 6px; cursor: pointer;
+      font: inherit; font-size: 12.5px;
+    }
+    .tg:hover, .chip:hover { border-color: #4a9eff; color: #ddd; }
+    .tg.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .chip.sel { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    #layers-bar .lbl { color: #667; margin-left: 6px; }
+    #wind-legend { display: flex; align-items: center; gap: 8px; margin-left: auto; white-space: nowrap; }
+    #wind-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+
+    /* ---- below: the column + how to read it ---- */
+    #below { display: grid; grid-template-columns: 5fr 4fr; gap: 14px; margin-top: 16px; align-items: start; }
+    @media (max-width: 840px) { #below { grid-template-columns: 1fr; } }
+    .card {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; margin: 0;
+    }
+    .card h2 { margin: 0 0 10px; font-size: 15px; color: #ccc; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .card h2 .sub { font-weight: 400; font-size: 12px; color: #667; }
+    .lv {
+      display: grid; grid-template-columns: 9.5em 3em 5.5em 1fr;
+      gap: 8px; align-items: center; padding: 3px 0;
+      font-size: 13px; font-variant-numeric: tabular-nums; color: #bbb;
+      border-bottom: 1px solid #222;
+    }
+    .lv.head { color: #667; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #333; }
+    .lv.cloudy { background: rgba(74, 158, 255, 0.05); }
+    .lv.sfc { color: #ddd; border-bottom: none; }
+    .lv .alt i { font-style: normal; color: #667; font-size: 11px; margin-left: 3px; }
+    .lv .tmp.cold { color: #7fd0ff; }
+    .lv .cld { position: relative; height: 10px; background: #222; border-radius: 3px; overflow: hidden; }
+    .lv .cld i { position: absolute; inset: 0 auto 0 0; background: rgba(190, 200, 216, 0.55); border-radius: 3px; }
+    .lv .cld b { position: absolute; right: 4px; top: -3px; font-size: 10px; font-weight: 400; color: #99a; }
+    .lv.head .cld { background: none; height: auto; }
+    .meta { margin-top: 10px; }
+    .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 2px 0; }
+    .kv span { color: #777; }
+    .kv b { font-weight: 500; color: #ddd; font-variant-numeric: tabular-nums; text-align: right; }
+    .kv b.fz { color: #7fd0ff; }
+    #metar-line { font-size: 12.5px; color: #99a; margin-top: 12px; line-height: 1.5; word-break: break-word; }
+    #metar-line code { background: #111; border: 1px solid #2a2a2a; border-radius: 4px; padding: 1px 5px; font-size: 11.5px; }
+    #col-links { font-size: 12.5px; margin-top: 10px; }
+    .faint { color: #556; }
+
+    #about li { margin: 6px 0; font-size: 13px; color: #9aa; line-height: 1.55; }
+    #about ul { margin: 0; padding-left: 18px; }
+    #about b { color: #ccc; font-weight: 600; }
+
+    footer { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Air Above</h1>
+    <p class="subtitle">The forecast over the Chesapeake as a solid block of sky you can pick up and turn —
+      every cloud deck drawn at its modeled altitude, winds aloft on their pressure levels, the freezing
+      surface tilting with the air mass, rain columns reaching the ground, and the live radar draped over
+      the map at &ldquo;now.&rdquo; Drag to orbit, scroll to zoom, and slide through the next two days.</p>
+  </header>
+
+  <main>
+    <div class="top-bar">
+      <span>KANP · 5×5 model grid · ~120 nm across · 40,000 ft tall</span>
+      <span class="right">
+        <button class="btn" id="refresh-btn">↻ Refresh</button>
+      </span>
+    </div>
+
+    <div id="scene-wrap">
+      <canvas id="scene" aria-label="rotatable 3-D view of the forecast atmosphere over the Chesapeake"></canvas>
+      <div class="scene-chip" id="chip-time"><b id="chip-when">—</b><span id="chip-rel"></span></div>
+      <div class="scene-chip" id="chip-model">GFS · Open-Meteo</div>
+      <div id="scene-note"></div>
+      <div id="scene-hint">drag to orbit · scroll to zoom · double-click resets</div>
+      <div id="scene-status">loading the atmosphere…</div>
+    </div>
+
+    <div id="time-bar">
+      <button class="btn" id="play-btn" title="step through the forecast">▶</button>
+      <input type="range" id="hour-slider" min="0" max="71" step="1" value="0"
+        aria-label="forecast hour">
+      <button class="btn" id="now-btn">● now</button>
+    </div>
+
+    <div id="layers-bar">
+      <button class="tg" id="tg-cl">clouds</button>
+      <button class="tg" id="tg-fz">freezing level</button>
+      <button class="tg" id="tg-pr">precip</button>
+      <button class="tg" id="tg-gd">radar / ground wx</button>
+      <span class="lbl">winds aloft:</span>
+      <span id="wind-chips">
+        <button class="chip" data-w="off">off</button>
+        <button class="chip" data-w="sfc">sfc</button>
+        <button class="chip" data-w="925" title="925 mb">2.5k</button>
+        <button class="chip" data-w="850" title="850 mb">5k</button>
+        <button class="chip" data-w="700" title="700 mb">10k</button>
+        <button class="chip" data-w="500" title="500 mb">18k</button>
+        <button class="chip" data-w="300" title="300 mb">30k</button>
+      </span>
+      <span id="wind-legend">
+        <span><i style="background:#94a6be"></i>&lt;12</span>
+        <span><i style="background:#4a9eff"></i>12–25</span>
+        <span><i style="background:#f0c040"></i>25–40</span>
+        <span><i style="background:#ff6b6b"></i>40+ kt</span>
+      </span>
+    </div>
+
+    <div id="below">
+      <div class="card">
+        <h2>The column over KANP <span class="sub" id="col-when"></span></h2>
+        <div id="col-body"><span class="faint">waiting on the model…</span></div>
+        <div id="metar-line"></div>
+        <div id="col-links">Want the full thermodynamic picture at any airport? <a href="/skew-t.html">Skew-T Explorer →</a></div>
+      </div>
+
+      <div class="card" id="about">
+        <h2>How to read it</h2>
+        <ul>
+          <li><b>Cloud decks</b> are the model's cloud-cover fraction at each pressure surface, drawn at
+            that surface's forecast height. The texture is invented; the coverage and the altitude are
+            the model's. Each visible deck is labeled on the left axis (height · millibars).</li>
+          <li><b>The cyan sheet is the freezing level</b>, drawn point by point across the grid, so you
+            can watch 0&nbsp;°C tilt as a different air mass leans into the region.</li>
+          <li><b>Winds are °true</b>, like everywhere on this site. Grid arrows fly downwind and are
+            colored by speed; the barb staff over the field reads the usual way — pennant 50, full barb
+            10, half 5 kt.</li>
+          <li><b>Rain</b>: blue columns rise from where the model drops precip to the deck it falls
+            from. At the &ldquo;now&rdquo; hour the ground wears the live radar (RainViewer); every
+            other hour it's shaded by the model's precip instead — the caption says which you're seeing.</li>
+          <li><b>The vertical scale is ×7.5 exaggerated.</b> At true scale this ~120-nm-wide box would
+            be about eighteen times wider than it is tall, and every cloud deck would be a coat of paint.</li>
+          <li><b>Model</b>: NOAA GFS (HRRR-blended in the near term) via Open-Meteo, hourly, on a 5×5
+            grid of columns. It's one model's opinion of the sky — sanity-check it against the METAR
+            line and the Skew-T.</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation Tools</a>
+
+  <footer>
+    <p>Model: NOAA GFS via Open-Meteo · obs KNAK (api.weather.gov) · radar RainViewer ·
+      directions °true · © Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/wx3d.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
