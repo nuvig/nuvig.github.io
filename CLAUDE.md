@@ -255,6 +255,20 @@ concepts; to relink, add the tools.html card back.
   00Z/12Z; SPC images publish ~1.5 h later (`recentCycles()` accounts for it).
 - `knowledge.html` + `js/knowledge.js` — Aviation Knowledge Map: expandable canvas concept graph with
   dashed cross-links. See the build pipeline below.
+- `sfra.html` + `js/sfra.js` — The DC SFRA: the Washington SFRA/FRZ explained from a KANP seat.
+  Leaflet map (vendored, same FAA tile layers as procedures.js) drawing the 30/60 nm rings, the FRZ
+  polygon regenerated from the verbatim 14 CFR 93.335 vertex coordinates (arcs re-derived from the
+  reg's own lat/lons — no magnetic-radial math), P-56A/B, P-73, P-40/R-4009 from JO 7400.10H, the
+  8 gate fixes at their true NAS positions (several sit deliberately outside the ring), and a
+  click-anywhere rule inspector (point-in-polygon + distance from the DCA VOR). Procedures are a
+  **decision tree** (Jesse's choice — explicitly not a quiz): 8 entry points → 18 terminal
+  checklist cards with squawk chips, phone numbers and reg cites. Facts worth not re-breaking:
+  squawk 1234 is the *towered*-field pattern code only — non-towered pattern work (Lee) takes a
+  filed SFRA plan + a discrete code from Potomac (866-429-5882) + CTAF, closed at 540-351-6129
+  (§93.339(c)/(d)); fringe 1205 is outbound-only; JYO's 1226 covers direct in/out only; Hyde (W32)
+  closed 2022 so the "Maryland Three" is two; the gate/sector frequency table is the Jan 2020
+  ALC-405 kneeboard and is labelled "verify on the current TAC" — keep that hedge, and don't
+  present 124.55 (GRACO LiveATC lore) as the ANP-area SFRA frequency (published App/Dep is 119.7).
 - `terps.html` + `js/terps.js` — TERPS, Demystified: pilot-first tabbed explorer of FAA Order
   8260.3G (the 2024 "G" revision; all paragraph refs cite it). Six tabs: rulebook overview,
   Approach Anatomy (the one interactive: shared-axis plan+profile canvas, draggable obstacle,

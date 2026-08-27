@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The DC SFRA — rules, map &amp; decision tree</title>
+  <meta name="description" content="Interactive explainer for the Washington DC Special Flight Rules Area: the SFRA, FRZ and prohibited areas drawn to scale, the rules in plain English, and a decision tree that walks any flight to its exact procedure.">
+  <link rel="canonical" href="https://jesselevine.net/sfra.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    a { color: #aaa; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 14px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .flow-map {
+      display: flex; gap: 7px; align-items: center; flex-wrap: wrap;
+      font-size: 12px; margin: 0 0 6px; color: #555;
+    }
+    .flow-map a {
+      color: #8ab8e8; text-decoration: none; background: #161d26;
+      border: 1px solid #2a3a4d; padding: 3px 11px; border-radius: 99px; white-space: nowrap;
+    }
+    .flow-map a:hover { border-color: #4a9eff; color: #cfe6ff; }
+    .flow-map a b { color: #4a9eff; font-weight: 700; }
+    .flow-map .arr { color: #3d434c; }
+    .flow-lede { font-size: 12.5px; color: #777; margin: 6px 0 10px; max-width: 880px; line-height: 1.6; }
+    .flow-lede b { color: #bbb; }
+
+    .section-title {
+      font-size: 16px; font-weight: 600; color: #ddd;
+      margin: 34px 0 4px; letter-spacing: 0.02em;
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .section-title .num { color: #4a9eff; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .section-lede { font-size: 13px; color: #888; margin: 0 0 12px; max-width: 850px; line-height: 1.6; }
+    .section-lede b { color: #bbb; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0; }
+    .card h3 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .muted { color: #888; } .faint { color: #555; }
+    .cite { font-size: 11px; color: #4d5866; margin-top: 8px; line-height: 1.5; }
+    .cite b { color: #6b7885; font-weight: 600; }
+
+    .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #222; }
+    .kv:last-child { border-bottom: none; }
+    .kv .k { color: #777; }
+    .kv .v { color: #ddd; text-align: right; font-variant-numeric: tabular-nums; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; }
+    @media (max-width: 820px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ---- map ---- */
+    #sfra-map { height: 520px; border-radius: 6px; background: #0d0d0d; }
+    @media (max-width: 700px) { #sfra-map { height: 420px; } }
+    .map-wrap { position: relative; }
+    .canvas-note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
+    .legend { display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: 11.5px; color: #999; margin-top: 8px; }
+    .legend .sw { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+    .legend .sw.dash { border-top-style: dashed; }
+    .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin-right: 5px; }
+    .inverted-tiles { filter: invert(0.86) hue-rotate(180deg) saturate(0.9) brightness(1.02); }
+    .maplbl {
+      background: none; border: none; box-shadow: none; padding: 0;
+      color: #cfd8e3; font-size: 10.5px; font-weight: 600;
+      text-shadow: 0 1px 3px #000, 0 0 3px #000;
+    }
+    .maplbl::before { display: none; }
+    .maplbl-gate { color: #4fd8cf; }
+    .maplbl-dim { color: #666; }
+    #inspect .verdict { font-size: 14px; font-weight: 700; margin: 2px 0 8px; }
+    #inspect ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: #a7b0bc; line-height: 1.6; }
+    #inspect ul b { color: #ddd; }
+
+    .chip {
+      display: inline-block; padding: 1px 9px; border-radius: 4px;
+      font-size: 12px; font-weight: 700; color: #111; vertical-align: middle;
+    }
+    .squawk {
+      font-family: Consolas, Menlo, monospace; font-size: 20px; font-weight: 700;
+      color: #ffb02e; background: #221a08; border: 1px solid #4d3a10; border-radius: 6px;
+      padding: 2px 12px; display: inline-block; letter-spacing: 0.12em;
+    }
+    .phone { font-family: Consolas, Menlo, monospace; color: #8ab8e8; white-space: nowrap; }
+
+    /* ---- ring cards ---- */
+    .ring-card { border-left: 3px solid var(--ring, #4a9eff); }
+    .ring-card .rad { font-size: 11px; color: #666; margin-bottom: 6px; }
+    .ring-card ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: #a7b0bc; line-height: 1.65; }
+    .ring-card ul b { color: #ddd; }
+
+    /* ---- decision tree ---- */
+    #tree { border-color: #2a3f57; box-shadow: 0 0 28px rgba(74,158,255,0.10), inset 0 0 46px rgba(74,158,255,0.03); }
+    #tree-crumbs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; min-height: 24px; }
+    #tree-crumbs .crumb {
+      font-size: 11.5px; color: #8ab8e8; background: #161d26; border: 1px solid #2a3a4d;
+      border-radius: 99px; padding: 2px 10px; cursor: pointer; white-space: nowrap;
+      max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+    }
+    #tree-crumbs .crumb:hover { border-color: #4a9eff; color: #cfe6ff; }
+    #tree-crumbs .sep { color: #3d434c; font-size: 11px; }
+    #tree-q { font-size: 17px; font-weight: 600; color: #eee; margin: 2px 0 4px; }
+    #tree-help { font-size: 12.5px; color: #888; line-height: 1.6; margin: 0 0 12px; max-width: 760px; }
+    #tree-opts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+    #tree-opts button {
+      text-align: left; background: #16202c; border: 1px solid #2a3a4d; color: #cfe0f2;
+      border-radius: 7px; padding: 10px 13px; font-size: 13.5px; line-height: 1.45;
+      cursor: pointer; font-family: inherit;
+    }
+    #tree-opts button:hover { border-color: #4a9eff; background: #1b2a3c; }
+    #tree-opts button .sub { display: block; font-size: 11.5px; color: #6b7c90; margin-top: 2px; }
+    #tree-end { display: none; }
+    #tree-end .headline { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+    #tree-end .oneliner { font-size: 13px; color: #9aa6b4; margin: 0 0 12px; line-height: 1.6; max-width: 780px; }
+    #tree-end ol.steps { margin: 8px 0 0; padding-left: 22px; }
+    #tree-end ol.steps li { font-size: 13.5px; color: #c8d2dd; line-height: 1.65; margin: 7px 0; }
+    #tree-end ol.steps li b { color: #fff; }
+    #tree-end .warnbox {
+      margin-top: 12px; border-left: 3px solid #f59e0b; background: #211a0d;
+      border-radius: 0 6px 6px 0; padding: 8px 12px; font-size: 12.5px; color: #d9b986; line-height: 1.6;
+    }
+    #tree-end .warnbox b { color: #ffd75a; }
+    .tree-actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 5px 14px; border-radius: 5px; cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #26497a; }
+    .btn.secondary { background: #333; border-color: #444; color: #ddd; }
+    .btn.secondary:hover { background: #444; }
+
+    /* full-tree outline */
+    #tree-outline ul { list-style: none; padding-left: 18px; margin: 4px 0; border-left: 1px solid #26303c; }
+    #tree-outline > .body > ul { border-left: none; padding-left: 2px; }
+    #tree-outline li { font-size: 12.5px; color: #9aa6b4; line-height: 1.7; }
+    #tree-outline .oq { color: #8ab8e8; }
+    #tree-outline .oend { color: #7fc98a; }
+
+    /* ---- VWS ---- */
+    .vws-demo { display: flex; align-items: center; gap: 14px; margin: 10px 0 4px; }
+    .vws-light {
+      width: 26px; height: 26px; border-radius: 50%; flex: none;
+      background: #222; box-shadow: 0 0 4px #000 inset;
+      animation: vws 3s steps(1) infinite;
+    }
+    @keyframes vws {
+      0%   { background: #ff2a1a; box-shadow: 0 0 18px 4px rgba(255,42,26,.75); }
+      15%  { background: #1c1c1c; box-shadow: none; }
+      25%  { background: #ff2a1a; box-shadow: 0 0 18px 4px rgba(255,42,26,.75); }
+      40%  { background: #1c1c1c; box-shadow: none; }
+      50%  { background: #2aff5e; box-shadow: 0 0 18px 4px rgba(42,255,94,.7); }
+      65%  { background: #1c1c1c; box-shadow: none; }
+      100% { background: #1c1c1c; box-shadow: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .vws-light { animation: none; background: #ff2a1a; } }
+    .vws-cap { font-size: 12.5px; color: #a7b0bc; line-height: 1.6; }
+
+    details.explain {
+      margin-top: 12px; border: 1px solid #2a2a2a; border-radius: 8px;
+      background: #161616; font-size: 13px; color: #999; line-height: 1.65;
+    }
+    details.explain summary {
+      cursor: pointer; padding: 9px 14px; color: #8ab8e8; font-weight: 600;
+      font-size: 12.5px; list-style: none;
+    }
+    details.explain summary::before { content: "▸ "; color: #4a9eff; }
+    details.explain[open] summary::before { content: "▾ "; }
+    details.explain .body { padding: 0 16px 12px; max-width: 960px; }
+    details.explain .body p { margin: 7px 0; }
+    details.explain b { color: #ccc; }
+
+    table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; color: #bbb; }
+    .tbl th, .tbl td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #2a2a2a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tbl th { color: #666; font-weight: 500; font-size: 11px; }
+    .tbl tr:last-child td { border-bottom: none; }
+
+    .bust-list { margin: 6px 0 0; padding-left: 20px; }
+    .bust-list li { font-size: 13px; color: #a7b0bc; line-height: 1.65; margin: 8px 0; }
+    .bust-list li b { color: #e8b0a8; }
+
+    footer.sources { margin-top: 34px; margin-bottom: 52px; font-size: 11px; color: #555; line-height: 1.7; }
+    footer.sources a { color: #666; }
+  </style>
+</head>
+<body>
+  <a href="/tools.html" id="back-link">← Aviation Tools</a>
+
+  <h1>The DC SFRA</h1>
+  <p class="subtitle">
+    Washington's Special Flight Rules Area — the map, the rules, and a decision tree
+    that walks any flight to its exact procedure · built from a CFI's seat at KANP, inside the ring ·
+    <a href="/tools.html">all tools →</a>
+  </p>
+
+  <div class="flow-map">
+    <a href="#sec-map"><b>1</b> the airspace</a><span class="arr">→</span>
+    <a href="#sec-rings"><b>2</b> three rings</a><span class="arr">→</span>
+    <a href="#sec-req"><b>3</b> the requirements</a><span class="arr">→</span>
+    <a href="#sec-lee"><b>4</b> from Lee</a><span class="arr">→</span>
+    <a href="#sec-tree"><b>5</b> decision tree</a><span class="arr">→</span>
+    <a href="#sec-wrong"><b>6</b> when it breaks</a><span class="arr">→</span>
+    <a href="#sec-bust"><b>7</b> how pilots bust it</a>
+  </div>
+  <p class="flow-lede">
+    Since 2003, flying anywhere near Washington means flying inside <b>national defense airspace</b> —
+    a 30&nbsp;nm ring where every aircraft must be identified, talking, and squawking, wrapped around an
+    inner zone where GA essentially may not go at all. The rules live in 14&nbsp;CFR Part&nbsp;93 Subpart&nbsp;V
+    plus a Chart Supplement special notice, and violating them — <b>even inadvertently</b> — is handled as
+    a security event, not a paperwork problem. This page draws the airspace to scale, translates the rules,
+    and then lets you answer one question at a time until you're holding the exact procedure for your flight.
+  </p>
+
+  <!-- ================= 1. MAP ================= -->
+  <section id="sec-map">
+  <div class="section-title"><span class="num">1</span> The airspace, drawn to scale</div>
+  <p class="section-lede">
+    Every boundary below is drawn from the legal description — the FRZ polygon from §93.335, the
+    prohibited areas from FAA Order JO&nbsp;7400.10H. <b>Click anywhere on the map</b> and the panel
+    tells you exactly which rules apply at that spot.
+  </p>
+  <div class="map-wrap card" style="padding:10px">
+    <div id="sfra-map"></div>
+    <div class="legend" id="legend"></div>
+    <div class="canvas-note">
+      Boundaries plotted from the legal descriptions for education — <b>never navigate by this page</b>;
+      fly the current Washington sectional/TAC and check NOTAMs. Layer picker (top right) has the FAA
+      sectional and TAC underneath.
+    </div>
+  </div>
+  <div class="two-col" style="margin-top:14px">
+    <div class="card" id="inspect">
+      <h3>Click the map — what applies there?</h3>
+      <div class="verdict faint" id="inspect-verdict">Waiting for a click…</div>
+      <div id="inspect-body" class="canvas-note" style="font-size:12.5px">
+        Try Lee Airport, the middle of the Mall, your favorite practice area, or somewhere over the Bay.
+      </div>
+    </div>
+    <div class="card">
+      <h3>The center of it all</h3>
+      <div class="kv"><span class="k">Center point</span><span class="v">DCA VOR/DME · 38°51′34″N 077°02′11″W</span></div>
+      <div class="kv"><span class="k">SFRA</span><span class="v">30 nm ring · surface to (not incl.) FL180</span></div>
+      <div class="kv"><span class="k">FRZ</span><span class="v">inner ~13–15 nm lobe · surface to FL180</span></div>
+      <div class="kv"><span class="k">Training ring</span><span class="v">60 nm · VFR pilots need ALC-405</span></div>
+      <div class="kv"><span class="k">Speed</span><span class="v">≤180 KIAS inside · ≤230 KIAS 30–60 nm</span></div>
+      <div class="cite"><b>14 CFR 93.335</b> (boundaries) · <b>91.161</b> (training) · Chart Supplement NE special notice (speeds).</div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ================= 2. RINGS ================= -->
+  <section id="sec-rings">
+  <div class="section-title"><span class="num">2</span> Three rings, three rulebooks</div>
+  <p class="section-lede">
+    Work from the outside in: each ring keeps everything from the ring before and adds more.
+  </p>
+  <div class="grid-cards">
+    <div class="card ring-card" style="--ring:#8a94a4">
+      <h3>60 nm — the training ring</h3>
+      <div class="rad">DCA VOR/DME +60 nm</div>
+      <ul>
+        <li>Flying <b>VFR</b> anywhere inside 60 nm? You must have completed the free FAA
+            <b>ALC-405 “DC SFRA” course</b> and hold the completion certificate — one time, no expiration.</li>
+        <li>From 30–60 nm: <b>≤230 KIAS</b> unless authorized.</li>
+        <li>No flight plan, code, or comms required out here — this ring exists so nobody
+            <i>near</i> the SFRA can say they didn't know the rules.</li>
+      </ul>
+      <div class="cite"><b>91.161</b> · CS special notice. IFR flights are exempt from the training rule.</div>
+    </div>
+    <div class="card ring-card" style="--ring:#f0b45a">
+      <h3>30 nm — the SFRA</h3>
+      <div class="rad">Surface up to (not including) FL180</div>
+      <ul>
+        <li><b>Before entering</b>: file a DC SFRA flight plan, get a discrete code, establish two-way comms.</li>
+        <li>Squawk the code <b>continuously</b>; never 1200; Mode C required. Applies to everything — including ultralights.</li>
+        <li><b>≤180 KIAS</b> unless authorized.</li>
+        <li>Above FL180 (IFR by definition) the SFRA does not apply.</li>
+      </ul>
+      <div class="cite"><b>93.339</b> — the core operating rule.</div>
+    </div>
+    <div class="card ring-card" style="--ring:#ef4444">
+      <h3>~15 nm — the FRZ</h3>
+      <div class="rad">Flight Restricted Zone · surface to FL180</div>
+      <ul>
+        <li>GA flight is <b>prohibited without FAA/TSA authorization</b> — a filed plan and a code are not enough.</li>
+        <li>The only GA doorway: the vetted-pilot program for <b>College Park (CGS)</b> and
+            <b>Potomac Airfield (VKX)</b> — fingerprints, background check, personal PIN.
+            (Hyde Field, the third, closed in 2022.)</li>
+        <li>FRZ flight plans are filed <b>by phone with Washington Center</b> — no electronic filing.</li>
+      </ul>
+      <div class="cite"><b>93.341–93.343</b> · 49 CFR 1562.</div>
+    </div>
+    <div class="card ring-card" style="--ring:#c026d3">
+      <h3>P-56 — never</h3>
+      <div class="rad">Monumental core &amp; Naval Observatory · surface to 18,000 ft</div>
+      <ul>
+        <li><b>P-56A</b>: the Mall, White House, Capitol. <b>P-56B</b>: ½ mi around the Naval Observatory.</li>
+        <li>Prohibited, continuously, to everyone without Secret Service–level authorization. Inside the FRZ,
+            which is inside the SFRA — three fences deep.</li>
+        <li>Nearby cousins: <b>P-73</b> (Mount Vernon, sfc–1,500 ft) on the river route, and
+            <b>P-40/R-4009</b> (Camp David, 3 nm — expands by TFR when the President visits).</li>
+      </ul>
+      <div class="cite">FAA Order JO 7400.10H.</div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ================= 3. REQUIREMENTS ================= -->
+  <section id="sec-req">
+  <div class="section-title"><span class="num">3</span> What every VFR flight in the ring needs</div>
+  <p class="section-lede">
+    §93.339 is a five-item checklist. Miss any one item and you're a track on a NORAD scope with
+    fighters on alert — the rest of this page is just these five, applied.
+  </p>
+  <div class="grid-cards">
+    <div class="card">
+      <h3>1 · Training</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        ALC-405 certificate for any VFR flight within 60 nm. Free, online, ~1 hr, once ever.
+        Show it to the FAA, TSA, or <i>any</i> law-enforcement officer on request.</p>
+      <div class="cite"><b>91.161</b></div>
+    </div>
+    <div class="card">
+      <h3>2 · A DC SFRA flight plan</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Its own type — <b>not</b> a regular VFR flight plan. File gate→airport, airport→gate, or gate→gate
+        (Leidos / your EFB). It buys no search-and-rescue and no radar services; it exists so security
+        knows who you are.</p>
+      <div class="cite"><b>93.335, 93.339(a)(5)</b></div>
+    </div>
+    <div class="card">
+      <h3>3 · A discrete code — before entering</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Getting the code is what <i>activates</i> the plan. You cannot enter first and sort it out
+        airborne, and you cannot depart VFR planning to pick up an IFR clearance in the air.
+        Squawk it continuously — <b>1200 is forbidden in the SFRA</b>, even after “radar services terminated.”</p>
+      <div class="cite"><b>93.339(a)(4), (e)</b></div>
+    </div>
+    <div class="card">
+      <h3>4 · Two-way comms, held throughout</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Established with Potomac <b>before</b> the boundary and maintained the whole time.
+        “Transponder observed” means the security system sees you — it is <b>not</b> flight following,
+        and implies no traffic services at all.</p>
+      <div class="cite"><b>93.339(a)(2)</b> · CS notice phraseology</div>
+    </div>
+    <div class="card">
+      <h3>5 · Mode C + the speed limits</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Altitude-reporting transponder required. ≤180 KIAS inside the ring, ≤230 KIAS from 30 to
+        60 nm — the limits that keep an unknown track's intercept math workable.</p>
+      <div class="cite"><b>93.339(a)(3)</b> · CS notice</div>
+    </div>
+    <div class="card" style="border-color:#3d2c2c">
+      <h3 style="color:#e8a49a">The price of missing one</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        “Whether inadvertent or intentional”: civil penalties and <b>certificate suspension or
+        revocation</b>; knowing violations of national defense airspace can be prosecuted criminally.
+        There is no “I was only a mile inside.”</p>
+      <div class="cite"><b>93.333</b> · 49 U.S.C. 46307</div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ================= 4. FROM LEE ================= -->
+  <section id="sec-lee">
+  <div class="section-title"><span class="num">4</span> From Lee Airport, in practice</div>
+  <p class="section-lede">
+    KANP sits about 17 nm east of the DCA VOR — <b>inside the SFRA, outside the FRZ</b>, non-towered.
+    Every takeoff and landing at Lee is an SFRA operation. The numbers that run a Lee flight:
+  </p>
+  <div class="two-col">
+    <div class="card">
+      <h3>Lee quick reference</h3>
+      <div class="kv"><span class="k">Position</span><span class="v">inside SFRA · outside FRZ · non-towered</span></div>
+      <div class="kv"><span class="k">CTAF</span><span class="v">122.9</span></div>
+      <div class="kv"><span class="k">Discrete code before takeoff</span><span class="v">Potomac Clearance <span class="phone">866-429-5882</span></span></div>
+      <div class="kv"><span class="k">Potomac App/Dep (published)</span><span class="v">119.7</span></div>
+      <div class="kv"><span class="k">Close a pattern-work plan</span><span class="v"><span class="phone">540-351-6129</span></span></div>
+      <div class="kv"><span class="k">Guard</span><span class="v">monitor 121.5 when able</span></div>
+      <div class="cite">Phone/frequency per the FAA Chart Supplement entry for ANP — <b>verify against the current
+        chart cycle before flying</b>; sector frequencies live on the Washington TAC.</div>
+    </div>
+    <div class="card">
+      <h3>The shape of every VFR departure</h3>
+      <ol style="margin:4px 0 0;padding-left:20px;font-size:12.5px;color:#a7b0bc;line-height:1.7">
+        <li>File the DC SFRA plan: <b>ANP → your exit gate</b>.</li>
+        <li>Phone Potomac Clearance from the ramp → discrete code + departure frequency.</li>
+        <li>Squawk the code before takeoff. Announce on CTAF, depart.</li>
+        <li>Call Potomac climbing out; stay with them to the boundary.</li>
+        <li>Cross the 30 nm ring, get well clear, <i>then</i> turn on course. The plan closes itself at the boundary.</li>
+      </ol>
+      <div class="cite">Arrivals are the mirror image — code and comms <b>before</b> the ring, plan closes on landing.
+        The decision tree below has every variant with the details.</div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ================= 5. DECISION TREE ================= -->
+  <section id="sec-tree">
+  <div class="section-title"><span class="num">5</span> The decision tree — answer your way to the procedure</div>
+  <p class="section-lede">
+    Every SFRA flight reduces to a handful of questions. Answer them and land on the exact
+    checklist — squawk, phone numbers, who to talk to, and the reg behind each step. The breadcrumbs
+    are clickable if you want to back up and try a different flight.
+  </p>
+  <div class="card" id="tree">
+    <div id="tree-crumbs"></div>
+    <div id="tree-node">
+      <div id="tree-q"></div>
+      <p id="tree-help"></p>
+      <div id="tree-opts"></div>
+    </div>
+    <div id="tree-end">
+      <div class="headline"></div>
+      <p class="oneliner"></p>
+      <div class="chips" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 6px"></div>
+      <ol class="steps"></ol>
+      <div class="warnbox" style="display:none"></div>
+      <div class="cite"></div>
+    </div>
+    <div class="tree-actions">
+      <button class="btn secondary" id="tree-back">← Back one question</button>
+      <button class="btn" id="tree-restart">Start over</button>
+    </div>
+  </div>
+  <details class="explain" id="tree-outline">
+    <summary>The whole tree at a glance</summary>
+    <div class="body"></div>
+  </details>
+  </section>
+
+  <!-- ================= 6. WHEN IT BREAKS ================= -->
+  <section id="sec-wrong">
+  <div class="section-title"><span class="num">6</span> When something breaks</div>
+  <p class="section-lede">
+    The SFRA has published answers for every failure — the theme is always the same:
+    <b>stay predictable, talk if you can, and get out by the shortest path if you can't.</b>
+  </p>
+  <div class="grid-cards">
+    <div class="card">
+      <h3>Radios fail</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Squawk <b>7600</b> and exit the SFRA by the most direct lateral route — or return to your
+        departure point if that's closer (in the FRZ, only if within 5 nm of it).</p>
+      <div class="cite">CS special notice</div>
+    </div>
+    <div class="card">
+      <h3>Transponder fails</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Tell ATC immediately and do what they say. If you can't reach them, same drill:
+        most direct lateral route out, or back to the departure point if closer.</p>
+      <div class="cite">CS special notice</div>
+    </div>
+    <div class="card">
+      <h3>You're intercepted</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Follow the interceptor's instructions — <b>all of them, immediately</b>. Come up on 121.5 with
+        call sign and position, squawk <b>7700</b> unless directed otherwise. Rock your wings back if
+        signaled. This is not the moment to explain yourself first.</p>
+      <div class="cite">AIM 5-6-2 · CS notice</div>
+    </div>
+    <div class="card">
+      <h3>The lasers — Visual Warning System</h3>
+      <div class="vws-demo">
+        <span class="vws-light" aria-hidden="true"></span>
+        <div class="vws-cap">
+          <b style="color:#ddd">Red–red–green flashes</b> aimed at <i>your</i> aircraft mean security suspects
+          you're in the SFRA/FRZ without authorization. Eye-safe, visible 15–20 mi.
+        </div>
+      </div>
+      <p style="margin:6px 0 0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Talking to ATC? Tell them <b>immediately</b> that you're being illuminated. Not talking to anyone?
+        <b>Turn away from DC now</b> and call ATC or 121.5.</p>
+      <div class="cite">AIM 5-6-16 · fielded by NORAD, 2005</div>
+    </div>
+    <div class="card">
+      <h3>A real emergency</h3>
+      <p style="margin:0;font-size:12.5px;color:#a7b0bc;line-height:1.6">
+        Declaring an emergency (§91.3(b)) or flying IFR lost-comms procedures (§91.185) is a defense to
+        the training rule and takes priority — <b>aviate first</b>. Expect to talk about it afterward;
+        expect an escort if it takes you toward the FRZ.</p>
+      <div class="cite"><b>91.161(d)</b></div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ================= 7. BUSTS + HISTORY ================= -->
+  <section id="sec-bust">
+  <div class="section-title"><span class="num">7</span> How pilots actually bust it</div>
+  <p class="section-lede">
+    GAO found pilot error — not bad actors — behind the overwhelming majority of restricted-airspace
+    violations here. The recurring mistakes:
+  </p>
+  <div class="card">
+    <ul class="bust-list">
+      <li><b>Squawking 1200 in the pattern.</b> Pattern work at a non-towered SFRA field (Lee!) needs a filed
+        pattern plan and a <b>discrete</b> code from Potomac plus CTAF calls. The famous “1234” is the
+        <i>towered</i>-airport pattern code only.</li>
+      <li><b>Cutting the corner.</b> The ring is a circle and your course line probably isn't. Turning on course
+        right at the boundary — or clipping the arc while going around DC — is the classic deviation.
+        Exit, get <i>well</i> clear, then turn.</li>
+      <li><b>Trying to fix it airborne.</b> The discrete code must exist <i>before</i> you cross the boundary —
+        there is no “pick up a code in the air,” VFR or IFR.</li>
+      <li><b>Reverting to 1200 when “radar services” end.</b> The code stays until you land or exit. Muscle
+        memory is the enemy on this one.</li>
+      <li><b>Believing flight following covers it.</b> An SFRA plan gives no SAR and no radar services;
+        flight following gives no SFRA compliance. They are unrelated systems.</li>
+      <li><b>The 60 nm surprise.</b> The training rule catches VFR pilots who never touch the SFRA —
+        transiting 55 nm out without ALC-405 is itself a violation.</li>
+      <li><b>Fringe-airport 1205 inbound.</b> The 1205 shortcut is <i>outbound only</i>. Arriving at Barnes,
+        Robinson, or Skyview means the full SFRA procedure.</li>
+      <li><b>Trusting old references.</b> The CFR still lists five fringe airports and three FRZ airports;
+        the chart notice says three and two (Hyde closed 2022). Frequencies move. The current TAC,
+        Chart Supplement, and NOTAMs outrank everything — including this page.</li>
+      <li><b>P-40 on a Camp David weekend.</b> The little 3 nm circle near Thurmont grows to ~10 nm by TFR
+        when the President is there — a northbound trap on the way to Gettysburg. Brief it every time.</li>
+    </ul>
+  </div>
+  <details class="explain">
+    <summary>How it got this way — ADIZ to SFRA</summary>
+    <div class="body">
+      <p><b>Feb 2003</b>: with Iraq looming, the DC ADIZ appears overnight by NOTAM — “temporary,” enormous,
+      and instantly the most-violated airspace in the country. <b>May 2005</b>: a lost Cessna 150 gets within
+      3 mi of the White House; the Capitol evacuates; the pilots meet a Black Hawk, an F-16's flares, and
+      the national news.</p>
+      <p><b>Dec 2008</b>: after &gt;20,000 overwhelmingly opposed public comments, the FAA makes it permanent
+      anyway — the ADIZ becomes the SFRA of 14 CFR Part 93 Subpart V, <b>effective Feb 17, 2009</b>, shrunk
+      to the 30 nm ring. The training rule (91.161) lands the same month: proposed at 100 nm, finalized at 60.
+      The Visual Warning System lasers had been fielded in 2005. Nothing about it has been temporary since.</p>
+    </div>
+  </details>
+  <details class="explain">
+    <summary>The gates &amp; sector frequencies (FAA course table — verify on the current TAC)</summary>
+    <div class="body">
+      <p>SFRA plans are filed to/from eight named gates — ordinary NAS intersections ringing the 30 nm arc.
+      You <b>don't have to fly to the fix</b>; it names your slice of the boundary. Frequencies below are from
+      the FAA's ALC-405 course kneeboard (Jan 2020) and are stamped <i>“frequencies subject to change —
+      always check NOTAMs”</i>; the current Washington TAC is the authority:</p>
+      <table class="tbl">
+        <tr><th>Gate</th><th>Side of the ring</th><th>Kneeboard freq</th></tr>
+        <tr><td>WOOLY</td><td>N — I-270 to I-95</td><td>132.775</td></tr>
+        <tr><td>PALEO</td><td>NE→E — I-95 to Chesapeake Beach <span class="faint">(Lee's usual eastbound door)</span></td><td>132.775</td></tr>
+        <tr><td>WHINO</td><td>SE — to the Wicomico River</td><td>125.125</td></tr>
+        <tr><td>GRUBY</td><td>S — to the Potomac at Widewater</td><td>125.125</td></tr>
+        <tr><td>BRV</td><td>SSW — Brooke VORTAC corner</td><td>127.325</td></tr>
+        <tr><td>FLUKY</td><td>SW — to VA Rte 29</td><td>127.325</td></tr>
+        <tr><td>JASEN</td><td>W — to VA Rte 7</td><td>127.325</td></tr>
+        <tr><td>LUCKE</td><td>NW — to I-270</td><td>127.325</td></tr>
+      </table>
+    </div>
+  </details>
+  </section>
+
+  <footer class="sources">
+    Educational only — never a substitute for the current Washington TAC/sectional, Chart Supplement
+    special notice, NOTAMs, or an official briefing. Sources: 14 CFR Part 93 Subpart V &amp; 14 CFR 91.161
+    (eCFR); Chart Supplement Northeast “Washington DC SFRA Special Terms and Procedures” (Jul 2026 cycle);
+    FAA Order JO 7400.10H (P-56A/B, P-73, P-40, R-4009 legal descriptions); FAA ALC-405 course materials
+    (gate/frequency kneeboards, Jan 2020); AIM 5-6-2 &amp; 5-6-16. FRZ polygon and prohibited-area
+    boundaries plotted from their legal descriptions. All map boundaries approximate.
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/sfra.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
