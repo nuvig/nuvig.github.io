@@ -259,7 +259,10 @@ concepts; to relink, add the tools.html card back.
   Leaflet map (vendored, same FAA tile layers as procedures.js) drawing the 30/60 nm rings, the FRZ
   polygon regenerated from the verbatim 14 CFR 93.335 vertex coordinates (arcs re-derived from the
   reg's own lat/lons — no magnetic-radial math), P-56A/B, P-73, P-40/R-4009 from JO 7400.10H, the
-  8 gate fixes at their true NAS positions (several sit deliberately outside the ring), and a
+  8 gate fixes at their true NAS positions (several sit deliberately outside the ring) each tied to
+  its radial-bounded sector of the ring (kneeboard DCA radials → true using the station declination
+  *derived from 93.335's own radial↔lat/lon vertex pairs*, ≈9°W — don't swap in a magnetic model),
+  area VOR/VORTACs (note OTT is TACAN-only since the VOR MON cuts), and a
   click-anywhere rule inspector (point-in-polygon + distance from the DCA VOR). Procedures are a
   **decision tree** (Jesse's choice — explicitly not a quiz): 8 entry points → 18 terminal
   checklist cards with squawk chips, phone numbers and reg cites. Facts worth not re-breaking:

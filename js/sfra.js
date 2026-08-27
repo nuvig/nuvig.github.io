@@ -93,26 +93,57 @@
       note: 'inside SFRA, outside FRZ · non-towered · CTAF 122.9' },
     { id: 'CGS', name: 'College Park', ll: [38.9805, -76.9222], kind: 'frz', note: 'FRZ field — vetted pilots only' },
     { id: 'VKX', name: 'Potomac Airfield', ll: [38.7486, -76.9559], kind: 'frz', note: 'FRZ field — vetted pilots only' },
-    { id: 'W32', name: 'Washington Executive / Hyde', ll: [38.7483, -76.9328], kind: 'closed', note: 'closed 2022' },
+    { id: 'W32', name: 'Washington Executive / Hyde', ll: [38.7483, -76.9328], kind: 'closed', note: 'closed 2022', lblDir: 'left' },
     { id: 'W00', name: 'Freeway', ll: [38.9414, -76.7724], kind: 'note', note: '1 nm FRZ cutout around the field' },
     { id: 'JYO', name: 'Leesburg Executive', ll: [39.0780, -77.5575], kind: 'note', note: 'maneuvering area — squawk 1226 direct in/out' },
-    { id: 'MD47', name: 'Barnes', ll: [39.3329, -77.0969], kind: 'fringe', note: 'fringe — depart on 1205' },
+    { id: 'MD47', name: 'Barnes', ll: [39.3329, -77.0969], kind: 'fringe', note: 'fringe — depart on 1205', lblDir: 'left' },
     { id: 'MD14', name: 'Robinson', ll: [38.5243, -76.6836], kind: 'fringe', note: 'fringe — depart on 1205' },
     { id: '51VA', name: 'Skyview', ll: [38.7162, -77.6339], kind: 'fringe', note: 'fringe — depart on 1205' },
   ];
 
   // Gate fixes at their true NAS positions (OpenNav + FAA CIFP, agreeing).
-  // Several deliberately sit outside the 30 nm ring — they're filing fixes
-  // naming a slice of the boundary, not points you must fly to.
+  // Several deliberately sit outside the 30 nm ring — a gate is an ordinary
+  // NAS intersection used as a *filing fix*: it names a slice of the 30 nm
+  // boundary (bounded by DCA VOR radials, per the FAA ALC-405 kneeboard),
+  // and you never have to overfly the fix itself. r: [from, to] radials,
+  // freq: the Jan 2020 kneeboard sector frequency (verify on the current TAC).
   const GATES = [
-    { id: 'WOOLY', ll: [39.33866, -77.03644], note: 'north — I-270 to I-95' },
-    { id: 'PALEO', ll: [39.02799, -76.37272], note: 'northeast/east — Lee’s usual door' },
-    { id: 'WHINO', ll: [38.40971, -76.70519], note: 'southeast' },
-    { id: 'GRUBY', ll: [38.20816, -77.17398], note: 'south' },
-    { id: 'BRV',   ll: [38.33626, -77.35287], note: 'Brooke VORTAC — south-southwest' },
-    { id: 'FLUKY', ll: [38.50644, -77.72922], note: 'southwest' },
-    { id: 'JASEN', ll: [39.06069, -77.86811], note: 'west' },
-    { id: 'LUCKE', ll: [39.22466, -77.59780], note: 'northwest' },
+    { id: 'WOOLY', ll: [39.33866, -77.03644], r: [341, 46],  freq: '132.775', note: 'north — I-270 to I-95' },
+    { id: 'PALEO', ll: [39.02799, -76.37272], r: [47, 119],  freq: '132.775', note: 'northeast/east — Lee’s usual door' },
+    { id: 'WHINO', ll: [38.40971, -76.70519], r: [120, 172], freq: '125.125', note: 'southeast' },
+    { id: 'GRUBY', ll: [38.20816, -77.17398], r: [173, 214], freq: '125.125', note: 'south' },
+    { id: 'BRV',   ll: [38.33626, -77.35287], r: [215, 236], freq: '127.325', note: 'Brooke VORTAC — south-southwest' },
+    { id: 'FLUKY', ll: [38.50644, -77.72922], r: [237, 269], freq: '127.325', note: 'southwest' },
+    { id: 'JASEN', ll: [39.06069, -77.86811], r: [270, 309], freq: '127.325', note: 'west' },
+    { id: 'LUCKE', ll: [39.22466, -77.59780], r: [310, 340], freq: '127.325', note: 'northwest' },
+  ];
+
+  // DCA VOR station declination, derived from the reg's own data: 93.335
+  // gives each FRZ vertex as BOTH a DCA radial and a lat/lon, so the offset
+  // between the true bearing to the point and the published radial IS the
+  // declination (≈9°W) — no magnetic-model guesswork.
+  const DECL = (() => {
+    const pairs = [[FRZ_A, 311], [FRZ_B, 2], [FRZ_C, 49], [FRZ_D, 64], [FRZ_E, 276]];
+    let s = 0;
+    for (const [pt, r] of pairs) {
+      let d = bearing(DCA, pt) - r;
+      while (d > 180) d -= 360; while (d < -180) d += 360;
+      s += d;
+    }
+    return s / pairs.length;
+  })();
+  const radTrue = r => (r + DECL + 360) % 360;   // DCA radial -> true bearing
+
+  // NAS navaids in/around the SFRA (coords verified against FAA NASR-derived
+  // sources, 2026-08 data cycle). BRV (Brooke VORTAC) is drawn with the gates.
+  const NAVAIDS = [
+    { id: 'DCA', name: 'Washington',  type: 'VOR/DME', freq: '111.0',  ll: [38.85945, -77.03644] },
+    { id: 'ADW', name: 'Andrews',     type: 'VORTAC',  freq: '113.1',  ll: [38.80722, -76.86626] },
+    { id: 'OTT', name: 'Nottingham',  type: 'TACAN (VOR decommissioned — DME only for civilians)', freq: '113.7', ll: [38.70587, -76.74475] },
+    { id: 'BAL', name: 'Baltimore',   type: 'VORTAC',  freq: '115.1',  ll: [39.17106, -76.66126] },
+    { id: 'EMI', name: 'Westminster', type: 'VORTAC',  freq: '117.9',  ll: [39.49501, -76.97857] },
+    { id: 'AML', name: 'Armel',       type: 'VOR/DME', freq: '113.5',  ll: [38.93459, -77.46670] },
+    { id: 'CSN', name: 'Casanova',    type: 'VORTAC',  freq: '116.3',  ll: [38.64120, -77.86550] },
   ];
 
   // ---------------------------------------------------------------- map
@@ -133,7 +164,11 @@
       'VFR Sectional (dark)': L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}',
         { attribution: 'FAA', className: 'inverted-tiles', ...esc }),
     };
+    const gateGroup = L.layerGroup().addTo(map);
+    const navGroup = L.layerGroup().addTo(map);
     const over = {
+      'Gates & sectors': gateGroup,
+      'Navaids': navGroup,
       'VFR Terminal (TAC)': L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Terminal/MapServer/tile/{z}/{y}/{x}',
         { attribution: 'FAA', opacity: 0.85, ...esc }),
     };
@@ -155,13 +190,40 @@
       .bindTooltip('P-73 — Mount Vernon · surface to 1,500 ft', { sticky: true });
     L.circle(P40.c, { radius: P40.nm * 1852, color: '#c026d3', weight: 1.5, dashArray: '4 5', fillColor: '#c026d3', fillOpacity: 0.15 }).addTo(map)
       .bindTooltip('P-40 + R-4009 — Camp David, 3 nm charted · expands ~10 nm by TFR with the President in residence', { sticky: true });
-    L.circleMarker(DCA, { radius: 4, color: '#fff', weight: 1.5, fillColor: '#f0b45a', fillOpacity: 1 }).addTo(map)
-      .bindTooltip('DCA VOR/DME — the center', { sticky: true });
+    // (the DCA VOR itself is drawn with the navaids below — it IS the center)
 
-    for (const g of GATES) {
-      L.circleMarker(g.ll, { radius: 5, color: '#4fd8cf', weight: 1.5, fillColor: '#123a38', fillOpacity: 1 }).addTo(map)
-        .bindPopup(`<b>${g.id}</b> — SFRA gate${g.note ? '<br>' + g.note : ''}`)
-        .bindTooltip(g.id, { permanent: true, direction: 'right', offset: [6, 0], className: 'maplbl maplbl-gate' });
+    // Gate sectors: each gate names a radial-bounded slice of the 30 nm ring
+    // (kneeboard radials converted to true via the reg-derived declination),
+    // with a tick at each boundary radial and a dotted leader tying the
+    // filing fix to the slice it names.
+    GATES.forEach((g, gi) => {
+      const [rf, rt] = g.r;
+      const span = (rt - rf + 360) % 360;
+      const midTrue = radTrue((rf + span / 2) % 360);
+      // band drawn just OUTSIDE the ring (31 nm) so the amber SFRA boundary
+      // stays its own line; adjacent slices alternate shades to read apart.
+      const bandPts = [];
+      for (let d = 0; d <= span; d += 1) bandPts.push(dest(DCA, radTrue((rf + d) % 360), 31));
+      const shade = gi % 2 ? '#1f8a80' : '#4fd8cf';
+      const detail = `<b>${g.id} gate</b> — ${g.note}<br>DCA R-${String(rf).padStart(3, '0')} → R-${String(rt).padStart(3, '0')}` +
+        `<br>kneeboard freq ${g.freq} <i>(Jan 2020 — verify current TAC)</i>`;
+      L.polyline(bandPts, { color: shade, weight: 5, opacity: 0.7 }).bindPopup(detail).addTo(gateGroup);
+      L.polyline([dest(DCA, radTrue(rf), 29.2), dest(DCA, radTrue(rf), 31.8)],
+        { color: '#4fd8cf', weight: 1, opacity: 0.5 }).addTo(gateGroup);
+      L.polyline([g.ll, dest(DCA, midTrue, 31)],
+        { color: shade, weight: 1, opacity: 0.5, dashArray: '2 6' }).addTo(gateGroup);
+      L.circleMarker(g.ll, { radius: 5, color: '#4fd8cf', weight: 1.5, fillColor: '#123a38', fillOpacity: 1 })
+        .bindPopup(detail)
+        .bindTooltip(g.id, { permanent: true, direction: 'right', offset: [6, 0], className: 'maplbl maplbl-gate' })
+        .addTo(gateGroup);
+    });
+
+    for (const n of NAVAIDS) {
+      L.marker(n.ll, { icon: L.divIcon({ className: 'vor-wrap', html: '<div class="vor-icon"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }) })
+        .bindPopup(`<b>${n.id}</b> ${n.name}<br>${n.type} · ${n.freq}` +
+          (n.id === 'DCA' ? '<br>the SFRA/FRZ center point — every ring and radial measures from here' : ''))
+        .bindTooltip(n.id, { permanent: true, direction: 'right', offset: [7, 0], className: 'maplbl maplbl-vor' })
+        .addTo(navGroup);
     }
     const AP_STYLE = {
       home:   { color: '#4a9eff', fill: '#0f2742', r: 6 },
@@ -174,13 +236,15 @@
       const s = AP_STYLE[a.kind] || AP_STYLE.note;
       L.circleMarker(a.ll, { radius: s.r, color: s.color, weight: 1.5, fillColor: s.fill, fillOpacity: 1 }).addTo(map)
         .bindPopup(`<b>${a.id}</b> ${a.name}${a.note ? '<br>' + a.note : ''}`)
-        .bindTooltip(a.id, { permanent: true, direction: 'right', offset: [6, 0], className: 'maplbl' + (a.kind === 'closed' ? ' maplbl-dim' : '') });
+        .bindTooltip(a.id, { permanent: true, direction: a.lblDir || 'right', offset: [a.lblDir === 'left' ? -6 : 6, 0], className: 'maplbl' + (a.kind === 'closed' ? ' maplbl-dim' : '') });
     }
 
     const LEGEND = [
       ['line', '#f0b45a', 'SFRA (30 nm)'], ['dash', '#8a94a4', 'training ring (60 nm)'],
       ['line', '#ef4444', 'FRZ'], ['line', '#c026d3', 'prohibited (P-56, P-73, P-40)'],
-      ['dot', '#4fd8cf', 'gates'], ['dot', '#4a9eff', 'Lee (KANP)'],
+      ['line', '#4fd8cf', 'gate sectors (radial slices of the ring)'],
+      ['dot', '#4fd8cf', 'gate filing fixes'], ['dot', '#dfe6ee', 'VOR/VORTAC'],
+      ['dot', '#4a9eff', 'Lee (KANP)'],
       ['dot', '#ef4444', 'FRZ fields'], ['dot', '#9fd45a', 'fringe fields'],
     ];
     $('legend').innerHTML = LEGEND.map(([k, c, t]) =>

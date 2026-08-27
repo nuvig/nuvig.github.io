@@ -79,6 +79,12 @@
     .maplbl::before { display: none; }
     .maplbl-gate { color: #4fd8cf; }
     .maplbl-dim { color: #666; }
+    .maplbl-vor { color: #9fb3c8; }
+    .vor-wrap { background: none; border: none; }
+    .vor-icon {
+      width: 12px; height: 12px; background: #dfe6ee;
+      clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+    }
     #inspect .verdict { font-size: 14px; font-weight: 700; margin: 2px 0 8px; }
     #inspect ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: #a7b0bc; line-height: 1.6; }
     #inspect ul b { color: #ddd; }
@@ -543,8 +549,12 @@
   <details class="explain">
     <summary>The gates &amp; sector frequencies (FAA course table — verify on the current TAC)</summary>
     <div class="body">
-      <p>SFRA plans are filed to/from eight named gates — ordinary NAS intersections ringing the 30 nm arc.
-      You <b>don't have to fly to the fix</b>; it names your slice of the boundary. Frequencies below are from
+      <p>A gate is nothing exotic: it's an <b>ordinary NAS intersection (or navaid — BRV is the Brooke
+      VORTAC) pressed into service as a filing fix</b>. What the gate really names is a <b>slice of the
+      30 nm boundary, bounded by DCA VOR radials</b> — WOOLY is R-341 clockwise to R-046, PALEO picks up
+      at R-047, and so on around the ring. You file to/from the gate and cross the boundary anywhere in
+      its slice; <b>you never have to fly to the fix itself</b> (several sit well outside the ring — the
+      map draws each fix, its slice, and the dotted tie between them). Frequencies below are from
       the FAA's ALC-405 course kneeboard (Jan 2020) and are stamped <i>“frequencies subject to change —
       always check NOTAMs”</i>; the current Washington TAC is the authority:</p>
       <table class="tbl">
@@ -573,7 +583,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/sfra.js?v=1"></script>
+  <script src="js/sfra.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>
