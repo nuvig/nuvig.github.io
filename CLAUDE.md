@@ -289,6 +289,22 @@ concepts; to relink, add the tools.html card back.
   pure-painter design as sky.html, but the code is **copied forward, not shared** — a
   parsing/data fix in one probably belongs in both. **Deliberately unlinked** (no tools.html
   card, no sitemap entry; indexable) — sky.html is the one on tools.html.
+- `wx3d.html` + `js/wx3d.js` — The Air Above: the GFS forecast as a rotatable 3-D volume over the
+  field (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated** and said so on the page).
+  Hand-rolled **orthographic** canvas 3-D: every horizontal surface (ground map, each cloud deck)
+  is an offscreen texture drawn with one affine transform — legal only because the projection is
+  orthographic — and the scene paints bottom-up (correct painter's order for stacked horizontal
+  layers with pitch clamped ≥ 12°; don't switch to perspective without redoing both). Cloud decks
+  are per-pressure-level cloud cover (noise-thresholded so opaque share tracks the model's number)
+  at their per-hour geopotential heights; winds-aloft arrow layers per level plus a WMO barb staff
+  at the field (NH convention, feathers 90° clockwise of the upwind shaft); the freezing surface
+  is a warped per-grid-point mesh; precip columns rise to the lowest cloudy deck. RainViewer radar
+  drapes the ground **only at the "now" hour** — other hours get a model-precip stain, captioned
+  (same honesty rule as discussion.html's radar swap). Data: two Open-Meteo `gfs_seamless` calls —
+  a 5×5 multi-location grid (±1.0° lat/±1.25° lon around the field; response is an array in
+  request order) and one full-fidelity column at the field for the readout + level heights — plus
+  the KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only
+  `window.WX3D_DEBUG` drives it headlessly.
 - `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
   ("the big story") and then laid out as a four-act story
   (I setup / II reasoning / III revisions / IV verdict). The headline engine scores candidate
