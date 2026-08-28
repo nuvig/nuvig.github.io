@@ -27,6 +27,8 @@ import json
 import math
 import os
 import queue
+import random
+import select
 import shutil
 import signal
 import struct
@@ -62,6 +64,10 @@ HANG_BLOCKS = 5        # 1.25 s of quiet ends the transmission
 PRE_ROLL_BLOCKS = 2    # keep 0.5 s before the squelch opened
 MIN_TX_SECONDS = 0.6   # discard shorter blips (squelch tails, noise)
 MAX_TX_SECONDS = 120   # force-split anything longer
+
+# A live feed delivers a block every 0.25 s even in dead silence, so any real
+# gap means the stream is wedged rather than quiet. See read_block().
+STALL_SECONDS = float(os.environ.get("KANP_ATC_STALL_SECONDS", "90"))
 
 
 def log(msg):
@@ -169,6 +175,33 @@ def transcriber_loop():
 
 # --- per-feed capture --------------------------------------------------------
 
+def read_block(proc, n, stall_seconds):
+    """Read exactly n bytes of PCM from proc, bounded by a stall timeout.
+
+    Returns the bytes, b"" on clean EOF, or None if the feed went quiet for
+    stall_seconds — ffmpeg still running and connected, just not delivering.
+
+    The timeout is the whole point. A bare proc.stdout.read(n) blocks forever
+    in that state, and on 2026-08-16 that parked all three capture threads for
+    11 days: ffmpeg's own -reconnect flags keep it alive instead of exiting, so
+    Python never saw EOF, and the process never died, so systemd's
+    Restart=always never fired. The service looked healthy the entire time.
+    """
+    fd = proc.stdout.fileno()
+    buf = bytearray()
+    deadline = time.monotonic() + stall_seconds
+    while len(buf) < n:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+            return None
+        chunk = os.read(fd, n - len(buf))
+        if not chunk:
+            return bytes(buf)          # EOF; a partial tail block is fine
+        buf.extend(chunk)
+        deadline = time.monotonic() + stall_seconds
+    return bytes(buf)
+
+
 def capture_feed(feed, stop):
     mount = feed["mount"]
     url = f"{STREAM_BASE}/{mount}"
@@ -179,8 +212,10 @@ def capture_feed(feed, stop):
             ["ffmpeg", "-nostdin", "-loglevel", "error",
              "-reconnect", "1", "-reconnect_streamed", "1",
              "-reconnect_delay_max", "10",
+             # give up on a half-open socket instead of waiting on it forever
+             "-rw_timeout", "15000000",
              "-i", url, "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         started = time.time()
         pre = []          # rolling pre-roll blocks
         recording = None  # bytearray while squelch is open
@@ -201,7 +236,11 @@ def capture_feed(feed, stop):
             tx_queue.put((mount, rec_start, dur, clip_path))
 
         while not stop.is_set():
-            block = proc.stdout.read(BLOCK_BYTES)
+            block = read_block(proc, BLOCK_BYTES, STALL_SECONDS)
+            if block is None:
+                log(f"[{mount}] no audio for {STALL_SECONDS:.0f}s — "
+                    "reconnecting")
+                break
             if not block:
                 break
             now = time.time()
@@ -231,10 +270,13 @@ def capture_feed(feed, stop):
         proc.wait()
         if stop.is_set():
             return
-        # quick death = stream problem; back off, else reconnect promptly
+        # quick death = stream problem; back off, else reconnect promptly.
+        # Jitter keeps the feeds from reconnecting in lockstep — on 2026-08-16
+        # all three hit LiveATC within the same second, repeatedly.
         backoff = min(backoff * 2, 120) if time.time() - started < 30 else 5
-        log(f"[{mount}] stream ended, retrying in {backoff}s")
-        stop.wait(backoff)
+        delay = backoff * (1 + random.random() * 0.4)
+        log(f"[{mount}] stream ended, retrying in {delay:.0f}s")
+        stop.wait(delay)
 
 
 # --- retention ----------------------------------------------------------------
