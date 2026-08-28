@@ -85,6 +85,46 @@
       padding: 14px 16px; margin-bottom: 0;
     }
 
+    /* ---- unforecast alert (what the field is having that nobody called) ---- */
+    .nowcast {
+      position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #2b1618 0%, #241416 60%, #1e1315 100%);
+      border: 1px solid #7f2b2b; border-radius: 10px;
+      padding: 13px 18px 14px; margin-bottom: 10px;
+    }
+    .nowcast[hidden] { display: none; }
+    .nowcast::before {
+      content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+      background: linear-gradient(90deg, #e04747, #ff8f5e);
+    }
+    .nc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 7px; }
+    .nc-kick {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #ff8f8f;
+    }
+    .nc-stamp { font-size: 11px; color: #a08383; margin-left: auto; }
+    .nc-title {
+      margin: 0; font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(18px, 3vw, 24px); line-height: 1.2; font-weight: 700; color: #ffe6e6;
+    }
+    .nc-list { list-style: none; margin: 9px 0 0; padding: 0; }
+    .nc-list li {
+      font-size: 13px; line-height: 1.55; color: #f0cfcf; padding: 3px 0;
+      border-top: 1px solid #45262a;
+    }
+    .nc-list li:first-child { border-top: 0; }
+    .nc-list .got b { color: #ffd2d2; }
+    .nc-list .vs { color: #9a7d7d; font-size: 11.5px; padding: 0 3px; }
+    .nc-list .said { color: #b49b9b; }
+    .nc-foot { margin-top: 10px; font-size: 11.5px; line-height: 1.55; color: #a58c8c; }
+    .nc-foot .raw {
+      display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; color: #8d7676; word-break: break-word;
+    }
+    /* the observation behind the alert, printed whether or not it fires — so a
+       quiet alert card reads as "checked and agreeing", never as a failed check */
+    .tl-obs { margin-top: 6px; font-size: 12.5px; line-height: 1.5; color: #9aa5b0; }
+
     /* ---- the big story (headline card) ---- */
     .headline {
       position: relative; overflow: hidden;
@@ -524,6 +564,16 @@
   </div>
 
   <!-- ============ THE BIG STORY ============ -->
+  <section class="nowcast" id="nowcast" aria-live="polite" hidden>
+    <div class="nc-head">
+      <span class="nc-kick">Not as forecast</span>
+      <span class="nc-stamp" id="nc-stamp"></span>
+    </div>
+    <h2 class="nc-title" id="nc-title"></h2>
+    <ul class="nc-list" id="nc-list"></ul>
+    <div class="nc-foot" id="nc-foot"></div>
+  </section>
+
   <section class="headline" id="headline" aria-live="polite">
     <div class="hl-head">
       <span class="hl-kick" id="hl-kick">The big story</span>
@@ -704,8 +754,8 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=34"></script>
-  <script src="js/discussion-avn.js?v=4"></script>
+  <script src="js/discussion.js?v=35"></script>
+  <script src="js/discussion-avn.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 34;
+const DISC_VER = 35;
 
 const $ = (id) => document.getElementById(id);
 
@@ -4144,6 +4144,9 @@ async function init() {
   }
   setInterval(() => {
     loadAlerts().then(buildHeadline);   // keeps the alert strip live between issuances
+    // re-reads the field METAR, so the "not as forecast" card can appear
+    // (or clear) mid-visit without a reload
+    if (typeof AVN !== 'undefined' && AVN.refreshNowcast) AVN.refreshNowcast();
     checkForNew();
   }, CHECK_MS);
 }

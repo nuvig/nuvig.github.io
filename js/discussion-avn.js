@@ -19,6 +19,8 @@ const AVN = {
   tafs: {},          // id -> { cur, prev, err }
   grid: null,        // hourly series at the field
   base: null,        // this morning's archived grid snapshot, when there is one
+  obs: null,         // the field station's current METAR, decoded
+  gridErr: null,     // why the grid load failed, when it did
 };
 
 /* ------------------------------- IWXXM ---------------------------------- */
@@ -373,9 +375,17 @@ function readoutFor(h) {
 
 function renderFieldGrid() {
   const host = $('avn-grid');
-  if (!AVN.grid) { host.innerHTML = '<span class="faint">Grid unavailable.</span>'; return; }
+  /* The observation line goes out even when the grid doesn't, because it is
+     the evidence that the "not as forecast" card above ran its check. */
+  const obsLine = `<div class="tl-obs">${nowcastEvidence()}</div>`;
+  if (!AVN.grid) {
+    host.innerHTML = (AVN.gridErr
+      ? `<span class="err">Hourly grid failed: ${esc(AVN.gridErr)}</span>`
+      : '<span class="faint">Grid unavailable.</span>') + obsLine;
+    return;
+  }
   const hours = buildHours();
-  if (!hours.length) { host.innerHTML = '<span class="faint">No grid data for the next 24 h.</span>'; return; }
+  if (!hours.length) { host.innerHTML = `<span class="faint">No grid data for the next 24 h.</span>${obsLine}`; return; }
 
   const cells = hours.map((h, i) =>
     `<div class="tl-cell ${catClass(h.cat)}${h.day ? '' : ' night'}${h.was ? ' moved' : ''}" ` +
@@ -389,6 +399,7 @@ function renderFieldGrid() {
     `<div class="tl-strip" id="tl-strip">${cells}</div>` +
     `<div class="tl-axis">${axis}</div>` +
     `<div class="tl-read" id="tl-read">${readoutFor(hours[0])}</div>` +
+    obsLine +
     `<div class="tl-key"><b class="cat-vfr">VFR</b> <b class="cat-mvfr">MVFR</b> ` +
     `<b class="cat-ifr">IFR</b> <b class="cat-lifr">LIFR</b> · ⚡ thunder in the grid · ` +
     `dim = night · amber bar = moved since this morning</div>`;
@@ -402,6 +413,172 @@ function renderFieldGrid() {
   strip.addEventListener('click', show);
   strip.addEventListener('mouseleave', () => { read.innerHTML = readoutFor(hours[0]); });
 }
+
+/* ------------------------- what is actually happening --------------------- */
+
+/* The red card at the top of the page: weather the field is having that the
+   forecast did not call for. Everything else here reads forecasts against
+   forecasts; this reads the field's own METAR against the version of the grid
+   a morning go/no-go was made against (WXA's first archived snapshot), falling
+   back to the live grid when the archive has no snapshot for today yet.
+   It shouts only on divergence, and only in the direction that costs a pilot
+   something — a day that turned out better than called is not an alert. The
+   evidence line under the hour-by-hour strip prints on every load, so a silent
+   card reads as "checked and agreeing", never as "the check failed". */
+
+const NC_STALE_MS = 100 * 60000;      // KNAK files hourly — older than this is not "now"
+const NC_WIND_MIN = 18;               // kt: below this a wind bust is not worth a red card
+const NC_WIND_OVER = 10;              // kt over what was called
+
+/* The field's own current observation. Live NWS first (the archive's
+   latest.json is only rewritten hourly); its last archived METAR is the
+   fallback, and is usually the same ob. */
+async function loadFieldObs() {
+  const id = AVN.field.metarStation || AVN.field.id;
+  const take = (raw, iso) => {
+    const ms = Date.parse(iso);
+    if (!raw || !Number.isFinite(ms)) return null;
+    return { id, raw, ms, o: metarObs(raw) };
+  };
+  try {
+    const p = (await fetchJSON(`${NWS}/stations/${id}/observations/latest`)).properties;
+    const ob = take(p.rawMessage, p.timestamp);
+    if (ob) { AVN.obs = ob; return; }
+  } catch (e) { /* fall through to the archive */ }
+  if (typeof WXA === 'undefined') return;
+  const wl = await WXA.latest();
+  const list = (wl && wl.fieldobs) || [];
+  const last = list[list.length - 1];
+  if (last) {
+    AVN.obs = { id: (wl && wl.field_station) || id, raw: last[1], ms: last[0] * 1000, o: metarObs(last[1]) };
+  }
+}
+
+/* What was forecast for one hour at the field, and by which issuance. The
+   morning snapshot is the baseline that matters — it is what the day was
+   planned against — but before the first snapshot of the day is archived
+   (or when the archive is absent) the live grid is the only forecast there is,
+   and it is labelled as such. */
+function forecastAt(hr) {
+  if (AVN.base && typeof WXA !== 'undefined') {
+    const ceil = WXA.gridAt(AVN.base, 'ceil', hr), vis = WXA.gridAt(AVN.base, 'vis', hr);
+    if (ceil !== undefined || vis !== undefined) {
+      return {
+        src: 'morning', label: 'this morning’s grid',
+        ceil: ceil ?? null, vis: vis ?? null,
+        spd: WXA.gridAt(AVN.base, 'spd', hr) ?? null,
+        gst: WXA.gridAt(AVN.base, 'gst', hr) ?? null,
+        pop: WXA.gridAt(AVN.base, 'pop', hr) ?? null,
+        wx: WXA.gridAt(AVN.base, 'wx', hr) || '',
+      };
+    }
+  }
+  if (AVN.grid && (AVN.grid.ceil.has(hr) || AVN.grid.vis.has(hr) || AVN.grid.tempC.has(hr))) {
+    return {
+      src: 'live', label: 'the current grid',
+      ceil: AVN.grid.ceil.get(hr) ?? null, vis: AVN.grid.vis.get(hr) ?? null,
+      spd: AVN.grid.spd.get(hr) ?? null, gst: AVN.grid.gst.get(hr) ?? null,
+      pop: AVN.grid.pop.get(hr) ?? null,
+      wx: (AVN.grid.wx.get(hr) || []).map((w) => w.wx).join(', '),
+    };
+  }
+  return null;
+}
+
+const ncWet = (s) => /rain|shower|drizzle|thunder|snow|sleet|freezing|precip/i.test(s || '');
+
+/* Observed vs called, as a list of specific divergences. Each one names the
+   number that makes it true — a red card that can't say what it saw is noise. */
+function nowcastFindings(obs, fc) {
+  const o = obs.o, out = [];
+  const fCat = catOf(fc.vis, fc.ceil);
+  if (o.cat > fCat) {
+    out.push({
+      lead: `${CATS[o.cat]} at ${obs.id}`,
+      what: `<b>${CATS[o.cat]}</b> — ${esc(catCause(o.visSM, o.ceilFt))}`,
+      said: `${CATS[fCat]} (${esc(catCause(fc.vis, fc.ceil))})`,
+    });
+  }
+  if (o.ts && !/thunder/i.test(fc.wx)) {
+    out.push({
+      lead: `thunder at ${obs.id}`,
+      what: '<b>thunder</b> in the observation',
+      said: fc.wx ? `${esc(fc.wx)}, no thunder` : 'no thunder this hour',
+    });
+  }
+  if (o.rain && !o.ts && !ncWet(fc.wx) && (fc.pop == null || fc.pop < 25)) {
+    out.push({
+      lead: `rain at ${obs.id}`,
+      what: '<b>precipitation</b> falling',
+      said: `${fc.pop == null ? 'nothing' : `${fc.pop}% chance`} this hour`,
+    });
+  }
+  const peak = Math.max(o.spd || 0, o.gst || 0);
+  const called = Math.max(fc.spd || 0, fc.gst || 0);
+  if (peak >= NC_WIND_MIN && peak >= called + NC_WIND_OVER) {
+    out.push({
+      lead: `${peak} kt at ${obs.id}`,
+      what: `<b>${o.spd} kt${o.gst ? ` gusting ${o.gst}` : ''}</b>`,
+      said: called ? `${Math.round(called)} kt` : 'light wind',
+    });
+  }
+  return out;
+}
+
+/* One line of evidence under the hour-by-hour strip: what the field is
+   actually reporting, always, so the red card's silence means agreement. */
+function nowcastEvidence() {
+  if (!AVN.obs) return '<span class="faint">No current observation for the field.</span>';
+  const o = AVN.obs.o, age = Date.now() - AVN.obs.ms;
+  const stamp = fmtTime(new Date(AVN.obs.ms), { hour: 'numeric', minute: '2-digit' });
+  const stale = age > NC_STALE_MS ? ` <span class="faint">(${Math.round(age / 60000)} min old)</span>` : '';
+  /* fmtVis caps at P6SM because the grid does; an observation reports the real
+     number, so print that unless the METAR itself said P6SM. */
+  const vis = o.visSM == null ? '—'
+    : /\bP6SM\b/.test(AVN.obs.raw) ? 'P6SM' : `${+o.visSM.toFixed(1)} SM`;
+  return `Observed at <b>${esc(AVN.obs.id)}</b> ${esc(stamp)}: ` +
+    `<b class="cat-${CATS[o.cat].toLowerCase()}">${CATS[o.cat]}</b> · ` +
+    `${esc(fmtCeil(o.ceilFt))} / ${esc(vis)}` +
+    `${o.spd == null ? '' : ` · ${o.spd} kt${o.gst ? ` G${o.gst}` : ''}`}${stale}`;
+}
+
+/* Fill (or hide) the alert card above the headline. */
+function renderNowcast() {
+  const card = $('nowcast');
+  if (!card) return;
+  const hr = Math.floor(Date.now() / 3600000) * 3600000;
+  const fc = forecastAt(hr);
+  const fresh = AVN.obs && Date.now() - AVN.obs.ms <= NC_STALE_MS;
+  const found = fresh && fc ? nowcastFindings(AVN.obs, fc) : [];
+  if (!found.length) { card.hidden = true; return; }
+
+  const leads = found.map((f) => f.lead);
+  const title = `${leads[0].charAt(0).toUpperCase()}${leads[0].slice(1)}` +
+    (leads.length > 1 ? `, and ${leads.length - 1} more the forecast didn’t call` : ' — not what was forecast');
+  $('nc-title').innerHTML = esc(title);
+  $('nc-stamp').textContent = fmtTime(new Date(AVN.obs.ms), { hour: 'numeric', minute: '2-digit' });
+  $('nc-list').innerHTML = found.map((f) =>
+    `<li><span class="got">${f.what}</span> <span class="vs">vs</span> ` +
+    `<span class="said">${fc.label} called ${f.said}</span></li>`).join('');
+
+  const hasLive = AVN.grid && (AVN.grid.ceil.has(hr) || AVN.grid.vis.has(hr));
+  const live = hasLive ? catOf(AVN.grid.vis.get(hr) ?? null, AVN.grid.ceil.get(hr) ?? null) : null;
+  const lagging = fc.src === 'morning' && live != null && live < AVN.obs.o.cat
+    ? ` The current grid still has this hour as <b>${CATS[live]}</b>.` : '';
+  $('nc-foot').innerHTML =
+    `${esc(AVN.obs.id)} is the field’s sensor (${esc(AVN.field.id)} has none); the forecast is the ` +
+    `NWS hourly grid at ${esc(AVN.field.id)}, as issued ${fc.src === 'morning' ? 'this morning' : 'now'}.` +
+    `${lagging} <span class="raw">${esc(AVN.obs.raw)}</span>`;
+  card.hidden = false;
+}
+
+/* Re-read the observation and redraw. Called on the page's 10-minute tick, so
+   a card that appears mid-visit does not need a reload to show up. */
+AVN.refreshNowcast = async function refreshNowcast() {
+  try { await loadFieldObs(); } catch (e) { /* keep the last ob */ }
+  renderNowcast();
+  renderFieldGrid();   // also refreshes the observation line's age
+};
 
 /* What moved between the last two TAF issuances, and why. */
 function renderTafChanges() {
@@ -469,14 +646,14 @@ AVN.init = async function init() {
   if (typeof WXA !== 'undefined') {
     AVN.base = await WXA.firstSnap('grid', localDay(Date.now()));
   }
-  const jobs = AVN.stations.map(async (st) => {
+  const jobs = [loadFieldObs().catch(() => {})];
+  jobs.push(...AVN.stations.map(async (st) => {
     try { AVN.tafs[st.id] = await loadTafPair(st.id); }
     catch (e) { AVN.tafs[st.id] = { err: `unavailable (${e.message})` }; }
-  });
-  jobs.push(loadFieldGrid().catch((e) => {
-    $('avn-grid').innerHTML = `<span class="err">Hourly grid failed: ${esc(e.message)}</span>`;
   }));
+  jobs.push(loadFieldGrid().catch((e) => { AVN.gridErr = e.message; }));
   await Promise.all(jobs);
-  if (AVN.grid) renderFieldGrid();
+  renderNowcast();
+  renderFieldGrid();   // renders the failure itself, and the observation either way
   renderTafChanges();
 };

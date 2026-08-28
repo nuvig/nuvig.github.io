@@ -348,7 +348,8 @@ concepts; to relink, add the tools.html card back.
   request order) and one full-fidelity column at the field for the readout + level heights — plus
   the KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only
   `window.WX3D_DEBUG` drives it headlessly.
-- `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
+- `discussion.html` + `js/discussion.js` — DC Forecast Discussion, opened by the **"not as forecast"
+  red card** (`js/discussion-avn.js`, see below) and then led by a **headline card**
   ("the big story") and then laid out as a four-act story
   (I setup / II reasoning / III revisions / IV verdict). The headline engine scores candidate
   stories — active NWS alerts, convection, a frontal passage, a rain episode, heat, cold, wind,
@@ -428,11 +429,26 @@ concepts; to relink, add the tools.html card back.
   baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
   for anything the archive lacks. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
-- `js/discussion-avn.js` — the aviation layer on `discussion.html`: the NWS hourly grid at the
+- `js/discussion-avn.js` — the aviation layer on `discussion.html`. Three things.
+  **(1) The "not as forecast" red card** above the headline — the one thing on the page that reads
+  an *observation* rather than a forecast. The field's current METAR (live NWS, falling back to
+  `WXA.latest().fieldobs`) is checked against the version of the NWS hourly grid a morning go/no-go
+  was made against — `WXA.firstSnap('grid', today)`, falling back to the live grid before the day's
+  first snapshot exists, and labelled either way — for four divergences: flight category worse than
+  called, thunder observed with none in the grid's `wx`, precip falling under a dry/low-PoP hour,
+  and wind ≥18 kt running ≥10 kt over what was called. Rules worth keeping: it fires **only in the
+  direction that costs a pilot something** (a day better than called is not an alert); an ob older
+  than 100 min is not "now" and fires nothing (KNAK is hourly); every row names the number that
+  makes it true; and when the morning grid was beaten but the *live* grid still hasn't caught up,
+  the footer says so — that lag is the actionable part. Silence is ambiguous, so `nowcastEvidence()`
+  prints the observation under the hour-by-hour strip on **every** load, grid failures included:
+  a quiet red card then reads as "checked and agreeing", never as a failed check. Decoding reuses
+  `discussion.js`'s `metarObs`/`catOf`/`catCause`, so a METAR fix there lands here too.
+  **(2)** the NWS hourly grid at the
   field as a 24 h flight-category strip — one cell per hour, night dimmed, a bolt where the grid
   carries thunder, an amber bar where the hour moved since the morning snapshot, hover for the
-  numbers, and a one-line plain reading of where the windows are — plus "what moved in the TAF and
-  why". Sunrise/sunset is the NOAA sunrise equation anchored on the **field's** calendar day
+  numbers, and a one-line plain reading of where the windows are. **(3) What moved in the TAF, and
+  why.** Sunrise/sunset is the NOAA sunrise equation anchored on the **field's** calendar day
   (checked against a published 06:11 EDT sunrise), same rule as `weather.js` `solarTimes()`.
   **TAFs are fetched but deliberately not displayed** — `weather.html` already decodes them and a
   second decoder here only crowded Act II; they exist here as the evidence behind the change
