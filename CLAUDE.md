@@ -332,7 +332,18 @@ concepts; to relink, add the tools.html card back.
   in the data, so tracers hold altitude, and the page says so; the freezing surface
   is a warped per-grid-point mesh; precip columns rise to the lowest cloudy deck. RainViewer radar
   drapes the ground **only at the "now" hour** — other hours get a model-precip stain, captioned
-  (same honesty rule as discussion.html's radar swap). Data: two Open-Meteo `gfs_seamless` calls —
+  (same honesty rule as discussion.html's radar swap). The ground is a real map:
+  `data/wx3d/terrain.json`, built by `python scripts/build_wx3d_terrain.py` (USGS 3DEP `ned10m`
+  via the OpenTopoData public API — **not** Open-Meteo's elevation endpoint, which weighs each
+  coordinate as a call and 429s a 192×192 grid; output committed, rerun only to change the
+  landmark list or re-site, and the page bbox-validates the file so a stale one is dropped, not
+  misdrawn). Water is wherever the hydro-flattened DEM says sea level — that one rule draws the
+  Bay and the tidal rivers with no coastline data; land is hillshaded hypsometric tint baked into
+  the flat affine ground texture (so radar still drapes with one transform), ground above ~90 m is
+  *additionally* drawn as a displaced mesh at the same ×7.5 exaggeration (radar paints flat at
+  z=0, so echoes can visually underlie the NW ridges — known, accepted), and the JSON's landmark
+  list (cities, BWI/DCA/ADW, the Bay Bridge, peaks) draws as screen-space pins. Data: two
+  Open-Meteo `gfs_seamless` calls —
   a 5×5 multi-location grid (±1.0° lat/±1.25° lon around the field; response is an array in
   request order) and one full-fidelity column at the field for the readout + level heights — plus
   the KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only

@@ -140,7 +140,7 @@
     <p class="subtitle">The forecast over the Chesapeake as a solid block of sky you can pick up and turn —
       every cloud deck drawn at its modeled altitude, winds aloft on their pressure levels, the freezing
       surface tilting with the air mass, rain columns reaching the ground, and the live radar draped over
-      the map at &ldquo;now.&rdquo; Drag to orbit, scroll to zoom, and slide through the next two days —
+      the real lay of the land at &ldquo;now.&rdquo; Drag to orbit, scroll to zoom, and slide through the next two days —
       or set winds aloft to &ldquo;flow&rdquo; and watch the whole block move like a wind map with a
       third dimension.</p>
   </header>
@@ -222,8 +222,14 @@
           <li><b>Rain</b>: blue columns rise from where the model drops precip to the deck it falls
             from. At the &ldquo;now&rdquo; hour the ground wears the live radar (RainViewer); every
             other hour it's shaded by the model's precip instead — the caption says which you're seeing.</li>
-          <li><b>The vertical scale is ×7.5 exaggerated.</b> At true scale this ~120-nm-wide box would
-            be about eighteen times wider than it is tall, and every cloud deck would be a coat of paint.</li>
+          <li><b>The ground is real</b> — a 192×192 grid of USGS 3DEP elevations. Wherever the DEM
+            reports sea level becomes water, and that one rule draws the Bay, the Potomac and the
+            river mouths; the land is tinted and hillshaded by elevation, and the high ground in the
+            northwest — Catoctin, Sugarloaf, Parr's Ridge — rises out of the plane as a true mesh.
+            Cities, the majors (BWI, DCA, ADW) and the Bay Bridge are marked for orientation.</li>
+          <li><b>The vertical scale is ×7.5 exaggerated</b>, terrain included — the same stretch for
+            the ridges and the cloud decks above them. At true scale this ~120-nm-wide box would be
+            about eighteen times wider than it is tall, and every cloud deck would be a coat of paint.</li>
           <li><b>Model</b>: NOAA GFS (HRRR-blended in the near term) via Open-Meteo, hourly, on a 5×5
             grid of columns. It's one model's opinion of the sky — sanity-check it against the METAR
             line and the Skew-T.</li>
@@ -236,11 +242,12 @@
 
   <footer>
     <p>Model: NOAA GFS via Open-Meteo · obs KNAK (api.weather.gov) · radar RainViewer ·
-      directions °true · © Jesse Levine · <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
+      terrain USGS 3DEP (OpenTopoData) · directions °true · © Jesse Levine ·
+      <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/wx3d.js?v=2"></script>
+  <script src="js/wx3d.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

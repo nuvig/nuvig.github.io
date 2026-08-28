@@ -196,6 +196,132 @@
     dirty = true;
   }
 
+  // ------------------------------------------------------------ terrain
+  // Static layer from data/wx3d/terrain.json (scripts/build_wx3d_terrain.py:
+  // Copernicus DEM GLO-90 via Open-Meteo, 192×192 over this same box, plus
+  // the landmark list — output committed). Water is wherever the DEM reports
+  // sea level: that one rule draws the Bay, the Potomac and the river mouths.
+  // The flat ground texture carries the full-resolution map, so radar still
+  // drapes with a single affine transform; ground above MESH_MIN_M also gets
+  // drawn as a real displaced mesh at the same ×7.5 vertical exaggeration.
+  const terr = { ok: false, nx: 0, ny: 0, lat0: 0, lon0: 0, dlat: 0, dlon: 0,
+                 elev: null, shade: null, mesh: [], marks: [] };
+  const MESH_STEP = 3, MESH_MIN_M = 90;
+  const RAMP = [[0.5, 22, 32, 28], [40, 27, 38, 30], [100, 35, 44, 32],
+                [200, 46, 50, 36], [350, 56, 52, 40], [500, 66, 60, 48], [700, 78, 72, 60]];
+
+  function rampAt(m) {
+    if (m <= RAMP[0][0]) return [RAMP[0][1], RAMP[0][2], RAMP[0][3]];
+    for (let i = 0; i < RAMP.length - 1; i++) {
+      const a = RAMP[i], b = RAMP[i + 1];
+      if (m <= b[0]) {
+        const t = (m - a[0]) / (b[0] - a[0]);
+        return [a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
+      }
+    }
+    const z = RAMP[RAMP.length - 1];
+    return [z[1], z[2], z[3]];
+  }
+
+  async function loadTerrain() {
+    try {
+      const t = await fetchJSON('data/wx3d/terrain.json');
+      // built for one specific box — drop a stale file rather than misdraw it
+      if (Math.abs(t.lat0 - latN) > 0.02 || Math.abs(t.lon0 - lonW) > 0.02 ||
+          Math.abs(t.lat0 - (t.ny - 1) * t.dlat - latS) > 0.02) {
+        console.warn('terrain.json bbox mismatch — rerun scripts/build_wx3d_terrain.py');
+        return;
+      }
+      terr.nx = t.nx; terr.ny = t.ny;
+      terr.lat0 = t.lat0; terr.lon0 = t.lon0; terr.dlat = t.dlat; terr.dlon = t.dlon;
+      terr.elev = Int16Array.from(t.elev);
+      terr.marks = t.landmarks || [];
+      buildShade();
+      buildMesh();
+      terr.ok = true;
+      buildGroundBase();
+      dirty = true;
+    } catch (e) { /* the page is fine without terrain */ }
+  }
+
+  function buildShade() {
+    const { nx, ny, elev } = terr;
+    const dxm = terr.dlon * 111320 * Math.cos(A.lat * D2R);
+    const dym = terr.dlat * 111320;
+    const s = new Float32Array(nx * ny);
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const x0 = Math.max(0, x - 1), x1 = Math.min(nx - 1, x + 1);
+        const y0 = Math.max(0, y - 1), y1 = Math.min(ny - 1, y + 1);
+        const fx = (elev[y * nx + x1] - elev[y * nx + x0]) / ((x1 - x0) * dxm);   // ∂z/∂east
+        const fy = (elev[y0 * nx + x] - elev[y1 * nx + x]) / ((y1 - y0) * dym);   // ∂z/∂north (row 0 = north)
+        // NW illumination: east-rising slopes face the light, north-rising face away
+        s[y * nx + x] = clamp(1 + (fx - fy) * 2.1, 0.55, 1.4);
+      }
+    }
+    terr.shade = s;
+  }
+
+  function terrSample(u, v, arr) {
+    const fx = u * (terr.nx - 1), fy = v * (terr.ny - 1);
+    const x0 = Math.min(terr.nx - 2, Math.floor(fx)), tx = fx - x0;
+    const y0 = Math.min(terr.ny - 2, Math.floor(fy)), ty = fy - y0;
+    const i = y0 * terr.nx + x0;
+    return (arr[i] * (1 - tx) + arr[i + 1] * tx) * (1 - ty) +
+           (arr[i + terr.nx] * (1 - tx) + arr[i + terr.nx + 1] * tx) * ty;
+  }
+
+  function elevAtLL(lat, lon) {
+    if (!terr.ok) return 0;
+    const u = (lon - terr.lon0) / (terr.dlon * (terr.nx - 1));
+    const v = (terr.lat0 - lat) / (terr.dlat * (terr.ny - 1));
+    return terrSample(clamp(u, 0, 1), clamp(v, 0, 1), terr.elev);
+  }
+
+  function buildMesh() {
+    terr.mesh = [];
+    const { nx, ny, elev, shade } = terr;
+    const wx = (ix) => ((terr.lon0 + ix * terr.dlon) - A.lon) * KM_LON;
+    const wy = (iy) => ((terr.lat0 - iy * terr.dlat) - A.lat) * KM_LAT;
+    for (let iy = 0; iy + MESH_STEP < ny; iy += MESH_STEP) {
+      for (let ix = 0; ix + MESH_STEP < nx; ix += MESH_STEP) {
+        const i00 = iy * nx + ix, i01 = i00 + MESH_STEP;
+        const i10 = (iy + MESH_STEP) * nx + ix, i11 = i10 + MESH_STEP;
+        const e00 = elev[i00], e01 = elev[i01], e10 = elev[i10], e11 = elev[i11];
+        if (Math.max(e00, e01, e10, e11) < MESH_MIN_M) continue;
+        const em = (e00 + e01 + e10 + e11) / 4;
+        const sm = (shade[i00] + shade[i01] + shade[i10] + shade[i11]) / 4 * 1.12;
+        const [r, g, b] = rampAt(em);
+        terr.mesh.push({
+          x0: wx(ix), x1: wx(ix + MESH_STEP), y0: wy(iy), y1: wy(iy + MESH_STEP),
+          z00: zOf(Math.max(0, e00) * M2FT), z01: zOf(Math.max(0, e01) * M2FT),
+          z10: zOf(Math.max(0, e10) * M2FT), z11: zOf(Math.max(0, e11) * M2FT),
+          d: 0,
+          col: `rgb(${Math.round(r * sm)},${Math.round(g * sm)},${Math.round(b * sm)})`,
+        });
+      }
+    }
+  }
+
+  function drawTerrainMesh() {
+    if (!terr.mesh.length) return;
+    for (const q of terr.mesh) {
+      q.d = ((q.x0 + q.x1) / 2) * sinY + ((q.y0 + q.y1) / 2) * cosY;
+    }
+    terr.mesh.sort((a, b) => b.d - a.d);        // farthest first
+    ctx.lineWidth = 0.75;
+    for (const q of terr.mesh) {
+      const p1 = project(q.x0, q.y0, q.z00), p2 = project(q.x1, q.y0, q.z01);
+      const p3 = project(q.x1, q.y1, q.z11), p4 = project(q.x0, q.y1, q.z10);
+      ctx.fillStyle = q.col; ctx.strokeStyle = q.col;
+      ctx.beginPath();
+      ctx.moveTo(p1.X, p1.Y); ctx.lineTo(p2.X, p2.Y);
+      ctx.lineTo(p3.X, p3.Y); ctx.lineTo(p4.X, p4.Y);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();                 // stroke seals AA cracks between quads
+    }
+  }
+
   // ------------------------------------------------------------ field access
   const H = (k, name, i) => {
     const s = data.grid[k][name];
@@ -309,9 +435,31 @@
     const S = GROUND_S;
     const c = document.createElement('canvas'); c.width = S; c.height = S;
     const g = c.getContext('2d');
-    g.fillStyle = '#0e1320'; g.fillRect(0, 0, S, S);
+    if (terr.ok) {
+      // the real map: DEM sea level → water, land → hillshaded hypsometric tint
+      const img = g.createImageData(S, S);
+      const px = img.data;
+      for (let y = 0; y < S; y++) {
+        const v = y / (S - 1);
+        for (let x = 0; x < S; x++) {
+          const u = x / (S - 1);
+          const e = terrSample(u, v, terr.elev);
+          const k = (y * S + x) * 4;
+          if (e <= 0.4) { px[k] = 11; px[k + 1] = 21; px[k + 2] = 36; }
+          else {
+            const sh = terrSample(u, v, terr.shade);
+            const rc = rampAt(e);
+            px[k] = rc[0] * sh; px[k + 1] = rc[1] * sh; px[k + 2] = rc[2] * sh;
+          }
+          px[k + 3] = 255;
+        }
+      }
+      g.putImageData(img, 0, 0);
+    } else {
+      g.fillStyle = '#0e1320'; g.fillRect(0, 0, S, S);
+    }
     // graticule each 0.5°
-    g.strokeStyle = 'rgba(150,170,200,0.055)'; g.lineWidth = 1;
+    g.strokeStyle = 'rgba(150,170,200,0.075)'; g.lineWidth = 1;
     for (let la = Math.ceil(latS * 2) / 2; la <= latN; la += 0.5) {
       const y = (latN - la) / SPAN_LAT * S;
       g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke();
@@ -321,7 +469,7 @@
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, S); g.stroke();
     }
     // 20 / 40 nm rings around the field
-    g.strokeStyle = 'rgba(150,170,200,0.12)';
+    g.strokeStyle = 'rgba(150,170,200,0.16)';
     for (const nm of [20, 40]) {
       const km = nm * 1.852;
       g.beginPath();
@@ -671,6 +819,7 @@
     // ground: static base + radar (now) or model-precip stain (other hours)
     items.push({ z: -2, fn: () => {
       drawFlat(groundBase, 0, 1);
+      drawTerrainMesh();          // the NW high ground rises out of the flat map
       if (state.layers.gd && isNow && radar.canvas) drawFlat(radar.canvas, 0, 0.8);
       else if (state.layers.gd && built.blobs) drawFlat(built.blobs, 0, 0.9);
     } });
@@ -710,6 +859,41 @@
         ctx.fillStyle = 'rgba(130,145,170,0.65)';
         ctx.font = '9.5px "Segoe UI", system-ui, sans-serif';
         ctx.fillText(ap.id, P.X + 4, P.Y + 1);
+      }
+      // landmarks from terrain.json: cities, the majors, the Bay Bridge, peaks
+      for (const lm of terr.marks) {
+        const x = (lm.lon - A.lon) * KM_LON, y = (lm.lat - A.lat) * KM_LAT;
+        if (Math.abs(x) > HALF_X || Math.abs(y) > HALF_Y) continue;
+        if (lm.kind === 'bridge') {
+          const x2 = (lm.lon2 - A.lon) * KM_LON, y2 = (lm.lat2 - A.lat) * KM_LAT;
+          const P1 = project(x, y, 0), P2 = project(x2, y2, 0);
+          ctx.strokeStyle = 'rgba(205,215,230,0.55)'; ctx.lineWidth = 1.5;
+          line(P1.X, P1.Y, P2.X, P2.Y);
+          ctx.fillStyle = 'rgba(150,162,180,0.55)';
+          ctx.font = '8.5px "Segoe UI", system-ui, sans-serif';
+          ctx.fillText(lm.name, Math.max(P1.X, P2.X) + 4, (P1.Y + P2.Y) / 2 - 3);
+          ctx.font = '9.5px "Segoe UI", system-ui, sans-serif';
+        } else if (lm.kind === 'peak') {
+          const P = project(x, y, zOf(elevAtLL(lm.lat, lm.lon) * M2FT));
+          ctx.fillStyle = 'rgba(205,190,160,0.7)';
+          ctx.beginPath();
+          ctx.moveTo(P.X, P.Y - 3.5); ctx.lineTo(P.X - 3, P.Y + 2); ctx.lineTo(P.X + 3, P.Y + 2);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = 'rgba(190,177,152,0.65)';
+          ctx.fillText(lm.name, P.X + 5, P.Y - 3);
+        } else if (lm.kind === 'city') {
+          const P = project(x, y, 0);
+          ctx.fillStyle = 'rgba(208,195,165,0.6)';
+          ctx.fillRect(P.X - 1.5, P.Y - 1.5, 3, 3);
+          ctx.fillStyle = 'rgba(188,178,152,0.62)';
+          ctx.fillText(lm.name, P.X + 4, P.Y + 1);
+        } else {                    // apt — styled like the SITE nearby fields
+          const P = project(x, y, 0);
+          ctx.fillStyle = 'rgba(150,165,190,0.75)';
+          ctx.beginPath(); ctx.arc(P.X, P.Y, 2, 0, TAU); ctx.fill();
+          ctx.fillStyle = 'rgba(130,145,170,0.65)';
+          ctx.fillText(lm.name, P.X + 4, P.Y + 1);
+        }
       }
       // the field: runway stripe on its true axis + label
       const ax = SITE.tracker.runway.axisTrue * D2R;
@@ -1104,6 +1288,7 @@
   wireControls();
   loadAll();
   loadMetar();
+  loadTerrain();
   loadRadar().catch(() => { /* radar is garnish */ });
   setInterval(() => loadRadar().catch(() => {}), 5 * 60 * 1000);
   requestAnimationFrame(frame);
@@ -1118,5 +1303,9 @@
     flow: () => ({ on: state.wind === 'flow', ready: flow.ready, live: flow.live,
                    emaMs: +flow.emaMs.toFixed(1), levels: flow.nL,
                    sample: flow.ready ? { x: +flow.hx[0].toFixed(2), y: +flow.hy[0].toFixed(2), zft: Math.round(flow.hz[0]), kt: +flow.sp[0].toFixed(1) } : null }),
+    terr: () => ({ ok: terr.ok, cells: terr.mesh.length, marks: terr.marks.length,
+                   kanpM: terr.ok ? Math.round(elevAtLL(A.lat, A.lon)) : null,
+                   sugarloafM: terr.ok ? Math.round(elevAtLL(39.2621, -77.3944)) : null,
+                   midBayM: terr.ok ? Math.round(elevAtLL(38.55, -76.4)) : null }),
   };
 })();
