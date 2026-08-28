@@ -51,9 +51,9 @@
   const gy = lats.map((la) => (la - A.lat) * KM_LAT);   // world y of each row
   const gx = lons.map((lo) => (lo - A.lon) * KM_LON);   // world x of each column
 
-  const LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300];
+  const LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
   // standard-atmosphere heights, ft — fallback if the field column never loads
-  const STD_FT = { 1000: 360, 925: 2500, 850: 4780, 700: 9880, 600: 13800, 500: 18280, 400: 23570, 300: 30060 };
+  const STD_FT = { 1000: 360, 925: 2500, 850: 4780, 700: 9880, 600: 13800, 500: 18280, 400: 23570, 300: 30060, 250: 34000, 200: 38660 };
   const levelTint = (p) => p >= 850 ? [150, 159, 172] : p >= 500 ? [188, 197, 212] : [222, 231, 245];
 
   // ------------------------------------------------------------ state
@@ -397,10 +397,143 @@
     built.fz = buildFreezing(i);
     built.hFt = {};
     for (const L of LEVELS) built.hFt[L] = levelFt(L, i);
+    buildFlowField(i);
     renderPanel(i);
     updateChip();
     updateNote();
     dirty = true;
+  }
+
+  // ------------------------------------------------------------ 3-D flow
+  // Flow mode: the volume filled with altitude-holding tracers advected by
+  // the model's horizontal wind — trilinear between the 5×5 columns and the
+  // wind surfaces (10 m + every pressure level), time-lapsed FLOW_SPEED×
+  // so the motion is visible. The model publishes no vertical motion at
+  // these levels, so each tracer rides its own altitude. Trails live in
+  // world space (a lagging tail point), so they orbit with the volume.
+  const FLOW_N = 8000;                 // a 20×20×20 field's worth of tracers
+  const FLOW_MIN = 1500;               // FPS-governor floor
+  const FLOW_SPEED = 2900;             // time-lapse: ~48 min of wind per second
+  const KT_KMS = 1.852 / 3600;
+  const Z_K = 0.0003048 * ZSCALE;      // ft → world km (matches zOf)
+  const FLOW_COLS = ['rgba(148,166,190,0.42)', 'rgba(74,158,255,0.5)',
+                     'rgba(240,192,64,0.58)', 'rgba(255,107,107,0.62)'];
+  const flowCol = (kt) => kt < 12 ? 0 : kt < 25 ? 1 : kt < 40 ? 2 : 3;
+  const flow = {
+    ready: false, live: FLOW_N, emaMs: 16, govTick: 0, buckets: null,
+    hx: null, hy: null, hz: null, tx: null, ty: null, sp: null, age: null, life: null,
+    nL: 0, h: null, u: null, v: null, lastT: 0,
+  };
+
+  function buildFlowField(i) {
+    const MAXL = LEVELS.length + 1;
+    if (!flow.h) {
+      flow.h = new Float32Array(MAXL);
+      flow.u = new Float32Array(MAXL * GN * GN);
+      flow.v = new Float32Array(MAXL * GN * GN);
+    }
+    let n = 0;
+    const put = (hft, wsName, wdName) => {
+      const base = n * GN * GN;
+      for (let k = 0; k < GN * GN; k++) {
+        const ws = H(k, wsName, i), wd = H(k, wdName, i);
+        if (ws == null || wd == null) { flow.u[base + k] = 0; flow.v[base + k] = 0; continue; }
+        const r = wd * D2R;
+        flow.u[base + k] = -Math.sin(r) * ws;   // flow components, kt (°true)
+        flow.v[base + k] = -Math.cos(r) * ws;
+      }
+      flow.h[n] = hft; n++;
+    };
+    put(A.elevFt + 33, 'wind_speed_10m', 'wind_direction_10m');
+    for (const L of LEVELS) {
+      const hft = levelFt(L, i);
+      if (hft <= flow.h[n - 1] + 100) continue;    // below-ground / degenerate
+      put(hft, `wind_speed_${L}hPa`, `wind_direction_${L}hPa`);
+    }
+    flow.nL = n;
+  }
+
+  const flowTopFt = () => Math.min(TOP_FT, flow.nL ? flow.h[flow.nL - 1] : 31000) - 400;
+
+  function flowSeed(i, scatterAge) {
+    flow.hx[i] = (Math.random() * 2 - 1) * HALF_X * 0.99;
+    flow.hy[i] = (Math.random() * 2 - 1) * HALF_Y * 0.99;
+    flow.hz[i] = 200 + Math.random() * Math.max(1000, flowTopFt() - 200);
+    flow.tx[i] = flow.hx[i]; flow.ty[i] = flow.hy[i];
+    flow.sp[i] = 0;
+    flow.life[i] = 5 + Math.random() * 6;
+    flow.age[i] = scatterAge ? Math.random() * flow.life[i] : 0;
+  }
+
+  function flowAlloc() {
+    if (flow.hx) return;
+    const N = FLOW_N;
+    flow.hx = new Float32Array(N); flow.hy = new Float32Array(N);
+    flow.hz = new Float32Array(N); flow.tx = new Float32Array(N);
+    flow.ty = new Float32Array(N); flow.sp = new Float32Array(N);
+    flow.age = new Float32Array(N); flow.life = new Float32Array(N);
+    for (let i = 0; i < N; i++) flowSeed(i, true);
+  }
+
+  const wSamp = { u: 0, v: 0 };
+  function sampleWind(x, y, zft) {
+    const gfx = clamp((x + HALF_X) / (2 * HALF_X), 0, 1) * (GN - 1);
+    const gfy = clamp((HALF_Y - y) / (2 * HALF_Y), 0, 1) * (GN - 1);   // row 0 = north
+    const ix = Math.min(GN - 2, Math.floor(gfx)), tx = gfx - ix;
+    const iy = Math.min(GN - 2, Math.floor(gfy)), ty = gfy - iy;
+    let k = 0;
+    while (k < flow.nL - 2 && flow.h[k + 1] < zft) k++;
+    const tz = clamp((zft - flow.h[k]) / Math.max(1, flow.h[k + 1] - flow.h[k]), 0, 1);
+    const i00 = iy * GN + ix, i10 = i00 + GN;
+    const w00 = (1 - tx) * (1 - ty), w01 = tx * (1 - ty);
+    const w10 = (1 - tx) * ty, w11 = tx * ty;
+    const b0 = k * GN * GN, b1 = b0 + GN * GN;
+    const u0 = flow.u[b0 + i00] * w00 + flow.u[b0 + i00 + 1] * w01 + flow.u[b0 + i10] * w10 + flow.u[b0 + i10 + 1] * w11;
+    const v0 = flow.v[b0 + i00] * w00 + flow.v[b0 + i00 + 1] * w01 + flow.v[b0 + i10] * w10 + flow.v[b0 + i10 + 1] * w11;
+    const u1 = flow.u[b1 + i00] * w00 + flow.u[b1 + i00 + 1] * w01 + flow.u[b1 + i10] * w10 + flow.u[b1 + i10 + 1] * w11;
+    const v1 = flow.v[b1 + i00] * w00 + flow.v[b1 + i00 + 1] * w01 + flow.v[b1 + i10] * w10 + flow.v[b1 + i10 + 1] * w11;
+    wSamp.u = u0 + (u1 - u0) * tz;
+    wSamp.v = v0 + (v1 - v0) * tz;
+  }
+
+  function stepParticles(now) {
+    const dt = Math.min(0.05, Math.max(0.001, (now - flow.lastT) / 1000));
+    flow.lastT = now;
+    const kk = KT_KMS * FLOW_SPEED * dt;
+    const lag = Math.min(1, dt * 9);
+    for (let i = 0; i < flow.live; i++) {
+      sampleWind(flow.hx[i], flow.hy[i], flow.hz[i]);
+      flow.sp[i] = Math.hypot(wSamp.u, wSamp.v);
+      flow.hx[i] += wSamp.u * kk;
+      flow.hy[i] += wSamp.v * kk;
+      flow.tx[i] += (flow.hx[i] - flow.tx[i]) * lag;
+      flow.ty[i] += (flow.hy[i] - flow.ty[i]) * lag;
+      flow.age[i] += dt;
+      if (flow.age[i] > flow.life[i] ||
+          Math.abs(flow.hx[i]) > HALF_X || Math.abs(flow.hy[i]) > HALF_Y) flowSeed(i, false);
+    }
+  }
+
+  // one path per (altitude band × speed color): thousands of streaklets,
+  // a handful of stroke() calls
+  function drawFlowBand(k) {
+    for (let c = 0; c < 4; c++) {
+      const list = flow.buckets[k * 4 + c];
+      if (!list.length) continue;
+      ctx.strokeStyle = FLOW_COLS[c];
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let j = 0; j < list.length; j++) {
+        const i = list[j];
+        const z = flow.hz[i] * Z_K;
+        const hx = flow.hx[i], hy = flow.hy[i], tx = flow.tx[i], ty = flow.ty[i];
+        ctx.moveTo(cx + (tx * cosY - ty * sinY) * scale,
+                   cy - ((tx * sinY + ty * cosY) * sinP + z * cosP) * scale);
+        ctx.lineTo(cx + (hx * cosY - hy * sinY) * scale,
+                   cy - ((hx * sinY + hy * cosY) * sinP + z * cosP) * scale);
+      }
+      ctx.stroke();
+    }
   }
 
   // ------------------------------------------------------------ projection
@@ -667,8 +800,33 @@
       } });
     }
 
+    // 3-D flow — tracers bucketed between the cloud decks so an overcast
+    // layer properly veils the traffic beneath it
+    if (state.wind === 'flow' && flow.ready) {
+      const cuts = state.layers.cl
+        ? built.sheets.filter((s) => s.canvas)
+            .map((s) => zOf(Math.min(s.hFt, TOP_FT))).sort((a, b) => a - b)
+        : [];
+      const nb = cuts.length + 1;
+      if (!flow.buckets || flow.buckets.length !== nb * 4) {
+        flow.buckets = Array.from({ length: nb * 4 }, () => []);
+      }
+      for (const b of flow.buckets) b.length = 0;
+      for (let p = 0; p < flow.live; p++) {
+        const z = flow.hz[p] * Z_K;
+        let k = 0;
+        while (k < cuts.length && cuts[k] < z) k++;
+        flow.buckets[k * 4 + flowCol(flow.sp[p])].push(p);
+      }
+      for (let k = 0; k < nb; k++) {
+        const zb = k === 0 ? -0.9 : cuts[k - 1] + 0.006;
+        const kk = k;
+        items.push({ z: zb, fn: () => drawFlowBand(kk) });
+      }
+    }
+
     // winds aloft — arrows across the grid at the chosen level
-    if (state.wind !== 'off') {
+    if (state.wind !== 'off' && state.wind !== 'flow') {
       const sfc = state.wind === 'sfc';
       const L = sfc ? null : +state.wind;
       const zl = sfc ? 0.02 : zOf(clamp(built.hFt[L], 0, TOP_FT));
@@ -917,7 +1075,27 @@
   new ResizeObserver(resize).observe(canvas);
 
   function frame() {
-    if (dirty && !document.hidden) { dirty = false; render(); }
+    const flowOn = state.wind === 'flow' && !!data.grid && built.hour >= 0;
+    if (!document.hidden) {
+      if (flowOn) {
+        if (!flow.ready) { flowAlloc(); flow.ready = true; flow.lastT = performance.now(); }
+        const t0 = performance.now();
+        stepParticles(t0);
+        render();
+        dirty = false;
+        // FPS governor (glow.html-style): thin the field on slow machines,
+        // grow back when there's headroom
+        flow.emaMs = flow.emaMs * 0.95 + (performance.now() - t0) * 0.05;
+        if (++flow.govTick >= 90) {
+          flow.govTick = 0;
+          if (flow.emaMs > 24 && flow.live > FLOW_MIN) {
+            flow.live = Math.max(FLOW_MIN, (flow.live * 0.75) | 0);
+          } else if (flow.emaMs < 13 && flow.live < FLOW_N) {
+            flow.live = Math.min(FLOW_N, (flow.live * 1.3) | 0);
+          }
+        }
+      } else if (dirty) { dirty = false; render(); }
+    }
     requestAnimationFrame(frame);
   }
 
@@ -937,5 +1115,8 @@
     hours: () => data.times.length,
     setHour,
     sheets: () => built.sheets.map((s) => ({ p: s.p, hFt: Math.round(s.hFt), max: +s.maxCover.toFixed(2) })),
+    flow: () => ({ on: state.wind === 'flow', ready: flow.ready, live: flow.live,
+                   emaMs: +flow.emaMs.toFixed(1), levels: flow.nL,
+                   sample: flow.ready ? { x: +flow.hx[0].toFixed(2), y: +flow.hy[0].toFixed(2), zft: Math.round(flow.hz[0]), kt: +flow.sp[0].toFixed(1) } : null }),
   };
 })();

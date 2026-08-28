@@ -140,7 +140,9 @@
     <p class="subtitle">The forecast over the Chesapeake as a solid block of sky you can pick up and turn —
       every cloud deck drawn at its modeled altitude, winds aloft on their pressure levels, the freezing
       surface tilting with the air mass, rain columns reaching the ground, and the live radar draped over
-      the map at &ldquo;now.&rdquo; Drag to orbit, scroll to zoom, and slide through the next two days.</p>
+      the map at &ldquo;now.&rdquo; Drag to orbit, scroll to zoom, and slide through the next two days —
+      or set winds aloft to &ldquo;flow&rdquo; and watch the whole block move like a wind map with a
+      third dimension.</p>
   </header>
 
   <main>
@@ -175,6 +177,7 @@
       <span class="lbl">winds aloft:</span>
       <span id="wind-chips">
         <button class="chip" data-w="off">off</button>
+        <button class="chip" data-w="flow" title="animated 3-D flow — tracers at every altitude ride the model wind">flow</button>
         <button class="chip" data-w="sfc">sfc</button>
         <button class="chip" data-w="925" title="925 mb">2.5k</button>
         <button class="chip" data-w="850" title="850 mb">5k</button>
@@ -209,6 +212,13 @@
           <li><b>Winds are °true</b>, like everywhere on this site. Grid arrows fly downwind and are
             colored by speed; the barb staff over the field reads the usual way — pennant 50, full barb
             10, half 5 kt.</li>
+          <li><b>Flow mode</b> fills the volume with ~8,000 drifting tracers — a 20×20×20 field's
+            worth — each riding the model's horizontal wind at its own altitude, interpolated between
+            the 5×5 columns and eleven wind surfaces from 10&nbsp;m up to 200&nbsp;mb, colored by speed
+            like the arrows. Motion is sped up ≈2,900×, so one second of animation is most of an hour
+            of wind. The model publishes no vertical motion at these levels, so tracers hold their
+            altitude; clouds still veil the traffic beneath them. On slower devices the field quietly
+            thins itself.</li>
           <li><b>Rain</b>: blue columns rise from where the model drops precip to the deck it falls
             from. At the &ldquo;now&rdquo; hour the ground wears the live radar (RainViewer); every
             other hour it's shaded by the model's precip instead — the caption says which you're seeing.</li>
@@ -230,7 +240,7 @@
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/wx3d.js?v=1"></script>
+  <script src="js/wx3d.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

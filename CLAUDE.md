@@ -324,7 +324,12 @@ concepts; to relink, add the tools.html card back.
   layers with pitch clamped ≥ 12°; don't switch to perspective without redoing both). Cloud decks
   are per-pressure-level cloud cover (noise-thresholded so opaque share tracks the model's number)
   at their per-hour geopotential heights; winds-aloft arrow layers per level plus a WMO barb staff
-  at the field (NH convention, feathers 90° clockwise of the upwind shaft); the freezing surface
+  at the field (NH convention, feathers 90° clockwise of the upwind shaft); a **flow mode** (chip
+  in the winds-aloft row) advects ~8,000 altitude-holding tracers through the volume — trilinear
+  between the 5×5 columns and the 11 wind surfaces (10 m + ten pressure levels to 200 mb),
+  ≈2,900× time-lapse, world-space lagging-tail streaks (so trails orbit with the volume) bucketed
+  between the cloud decks for occlusion, FPS-governed like glow.html's swarm — no vertical motion
+  in the data, so tracers hold altitude, and the page says so; the freezing surface
   is a warped per-grid-point mesh; precip columns rise to the lowest cloudy deck. RainViewer radar
   drapes the ground **only at the "now" hour** — other hours get a model-precip stain, captioned
   (same honesty rule as discussion.html's radar swap). Data: two Open-Meteo `gfs_seamless` calls —
