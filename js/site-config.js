@@ -107,4 +107,15 @@ const SITE = {
       { id: 'KDCA', label: 'Washington National' },
     ],
   },
+
+  // Shared map-tile settings.
+  basemap: {
+    // CARTO raster basemap API key (dark_all tiles on kanp/weather/
+    // discussion/procedures). CARTO began watermarking keyless raster tiles
+    // "API KEY REQUIRED" in Aug 2026; this key removes it. It is a
+    // client-side tile key, sent in every visitor's tile URLs by design —
+    // not a secret, unlike the RapidAPI key — free to 5M tiles/month, and
+    // the CARTO/OSM attribution on each map is the license condition.
+    cartoKey: 'cb1_29o4_1_04d75078ff27ab3d98e60d0a',
+  },
 };

@@ -155,7 +155,9 @@
     const esc = { maxNativeZoom: 11, maxZoom: 16 };
     const base = {
       // Esri Dark Gray Canvas, not Carto — Carto began watermarking its free
-      // basemap tiles "API KEY REQUIRED" (observed 2026-08-26).
+      // basemap tiles "API KEY REQUIRED" (observed 2026-08-26). The site now
+      // has a CARTO key (SITE.basemap.cartoKey, added 2026-08-29, used by the
+      // other map pages); switch back once the watermark is confirmed gone.
       'Dark': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
         { attribution: 'Esri', maxZoom: 16 }),
       'Streets': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',

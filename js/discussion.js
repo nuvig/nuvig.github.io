@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 34;
+const DISC_VER = 35;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1035,7 +1035,7 @@ function initSynMap() {
     doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false,
     zoomSnap: 0.1, attributionControl: true,
   });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + SITE.basemap.cartoKey, {
     attribution: '© CARTO / OSM', maxZoom: 10,
   }).addTo(syn.map);
   syn.map.fitBounds(SYN.VIEW, { padding: [0, 0] });

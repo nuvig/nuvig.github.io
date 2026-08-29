@@ -43,7 +43,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   force-added — a new file under `.claude/` meant for the repo needs `git add -f`.)
 - `.nojekyll` is present; GitHub Pages serves the tree as-is. `CNAME` pins jesselevine.net.
 - Never commit API keys — this repo is public. The tracker's optional RapidAPI key lives only in
-  the visitor's `localStorage`.
+  the visitor's `localStorage`. The one deliberate exception is `SITE.basemap.cartoKey`
+  (CARTO basemap tile key, added 2026-08-29): it's a client-side key that appears in every
+  visitor's tile URLs by design, so committing it exposes nothing the live site doesn't.
 
 ## Layout
 

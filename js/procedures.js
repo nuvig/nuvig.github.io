@@ -78,7 +78,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     map = L.map('proc-map', { zoomControl: true }).setView([38.94, -76.57], 9);
     const esc = { maxNativeZoom: 11, maxZoom: 16 };
     const base = {
-      'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + SITE.basemap.cartoKey,
         { attribution: '© OpenStreetMap © CARTO', maxZoom: 16 }),
       'Streets': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         { attribution: '© OpenStreetMap', maxZoom: 16 }),
@@ -639,7 +639,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
         ground.ready = true;
         scheduleDraw();
       };
-      im.src = `https://${'abcd'[(tx + ty) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png`;
+      im.src = `https://${'abcd'[(tx + ty) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png?key=${SITE.basemap.cartoKey}`;
     }
   }
   function groundPx(wx, wy) {
