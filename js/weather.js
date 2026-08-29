@@ -1026,7 +1026,7 @@ const radar = { map: null, frames: [], layers: {}, idx: 0, timer: null, playing:
 
 function initRadar() {
   radar.map = L.map('radar-map', { zoomControl: true }).setView([KANP.lat, KANP.lon], 8);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + SITE.basemap.cartoKey, {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
     maxZoom: 19,
   }).addTo(radar.map);
