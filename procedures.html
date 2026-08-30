@@ -38,6 +38,13 @@
       font-size:14px; font-family:inherit; outline:none;
     }
     #apt-search:focus { border-color:#4a9eff; }
+    #quick-picks { display:flex; flex-wrap:wrap; gap:5px; padding:9px 10px 0; }
+    #quick-picks button {
+      background:#181f27; border:1px solid #2d3946; color:#8fa8c2; border-radius:12px;
+      font-size:11.5px; padding:2px 10px; cursor:pointer; font-family:inherit;
+    }
+    #quick-picks button:hover { border-color:#4a9eff; color:#fff; }
+    #quick-picks button.cur { background:#1d3352; border-color:#4a9eff; color:#fff; }
     #search-results {
       position:absolute; left:10px; right:10px; top:52px; z-index:1300;
       background:#181818; border:1px solid #444; border-radius:6px;
@@ -59,17 +66,33 @@
     #search-results .city { color:#5f6b78; font-size:11px; }
 
     /* procedure tree */
+    #proc-filter {
+      display:none; margin:8px 10px 0; width:calc(100% - 20px); box-sizing:border-box;
+      background:#0d0d0d; border:1px solid #2a2f36; border-radius:6px; color:#ddd;
+      padding:5px 9px; font-size:12.5px; font-family:inherit; outline:none;
+    }
+    #proc-filter.show { display:block; }
+    #proc-filter:focus { border-color:#4a9eff; }
     #proc-tree { overflow-y:auto; flex:1; padding:4px 6px 12px; }
+    #proc-tree::-webkit-scrollbar { width:9px; }
+    #proc-tree::-webkit-scrollbar-thumb { background:#2a2f36; border-radius:5px; }
+    #proc-tree::-webkit-scrollbar-track { background:transparent; }
     .grp-head {
       font-size:11px; letter-spacing:.08em; color:#7a7a7a; text-transform:uppercase;
       margin:12px 6px 4px; font-weight:600;
     }
+    .grp-head .n { color:#4d565f; margin-left:5px; letter-spacing:0; }
     .proc-row { border-radius:6px; margin:1px 0; }
     .proc-head {
       display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer;
       border-radius:6px; font-size:13.5px; color:#ccc; user-select:none;
     }
     .proc-head:hover { background:#1e1e1e; }
+    .proc-head.on { background:#161c22; }
+    .pbadge {
+      font-size:9px; font-weight:600; letter-spacing:.05em; border-radius:3px;
+      padding:0 4px; line-height:1.5; flex-shrink:0;
+    }
     .proc-head .dot { width:10px; height:10px; border-radius:3px; background:#333; flex-shrink:0; border:1px solid #555; }
     .proc-head.on .dot { border-color:transparent; }
     .proc-head .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -123,9 +146,21 @@
     .chip .x { cursor:pointer; color:#666; font-size:13px; line-height:1; }
     .chip .x:hover { color:#ef4444; }
 
+    #map-wrap { position:relative; }
     #proc-map {
       height: 640px; border-radius:8px; border:1px solid #333; background:#0b0b0b;
     }
+    #map-hint {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      pointer-events:none; z-index:1001;
+    }
+    #map-hint.off { display:none; }
+    #map-hint .card {
+      background:rgba(13,16,20,.87); border:1px solid #2f3a46; border-radius:10px;
+      padding:14px 22px; color:#9fb0c0; font-size:13.5px; text-align:center; line-height:1.6;
+      box-shadow:0 6px 24px rgba(0,0,0,.5); max-width:400px;
+    }
+    #map-hint b { color:#dfe7f0; }
     .inverted-tiles { filter: invert(1) hue-rotate(180deg) brightness(1.05) contrast(0.95); }
 
     /* fix labels on the map */
@@ -175,6 +210,7 @@
     #legs-panel th { text-align:left; color:#63707e; font-weight:600; font-size:10.5px;
       text-transform:uppercase; letter-spacing:.05em; padding:3px 10px 3px 0; border-bottom:1px solid #262c33; }
     #legs-panel td { padding:3px 10px 3px 0; border-bottom:1px solid #1d2126; }
+    #legs-panel tr:nth-child(even) td { background:rgba(255,255,255,.02); }
     #legs-panel tr.clk { cursor:pointer; }
     #legs-panel tr.clk:hover td { background:#1a2027; color:#dfe7f0; }
     #legs-panel tr.mst td { color:#707a85; font-style:italic; }
@@ -207,6 +243,8 @@
     #howto { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
       padding:12px 16px; font-size:13px; color:#888; line-height:1.55; }
     #howto b { color:#bbb; }
+    #howto summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
+    #howto[open] summary { margin-bottom:6px; }
 
     @media (max-width: 900px) {
       #explorer { flex-direction:column; }
@@ -232,8 +270,11 @@
                autocomplete="off" spellcheck="false">
         <div id="search-results"></div>
       </div>
+      <div id="quick-picks"></div>
       <div id="apt-title"></div>
       <div id="apt-charts"></div>
+      <input id="proc-filter" type="text" placeholder="Filter procedures…"
+             autocomplete="off" spellcheck="false">
       <div id="proc-tree"><div id="tree-empty">Pick an airport to list its SIDs, STARs and approaches.<br><br>
         Click a procedure to overlay all of it; expand it to toggle individual transitions and see how the flows join up.
         The <b>plate</b> button opens the official FAA chart.</div></div>
@@ -251,7 +292,14 @@
         <button class="tb-btn" id="btn-clear">Clear all</button>
       </div>
       <div id="chips"></div>
-      <div id="proc-map"></div>
+      <div id="map-wrap">
+        <div id="proc-map"></div>
+        <div id="map-hint" class="off"><div class="card">
+          <b>Nothing drawn yet.</b><br>
+          Click a procedure in the list to overlay it — hover one to preview it.
+          Try a STAR to watch its enroute feeds funnel into the field.
+        </div></div>
+      </div>
 
       <div id="legs-panel"></div>
 
@@ -271,8 +319,9 @@
         </div>
       </div>
 
-      <div id="howto">
-        <b>Reading the overlay:</b> line direction arrows show the direction of flight.
+      <details id="howto">
+        <summary>How to read the overlay</summary>
+        Line direction arrows show the direction of flight.
         <b>Enroute transitions</b> draw thin, the <b>common route</b> thick, and <b>runway transitions / finals</b> medium —
         select a whole STAR to watch its enroute feeds funnel into the common route and fan back out to each runway.
         Altitude windows at a fix read like the chart: <b>&ge;</b> at-or-above, <b>&le;</b> at-or-below, a range is a window, <b>@</b> mandatory.
@@ -285,7 +334,7 @@
         The <b>leg table</b> lists each selected transition fix-by-fix; courses there are <b>&deg;true</b>
         (chart courses are magnetic — the local variation is applied).
         Data: FAA CIFP + d-TPP, for situational awareness only — <b>not for navigation</b>.
-      </div>
+      </details>
     </div>
   </div>
 
@@ -307,7 +356,7 @@
 
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/site-config.js"></script>
-  <script src="js/procedures.js?v=8"></script>
+  <script src="js/procedures.js?v=9"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>
