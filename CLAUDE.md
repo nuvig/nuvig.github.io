@@ -379,7 +379,11 @@ concepts; to relink, add the tools.html card back.
   trails orbit with the volume) bucketed between the cloud decks for occlusion, FPS-governed like
   glow.html's swarm — no vertical motion in the data, so tracers hold altitude, and the page says
   so. A dual-thumb **altitude-band slider** (visible only in flow mode) confines tracers to a
-  layer, drawn as dashed frames + a bright axis segment in the scene; the freezing surface
+  layer, drawn as dashed frames + a bright axis segment in the scene; in flow mode the
+  winds-aloft chips stop meaning "draw arrows here" and become presets for that band —
+  each level takes the slab between its neighbours' midpoints (`flowBandFor()`), clicking
+  the chip that already owns the band drops back to its arrow layer, and clicking `flow`
+  again reopens the whole column (`state.bandLev` remembers which chip set it); the freezing surface
   is a warped per-grid-point mesh; precip columns rise to the lowest cloudy deck. RainViewer radar
   drapes the ground **only at the "now" hour** — other hours get a model-precip stain, captioned
   (same honesty rule as discussion.html's radar swap; radar tiles at z7 local / z5 wide). The
