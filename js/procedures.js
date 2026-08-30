@@ -72,7 +72,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   let colorIdx = 0;
 
   // ---------------------------------------------------------------- map
-  let map, overlay, arrowLayer, flowLayer, flowTimer = null;
+  let map, overlay, arrowLayer, flowLayer, previewLayer, flowTimer = null;
 
   function initMap() {
     map = L.map('proc-map', { zoomControl: true }).setView([38.94, -76.57], 9);
@@ -97,9 +97,16 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       'IFR Enroute High': L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/IFR_High/MapServer/tile/{z}/{y}/{x}',
         { attribution: 'FAA', opacity: 0.85, maxNativeZoom: 10, maxZoom: 16 }),
     };
-    base['Satellite'].addTo(map);
+    // dark basemap by default (routes read best on it); remember the pick
+    let saved = null;
+    try { saved = localStorage.getItem('proc_base'); } catch (e) {}
+    (base[saved] || base['Dark']).addTo(map);
+    map.on('baselayerchange', e => {
+      try { localStorage.setItem('proc_base', e.name); } catch (err) {}
+    });
     L.control.layers(base, over, { collapsed: true }).addTo(map);
     overlay = L.layerGroup().addTo(map);
+    previewLayer = L.layerGroup().addTo(map);
     arrowLayer = L.layerGroup().addTo(map);
     flowLayer = L.layerGroup().addTo(map);
     map.on('zoomend', drawArrows);
@@ -1266,6 +1273,8 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     }
     state.curApt = icao;
     const doc = state.docs.get(icao);
+    document.querySelectorAll('#quick-picks button').forEach(b =>
+      b.classList.toggle('cur', b.dataset.id === icao));
     buildTree(doc);
     if (fly) {
       map.flyTo([doc.lat, doc.lon], 10, { duration: 0.8 });
@@ -1280,6 +1289,54 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   const KIND_ORDER = { SID: ['runway', 'common', 'enroute', 'other'],
     STAR: ['enroute', 'common', 'runway', 'other'],
     APP: ['transition', 'final', 'other'] };
+
+  // faint ghost of a whole procedure while its row is hovered
+  let previewTimer = null;
+  function previewProc(doc, proc, key) {
+    clearPreview();
+    if (proc.co || !proc.trans || !proc.trans.length) return;
+    const set = state.sel.get(key);
+    if (set && set.size) return;                     // already drawn for real
+    previewTimer = setTimeout(() => {
+      proc.trans.forEach((t, i) => {
+        const g = getGeom(doc.id, proc.id, i);
+        for (const s of g.segments) {
+          if (s.missed) continue;
+          L.polyline(s.pts.map(p => [p[0], p[1]]), {
+            color: '#9fb8d8', weight: 2, opacity: 0.5, interactive: false,
+            dashArray: s.style !== 'solid' ? '4 5' : null,
+          }).addTo(previewLayer);
+        }
+      });
+    }, 120);
+  }
+  function clearPreview() {
+    clearTimeout(previewTimer); previewTimer = null;
+    previewLayer.clearLayers();
+  }
+
+  // colored flavor badge on approach rows so the list scans at a glance
+  const BADGE_COLOR = { ILS: '#6db3ff', RNAV: '#52d273', VOR: '#f0b45a', NDB: '#f0b45a',
+    TACAN: '#f0b45a', LOC: '#b89cff', LDA: '#b89cff', SDF: '#b89cff',
+    COPTER: '#4fd8cf', VIS: '#9aa5b1' };
+  function typeBadge(proc) {
+    if (proc.type !== 'APP') return '';
+    const n = (proc.name || proc.id).toUpperCase();
+    let lab = null;
+    if (n.startsWith('ILS')) lab = 'ILS';
+    else if (n.startsWith('RNAV') || n.startsWith('GPS') || n.startsWith('RNP')) lab = 'RNAV';
+    else if (/^(HI-)?VOR/.test(n)) lab = 'VOR';
+    else if (n.startsWith('NDB')) lab = 'NDB';
+    else if (n.startsWith('LDA')) lab = 'LDA';
+    else if (n.startsWith('LOC')) lab = 'LOC';
+    else if (n.startsWith('SDF')) lab = 'SDF';
+    else if (/^(HI-)?TACAN/.test(n)) lab = 'TACAN';
+    else if (n.includes('COPTER')) lab = 'COPTER';
+    else if (n.includes('VISUAL')) lab = 'VIS';
+    if (!lab) return '';
+    const c = BADGE_COLOR[lab];
+    return `<span class="pbadge" style="color:${c};background:${c}22;border:1px solid ${c}44">${lab}</span>`;
+  }
 
   function buildTree(doc) {
     const tpp = doc.tpp || {};
@@ -1298,28 +1355,51 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     }
     const tree = $('proc-tree');
     tree.innerHTML = '';
+    clearPreview();
     const groups = [['SID', 'SIDs — departures'], ['STAR', 'STARs — arrivals'], ['APP', 'Instrument approaches']];
     for (const [type, label] of groups) {
       const procs = doc.procs.filter(p => p.type === type);
       if (!procs.length) continue;
+      const grp = document.createElement('div');
+      grp.className = 'grp';
       const h = document.createElement('div');
-      h.className = 'grp-head'; h.textContent = label;
-      tree.appendChild(h);
-      for (const proc of procs) tree.appendChild(procRow(doc, proc));
+      h.className = 'grp-head';
+      h.innerHTML = `${label} <span class="n">${procs.length}</span>`;
+      grp.appendChild(h);
+      for (const proc of procs) grp.appendChild(procRow(doc, proc));
+      tree.appendChild(grp);
     }
     if (!tree.children.length)
       tree.innerHTML = '<div id="tree-empty">No coded procedures at this airport.</div>';
+    const filt = $('proc-filter');
+    filt.classList.toggle('show', doc.procs.length > 8);
+    if (filt.value) { filt.value = ''; }
+    applyFilter();
+  }
+
+  function applyFilter() {
+    const q = ($('proc-filter').value || '').trim().toUpperCase();
+    for (const grp of $('proc-tree').querySelectorAll('.grp')) {
+      let vis = 0;
+      for (const r of grp.querySelectorAll('.proc-row')) {
+        const show = !q || (r.dataset.txt || '').includes(q);
+        r.style.display = show ? '' : 'none';
+        if (show) vis++;
+      }
+      grp.style.display = vis ? '' : 'none';
+    }
   }
 
   function procRow(doc, proc) {
     const key = selKey(doc.id, proc.id);
     const row = document.createElement('div');
     row.className = 'proc-row' + (proc.co ? ' co' : '');
+    row.dataset.txt = ((proc.name || '') + ' ' + proc.id + ' ' + proc.type).toUpperCase();
     const head = document.createElement('div');
     head.className = 'proc-head';
     const label = proc.name || proc.id;
     const showId = proc.name && proc.name !== proc.id && !proc.co;
-    head.innerHTML = `<span class="dot"></span><span class="nm">${label}` +
+    head.innerHTML = `<span class="dot"></span>${typeBadge(proc)}<span class="nm">${label}` +
       (showId ? ` <small>${proc.id}</small>` : '') +
       (proc.co ? ' <span class="co-badge" title="Published FAA plate the public CIFP doesn\'t code — nothing to draw, but the chart is real">plate only</span>' : '') +
       `</span>` +
@@ -1369,8 +1449,12 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       const on = !!(set && set.size);
       head.classList.toggle('on', on);
       head.querySelector('.dot').style.background = on ? procColor(key) : '#333';
+      head.style.boxShadow = on ? 'inset 3px 0 0 ' + procColor(key) : '';
     };
+    head.addEventListener('mouseenter', () => previewProc(doc, proc, key));
+    head.addEventListener('mouseleave', clearPreview);
     head.addEventListener('click', e => {
+      clearPreview();
       if (e.target.classList.contains('exp')) { row.classList.toggle('open'); return; }
       if (proc.co) {                       // nothing to draw — go to the plate
         if (proc.chart) openPlate(plateTitle(), proc.chart);
@@ -1417,6 +1501,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       chip.className = 'chip';
       chip.innerHTML = `<span class="sw" style="background:${procColor(key)}"></span>` +
         `${apt} ${proc && proc.name ? proc.name : procId} <small>(${set.size})</small><span class="x">✕</span>`;
+      chip.style.borderColor = procColor(key) + '55';
       chip.querySelector('.x').addEventListener('click', () => {
         state.sel.delete(key);
         if (state.curApt === apt) buildTree(state.docs.get(apt));
@@ -1425,6 +1510,7 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       el.appendChild(chip);
     }
     $('sel-count').textContent = count ? `${count} transition${count > 1 ? 's' : ''} shown` : '';
+    $('map-hint').classList.toggle('off', state.sel.size > 0);
   }
 
   // ---------------------------------------------------------------- URL hash
@@ -1469,10 +1555,32 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
   }
 
   // ---------------------------------------------------------------- boot
+  // one-tap chips for the home field and its neighbors (from site-config)
+  function buildQuickPicks() {
+    const el = $('quick-picks');
+    const ids = [SITE.airport.id,
+                 ...(SITE.weather.tafStations || []).map(t => t.id),
+                 ...(SITE.weather.nearbyAirports || []).map(a => a.id)];
+    const seen = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const a = state.index.apts.find(x => x[0] === id);
+      if (!a) continue;
+      const b = document.createElement('button');
+      b.textContent = id;
+      b.dataset.id = id;
+      b.title = `${a[1] || id} · ${a[4]} SID · ${a[5]} STAR · ${a[6]} appr`;
+      b.addEventListener('click', () => { $('apt-search').value = id; loadAirport(id, true); });
+      el.appendChild(b);
+    }
+  }
+
   async function boot() {
     initMap();
     init3dEvents();
     initSearch();
+    $('proc-filter').addEventListener('input', applyFilter);
 
     $('btn-clear').addEventListener('click', () => {
       state.sel.clear();
@@ -1512,11 +1620,26 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       return;
     }
 
+    buildQuickPicks();
+
     const fromHash = await loadHash();
     if (!fromHash) {
       const home = 'KBWI';
       $('apt-search').value = home;
-      await loadAirport(home, true);
+      const doc = await loadAirport(home, true);
+      // first visit: draw something rather than an empty map — the STAR with
+      // the most transitions shows the enroute feeds funneling into the field
+      if (doc) {
+        const cands = doc.procs.filter(p => !p.co && p.trans && p.trans.length);
+        const best = cands.filter(p => p.type === 'STAR')
+          .sort((a, b) => b.trans.length - a.trans.length)[0] || cands[0];
+        if (best) {
+          best.trans.forEach((t, i) => setTrans(doc.id, best.id, i, true));
+          buildTree(doc);
+          redraw();
+          fitToSelection(doc.id, best.id);
+        }
+      }
     }
   }
 
