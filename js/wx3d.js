@@ -150,12 +150,12 @@
       '&models=gfs_seamless&windspeed_unit=kn&timezone=UTC&forecast_days=3';
   }
 
-  function ensureDomainData(k) {
+  function ensureDomainData(k, fresh) {
     const c = domCache[k];
     if (c.hourly) return Promise.resolve();
     if (c.pending) return c.pending;
     c.pending = (async () => {
-      const g = await fetchJSON(gridUrl(k));
+      const g = await fetchJSON(gridUrl(k), fresh);
       const arr = Array.isArray(g) ? g : [g];
       const d = DOMAINS[k];
       if (arr.length !== d.gn * d.gn) throw new Error('grid came back short');
@@ -196,13 +196,51 @@
       '&models=gfs_seamless&windspeed_unit=kn&timezone=UTC&forecast_days=3';
   }
 
-  async function fetchJSON(url) {
-    const r = await fetch(url);
+  // Open-Meteo weights a request by locations × variables × forecast length, so
+  // the 25-column grid call (and the 49-column wide one) is worth many "calls"
+  // against the free tier — a few reloads used to be enough for HTTP 429.
+  // Responses are therefore cached per clock hour in sessionStorage: a reload,
+  // a domain flip back, or an accidental Refresh inside the hour costs nothing,
+  // and the model has no new data to give in that window anyway.
+  const hourBucket = () => Math.floor(Date.now() / 36e5);
+  function cacheKey(url) {
+    let h = 2166136261;
+    for (let i = 0; i < url.length; i++) { h ^= url.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return 'wx3d:' + hourBucket() + ':' + (h >>> 0).toString(36);
+  }
+  function cacheGet(url) {
+    try { const v = sessionStorage.getItem(cacheKey(url)); return v ? JSON.parse(v) : null; }
+    catch (e) { return null; }
+  }
+  function cachePut(url, obj) {
+    try {
+      const stamp = ':' + hourBucket() + ':';
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {   // evict last hour's entries
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith('wx3d:') && k.indexOf(stamp) < 0) sessionStorage.removeItem(k);
+      }
+      sessionStorage.setItem(cacheKey(url), JSON.stringify(obj));
+    } catch (e) { /* private mode or over quota — the cache is only an optimization */ }
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function fetchJSON(url, fresh) {
+    if (!fresh) { const hit = cacheGet(url); if (hit) return hit; }
+    let r = await fetch(url);
+    if (r.status === 429) {            // rate limited: one polite retry, then say so in words
+      await sleep(4000);
+      r = await fetch(url);
+      if (r.status === 429) {
+        throw new Error('Open-Meteo is rate-limiting this browser (429) — give it a few minutes');
+      }
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
+    const j = await r.json();
+    cachePut(url, j);
+    return j;
   }
 
-  async function loadAll() {
+  async function loadAll(fresh) {
     setStatus('loading the atmosphere…');
     domCache.local.hourly = domCache.local.times = null;   // Refresh re-pulls both domains
     domCache.wide.hourly = domCache.wide.times = null;
@@ -210,15 +248,15 @@
     built.hour = -1;
     try {
       const [, c] = await Promise.all([
-        ensureDomainData(DK),
-        fetchJSON(centerUrl()).catch(() => null),   // volume still works without it
+        ensureDomainData(DK, fresh),
+        fetchJSON(centerUrl(), fresh).catch(() => null),   // volume still works without it
       ]);
       data.center = c ? c.hourly : null;
       adoptDomainData();
       setStatus('');
       rebuild(state.sel);
-      // quietly pre-warm the other scale so zooming out doesn't stall
-      setTimeout(() => ensureDomainData(DK === 'local' ? 'wide' : 'local').catch(() => {}), 4000);
+      // The other domain is NOT pre-fetched: it is the heaviest call this page
+      // makes and most visits never open it. switchDomain() loads it on demand.
     } catch (e) {
       setStatus('couldn’t load the model — ' + e.message + ' · try Refresh');
     }
@@ -1515,7 +1553,7 @@
     $('play-btn').addEventListener('click', () => playing ? stopPlay() : startPlay());
     $('refresh-btn').addEventListener('click', () => {
       stopPlay();
-      loadAll(); loadMetar(); loadRadar().catch(() => {});
+      loadAll(true); loadMetar(); loadRadar().catch(() => {});
     });
     for (const [id, key] of [['tg-cl', 'cl'], ['tg-fz', 'fz'], ['tg-pr', 'pr'], ['tg-gd', 'gd']]) {
       const b = $(id);
