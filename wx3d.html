@@ -33,6 +33,10 @@
       cursor: pointer; font-family: inherit;
     }
     .btn:hover { background: #444; }
+    #vex-wrap { display: flex; align-items: center; gap: 7px; color: #667; }
+    #vex-wrap .lbl { color: #667; }
+    #vex { width: 96px; height: 18px; accent-color: #4a9eff; cursor: ew-resize; }
+    #vex-label { color: #9ab; font-variant-numeric: tabular-nums; min-width: 2.9em; }
 
     /* ---- the volume ---- */
     #scene-wrap {
@@ -176,6 +180,12 @@
         · 40,000 ft tall · <span id="dom-note">5×5 model grid · ~120 nm across</span>
       </span>
       <span class="right">
+        <span id="vex-wrap" title="vertical exaggeration — how much the 40,000 ft of sky is stretched against the map (double-click to reset)">
+          <label class="lbl" for="vex">vertical</label>
+          <input id="vex" type="range" min="1" max="20" step="0.5" value="7.5"
+            aria-label="vertical exaggeration">
+          <span id="vex-label">×7.5</span>
+        </span>
         <button class="btn" id="refresh-btn">↻ Refresh</button>
       </span>
     </div>
@@ -246,14 +256,14 @@
 
   <footer>
     <p>NOAA GFS via Open-Meteo · obs KDCA (api.weather.gov) · radar RainViewer, at &ldquo;now&rdquo; only ·
-      terrain USGS 3DEP / SRTM (OpenTopoData) · directions °true · vertical ×7.5 ·
+      terrain USGS 3DEP / SRTM (OpenTopoData) · directions °true · vertical ×<span id="vex-foot">7.5</span> (adjustable) ·
       cloud textures illustrative, coverage &amp; altitude the model's · flow ≈2,900× time-lapse (×3 wide),
       no vertical motion at these levels · © Jesse Levine ·
       <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/wx3d.js?v=5"></script>
+  <script src="js/wx3d.js?v=6"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>
