@@ -71,8 +71,8 @@
       gap: 14px;
     }
 
-    /* Weather leads the page: give it wider cards so its four sit as a 2×2
-       block instead of a row of three plus an orphan. */
+    /* Weather leads the page: give it wider cards so its six sit as a 2×3
+       block instead of rows of three plus an orphan. */
     .cat.weather .tool-grid { grid-template-columns: repeat(auto-fill, minmax(min(400px, 100%), 1fr)); }
 
     /* Reuse .card / .tracker-link from main.css; the grid supplies the spacing. */
@@ -152,15 +152,16 @@
     "mainEntity": {
       "@type": "ItemList",
       "itemListElement": [
-        { "@type": "ListItem", "position": 1, "name": "DC Forecast Discussion", "url": "https://jesselevine.net/discussion.html" },
-        { "@type": "ListItem", "position": 2, "name": "Skew-T Explorer", "url": "https://jesselevine.net/skew-t.html" },
-        { "@type": "ListItem", "position": 3, "name": "METAR Sky", "url": "https://jesselevine.net/sky.html" },
-        { "@type": "ListItem", "position": 4, "name": "The Air Above", "url": "https://jesselevine.net/wx3d.html" },
-        { "@type": "ListItem", "position": 5, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
-        { "@type": "ListItem", "position": 6, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
-        { "@type": "ListItem", "position": 7, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
-        { "@type": "ListItem", "position": 8, "name": "The DC SFRA", "url": "https://jesselevine.net/sfra.html" },
-        { "@type": "ListItem", "position": 9, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
+        { "@type": "ListItem", "position": 1, "name": "KANP Weather Hub", "url": "https://jesselevine.net/weather.html" },
+        { "@type": "ListItem", "position": 2, "name": "DC Forecast Discussion", "url": "https://jesselevine.net/discussion.html" },
+        { "@type": "ListItem", "position": 3, "name": "Skew-T Explorer", "url": "https://jesselevine.net/skew-t.html" },
+        { "@type": "ListItem", "position": 4, "name": "METAR Sky", "url": "https://jesselevine.net/sky.html" },
+        { "@type": "ListItem", "position": 5, "name": "The Air Above", "url": "https://jesselevine.net/wx3d.html" },
+        { "@type": "ListItem", "position": 6, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
+        { "@type": "ListItem", "position": 7, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
+        { "@type": "ListItem", "position": 8, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
+        { "@type": "ListItem", "position": 9, "name": "The DC SFRA", "url": "https://jesselevine.net/sfra.html" },
+        { "@type": "ListItem", "position": 10, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" }
       ]
     }
   }
@@ -182,6 +183,12 @@
     <section class="cat weather">
       <h2>Weather</h2>
       <div class="tool-grid">
+        <a class="card tracker-link" href="/weather.html">
+          <h3>🌬 KANP Weather Hub</h3>
+          <p>The live go/no-go picture for Lee Airport — wind compass and runway crosswind analysis, hour-by-hour flight-window scoring, METARs from the nearby fields, KMTN/KBWI/KDCA TAFs decoded, and radar.</p>
+          <span class="go">Open the hub</span>
+        </a>
+
         <a class="card tracker-link" href="/discussion.html">
           <h3>🌀 DC Forecast Discussion</h3>
           <p>The NWS forecast discussion for the DC area, decoded — a live map of the air masses, fronts and pressure systems driving the forecast, plus a change log showing how the forecasters' reasoning evolved between issuances.</p>
