@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aircraft Compare — the master spec table for any airplane</title>
+  <meta name="description" content="Compare any aircraft side by side: 80+ specifications per type, to-scale planform and cabin cross-section drawings, weight budgets and charts. CRJ vs ERJ vs 777 and more.">
+  <link rel="canonical" href="https://jesselevine.net/aircraft.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/aircraft.html">
+  <meta property="og:title" content="Aircraft Compare — the master spec table for any airplane">
+  <meta property="og:description" content="80+ specifications per type, drawn to scale and laid side by side. CRJ vs ERJ vs 777, and anything else on the ramp.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1280px; padding-bottom: 48px; }
+    #back-link { display: inline-block; margin-top: 22px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    h1 { margin-bottom: 2px; }
+    .subtitle { color: #777; margin: 4px 0 6px; font-size: 14px; max-width: 900px; line-height: 1.6; }
+    .subtitle b { color: #bbb; }
+
+    /* ---------- picker ---------- */
+    .picker { margin: 18px 0 0; }
+    .picker-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    #q {
+      flex: 1 1 260px; min-width: 200px; background: #14171c; border: 1px solid #2e3540;
+      color: #dde3ea; border-radius: 7px; padding: 7px 11px; font: inherit; font-size: 13px;
+    }
+    #q:focus { outline: none; border-color: var(--accent); }
+    .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+    .preset {
+      background: #171c23; border: 1px solid #2b3340; color: #93a1b2; font: inherit; font-size: 12px;
+      padding: 6px 11px; border-radius: 99px; cursor: pointer; white-space: nowrap;
+    }
+    .preset:hover { border-color: #4a9eff; color: #cfe6ff; }
+
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 7px; background: #15181d;
+      border: 1px solid #2a3038; color: #97a3b2; font: inherit; font-size: 12.5px;
+      padding: 5px 11px 5px 8px; border-radius: 7px; cursor: pointer; line-height: 1.3;
+    }
+    .chip:hover { border-color: #47566a; color: #d6dee8; }
+    .chip .dot { width: 9px; height: 9px; border-radius: 2px; background: #39414c; flex: none; }
+    .chip .sub { color: #5c6675; font-size: 11px; }
+    .chip.on { background: #1b2029; color: #eaf0f7; border-color: currentColor; }
+    .chip.on .dot { background: currentColor; }
+    .chip.hidden { display: none; }
+    .picker-note { font-size: 11.5px; color: #5a6472; margin: 8px 0 0; }
+
+    /* ---------- headline cards ---------- */
+    .heads { display: grid; gap: 12px; margin: 20px 0 0; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+    .head-card {
+      background: #16181c; border: 1px solid #2a2e35; border-top: 3px solid var(--c); border-radius: 9px;
+      padding: 12px 14px 13px; min-width: 0;
+    }
+    .head-card h3 { margin: 0; font-size: 15.5px; color: #eef2f7; font-weight: 650; letter-spacing: -0.01em; }
+    .head-card .full { font-size: 11.5px; color: #6c7787; margin: 2px 0 0; line-height: 1.4; }
+    .head-card .sil { margin: 9px 0 4px; }
+    .head-card .sil svg { display: block; width: 100%; height: auto; }
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; margin-top: 8px; }
+    .kv dt { color: #6f7a88; white-space: nowrap; }
+    .kv dd { margin: 0; color: #d4dbe4; text-align: right; font-variant-numeric: tabular-nums; }
+    .head-card .blurb { font-size: 12px; color: #8b95a3; line-height: 1.55; margin: 10px 0 0; }
+    .head-card .rm {
+      background: none; border: none; color: #5c6675; cursor: pointer; font: inherit; font-size: 15px;
+      float: right; line-height: 1; padding: 0 0 0 8px;
+    }
+    .head-card .rm:hover { color: #e08a8a; }
+
+    .empty-note { color: #777; font-size: 13px; padding: 26px 0; }
+
+    /* ---------- tabs ---------- */
+    .tab-nav { display: flex; gap: 4px; border-bottom: 1px solid #2c3138; margin: 26px 0 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: none; border: none; border-bottom: 2px solid transparent; color: #79838f;
+      font: inherit; font-size: 13.5px; padding: 8px 13px; cursor: pointer;
+    }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active { color: #fff; border-bottom-color: var(--accent); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ---------- shared controls ---------- */
+    .ctl-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; font-size: 12.5px; }
+    .seg { display: inline-flex; border: 1px solid #2b3340; border-radius: 7px; overflow: hidden; }
+    .seg button {
+      background: #14171c; border: none; color: #8b96a4; font: inherit; font-size: 12px;
+      padding: 5px 11px; cursor: pointer;
+    }
+    .seg button + button { border-left: 1px solid #2b3340; }
+    .seg button.on { background: #223047; color: #dcebff; }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 6px; color: #8b96a4; cursor: pointer;
+      user-select: none; padding: 4px 2px;
+    }
+    .toggle input { accent-color: #4a9eff; margin: 0; }
+    .toggle:hover { color: #cdd6e0; }
+    select.ctl, input.ctl {
+      background: #14171c; border: 1px solid #2b3340; color: #cbd4de; border-radius: 6px;
+      padding: 5px 8px; font: inherit; font-size: 12px; max-width: 240px;
+    }
+    select.ctl:focus, input.ctl:focus { outline: none; border-color: var(--accent); }
+    .ctl-sep { flex: 1 1 auto; }
+    .btn {
+      background: #171c23; border: 1px solid #2b3340; color: #93a1b2; font: inherit; font-size: 12px;
+      padding: 5px 11px; border-radius: 6px; cursor: pointer;
+    }
+    .btn:hover { border-color: #4a9eff; color: #cfe6ff; }
+
+    /* ---------- master table ---------- */
+    .tbl-wrap { overflow: auto; max-height: 78vh; border: 1px solid #262b32; border-radius: 8px; background: #131519; }
+    table.master { border-collapse: separate; border-spacing: 0; font-size: 12.5px; width: 100%; }
+    table.master th, table.master td { padding: 5px 11px; text-align: right; white-space: nowrap; }
+    table.master thead th {
+      position: sticky; top: 0; z-index: 3; background: #1b1f25; color: #e6ecf3; font-weight: 600;
+      border-bottom: 1px solid #333a44; padding-top: 9px; padding-bottom: 9px;
+    }
+    table.master thead th .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: var(--c); margin-right: 6px; }
+    table.master thead th .hsub { display: block; color: #74808f; font-weight: 400; font-size: 10.5px; margin-top: 1px; }
+    table.master th.rowhead, table.master thead th.rowhead {
+      position: sticky; left: 0; z-index: 4; text-align: left; background: #191c21; color: #9aa5b3;
+      font-weight: 400; border-right: 1px solid #2a2f37; max-width: 260px; white-space: normal;
+    }
+    table.master thead th.rowhead { z-index: 5; background: #1b1f25; }
+    table.master tbody tr:hover td, table.master tbody tr:hover th.rowhead { background-color: #1c2027; }
+    table.master td { color: #cfd7e1; font-variant-numeric: tabular-nums; border-bottom: 1px solid #20242a; }
+    table.master th.rowhead { border-bottom: 1px solid #20242a; }
+    table.master td.txt { text-align: right; white-space: normal; color: #b6c0cc; max-width: 260px; font-size: 12px; }
+    table.master td.na { color: #4c545e; }
+    table.master td.best { color: #fff; font-weight: 600; }
+    table.master td.best::after { content: " ●"; color: #4a9eff; font-size: 8px; vertical-align: 2px; }
+    tr.grp th {
+      position: sticky; left: 0; z-index: 4; background: #1e242c; color: #cfe0f5; text-align: left;
+      font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 700;
+      padding: 8px 11px; border-top: 1px solid #333a44; border-bottom: 1px solid #333a44; cursor: pointer;
+    }
+    tr.grp td { background: #1e242c; border-top: 1px solid #333a44; border-bottom: 1px solid #333a44; color: #6f7c8b; font-size: 11px; font-weight: 400; text-align: left; white-space: normal; }
+    tr.grp th .caret { display: inline-block; width: 11px; color: #6f8299; }
+    .fname { border-bottom: 1px dotted #3b444f; cursor: help; }
+    .unit-tag { color: #6b7583; font-size: 11px; margin-left: 4px; }
+    sup.note-m { color: #d9a441; font-size: 9px; cursor: help; margin-left: 2px; }
+    .approx { color: #8b96a4; }
+    .notes-list { font-size: 12px; color: #7d8794; line-height: 1.7; margin: 12px 0 0; }
+    .notes-list b { color: #b3bdc9; font-weight: 600; }
+    .notes-list .nm { color: #d9a441; }
+
+    /* ---------- drawings ---------- */
+    .draw-host { background: #101216; border: 1px solid #262b32; border-radius: 8px; padding: 14px; overflow-x: auto; }
+    .draw-host svg { display: block; max-width: 100%; height: auto; }
+    .draw-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #97a3b2; margin: 10px 0 0; }
+    .draw-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .draw-legend i { width: 11px; height: 11px; border-radius: 2px; background: var(--c); display: inline-block; }
+    .caption { font-size: 11.5px; color: #6a7482; line-height: 1.65; margin: 10px 0 0; max-width: 900px; }
+    .caption b { color: #9aa5b2; }
+
+    /* ---------- charts ---------- */
+    .chart-card { background: #14171b; border: 1px solid #262b32; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .chart-card h3 { margin: 0 0 3px; font-size: 13px; font-weight: 600; color: #dbe3ec; }
+    .chart-card .ch-sub { font-size: 11.5px; color: #6c7683; margin: 0 0 12px; line-height: 1.55; }
+    .bars { display: grid; grid-template-columns: minmax(90px, auto) 1fr minmax(88px, auto); gap: 7px 10px; align-items: center; font-size: 12px; }
+    .bars .bl { color: #aeb8c4; text-align: right; white-space: nowrap; }
+    .bars .bt { background: #1b1f25; border-radius: 3px; height: 16px; position: relative; overflow: hidden; }
+    .bars .bf { position: absolute; inset: 0 auto 0 0; background: var(--c); border-radius: 0 4px 4px 0; }
+    .bars .bv { color: #dfe6ee; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .scatter-wrap { position: relative; }
+    .chart-card svg { display: block; width: 100%; height: auto; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+    /* ---------- fleet table ---------- */
+    table.fleet { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    table.fleet th, table.fleet td { padding: 6px 10px; border-bottom: 1px solid #23272e; text-align: right; white-space: nowrap; }
+    table.fleet th { color: #9fadbd; font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: #1b1f25; z-index: 2; }
+    table.fleet th:hover { color: #dbe8f7; }
+    table.fleet th.sorted::after { content: " ▾"; color: #4a9eff; }
+    table.fleet th.sorted.asc::after { content: " ▴"; }
+    table.fleet td.l, table.fleet th.l { text-align: left; }
+    table.fleet tbody tr { cursor: pointer; }
+    table.fleet tbody tr:hover td { background: #1c2027; }
+    table.fleet tr.on td { background: #1a222e; color: #e8f0fa; }
+    table.fleet tr.on td:first-child { box-shadow: inset 3px 0 0 var(--c); }
+    table.fleet td { color: #c3ccd7; font-variant-numeric: tabular-nums; }
+
+    /* ---------- data tab ---------- */
+    .card { background: #16181c; border: 1px solid #2a2e35; border-radius: 9px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; color: #aab4c0; text-transform: uppercase; letter-spacing: 0.07em; }
+    .card p, .card li { font-size: 13px; color: #98a2ae; line-height: 1.65; }
+    .card p { margin: 7px 0; }
+    .card ul, .card ol { margin: 7px 0; padding-left: 20px; }
+    .card b { color: #ccd4de; }
+    .card code { background: #1e232a; border: 1px solid #2c333c; border-radius: 4px; padding: 1px 5px; font-size: 12px; color: #b8d4f0; }
+    .cov { display: grid; grid-template-columns: minmax(120px,auto) 1fr auto; gap: 4px 10px; align-items: center; font-size: 12px; }
+    .cov .cn { color: #b3bdc9; }
+    .cov .ct { background: #1b1f25; height: 9px; border-radius: 3px; overflow: hidden; }
+    .cov .cf { display: block; height: 100%; background: #3987e5; }
+    .cov .cv { color: #78828f; font-variant-numeric: tabular-nums; }
+
+    footer.sources { margin-top: 30px; font-size: 11.5px; color: #5f6875; line-height: 1.7; border-top: 1px solid #23272e; padding-top: 14px; }
+    footer.sources b { color: #8c95a1; }
+  </style>
+</head>
+<body>
+  <h1>Aircraft Compare</h1>
+  <p class="subtitle">
+    Pick up to six airplanes and put every number side by side — <b>81 specifications</b> per type,
+    drawn to a common scale, with the ratios worked out for you. Built to answer
+    <b>CRJ vs ERJ vs 777</b>, and then to keep answering when you swap any of the three out.
+  </p>
+
+  <section class="picker">
+    <div class="picker-head">
+      <input id="q" type="search" placeholder="Search name, manufacturer, family, role or ICAO code…" autocomplete="off" spellcheck="false">
+      <div class="presets" id="presets"></div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <p class="picker-note" id="picker-note"></p>
+  </section>
+
+  <section class="heads" id="heads"></section>
+
+  <nav class="tab-nav" id="tabs">
+    <button class="tab-btn" data-tab="table">Master table</button>
+    <button class="tab-btn" data-tab="scale">Scale drawings</button>
+    <button class="tab-btn" data-tab="charts">Charts</button>
+    <button class="tab-btn" data-tab="fleet">The fleet</button>
+    <button class="tab-btn" data-tab="data">Data &amp; sources</button>
+  </nav>
+
+  <section class="tab-panel" id="tab-table">
+    <div class="ctl-row">
+      <div class="seg" id="units">
+        <button data-u="us" class="on">ft · lb · kt</button><button data-u="si">m · kg · km</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="opt-bars" checked> in-row bars</label>
+      <label class="toggle"><input type="checkbox" id="opt-best" checked> mark the best</label>
+      <label class="toggle"><input type="checkbox" id="opt-diff"> differences only</label>
+      <label class="toggle"><input type="checkbox" id="opt-empty" checked> hide empty rows</label>
+      <input class="ctl" id="fq" type="search" placeholder="filter rows…" autocomplete="off">
+      <span class="ctl-sep"></span>
+      <button class="btn" id="copy-tsv">Copy table</button>
+      <button class="btn" id="dl-csv">Download CSV</button>
+    </div>
+    <div class="tbl-wrap" id="tbl-wrap"></div>
+    <div class="notes-list" id="tbl-notes"></div>
+  </section>
+
+  <section class="tab-panel" id="tab-scale">
+    <div class="ctl-row">
+      <div class="seg" id="views">
+        <button data-v="top" class="on">Planform</button><button data-v="side">Side</button><button data-v="front">Front</button><button data-v="cabin">Cabin section</button>
+      </div>
+      <div class="seg" id="modes">
+        <button data-m="stack" class="on">Stacked</button><button data-m="over">Overlaid</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="opt-human" checked> 1.8 m person for scale</label>
+    </div>
+    <div class="draw-host" id="draw-host"></div>
+    <div class="draw-legend" id="draw-legend"></div>
+    <p class="caption" id="draw-caption"></p>
+  </section>
+
+  <section class="tab-panel" id="tab-charts">
+    <div class="chart-card">
+      <h3>One measure, side by side</h3>
+      <p class="ch-sub">Any of the 81 rows, as bars. Bars start at zero — the length <i>is</i> the value.</p>
+      <div class="ctl-row">
+        <select class="ctl" id="bar-field"></select>
+        <label class="toggle"><input type="checkbox" id="bar-all"> show the whole fleet</label>
+      </div>
+      <div class="bars" id="bar-chart"></div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Where each airplane sits</h3>
+      <p class="ch-sub">The whole fleet on two axes; your selection is labelled and filled. Log scales, because a 172 and a 777-9 do not share a linear axis.</p>
+      <div class="ctl-row">
+        <span style="color:#6c7683">x</span><select class="ctl" id="sc-x"></select>
+        <span style="color:#6c7683">y</span><select class="ctl" id="sc-y"></select>
+        <label class="toggle"><input type="checkbox" id="sc-log" checked> log axes</label>
+      </div>
+      <div class="scatter-wrap" id="scatter"></div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Where the max takeoff weight goes</h3>
+      <p class="ch-sub">Load the maximum structural payload (MZFW − OEW) first, then pour in every kilo of fuel that still
+      fits under MTOW. On most of these the tanks hold far more than what is left over — that shortfall <i>is</i> the
+      payload-range trade, in one bar. Where no MZFW is published, payload is what fits with full tanks instead.</p>
+      <div class="ctl-row">
+        <div class="seg" id="wtmode">
+          <button data-w="scale" class="on">To scale</button><button data-w="share">As a share of MTOW</button>
+        </div>
+      </div>
+      <div class="bars" id="weight-chart" style="grid-template-columns: minmax(90px,auto) 1fr;"></div>
+      <div class="draw-legend" id="weight-legend" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-fleet">
+    <div class="ctl-row">
+      <span style="color:#6c7683">Click any row to add or remove it from the comparison.</span>
+      <span class="ctl-sep"></span>
+      <select class="ctl" id="fleet-cat"></select>
+    </div>
+    <div class="tbl-wrap" id="fleet-wrap"></div>
+  </section>
+
+  <section class="tab-panel" id="tab-data">
+    <div class="card">
+      <h3>What this is</h3>
+      <p>One row per <b>certified variant</b>, not per family — a CRJ900 and a CRJ1000 are different airplanes with
+      different certificates, and averaging them would hide exactly the differences you came here for. Each variant is
+      one common configuration, named in full under its name; almost every weight here has an optional higher or lower
+      certified version.</p>
+      <p>Everything lives in one file, <code>data/aircraft.json</code>: a field registry plus a specs object per
+      aircraft. Adding a measurement is one entry in <code>fields</code>; adding an airplane is one entry in
+      <code>aircraft</code>. The table, the charts, the unit switch and the search all read the registry, so nothing
+      needs a code change to grow.</p>
+    </div>
+    <div class="card">
+      <h3>Where the numbers come from</h3>
+      <ul id="src-list"></ul>
+    </div>
+    <div class="card">
+      <h3>What to distrust</h3>
+      <ul id="caveat-list"></ul>
+    </div>
+    <div class="card">
+      <h3>Coverage</h3>
+      <p>How much of the registry each aircraft actually fills. Blanks are blanks — the tool never interpolates one
+      airplane's number from another's.</p>
+      <div class="cov" id="cov-list"></div>
+    </div>
+    <div class="card">
+      <h3>How the drawings are made</h3>
+      <p>The silhouettes are <b>generated from the numbers in the table</b>, not traced from drawings: span, length,
+      wing area, quarter-chord sweep, fuselage width, tail height and fan diameter fix the geometry, and a taper ratio
+      and engine mounting position per type fill in the rest. That makes every drawing honestly to scale against every
+      other one, and it means they are schematics — the fillets, the airfoil, the exact tail shape and the gear are
+      indicative. Where an airplane looks wrong, the fix is a number, not a path.</p>
+    </div>
+  </section>
+
+  <a id="back-link" href="/">← jesselevine.net</a>
+
+  <footer class="sources">
+    Manufacturer type specifications and airport planning manuals, FAA and EASA type certificate data sheets,
+    ICAO Doc 8643 and FAA AC 150/5300-13B. Figures marked <b>≈</b> are rounded, averaged between sources, or
+    preliminary. Configuration-dependent by nature: <b>none of this is flight-planning or performance data</b> —
+    the AFM, the POH and the operator's charts are.
+  </footer>
+
+  <script src="js/aircraft.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

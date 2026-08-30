@@ -232,6 +232,31 @@ field contacts, and doesn't care).
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
   a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
   documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
+- `aircraft.html` + `js/aircraft.js` + `data/aircraft.json` — Aircraft Compare: pick up to six aircraft and
+  put every number side by side. **`data/aircraft.json` is the whole tool** — a field registry
+  (`fields`: id, group, label, unit, `hi` = which direction is better, `c` = computed) plus one specs
+  object per aircraft. Adding a measurement is one registry entry and adding an airplane is one
+  `aircraft` entry; the master table, both scatter axes, the bar-chart picker, the unit switch and the
+  row filter all read the registry, so **`js/aircraft.js` should not need editing to grow the data**.
+  One row per *certified variant* (CRJ900 ≠ CRJ1000), each a single named configuration. Values are stored
+  in one canonical unit per field (m, m², m³, kg, L, kN, kW, ft, kt, nm, cm, psi, °, kg/h) and converted
+  at display time by `UNIT_DEFS` — **never convert in the data**. Per-aircraft `n` holds field-level
+  footnotes and `~` lists the fields whose value is rounded/preliminary (rendered `≈`, and inherited by
+  any derived field computed from them). The ten `der` fields (aspect ratio, wing loading, thrust-to-weight,
+  structural payload = MZFW − OEW, fuel/payload fraction, fuel per seat-hour…) are computed in
+  `DERIVED` and are deliberately *not* quoted from manufacturers — where a manufacturer's published
+  "max payload" disagrees with MZFW − OEW it is because their empty-weight basis differs, and the
+  table shows the derivation rather than the quote so the arithmetic always closes.
+  **The silhouettes are generated from the table, not traced**: `geoTop`/`geoSide`/`geoFront`/`geoCabin`
+  build SVG in metres from span, length, wing area, quarter-chord sweep, fuselage width/height, tail
+  height and fan diameter, plus a per-type `geom` block (`mount` wing/aft/nose, `tail` T/conv, `wing`
+  low/high, taper ratio, wing root position, tail span fraction). That is what makes every drawing
+  honestly to scale against every other one — if an airplane looks wrong the fix is a number or a `geom`
+  value, not a path. Series colours are the six-slot dark categorical palette validated for CVD
+  separation (adjacent ΔE 8.4 worst case, all ≥3:1 on this background); **re-run the check before
+  reordering or extending it**, and note `MAX_SEL` is tied to the palette length. Self-contained
+  otherwise — no `site-config.js`, no network beyond the one JSON fetch. `window.ACOMP` is a read-only
+  handle for headless checks.
 **`power.html`, `eights.html` and `instruments.html` are unlinked as of 2026-08-21** — their
 `tools.html` cards (and JSON-LD list entries) were removed at Jesse's request. The pages and their
 sitemap entries are untouched, and `js/knowledge.js` still deep-links to them from the relevant
