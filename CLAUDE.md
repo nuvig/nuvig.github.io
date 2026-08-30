@@ -27,11 +27,13 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - **There is no site-wide navigation bar.** `js/nav.js` existed for one day and was deleted
   2026-08-21 — Jesse didn't like it. Navigation is: the homepage cards → `tools.html` → a tool,
   plus each page's own `#back-link` to `/`. Don't reintroduce a shared bar without being asked.
-  **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among the
-  six weather pages only (weather, sky, skew-t, wx3d, discussion, almanac; page list lives in the
-  script), injected under each page's title. It replaced those pages' ad-hoc subtitle links
-  (weather.html keeps its non-weather tracker/air-lab links). Keep it scoped to the weather
-  family — it is not a site nav bar, and sky2/terps stay out (deliberately unlinked).
+  **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among
+  five weather pages (weather, discussion, skew-t, wx3d, almanac, in that order; page list lives
+  in the script), injected under each page's title. It replaced those pages' ad-hoc subtitle links
+  (weather.html keeps its non-weather tracker/air-lab links). **METAR Sky (`sky.html`) was pulled
+  out of the strip the same day at Jesse's request** — it carries no `wxnav.js` script tag and
+  doesn't appear in `PAGES`. Keep it scoped to the remaining weather family — it is not a site nav
+  bar, and sky2/terps stay out (deliberately unlinked).
 - **Every public page** (the ones listed under Layout, i.e. everything but the self-contained
   toys/SDR/personal pages) carries, just before `</body>`, the
   GoatCounter analytics snippet (jesselevine.goatcounter.com — cookie-less, nothing secret) and

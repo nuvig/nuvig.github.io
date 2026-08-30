@@ -10,10 +10,9 @@
   'use strict';
   const PAGES = [
     ['weather.html', 'Weather'],
-    ['sky.html', 'METAR Sky'],
+    ['discussion.html', 'Discussion'],
     ['skew-t.html', 'Skew-T'],
     ['wx3d.html', 'Air Above'],
-    ['discussion.html', 'Discussion'],
     ['almanac.html', 'Almanac'],
   ];
   const here = location.pathname.split('/').pop() || 'index.html';
