@@ -318,8 +318,12 @@ concepts; to relink, add the tools.html card back.
   pure-painter design as sky.html, but the code is **copied forward, not shared** — a
   parsing/data fix in one probably belongs in both. **Deliberately unlinked** (no tools.html
   card, no sitemap entry; indexable) — sky.html is the one on tools.html.
-- `wx3d.html` + `js/wx3d.js` — The Air Above: the GFS forecast as a rotatable 3-D volume over the
-  field (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated** and said so on the page). Two
+- `wx3d.html` + `js/wx3d.js` — The Air Above: the GFS forecast as a rotatable 3-D volume
+  (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated**, disclosed in the footer).
+  **Centered on KDCA, not the field** (`SITE.weather.wx3d` — Jesse's choice: DCA is the region's
+  natural center and the site's verification station; KANP draws as a landmark pin). Deliberately
+  chrome-light — no subtitle, no how-to card, no range rings ("this is a DATA page"); the honesty
+  disclosures live in the footer line. Two
   nested **domains** share every code path: the local box (5×5 columns) and a multi-state box
   (~650 nm / 750 sm, 7×7 columns, coarser on purpose) reached by the top-bar chips or by zooming
   out past the local limit — `zoomTo()` switches domains with the apparent size continuous, and
@@ -360,8 +364,9 @@ concepts; to relink, add the tools.html card back.
   wide) draws as screen-space pins. Data: Open-Meteo `gfs_seamless` — one multi-location grid
   call per domain (responses are arrays in request order; the wide call skips the per-level RH
   fallback to stay lean, and is pre-warmed a few seconds after load so zooming out doesn't
-  stall) and one full-fidelity column at the field for the readout + level heights — plus the
-  KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only
+  stall) and one full-fidelity column at the center for the readout + level heights — plus the
+  KDCA METAR line. Changing the center means rerunning the terrain builds (both boxes) — the
+  page bbox-validates and drops mismatched files. Layer/wind-level choices persist (`wx3d_layers`); read-only
   `window.WX3D_DEBUG` drives it headlessly.
 - `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
   ("the big story") and then laid out as a four-act story
