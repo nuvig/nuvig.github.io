@@ -20,7 +20,7 @@
     body { max-width: 1100px; padding-bottom: 40px; }
     #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
     #back-link:hover { color: #ccc; }
-    .subtitle { color: #888; margin: 4px 0 16px; font-size: 14px; max-width: 760px; }
+    header h1 { margin-bottom: 14px; }
 
     .top-bar {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -126,8 +126,8 @@
     #wind-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 3px; }
 
     /* ---- below: the column + how to read it ---- */
-    #below { display: grid; grid-template-columns: 5fr 4fr; gap: 14px; margin-top: 16px; align-items: start; }
-    @media (max-width: 840px) { #below { grid-template-columns: 1fr; } }
+    #below { margin-top: 16px; }
+    #below .card { max-width: 680px; }
     .card {
       background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
       padding: 14px 16px; margin: 0;
@@ -159,28 +159,18 @@
     #col-links { font-size: 12.5px; margin-top: 10px; }
     .faint { color: #556; }
 
-    #about li { margin: 6px 0; font-size: 13px; color: #9aa; line-height: 1.55; }
-    #about ul { margin: 0; padding-left: 18px; }
-    #about b { color: #ccc; font-weight: 600; }
-
     footer { margin-top: 40px; }
+    footer p { font-size: 12px; color: #667; line-height: 1.6; }
   </style>
 </head>
 <body>
   <header>
     <h1>The Air Above</h1>
-    <p class="subtitle">The forecast over the Chesapeake as a solid block of sky you can pick up and turn —
-      every cloud deck drawn at its modeled altitude, winds aloft on their pressure levels, the freezing
-      surface tilting with the air mass, rain columns reaching the ground, and the live radar draped over
-      the real lay of the land at &ldquo;now.&rdquo; Drag to orbit, shift-drag to pan up to the altitude
-      you care about, scroll to zoom — all the way out to a multi-state view — and slide through the
-      next two days; or set winds aloft to &ldquo;flow&rdquo; and watch the whole block move like a
-      wind map with a third dimension.</p>
   </header>
 
   <main>
     <div class="top-bar">
-      <span id="dom-wrap">KANP ·
+      <span id="dom-wrap"><span id="ctr-apt">KDCA</span> ·
         <button class="chip sel" id="dom-local" title="the local box">120 nm</button>
         <button class="chip" id="dom-wide" title="multi-state — about 750 statute miles across">650 nm</button>
         · 40,000 ft tall · <span id="dom-note">5×5 model grid · ~120 nm across</span>
@@ -243,70 +233,27 @@
 
     <div id="below">
       <div class="card">
-        <h2>The column over KANP <span class="sub" id="col-when"></span></h2>
+        <h2>The column over <span id="col-apt">KDCA</span> <span class="sub" id="col-when"></span></h2>
         <div id="col-body"><span class="faint">waiting on the model…</span></div>
         <div id="metar-line"></div>
         <div id="col-links">Want the full thermodynamic picture at any airport? <a href="/skew-t.html">Skew-T Explorer →</a></div>
       </div>
 
-      <div class="card" id="about">
-        <h2>How to read it</h2>
-        <ul>
-          <li><b>Cloud decks</b> are the model's cloud-cover fraction at each pressure surface, drawn at
-            that surface's forecast height. The texture is invented; the coverage and the altitude are
-            the model's. Each visible deck is labeled on the left axis (height · millibars).</li>
-          <li><b>The cyan sheet is the freezing level</b>, drawn point by point across the grid, so you
-            can watch 0&nbsp;°C tilt as a different air mass leans into the region.</li>
-          <li><b>Winds are °true</b>, like everywhere on this site. Grid arrows fly downwind and are
-            colored by speed; the barb staff over the field reads the usual way — pennant 50, full barb
-            10, half 5 kt.</li>
-          <li><b>Flow mode</b> fills the volume with ~8,000 drifting tracers — a 20×20×20 field's
-            worth — each riding the model's horizontal wind at its own altitude, colored by speed on
-            a smooth ramp. The field is interpolated everywhere it can be: across the grid columns,
-            vertically between eleven wind surfaces from 10&nbsp;m up to 200&nbsp;mb, and in time
-            between forecast hours — at &ldquo;now&rdquo; it sits at the actual minutes past the hour,
-            and in play the wind evolves continuously. Motion is sped up ≈2,900× (more at the wide
-            scale), so a second of animation is most of an hour of wind. The model publishes no
-            vertical motion at these levels, so tracers hold their altitude; clouds still veil the
-            traffic beneath them. On slower devices the field quietly thins itself.</li>
-          <li><b>Investigating one layer</b>: with flow on, the altitude slider under the layer bar
-            confines the tracers to a band — its floor and ceiling appear as dashed frames in the
-            scene — and shift-drag (or right-drag, or a two-finger drag) pans the view so you can
-            zoom to just that slab of air.</li>
-          <li><b>Two scales</b>: the 120&nbsp;nm chip is the local box; the 650&nbsp;nm chip (or just
-            zooming all the way out) swaps in a multi-state volume about 750 statute miles across —
-            Appalachians to the Atlantic on a coarser 7×7 grid of columns: synoptic strokes, not
-            local detail. Same decks, freezing surface, rain and flow; the radar zooms out with
-            it.</li>
-          <li><b>Rain</b>: blue columns rise from where the model drops precip to the deck it falls
-            from. At the &ldquo;now&rdquo; hour the ground wears the live radar (RainViewer); every
-            other hour it's shaded by the model's precip instead — the caption says which you're seeing.</li>
-          <li><b>The ground is real</b> — a 192×192 grid of USGS 3DEP elevations. Wherever the DEM
-            reports sea level becomes water, and that one rule draws the Bay, the Potomac and the
-            river mouths; the land is tinted and hillshaded by elevation, and the high ground in the
-            northwest — Catoctin, Sugarloaf, Parr's Ridge — rises out of the plane as a true mesh.
-            Cities, the majors (BWI, DCA, ADW) and the Bay Bridge are marked for orientation.</li>
-          <li><b>The vertical scale is ×7.5 exaggerated</b>, terrain included — the same stretch for
-            the ridges and the cloud decks above them. At true scale this ~120-nm-wide box would be
-            about eighteen times wider than it is tall, and every cloud deck would be a coat of paint.</li>
-          <li><b>Model</b>: NOAA GFS (HRRR-blended in the near term) via Open-Meteo, hourly, on a 5×5
-            grid of columns. It's one model's opinion of the sky — sanity-check it against the METAR
-            line and the Skew-T.</li>
-        </ul>
-      </div>
     </div>
   </main>
 
   <a id="back-link" href="/tools.html">&larr; Aviation Tools</a>
 
   <footer>
-    <p>Model: NOAA GFS via Open-Meteo · obs KNAK (api.weather.gov) · radar RainViewer ·
-      terrain USGS 3DEP (OpenTopoData) · directions °true · © Jesse Levine ·
+    <p>NOAA GFS via Open-Meteo · obs KDCA (api.weather.gov) · radar RainViewer, at &ldquo;now&rdquo; only ·
+      terrain USGS 3DEP / SRTM (OpenTopoData) · directions °true · vertical ×7.5 ·
+      cloud textures illustrative, coverage &amp; altitude the model's · flow ≈2,900× time-lapse (×3 wide),
+      no vertical motion at these levels · © Jesse Levine ·
       <a href="https://github.com/nuvig/nuvig.github.io">Site source on GitHub</a></p>
   </footer>
 
   <script src="js/site-config.js"></script>
-  <script src="js/wx3d.js?v=4"></script>
+  <script src="js/wx3d.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

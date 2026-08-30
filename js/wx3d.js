@@ -23,7 +23,9 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const A = SITE.airport;
+  // the volume's center — SITE.weather.wx3d (KDCA), not the home field;
+  // the home field draws as a landmark pin instead
+  const A = (SITE.weather && SITE.weather.wx3d) || SITE.airport;
   const TZ = SITE.weather.timeZone;
   const D2R = Math.PI / 180, TAU = Math.PI * 2;
   const M2FT = 3.28084;
@@ -45,10 +47,10 @@
   const TOP_Z = zOf(TOP_FT);
   const DOMAINS = {
     local: { gn: 5, spanLat: 2.0, spanLon: 2.5, terrUrl: 'data/wx3d/terrain.json',
-             grat: 0.5, rings: [20, 40], radarZ: 7, meshMin: 90, meshStep: 3,
+             grat: 0.5, radarZ: 7, meshMin: 90, meshStep: 3,
              flowBoost: 1, rh: true, label: '5×5 model grid · ~120 nm across' },
     wide:  { gn: 7, spanLat: 10.8, spanLon: 13.9, terrUrl: 'data/wx3d/terrain-wide.json',
-             grat: 2, rings: [200, 400], radarZ: 5, meshMin: 300, meshStep: 4,
+             grat: 2, radarZ: 5, meshMin: 300, meshStep: 4,
              flowBoost: 3, rh: false, label: '7×7 model grid · ~650 nm across' },
   };
   const SPAN_RATIO = DOMAINS.wide.spanLon / DOMAINS.local.spanLon;   // ≈5.6
@@ -590,14 +592,6 @@
       const x = (lo - lonW) / SPAN_LON * S;
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, S); g.stroke();
     }
-    // range rings around the field
-    g.strokeStyle = 'rgba(150,170,200,0.16)';
-    for (const nm of d.rings) {
-      const km = nm * 1.852;
-      g.beginPath();
-      g.ellipse(S / 2, S / 2, km / (2 * HALF_X) * S, km / (2 * HALF_Y) * S, 0, 0, TAU);
-      g.stroke();
-    }
     g.strokeStyle = 'rgba(160,180,210,0.3)'; g.lineWidth = 1.5;
     g.strokeRect(0.75, 0.75, S - 1.5, S - 1.5);
     groundBase = c;
@@ -1068,12 +1062,14 @@
           ctx.fillText(lm.name, P.X + 4, P.Y + 1);
         }
       }
-      // the field: runway stripe on its true axis + label
-      const ax = SITE.tracker.runway.axisTrue * D2R;
-      const rl = 7, dx = Math.sin(ax) * rl, dy = Math.cos(ax) * rl;
-      const p1 = project(-dx, -dy, 0), p2 = project(dx, dy, 0);
-      ctx.strokeStyle = 'rgba(230,238,250,0.95)'; ctx.lineWidth = 2.5;
-      line(p1.X, p1.Y, p2.X, p2.Y);
+      // the center field: runway stripe on its true axis + label
+      if (A.runwayAxisTrue != null) {
+        const ax = A.runwayAxisTrue * D2R;
+        const rl = 7, dx = Math.sin(ax) * rl, dy = Math.cos(ax) * rl;
+        const p1 = project(-dx, -dy, 0), p2 = project(dx, dy, 0);
+        ctx.strokeStyle = 'rgba(230,238,250,0.95)'; ctx.lineWidth = 2.5;
+        line(p1.X, p1.Y, p2.X, p2.Y);
+      }
       const P = project(0, 0, 0);
       ctx.fillStyle = '#9ec5f0';
       ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
@@ -1541,6 +1537,8 @@
     requestAnimationFrame(frame);
   }
 
+  $('ctr-apt').textContent = A.id;
+  $('col-apt').textContent = A.id;
   buildGroundBase();
   resize();
   wireControls();
@@ -1562,7 +1560,7 @@
                    emaMs: +flow.emaMs.toFixed(1), levels: flow.f0 ? flow.f0.nL : 0,
                    sample: flow.ready ? { x: +flow.hx[0].toFixed(2), y: +flow.hy[0].toFixed(2), zft: Math.round(flow.hz[0]), kt: +flow.sp[0].toFixed(1) } : null }),
     terr: () => ({ ok: terr.ok, cells: terr.mesh.length, marks: terr.marks.length,
-                   kanpM: terr.ok ? Math.round(elevAtLL(A.lat, A.lon)) : null,
+                   ctrM: terr.ok ? Math.round(elevAtLL(A.lat, A.lon)) : null,
                    sugarloafM: terr.ok ? Math.round(elevAtLL(39.2621, -77.3944)) : null,
                    midBayM: terr.ok ? Math.round(elevAtLL(38.55, -76.4)) : null }),
     domain: () => DK,

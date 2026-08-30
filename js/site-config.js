@@ -100,6 +100,18 @@ const SITE = {
       },
     ],
 
+    // The Air Above (wx3d.html): the 3-D volume is centered HERE, not at the
+    // home field — DCA is the region's natural center and the station the
+    // site's forecasts verify against. The home airport still appears as a
+    // labeled pin via the terrain landmark list. If you change this, rerun
+    // scripts/build_wx3d_terrain.py (both boxes) — the terrain files are
+    // built for this center and the page drops mismatched ones.
+    wx3d: {
+      id: 'KDCA', lat: 38.8521, lon: -77.0377, elevFt: 15,
+      metarStation: 'KDCA',
+      runwayAxisTrue: 356,   // RWY 01/19 true alignment (FAA data via OurAirports)
+    },
+
     // Nearest airports that publish TAFs (KANP itself does not).
     tafStations: [
       { id: 'KMTN', label: 'Martin State' },

@@ -28,10 +28,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-# Mirrors js/wx3d.js (SITE.airport + the DOMAINS table there). Run once with
-# no args for the local box and once with --wide for the multi-state box.
+# Mirrors js/wx3d.js (SITE.weather.wx3d center + the DOMAINS table there).
+# Run once with no args for the local box and once with --wide for the
+# multi-state box.
 WIDE = '--wide' in sys.argv
-CENTER_LAT, CENTER_LON = 38.9429, -76.5684
+CENTER_LAT, CENTER_LON = 38.8521, -77.0377      # KDCA
 SPAN_LAT, SPAN_LON = (10.8, 13.9) if WIDE else (2.0, 2.5)
 N = 160 if WIDE else 192     # grid points per side; row 0 = north edge
 # ned10m stops at the border; the wide box clips Ontario, so it uses srtm90m
@@ -67,11 +68,10 @@ LANDMARKS_WIDE = [
     {'kind': 'peak', 'name': 'Mt Washington', 'lat': 44.2706, 'lon': -71.3033},
 ]
 LANDMARKS = [
-    {'kind': 'city', 'name': 'Washington', 'lat': 38.9047, 'lon': -77.0164},
     {'kind': 'city', 'name': 'Baltimore', 'lat': 39.2904, 'lon': -76.6122},
     {'kind': 'city', 'name': 'Frederick', 'lat': 39.4143, 'lon': -77.4105},
+    {'kind': 'apt', 'name': 'KANP', 'lat': 38.9429, 'lon': -76.5684},
     {'kind': 'apt', 'name': 'KBWI', 'lat': 39.1754, 'lon': -76.6683},
-    {'kind': 'apt', 'name': 'KDCA', 'lat': 38.8521, 'lon': -77.0377},
     {'kind': 'apt', 'name': 'KADW', 'lat': 38.8108, 'lon': -76.8670},
     # Sandy Point -> Kent Island
     {'kind': 'bridge', 'name': 'Bay Bridge',
