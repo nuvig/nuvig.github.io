@@ -1536,7 +1536,7 @@ function nearestFront(t) {
       const d = kmBetween(DC.lat, DC.lon, lat, lon);
       if (!best || d.km < best.km) {
         const adv = -(uU[i] * gradX[i] + vU[i] * gradY[i]);
-        best = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), adv, G };
+        best = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), adv, G, lat, lon };
       }
     }
   }
@@ -2535,7 +2535,7 @@ function centersNear(i, maxKm = 800) {
     const lat = SYN.LAT_N - m.y * SYN.DLAT, lon = SYN.LON_W + m.x * SYN.DLON;
     const d = kmBetween(DC.lat, DC.lon, lat, lon);
     if (d.km > maxKm) continue;
-    const rec = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), v: m.v };
+    const rec = { km: d.km, dir: compass8(d.dLatKm, d.dLonKm), v: m.v, lat, lon };
     if (m.type === 'L' && (!low || d.km < low.km)) low = rec;
     if (m.type === 'H' && (!high || d.km < high.km)) high = rec;
   }
@@ -2544,15 +2544,19 @@ function centersNear(i, maxKm = 800) {
 
 const asNm = (km) => Math.round(km * 0.54 / 10) * 10;
 
-/* Short "what's driving it" clause for a given model hour. */
+/* Short "what's driving it" clause for a given model hour, with the feature's
+   grid position kept as a map anchor so the phrase can point at the map. */
 function mechanismAt(i) {
   const f = nearestFront(i);
   if (f && f.km < 300) {
     const kind = f.adv < 0 ? 'cold' : 'warm';
-    return f.km < 70 ? `a ${kind} front right overhead` : `a ${kind} front ~${asNm(f.km)} nm ${f.dir}`;
+    const text = f.km < 70 ? `a ${kind} front right overhead` : `a ${kind} front ~${asNm(f.km)} nm ${f.dir}`;
+    return { text, anchor: mapAnchor(text, kind, f.lat, f.lon, i) };
   }
   const { low } = centersNear(i);
-  return low ? `a surface low ~${asNm(low.km)} nm ${low.dir}` : null;
+  if (!low) return null;
+  const text = `a surface low ~${asNm(low.km)} nm ${low.dir}`;
+  return { text, anchor: mapAnchor(text, 'low', low.lat, low.lon, i) };
 }
 
 /* ------------------------- forecast-number lookups ----------------------- */
@@ -2698,6 +2702,7 @@ function buildStories(s) {
     const inches = e.total / 25.4;
     const span = spanPhrase(e.t0, e.t1);
     const mech = mechanismAt(e.i0);
+    const mAnchors = mech && mech.anchor ? [mech.anchor] : undefined;
     const pen = leadTimePenalty(e.t0);
     const eDay = localDay(e.t0);
     const key = `precip:${eDay}`;
@@ -2717,8 +2722,9 @@ function buildStories(s) {
         score: 58 + (inches >= 0.3 ? 8 : 0) + (phase === 'Freezing rain' ? 10 : 0)
           + (pop >= 60 ? 6 : 0) - pen,
         headline: `${phase} ${whenPhrase(e.t0)}`,
+        anchors: mAnchors,
         deck: `Precip in the GFS ${span}, about ${inches.toFixed(2)}″ liquid` +
-          `${mech ? `, lift from ${mech}` : ''}.${moistureClause(s, e.i0)} LWX calls it ` +
+          `${mech ? `, lift from ${mech.text}` : ''}.${moistureClause(s, e.i0)} LWX calls it ` +
           `${phase.toLowerCase()} — “${quote(WINTRY)}”${pop != null ? `, ${pop}%` : ''}. Anything ` +
           'that freezes to the airframe is a no-go without a way to shed it.',
       });
@@ -2735,8 +2741,9 @@ function buildStories(s) {
         day: eDay,
         score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
+        anchors: mAnchors,
         deck: `${fmtJ(e.cape)} J/kg of storm fuel in the GFS, rain breaking out ${span}` +
-          `${mech ? ` with ${mech}` : ''} — about ${inches.toFixed(2)}″ if a cell tracks over ` +
+          `${mech ? ` with ${mech.text}` : ''} — about ${inches.toFixed(2)}″ if a cell tracks over ` +
           `the district.${moistureClause(s, e.i0)}${lwx}${capNote}`,
       });
     } else if (CONVECTIVE.test(wtxt)) {
@@ -2761,7 +2768,8 @@ function buildStories(s) {
         score: 44 + (heavy ? 26 : inches >= 0.3 ? 16 : trace ? 0 : 8) - pen,
         headline: heavy ? `Soaking rain ${whenPhrase(e.t0)}`
           : trace ? `A few showers ${whenPhrase(e.t0)}` : `Rain ${whenPhrase(e.t0)}`,
-        deck: `Steady rain in the GFS ${span}${mech ? ` as ${mech} works in` : ''} — ` +
+        anchors: mAnchors,
+        deck: `Steady rain in the GFS ${span}${mech ? ` as ${mech.text} works in` : ''} — ` +
           `${trace ? 'a few hundredths' : `about ${inches.toFixed(2)}″`}, peaking near ` +
           `${e.peak.toFixed(1)} mm/hr.${moistureClause(s, e.i0)} Little instability, so wet ` +
           `rather than stormy.${pop != null ? ` LWX: ${pop}%.` : ''}`,
@@ -2903,11 +2911,17 @@ function buildStories(s) {
       const hiA = fcDay(today), hiB = fcDay(tmr);
       const swing = (hiA && hiA.hi != null && hiB && hiB.hi != null)
         ? ` Highs go ${hiA.hi}° today → ${hiB.hi}° tomorrow.` : '';
+      /* the approaching frontal zone at the hour the swap begins */
+      const ff = nearestFront(fp.i0);
+      const fAnchor = ff && ff.km < 600
+        ? mapAnchor(fp.cold ? 'Cold front' : 'Warm front', fp.cold ? 'cold' : 'warm', ff.lat, ff.lon, fp.i0)
+        : null;
       stories.push({
         key: 'front',
         day: localDay(fp.at),
         score: 48 + Math.min(22, Math.round(Math.abs(fp.d) * 3.5)) - leadTimePenalty(fp.at),
         headline: fp.cold ? `Cold front crosses ${whenPhrase(fp.at)}` : `Warm front lifts through ${whenPhrase(fp.at)}`,
+        anchors: fAnchor ? [fAnchor] : undefined,
         deck: `850 hPa temperatures ${fp.cold ? 'fall' : 'climb'} ${Math.abs(fp.d).toFixed(1)} °C in six hours ` +
           `around ${clockPhrase(fp.at)} — the air mass itself changing, not just the sky.${shift}${swing}`,
       });
@@ -2995,14 +3009,18 @@ function buildStories(s) {
   if (s) {
     const { high, low } = centersNear(s.now);
     const end = s.t[s.t.length - 1];
-    const center = high ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${asNm(high.km)} nm ${high.dir}`} ` +
-      `(${Math.round(high.v)} hPa) has the region subsiding` : low ? 'No organized forcing is close enough to matter' : '';
+    const hp = high ? `High pressure ${high.km < 90 ? 'sits overhead' : `~${asNm(high.km)} nm ${high.dir}`} ` +
+      `(${Math.round(high.v)} hPa)` : '';
+    const hAnchor = high ? mapAnchor(hp, 'high', high.lat, high.lon, s.now) : null;
+    const center = hp ? `${hp} has the region subsiding`
+      : low ? 'No organized forcing is close enough to matter' : '';
     /* "Quiet through Friday" must not read as an all-clear for Saturday —
        name the first chance the 7-day forecast carries past the grid. */
     const later = weekAhead().find((d) => d.cls !== 'dry' && Date.parse(d.date + 'T12:00:00') > end);
     stories.push({
       key: 'quiet',
       score: eps.length ? 12 : 30,
+      anchors: hAnchor ? [hAnchor] : undefined,
       headline: eps.length ? 'Nothing dominant in the pattern' : 'Quiet pattern — nothing to dodge',
       deck: `${eps.length ? 'Beyond the precip above, the model has no other' : 'The model has no'} organized ` +
         `weather at DC through ${whenPhrase(end)}.${center ? ` ${center} — sinking air, dry column, good flying.` : ''}` +
@@ -3390,7 +3408,8 @@ function renderWeek(s, leadWhy) {
       const d0 = ph.days[0], d1 = ph.days[ph.days.length - 1];
       rows.push({
         name: d0.date === d1.date ? chipName(d0.date) : `${chipName(d0.date)}–${chipName(d1.date)}`,
-        why: `Lift from ${mech}.`,
+        why: `Lift from ${mech.text}.`,
+        anchors: mech.anchor ? [mech.anchor] : undefined,
         src: 'GFS',
       });
     }
@@ -3400,7 +3419,7 @@ function renderWeek(s, leadWhy) {
       (chips ? `<div class="wk-strip">${chips}</div>` : '') +
       rows.slice(0, 4).map((r) =>
         `<div class="wk-row"><span class="d">${esc(r.name)}</span>` +
-        `<span class="t">${esc(r.why)}</span><span class="s">${esc(r.src)}</span></div>`).join('')
+        `<span class="t">${anchoredHtml(r.why, r.anchors)}</span><span class="s">${esc(r.src)}</span></div>`).join('')
     : '';
 }
 
@@ -3442,11 +3461,163 @@ function renderSplit(s) {
   if (msg) host.innerHTML = `<span class="lab">Model vs LWX</span>${esc(msg)}`;
 }
 
+/* ===========================================================================
+   Text → map links. A story that names a verifiable feature — "a cold front
+   ~40 nm NW", "High pressure ~200 nm SW (1022 hPa)" — keeps that feature's
+   lat/lon as an anchor, and the phrase renders as a link. Hovering it draws a
+   leader line from the phrase out into the right margin, down the page and
+   onto the synoptic map, ending in a pulsing ring on the feature; clicking
+   pins the line and scrubs the map to the model hour the claim is about.
+   Legal because the map never pans or zooms: a feature's container position
+   is fixed, so the line only has to be recomputed when it's drawn.
+   =========================================================================== */
+
+const MAPLINKS = new Map();      // id → anchor, rebuilt on every headline render
+let mlSeq = 0;
+let mlActive = null;             // { el, pin }
+
+const ML_COLOR = { cold: '#4a8cff', warm: '#ff5a5a', low: '#ff6b6b', high: '#74a7ff' };
+const ML_LABEL = { cold: 'cold front', warm: 'warm front', low: 'surface low', high: 'high pressure' };
+
+/* Anchor only what the map can actually show — a feature outside the drawn
+   view stays plain text rather than pointing at nothing. */
+function mapAnchor(phrase, kind, lat, lon, t) {
+  const [[latS, lonW], [latN, lonE]] = SYN.VIEW;
+  if (!(lat > latS + 0.2 && lat < latN - 0.2 && lon > lonW + 0.3 && lon < lonE - 0.3)) return null;
+  return { phrase, kind, lat, lon, t };
+}
+
+/* esc() the text, then wrap each anchor's phrase in a linked span. */
+function anchoredHtml(text, anchors) {
+  let html = esc(text);
+  for (const a of anchors || []) {
+    if (!a) continue;
+    const ph = esc(a.phrase);
+    const at = html.indexOf(ph);
+    if (at < 0) continue;
+    const id = 'ml' + (++mlSeq);
+    MAPLINKS.set(id, a);
+    html = html.slice(0, at) +
+      `<span class="map-link" data-ml="${id}" tabindex="0" role="button" ` +
+      `title="show on the synoptic map">${ph}</span>` + html.slice(at + ph.length);
+  }
+  return html;
+}
+
+function mlSvg() {
+  let s = document.getElementById('maplink-svg');
+  if (!s) {
+    s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    s.id = 'maplink-svg';
+    document.body.appendChild(s);
+  }
+  return s;
+}
+
+/* Document coordinates, not viewport — the SVG sits at the page origin and
+   scrolls with it, so a drawn line stays glued through a smooth scroll. */
+function drawMapLink(el) {
+  const a = MAPLINKS.get(el.dataset.ml);
+  const wrap = $('syn-wrap');
+  if (!a || !syn.ready || !syn.map || !wrap) return false;
+  const svg = mlSvg();
+  const doc = document.documentElement;
+  svg.setAttribute('width', doc.scrollWidth);
+  svg.setAttribute('height', doc.scrollHeight);
+  const sx = window.scrollX, sy = window.scrollY;
+  const sr = el.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const p = syn.map.latLngToContainerPoint([a.lat, a.lon]);
+  const ex = wr.left + sx + Math.max(16, Math.min(wr.width - 16, p.x));
+  const ey = wr.top + sy + Math.max(16, Math.min(wr.height - 16, p.y));
+  // take off at underline level, not mid-text — a mid-height run reads as a
+  // strikethrough across the rest of the sentence on its way to the margin
+  const x0 = sr.right + sx + 4;
+  const y0 = sr.bottom + sy + 1.5;
+  // the rail: just outside the page column when there's margin, else hug the edge
+  const br = document.body.getBoundingClientRect();
+  let rail = Math.min(doc.clientWidth + sx - 7, br.right + sx + 22);
+  rail = Math.max(rail, x0 + 10);
+  const dy = ey >= y0 ? 1 : -1;
+  const r1 = Math.max(1, Math.min(12, (rail - x0) / 2, Math.abs(ey - y0) / 2));
+  const r2 = Math.max(1, Math.min(12, Math.abs(ey - y0) / 2, (rail - ex) / 2));
+  const stop = Math.min(ex + 17, rail - r2 - 2);
+  const path =
+    `M ${x0} ${y0} H ${rail - r1} Q ${rail} ${y0} ${rail} ${y0 + dy * r1} ` +
+    `V ${ey - dy * r2} Q ${rail} ${ey} ${rail - r2} ${ey} H ${stop}`;
+  const col = ML_COLOR[a.kind] || '#4a9eff';
+  const when = Math.abs(a.t - Math.round(syn.tf)) > 1
+    ? ` · ${fmtTime(new Date(syn.times[a.t]), { weekday: 'short', hour: 'numeric' })}` : '';
+  const label = `${ML_LABEL[a.kind] || a.kind}${when}`;
+  const ly = p.y < 46 ? ey + 34 : ey - 25;   // label above the ring unless too near the top
+  svg.innerHTML =
+    `<circle cx="${x0 - 3}" cy="${y0}" r="2.6" fill="${col}"/>` +
+    `<path class="ml-line" d="${path}" fill="none" stroke="${col}" stroke-width="1.6" ` +
+      `stroke-dasharray="5 3" opacity="0.9"/>` +
+    `<circle class="ml-ring" cx="${ex}" cy="${ey}" r="13" fill="none" stroke="${col}" stroke-width="2" opacity="0.9"/>` +
+    `<circle class="ml-pulse" cx="${ex}" cy="${ey}" r="13" fill="none" stroke="${col}" stroke-width="2"/>` +
+    `<text class="ml-label" x="${ex}" y="${ly}" text-anchor="middle" fill="${col}">${esc(label)}</text>`;
+  svg.style.display = 'block';
+  return true;
+}
+
+function hideMapLink() {
+  const svg = document.getElementById('maplink-svg');
+  if (svg) svg.style.display = 'none';
+  if (mlActive) mlActive.el.classList.remove('on');
+  mlActive = null;
+}
+
+function mlShow(el, pin) {
+  const keepPin = mlActive && mlActive.el === el && mlActive.pin;
+  if (mlActive && mlActive.el !== el) hideMapLink();
+  if (drawMapLink(el)) {
+    el.classList.add('on');
+    mlActive = { el, pin: pin || keepPin };
+  }
+}
+
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest && e.target.closest('.map-link');
+  if (el && !(mlActive && mlActive.pin)) mlShow(el, false);
+});
+document.addEventListener('mouseout', (e) => {
+  const el = e.target.closest && e.target.closest('.map-link');
+  if (el && mlActive && mlActive.el === el && !mlActive.pin) hideMapLink();
+});
+document.addEventListener('focusin', (e) => {
+  const el = e.target.closest && e.target.closest('.map-link');
+  if (el) mlShow(el, false);
+});
+document.addEventListener('click', (e) => {
+  const el = e.target.closest && e.target.closest('.map-link');
+  if (!el) { if (mlActive && mlActive.pin) hideMapLink(); return; }
+  const a = MAPLINKS.get(el.dataset.ml);
+  if (!a) return;
+  if (syn.ready) { synTogglePlay(false); synSetTime(a.t); }   // show the hour the claim is about
+  mlShow(el, true);
+  const wr = $('syn-wrap').getBoundingClientRect();
+  if (wr.top < 0 || wr.bottom > window.innerHeight) {
+    $('syn-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { hideMapLink(); return; }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList &&
+      e.target.classList.contains('map-link')) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+window.addEventListener('resize', hideMapLink);   // doc coords went stale
+
 /* -------------------------------- render --------------------------------- */
 
 function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
-  $('hl-title').textContent = lead.headline;
-  $('hl-deck').textContent = lead.deck;
+  hideMapLink();
+  MAPLINKS.clear();
+  $('hl-title').innerHTML = anchoredHtml(lead.headline, lead.anchors);
+  $('hl-deck').innerHTML = anchoredHtml(lead.deck, lead.anchors);
   $('hl-why').innerHTML = lead.why
     ? `<span class="lab">The driver · ${esc(OFFICE)}</span>${esc(lead.why)}`
     : '';
@@ -3495,7 +3666,7 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
 
   $('also-stories').innerHTML = alsos.length
     ? `<div class="sn-head">Also in play</div>` + alsos.map((x) =>
-      `<div class="item"><b>${esc(x.title)}</b> — ${esc(x.text)}</div>`).join('')
+      `<div class="item"><b>${anchoredHtml(x.title, x.anchors)}</b> — ${anchoredHtml(x.text, x.anchors)}</div>`).join('')
     : '';
   renderWeek(atmosSeries, lead.why || null);
   renderBigPicture(keyMsgs);
@@ -3680,7 +3851,7 @@ function buildHeadline() {
     for (const st of stories.slice(1)) {
       if (alsos.length >= 3 || st.score < 40) break;
       if (st.alert) continue;          // already shown as a pill above the headline
-      alsos.push({ title: st.headline, text: firstSentence(st.deck) });
+      alsos.push({ title: st.headline, text: firstSentence(st.deck), anchors: st.anchors });
     }
     renderHeadline(lead, headlineStats(s), alsos, keyMsgs.filter((km) => km !== lead.deck), s);
     renderSplit(s);

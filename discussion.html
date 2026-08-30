@@ -210,6 +210,31 @@
       text-decoration: none; white-space: nowrap;
     }
     .hl-more a.tag:hover { color: #cfe6ff; border-color: #4a9eff; }
+    /* a story phrase wired to the feature it names on the synoptic map:
+       hover draws the leader line, click pins it and scrubs the map there */
+    .map-link { border-bottom: 1px dashed rgba(74, 158, 255, 0.55); cursor: pointer; border-radius: 2px; }
+    .map-link:hover, .map-link.on, .map-link:focus-visible {
+      color: #cfe6ff; background: rgba(74, 158, 255, 0.10); border-bottom-color: #4a9eff; outline: none;
+    }
+    #maplink-svg { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 950; overflow: visible; }
+    #maplink-svg .ml-line { stroke-linecap: round; animation: ml-dash 0.8s linear infinite; }
+    @keyframes ml-dash { to { stroke-dashoffset: -8; } }
+    #maplink-svg .ml-pulse {
+      transform-box: fill-box; transform-origin: center;
+      animation: ml-pulse 1.5s ease-out infinite;
+    }
+    @keyframes ml-pulse {
+      0%   { transform: scale(0.55); opacity: 0.9; }
+      100% { transform: scale(1.7);  opacity: 0; }
+    }
+    #maplink-svg .ml-label {
+      font: 600 11px 'Segoe UI', system-ui, sans-serif;
+      paint-order: stroke; stroke: rgba(8, 10, 14, 0.85); stroke-width: 3px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #maplink-svg .ml-line { animation: none; }
+      #maplink-svg .ml-pulse { display: none; }
+    }
     .muted { color: #888; }
     .faint { color: #555; }
     .num-mono { font-variant-numeric: tabular-nums; }

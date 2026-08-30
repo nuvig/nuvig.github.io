@@ -374,7 +374,14 @@ concepts; to relink, add the tools.html card back.
   the ~2-day GFS window this page reads", and no GFS claims at all when the grid never loaded),
   the quiet story naming the first chance beyond the grid, and a lead that opens a multi-day wet
   stretch saying so in one clause ("Not a one-day event — chances stay up through Sunday, drier
-  Monday"). The scored story stays in the
+  Monday"). A story phrase naming a feature the map can verify — the mechanism clause's front
+  or surface low, the quiet story's high — carries a **text→map link** (`mapAnchor()` keeps the
+  detected feature's lat/lon; features outside `SYN.VIEW` stay plain text): the phrase renders
+  as a dashed-underline `.map-link`, hover draws an SVG leader line from the phrase out into
+  the right margin and down (or up, for "Also in play") onto the synoptic map, ending in a
+  pulsing ring + label on the feature, and click pins it and scrubs the map to the model hour
+  the claim is about — legal only because the map never pans/zooms, so feature container
+  positions are fixed. The scored story stays in the
   headline card (with the AFD's own `WHAT HAS CHANGED`, labelled "LWX changes", and a
   "Model vs LWX" line — `renderSplit()` — that speaks only when the GFS point read and the
   NWS forecast/AFD disagree about precip or storms in the next 36 h, silent on agreement);
