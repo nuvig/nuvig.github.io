@@ -319,7 +319,12 @@ concepts; to relink, add the tools.html card back.
   parsing/data fix in one probably belongs in both. **Deliberately unlinked** (no tools.html
   card, no sitemap entry; indexable) — sky.html is the one on tools.html.
 - `wx3d.html` + `js/wx3d.js` — The Air Above: the GFS forecast as a rotatable 3-D volume over the
-  field (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated** and said so on the page).
+  field (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated** and said so on the page). Two
+  nested **domains** share every code path: the local box (5×5 columns) and a multi-state box
+  (~650 nm / 750 sm, 7×7 columns, coarser on purpose) reached by the top-bar chips or by zooming
+  out past the local limit — `zoomTo()` switches domains with the apparent size continuous, and
+  per-domain caches (grid data, terrain, ground texture, radar composite) make flips instant
+  after the first. Camera: drag orbits, shift/right-drag (or two-finger drag) pans, wheel zooms.
   Hand-rolled **orthographic** canvas 3-D: every horizontal surface (ground map, each cloud deck)
   is an offscreen texture drawn with one affine transform — legal only because the projection is
   orthographic — and the scene paints bottom-up (correct painter's order for stacked horizontal
@@ -328,27 +333,35 @@ concepts; to relink, add the tools.html card back.
   at their per-hour geopotential heights; winds-aloft arrow layers per level plus a WMO barb staff
   at the field (NH convention, feathers 90° clockwise of the upwind shaft); a **flow mode** (chip
   in the winds-aloft row) advects ~8,000 altitude-holding tracers through the volume — trilinear
-  between the 5×5 columns and the 11 wind surfaces (10 m + ten pressure levels to 200 mb),
-  ≈2,900× time-lapse, world-space lagging-tail streaks (so trails orbit with the volume) bucketed
-  between the cloud decks for occlusion, FPS-governed like glow.html's swarm — no vertical motion
-  in the data, so tracers hold altitude, and the page says so; the freezing surface
+  between the grid columns and the 11 wind surfaces (10 m + ten pressure levels to 200 mb), AND
+  **interpolated in time** (the field for hour i and i+1 are both kept and blended: live minutes
+  past the hour at "now", continuously through play), ≈2,900× time-lapse (×3 more in the wide
+  domain, disclosed), an 8-step lerped speed-color ramp, world-space lagging-tail streaks (so
+  trails orbit with the volume) bucketed between the cloud decks for occlusion, FPS-governed like
+  glow.html's swarm — no vertical motion in the data, so tracers hold altitude, and the page says
+  so. A dual-thumb **altitude-band slider** (visible only in flow mode) confines tracers to a
+  layer, drawn as dashed frames + a bright axis segment in the scene; the freezing surface
   is a warped per-grid-point mesh; precip columns rise to the lowest cloudy deck. RainViewer radar
   drapes the ground **only at the "now" hour** — other hours get a model-precip stain, captioned
-  (same honesty rule as discussion.html's radar swap). The ground is a real map:
-  `data/wx3d/terrain.json`, built by `python scripts/build_wx3d_terrain.py` (USGS 3DEP `ned10m`
-  via the OpenTopoData public API — **not** Open-Meteo's elevation endpoint, which weighs each
-  coordinate as a call and 429s a 192×192 grid; output committed, rerun only to change the
-  landmark list or re-site, and the page bbox-validates the file so a stale one is dropped, not
-  misdrawn). Water is wherever the hydro-flattened DEM says sea level — that one rule draws the
+  (same honesty rule as discussion.html's radar swap; radar tiles at z7 local / z5 wide). The
+  ground is a real map: `data/wx3d/terrain.json` + `terrain-wide.json`, built by
+  `python scripts/build_wx3d_terrain.py` (no args / `--wide`) — USGS 3DEP `ned10m` locally and
+  `srtm90m` for the wide box (ned stops at the border and the wide box clips Ontario; SRTM
+  reports lakes at their surface height, so the script **flattens large flat regions to 0** or
+  the Great Lakes would read as land) via the OpenTopoData public API — **not** Open-Meteo's
+  elevation endpoint, which weighs each coordinate as a call and 429s a 192×192 grid. Output
+  committed, rerun only to change the landmark list or re-site; the page bbox-validates each
+  file so a stale one is dropped, not misdrawn. Water is wherever the hydro-flattened DEM says sea level — that one rule draws the
   Bay and the tidal rivers with no coastline data; land is hillshaded hypsometric tint baked into
   the flat affine ground texture (so radar still drapes with one transform), ground above ~90 m is
   *additionally* drawn as a displaced mesh at the same ×7.5 exaggeration (radar paints flat at
   z=0, so echoes can visually underlie the NW ridges — known, accepted), and the JSON's landmark
-  list (cities, BWI/DCA/ADW, the Bay Bridge, peaks) draws as screen-space pins. Data: two
-  Open-Meteo `gfs_seamless` calls —
-  a 5×5 multi-location grid (±1.0° lat/±1.25° lon around the field; response is an array in
-  request order) and one full-fidelity column at the field for the readout + level heights — plus
-  the KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only
+  list (cities, BWI/DCA/ADW, the Bay Bridge, peaks locally; big cities + Appalachian summits
+  wide) draws as screen-space pins. Data: Open-Meteo `gfs_seamless` — one multi-location grid
+  call per domain (responses are arrays in request order; the wide call skips the per-level RH
+  fallback to stay lean, and is pre-warmed a few seconds after load so zooming out doesn't
+  stall) and one full-fidelity column at the field for the readout + level heights — plus the
+  KNAK METAR line. Layer/wind-level choices persist (`wx3d_layers`); read-only
   `window.WX3D_DEBUG` drives it headlessly.
 - `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
   ("the big story") and then laid out as a four-act story

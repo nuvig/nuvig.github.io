@@ -31,25 +31,54 @@
   const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
   // ------------------------------------------------------------ the volume
-  const GN = 5;                        // grid points per side
-  const SPAN_LAT = 2.0, SPAN_LON = 2.5;         // degrees, full box
+  // Two nested domains share every drawing and data path: the local box the
+  // page opens on, and a multi-state box (~750 statute miles) reached by
+  // zooming out past the local limit or via the chips in the top bar.
+  // applyGeometry() re-derives every box-shaped value when the domain flips;
+  // everything downstream just reads the module vars.
   const KM_LAT = 111.32;
+  // one mid-box E–W scale (edges of the wide box run ±8% — fine for weather)
   const KM_LON = 111.32 * Math.cos(A.lat * D2R);
-  const HALF_X = SPAN_LON / 2 * KM_LON;         // ~108 km east–west
-  const HALF_Y = SPAN_LAT / 2 * KM_LAT;         // ~111 km north–south
   const TOP_FT = 40000;
   const ZSCALE = 7.5;                  // vertical exaggeration (km world per km alt)
   const zOf = (ft) => ft * 0.0003048 * ZSCALE;
   const TOP_Z = zOf(TOP_FT);
-  const latN = A.lat + SPAN_LAT / 2, latS = A.lat - SPAN_LAT / 2;
-  const lonW = A.lon - SPAN_LON / 2, lonE = A.lon + SPAN_LON / 2;
-  const lats = [], lons = [];          // grid rows N→S, columns W→E
-  for (let i = 0; i < GN; i++) {
-    lats.push(latN - i * SPAN_LAT / (GN - 1));
-    lons.push(lonW + i * SPAN_LON / (GN - 1));
+  const DOMAINS = {
+    local: { gn: 5, spanLat: 2.0, spanLon: 2.5, terrUrl: 'data/wx3d/terrain.json',
+             grat: 0.5, rings: [20, 40], radarZ: 7, meshMin: 90, meshStep: 3,
+             flowBoost: 1, rh: true, label: '5×5 model grid · ~120 nm across' },
+    wide:  { gn: 7, spanLat: 10.8, spanLon: 13.9, terrUrl: 'data/wx3d/terrain-wide.json',
+             grat: 2, rings: [200, 400], radarZ: 5, meshMin: 300, meshStep: 4,
+             flowBoost: 3, rh: false, label: '7×7 model grid · ~650 nm across' },
+  };
+  const SPAN_RATIO = DOMAINS.wide.spanLon / DOMAINS.local.spanLon;   // ≈5.6
+  let DK = 'local';                    // active domain key
+  let GN, SPAN_LAT, SPAN_LON, HALF_X, HALF_Y, latN, latS, lonW, lonE;
+  let lats = [], lons = [], gx = [], gy = [];
+  function applyGeometry(d) {
+    GN = d.gn; SPAN_LAT = d.spanLat; SPAN_LON = d.spanLon;
+    HALF_X = SPAN_LON / 2 * KM_LON;
+    HALF_Y = SPAN_LAT / 2 * KM_LAT;
+    latN = A.lat + SPAN_LAT / 2; latS = A.lat - SPAN_LAT / 2;
+    lonW = A.lon - SPAN_LON / 2; lonE = A.lon + SPAN_LON / 2;
+    lats = []; lons = [];              // grid rows N→S, columns W→E
+    for (let i = 0; i < GN; i++) {
+      lats.push(latN - i * SPAN_LAT / (GN - 1));
+      lons.push(lonW + i * SPAN_LON / (GN - 1));
+    }
+    gy = lats.map((la) => (la - A.lat) * KM_LAT);   // world y of each row
+    gx = lons.map((lo) => (lo - A.lon) * KM_LON);   // world x of each column
   }
-  const gy = lats.map((la) => (la - A.lat) * KM_LAT);   // world y of each row
-  const gx = lons.map((lo) => (lo - A.lon) * KM_LON);   // world x of each column
+  applyGeometry(DOMAINS.local);
+  function blankTerr() {
+    return { ok: false, tried: false, nx: 0, ny: 0, lat0: 0, lon0: 0, dlat: 0, dlon: 0,
+             elev: null, shade: null, mesh: [], marks: [] };
+  }
+  // per-domain caches so flipping back is instant
+  const domCache = {
+    local: { hourly: null, times: null, pending: null, terr: blankTerr(), ground: null, radar: null },
+    wide:  { hourly: null, times: null, pending: null, terr: blankTerr(), ground: null, radar: null },
+  };
 
   const LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
   // standard-atmosphere heights, ft — fallback if the field column never loads
@@ -60,39 +89,84 @@
   const state = {
     sel: 0, nowIdx: 0,
     yaw: 0, pitch: 35, zoom: 1,
+    panX: 0, panY: 0,                  // screen-px view offset (shift/right-drag)
     layers: { cl: true, fz: true, pr: true, gd: true },
-    wind: '850',                       // 'off' | 'sfc' | one of LEVELS as string
+    wind: '850',                       // 'off' | 'flow' | 'sfc' | one of LEVELS as string
+    band: [0, TOP_FT],                 // flow-mode altitude filter, ft
   };
   try {
     const s = JSON.parse(localStorage.getItem('wx3d_layers') || 'null');
-    if (s) { Object.assign(state.layers, s.layers || {}); if (s.wind) state.wind = s.wind; }
+    if (s) {
+      Object.assign(state.layers, s.layers || {});
+      if (s.wind) state.wind = s.wind;
+      if (Array.isArray(s.band) && s.band.length === 2) {
+        const lo = clamp(+s.band[0] || 0, 0, TOP_FT), hi = clamp(+s.band[1] || TOP_FT, 0, TOP_FT);
+        if (hi - lo >= 1000) state.band = [lo, hi];
+      }
+    }
   } catch (e) { /* private mode */ }
   const persist = () => {
-    try { localStorage.setItem('wx3d_layers', JSON.stringify({ layers: state.layers, wind: state.wind })); }
-    catch (e) { /* private mode */ }
+    try {
+      localStorage.setItem('wx3d_layers',
+        JSON.stringify({ layers: state.layers, wind: state.wind, band: state.band }));
+    } catch (e) { /* private mode */ }
   };
 
   const data = { grid: null, center: null, times: [] };
   const built = { hour: -1, sheets: [], blobs: null, cols: [], fz: null, hFt: null };
-  const radar = { path: '', time: 0, canvas: null };
+  const radar = { path: '', time: 0, canvas: null, dk: 'local' };
   let dirty = true, playing = false, playTimer = null;
 
   // ------------------------------------------------------------ fetch
-  function gridUrl() {
+  function gridUrl(k) {
+    const d = DOMAINS[k];
     const la = [], lo = [];
-    for (let iy = 0; iy < GN; iy++) for (let ix = 0; ix < GN; ix++) {
-      la.push(lats[iy].toFixed(3)); lo.push(lons[ix].toFixed(3));
+    const lat0 = A.lat + d.spanLat / 2, lon0 = A.lon - d.spanLon / 2;
+    for (let iy = 0; iy < d.gn; iy++) for (let ix = 0; ix < d.gn; ix++) {
+      la.push((lat0 - iy * d.spanLat / (d.gn - 1)).toFixed(3));
+      lo.push((lon0 + ix * d.spanLon / (d.gn - 1)).toFixed(3));
     }
     const vars = [];
     for (const L of LEVELS) {
-      vars.push(`cloud_cover_${L}hPa`, `relative_humidity_${L}hPa`,
-                `wind_speed_${L}hPa`, `wind_direction_${L}hPa`);
+      vars.push(`cloud_cover_${L}hPa`, `wind_speed_${L}hPa`, `wind_direction_${L}hPa`);
+      if (d.rh) vars.push(`relative_humidity_${L}hPa`);   // cloud-cover fallback (local only — the wide call is big enough)
     }
     vars.push('precipitation', 'freezing_level_height', 'cape',
               'wind_speed_10m', 'wind_direction_10m');
     return 'https://api.open-meteo.com/v1/forecast?latitude=' + la.join(',') +
       '&longitude=' + lo.join(',') + '&hourly=' + vars.join(',') +
       '&models=gfs_seamless&windspeed_unit=kn&timezone=UTC&forecast_days=3';
+  }
+
+  function ensureDomainData(k) {
+    const c = domCache[k];
+    if (c.hourly) return Promise.resolve();
+    if (c.pending) return c.pending;
+    c.pending = (async () => {
+      const g = await fetchJSON(gridUrl(k));
+      const arr = Array.isArray(g) ? g : [g];
+      const d = DOMAINS[k];
+      if (arr.length !== d.gn * d.gn) throw new Error('grid came back short');
+      c.hourly = arr.map((o) => o.hourly);
+      c.times = c.hourly[0].time.map((t) => new Date(t + 'Z').getTime());
+    })().finally(() => { c.pending = null; });
+    return c.pending;
+  }
+
+  let adoptedOnce = false;
+  function adoptDomainData() {
+    const c = domCache[DK];
+    data.grid = c.hourly;
+    data.times = c.times || [];
+    const now = Date.now();
+    let idx = 0;
+    for (let i = 0; i < data.times.length; i++) if (data.times[i] <= now) idx = i;
+    state.nowIdx = idx;
+    if (!adoptedOnce) { state.sel = idx; adoptedOnce = true; }
+    state.sel = clamp(state.sel, 0, Math.max(0, data.times.length - 1));
+    const sl = $('hour-slider');
+    sl.max = Math.max(1, data.times.length - 1);
+    sl.value = state.sel;
   }
 
   function centerUrl() {
@@ -118,29 +192,68 @@
 
   async function loadAll() {
     setStatus('loading the atmosphere…');
+    domCache.local.hourly = domCache.local.times = null;   // Refresh re-pulls both domains
+    domCache.wide.hourly = domCache.wide.times = null;
+    data.grid = null;
+    built.hour = -1;
     try {
-      const [g, c] = await Promise.all([
-        fetchJSON(gridUrl()),
+      const [, c] = await Promise.all([
+        ensureDomainData(DK),
         fetchJSON(centerUrl()).catch(() => null),   // volume still works without it
       ]);
-      const arr = Array.isArray(g) ? g : [g];
-      if (arr.length !== GN * GN) throw new Error('grid came back short');
-      data.grid = arr.map((o) => o.hourly);
       data.center = c ? c.hourly : null;
-      data.times = data.grid[0].time.map((t) => new Date(t + 'Z').getTime());
-      const now = Date.now();
-      let idx = 0;
-      for (let i = 0; i < data.times.length; i++) if (data.times[i] <= now) idx = i;
-      state.nowIdx = idx;
-      state.sel = idx;
-      const sl = $('hour-slider');
-      sl.max = data.times.length - 1;
-      sl.value = idx;
+      adoptDomainData();
       setStatus('');
-      rebuild(idx);
+      rebuild(state.sel);
+      // quietly pre-warm the other scale so zooming out doesn't stall
+      setTimeout(() => ensureDomainData(DK === 'local' ? 'wide' : 'local').catch(() => {}), 4000);
     } catch (e) {
       setStatus('couldn’t load the model — ' + e.message + ' · try Refresh');
     }
+  }
+
+  let switching = false;
+  async function switchDomain(k, newZoom) {
+    if (k === DK || switching || !DOMAINS[k]) return;
+    switching = true;
+    // stash the active domain's view furniture for an instant return trip
+    domCache[DK].ground = groundBase;
+    domCache[DK].radar = radar.canvas
+      ? { path: radar.path, time: radar.time, canvas: radar.canvas } : null;
+    DK = k;
+    const c = domCache[k];
+    applyGeometry(DOMAINS[k]);
+    if (newZoom != null) {             // zoom-through: keep the apparent size continuous
+      state.zoom = clamp(newZoom, 0.4, 6.2);
+      const f = k === 'wide' ? 1 / SPAN_RATIO : SPAN_RATIO;
+      state.panX *= f; state.panY *= f;
+    } else {
+      state.panX = 0; state.panY = 0;
+    }
+    terr = c.terr;
+    groundBase = c.ground;
+    if (!groundBase) buildGroundBase();
+    const r = c.radar;
+    radar.canvas = r ? r.canvas : null;
+    radar.path = r ? r.path : '';
+    radar.time = r ? r.time : 0;
+    flowRealloc();
+    markDomUI();
+    dirty = true;
+    try {
+      if (!c.hourly) { data.grid = null; built.hour = -1; setStatus('loading the atmosphere…'); }
+      await ensureDomainData(k);
+      if (DK === k) {                  // user may have flipped back mid-fetch
+        adoptDomainData();
+        setStatus('');
+        rebuild(state.sel);
+      }
+    } catch (e) {
+      if (DK === k) setStatus('couldn’t load this view — ' + e.message + ' · try Refresh');
+    }
+    if (!c.terr.tried) loadTerrain();
+    loadRadar().catch(() => {});
+    switching = false;
   }
 
   async function loadMetar() {
@@ -163,8 +276,9 @@
     const past = (cfg.radar && cfg.radar.past) || [];
     if (!past.length) return;
     const f = past[past.length - 1];
-    if (f.path === radar.path) return;
-    const Z = 7, N = 1 << Z;
+    const k = DK;                      // the composite is box-specific
+    if (f.path === radar.path && radar.dk === k) return;
+    const Z = DOMAINS[k].radarZ, N = 1 << Z;
     const lon2x = (lo) => (lo + 180) / 360 * N;
     const lat2y = (la) => (1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * N;
     const y2lat = (y) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / N))) / D2R;
@@ -191,7 +305,11 @@
       }));
     }
     await Promise.all(jobs);
-    radar.path = f.path; radar.time = f.time * 1000; radar.canvas = c;
+    if (DK !== k) {                    // domain flipped mid-fetch — stash for later
+      domCache[k].radar = { path: f.path, time: f.time * 1000, canvas: c };
+      return;
+    }
+    radar.path = f.path; radar.time = f.time * 1000; radar.canvas = c; radar.dk = k;
     updateNote();
     dirty = true;
   }
@@ -204,9 +322,7 @@
   // The flat ground texture carries the full-resolution map, so radar still
   // drapes with a single affine transform; ground above MESH_MIN_M also gets
   // drawn as a real displaced mesh at the same ×7.5 vertical exaggeration.
-  const terr = { ok: false, nx: 0, ny: 0, lat0: 0, lon0: 0, dlat: 0, dlon: 0,
-                 elev: null, shade: null, mesh: [], marks: [] };
-  const MESH_STEP = 3, MESH_MIN_M = 90;
+  let terr = domCache.local.terr;      // the ACTIVE domain's terrain
   const RAMP = [[0.5, 22, 32, 28], [40, 27, 38, 30], [100, 35, 44, 32],
                 [200, 46, 50, 36], [350, 56, 52, 40], [500, 66, 60, 48], [700, 78, 72, 60]];
 
@@ -224,30 +340,34 @@
   }
 
   async function loadTerrain() {
+    const k = DK, d = DOMAINS[k], T = domCache[k].terr;
+    if (T.tried) return;
+    T.tried = true;
+    const eN = A.lat + d.spanLat / 2, eS = A.lat - d.spanLat / 2, eW = A.lon - d.spanLon / 2;
     try {
-      const t = await fetchJSON('data/wx3d/terrain.json');
+      const t = await fetchJSON(d.terrUrl);
       // built for one specific box — drop a stale file rather than misdraw it
-      if (Math.abs(t.lat0 - latN) > 0.02 || Math.abs(t.lon0 - lonW) > 0.02 ||
-          Math.abs(t.lat0 - (t.ny - 1) * t.dlat - latS) > 0.02) {
-        console.warn('terrain.json bbox mismatch — rerun scripts/build_wx3d_terrain.py');
+      if (Math.abs(t.lat0 - eN) > 0.05 || Math.abs(t.lon0 - eW) > 0.05 ||
+          Math.abs(t.lat0 - (t.ny - 1) * t.dlat - eS) > 0.05) {
+        console.warn(d.terrUrl + ' bbox mismatch — rerun scripts/build_wx3d_terrain.py');
         return;
       }
-      terr.nx = t.nx; terr.ny = t.ny;
-      terr.lat0 = t.lat0; terr.lon0 = t.lon0; terr.dlat = t.dlat; terr.dlon = t.dlon;
-      terr.elev = Int16Array.from(t.elev);
-      terr.marks = t.landmarks || [];
-      buildShade();
-      buildMesh();
-      terr.ok = true;
-      buildGroundBase();
-      dirty = true;
+      T.nx = t.nx; T.ny = t.ny;
+      T.lat0 = t.lat0; T.lon0 = t.lon0; T.dlat = t.dlat; T.dlon = t.dlon;
+      T.elev = Int16Array.from(t.elev);
+      T.marks = t.landmarks || [];
+      buildShade(T);
+      buildMesh(T, d);
+      T.ok = true;
+      if (DK === k) { terr = T; buildGroundBase(); dirty = true; }
+      else domCache[k].ground = null;    // rebuilt with terrain on next visit
     } catch (e) { /* the page is fine without terrain */ }
   }
 
-  function buildShade() {
-    const { nx, ny, elev } = terr;
-    const dxm = terr.dlon * 111320 * Math.cos(A.lat * D2R);
-    const dym = terr.dlat * 111320;
+  function buildShade(T) {
+    const { nx, ny, elev } = T;
+    const dxm = T.dlon * 111320 * Math.cos(A.lat * D2R);
+    const dym = T.dlat * 111320;
     const s = new Float32Array(nx * ny);
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
@@ -259,7 +379,7 @@
         s[y * nx + x] = clamp(1 + (fx - fy) * 2.1, 0.55, 1.4);
       }
     }
-    terr.shade = s;
+    T.shade = s;
   }
 
   function terrSample(u, v, arr) {
@@ -278,25 +398,26 @@
     return terrSample(clamp(u, 0, 1), clamp(v, 0, 1), terr.elev);
   }
 
-  function buildMesh() {
-    terr.mesh = [];
-    const { nx, ny, elev, shade } = terr;
-    const wx = (ix) => ((terr.lon0 + ix * terr.dlon) - A.lon) * KM_LON;
-    const wy = (iy) => ((terr.lat0 - iy * terr.dlat) - A.lat) * KM_LAT;
-    for (let iy = 0; iy + MESH_STEP < ny; iy += MESH_STEP) {
-      for (let ix = 0; ix + MESH_STEP < nx; ix += MESH_STEP) {
-        const i00 = iy * nx + ix, i01 = i00 + MESH_STEP;
-        const i10 = (iy + MESH_STEP) * nx + ix, i11 = i10 + MESH_STEP;
+  function buildMesh(T, d) {
+    T.mesh = [];
+    const STEP = d.meshStep, MIN = d.meshMin;
+    const { nx, ny, elev, shade } = T;
+    const wx = (ix) => ((T.lon0 + ix * T.dlon) - A.lon) * KM_LON;
+    const wy = (iy) => ((T.lat0 - iy * T.dlat) - A.lat) * KM_LAT;
+    for (let iy = 0; iy + STEP < ny; iy += STEP) {
+      for (let ix = 0; ix + STEP < nx; ix += STEP) {
+        const i00 = iy * nx + ix, i01 = i00 + STEP;
+        const i10 = (iy + STEP) * nx + ix, i11 = i10 + STEP;
         const e00 = elev[i00], e01 = elev[i01], e10 = elev[i10], e11 = elev[i11];
-        if (Math.max(e00, e01, e10, e11) < MESH_MIN_M) continue;
+        if (Math.max(e00, e01, e10, e11) < MIN) continue;
         const em = (e00 + e01 + e10 + e11) / 4;
         const sm = (shade[i00] + shade[i01] + shade[i10] + shade[i11]) / 4 * 1.12;
         const [r, g, b] = rampAt(em);
-        terr.mesh.push({
-          x0: wx(ix), x1: wx(ix + MESH_STEP), y0: wy(iy), y1: wy(iy + MESH_STEP),
+        T.mesh.push({
+          x0: wx(ix), x1: wx(ix + STEP), y0: wy(iy), y1: wy(iy + STEP),
           z00: zOf(Math.max(0, e00) * M2FT), z01: zOf(Math.max(0, e01) * M2FT),
           z10: zOf(Math.max(0, e10) * M2FT), z11: zOf(Math.max(0, e11) * M2FT),
-          d: 0,
+          depth: 0,
           col: `rgb(${Math.round(r * sm)},${Math.round(g * sm)},${Math.round(b * sm)})`,
         });
       }
@@ -306,9 +427,9 @@
   function drawTerrainMesh() {
     if (!terr.mesh.length) return;
     for (const q of terr.mesh) {
-      q.d = ((q.x0 + q.x1) / 2) * sinY + ((q.y0 + q.y1) / 2) * cosY;
+      q.depth = ((q.x0 + q.x1) / 2) * sinY + ((q.y0 + q.y1) / 2) * cosY;
     }
-    terr.mesh.sort((a, b) => b.d - a.d);        // farthest first
+    terr.mesh.sort((a, b) => b.depth - a.depth);        // farthest first
     ctx.lineWidth = 0.75;
     for (const q of terr.mesh) {
       const p1 = project(q.x0, q.y0, q.z00), p2 = project(q.x1, q.y0, q.z01);
@@ -458,19 +579,20 @@
     } else {
       g.fillStyle = '#0e1320'; g.fillRect(0, 0, S, S);
     }
-    // graticule each 0.5°
+    const d = DOMAINS[DK];
+    // graticule at the domain's step (0.5° local, 2° wide)
     g.strokeStyle = 'rgba(150,170,200,0.075)'; g.lineWidth = 1;
-    for (let la = Math.ceil(latS * 2) / 2; la <= latN; la += 0.5) {
+    for (let la = Math.ceil(latS / d.grat) * d.grat; la <= latN; la += d.grat) {
       const y = (latN - la) / SPAN_LAT * S;
       g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke();
     }
-    for (let lo = Math.ceil(lonW * 2) / 2; lo <= lonE; lo += 0.5) {
+    for (let lo = Math.ceil(lonW / d.grat) * d.grat; lo <= lonE; lo += d.grat) {
       const x = (lo - lonW) / SPAN_LON * S;
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, S); g.stroke();
     }
-    // 20 / 40 nm rings around the field
+    // range rings around the field
     g.strokeStyle = 'rgba(150,170,200,0.16)';
-    for (const nm of [20, 40]) {
+    for (const nm of d.rings) {
       const km = nm * 1.852;
       g.beginPath();
       g.ellipse(S / 2, S / 2, km / (2 * HALF_X) * S, km / (2 * HALF_Y) * S, 0, 0, TAU);
@@ -479,6 +601,7 @@
     g.strokeStyle = 'rgba(160,180,210,0.3)'; g.lineWidth = 1.5;
     g.strokeRect(0.75, 0.75, S - 1.5, S - 1.5);
     groundBase = c;
+    domCache[DK].ground = c;
   }
 
   function buildBlobs(i) {
@@ -545,7 +668,7 @@
     built.fz = buildFreezing(i);
     built.hFt = {};
     for (const L of LEVELS) built.hFt[L] = levelFt(L, i);
-    buildFlowField(i);
+    buildFields(i);
     renderPanel(i);
     updateChip();
     updateNote();
@@ -564,49 +687,73 @@
   const FLOW_SPEED = 2900;             // time-lapse: ~48 min of wind per second
   const KT_KMS = 1.852 / 3600;
   const Z_K = 0.0003048 * ZSCALE;      // ft → world km (matches zOf)
-  const FLOW_COLS = ['rgba(148,166,190,0.42)', 'rgba(74,158,255,0.5)',
-                     'rgba(240,192,64,0.58)', 'rgba(255,107,107,0.62)'];
-  const flowCol = (kt) => kt < 12 ? 0 : kt < 25 ? 1 : kt < 40 ? 2 : 3;
+  // speed colors: NCOL buckets lerped between the legend's anchor hues, so
+  // the ramp reads as a gradient instead of four hard bands
+  const FLOW_ANCH = [[0, 148, 166, 190, 0.40], [18, 74, 158, 255, 0.50],
+                     [32, 240, 192, 64, 0.56], [50, 255, 107, 107, 0.62]];
+  const NCOL = 8, COL_SPAN = 52;
+  const FLOW_COLS = Array.from({ length: NCOL }, (_, i) => {
+    const kt = (i + 0.5) * (COL_SPAN / NCOL);
+    let a = FLOW_ANCH[FLOW_ANCH.length - 1], b = a;
+    for (let s = 0; s < FLOW_ANCH.length - 1; s++) {
+      if (kt <= FLOW_ANCH[s + 1][0]) { a = FLOW_ANCH[s]; b = FLOW_ANCH[s + 1]; break; }
+    }
+    const t = clamp((kt - a[0]) / Math.max(1, b[0] - a[0]), 0, 1);
+    const ch = (j) => Math.round(a[j] + (b[j] - a[j]) * t);
+    return `rgba(${ch(1)},${ch(2)},${ch(3)},${(a[4] + (b[4] - a[4]) * t).toFixed(2)})`;
+  });
+  const flowCol = (kt) => Math.min(NCOL - 1, (kt / (COL_SPAN / NCOL)) | 0);
   const flow = {
-    ready: false, live: FLOW_N, emaMs: 16, govTick: 0, buckets: null,
+    ready: false, live: FLOW_N, emaMs: 16, govTick: 0, buckets: null, tf: 0,
     hx: null, hy: null, hz: null, tx: null, ty: null, sp: null, age: null, life: null,
-    nL: 0, h: null, u: null, v: null, lastT: 0,
+    f0: null, f1: null, lastT: 0,
   };
 
-  function buildFlowField(i) {
-    const MAXL = LEVELS.length + 1;
-    if (!flow.h) {
-      flow.h = new Float32Array(MAXL);
-      flow.u = new Float32Array(MAXL * GN * GN);
-      flow.v = new Float32Array(MAXL * GN * GN);
+  function fillField(F, i) {
+    const MAXL = LEVELS.length + 1, NPT = GN * GN;
+    if (!F || F.u.length !== MAXL * NPT) {
+      F = { h: new Float32Array(MAXL), u: new Float32Array(MAXL * NPT),
+            v: new Float32Array(MAXL * NPT), nL: 0 };
     }
     let n = 0;
     const put = (hft, wsName, wdName) => {
-      const base = n * GN * GN;
-      for (let k = 0; k < GN * GN; k++) {
+      const base = n * NPT;
+      for (let k = 0; k < NPT; k++) {
         const ws = H(k, wsName, i), wd = H(k, wdName, i);
-        if (ws == null || wd == null) { flow.u[base + k] = 0; flow.v[base + k] = 0; continue; }
+        if (ws == null || wd == null) { F.u[base + k] = 0; F.v[base + k] = 0; continue; }
         const r = wd * D2R;
-        flow.u[base + k] = -Math.sin(r) * ws;   // flow components, kt (°true)
-        flow.v[base + k] = -Math.cos(r) * ws;
+        F.u[base + k] = -Math.sin(r) * ws;   // flow components, kt (°true)
+        F.v[base + k] = -Math.cos(r) * ws;
       }
-      flow.h[n] = hft; n++;
+      F.h[n] = hft; n++;
     };
     put(A.elevFt + 33, 'wind_speed_10m', 'wind_direction_10m');
     for (const L of LEVELS) {
       const hft = levelFt(L, i);
-      if (hft <= flow.h[n - 1] + 100) continue;    // below-ground / degenerate
+      if (hft <= F.h[n - 1] + 100) continue;    // below-ground / degenerate
       put(hft, `wind_speed_${L}hPa`, `wind_direction_${L}hPa`);
     }
-    flow.nL = n;
+    F.nL = n;
+    return F;
+  }
+  // both the shown hour and the next one are kept, so the wind can be
+  // interpolated in TIME — smoothly through play mode, and at "now" to the
+  // actual minutes elapsed since the top of the hour
+  function buildFields(i) {
+    flow.f0 = fillField(flow.f0, i);
+    flow.f1 = fillField(flow.f1, Math.min(i + 1, Math.max(0, data.times.length - 1)));
   }
 
-  const flowTopFt = () => Math.min(TOP_FT, flow.nL ? flow.h[flow.nL - 1] : 31000) - 400;
+  const flowTopFt = () =>
+    Math.min(TOP_FT, flow.f0 && flow.f0.nL ? flow.f0.h[flow.f0.nL - 1] : 31000) - 400;
 
   function flowSeed(i, scatterAge) {
+    const top = flowTopFt();
+    const lo = clamp(state.band[0], 150, top - 600);
+    const hi = clamp(state.band[1], lo + 400, top);
     flow.hx[i] = (Math.random() * 2 - 1) * HALF_X * 0.99;
     flow.hy[i] = (Math.random() * 2 - 1) * HALF_Y * 0.99;
-    flow.hz[i] = 200 + Math.random() * Math.max(1000, flowTopFt() - 200);
+    flow.hz[i] = lo + Math.random() * (hi - lo);
     flow.tx[i] = flow.hx[i]; flow.ty[i] = flow.hy[i];
     flow.sp[i] = 0;
     flow.life[i] = 5 + Math.random() * 6;
@@ -622,35 +769,59 @@
     flow.age = new Float32Array(N); flow.life = new Float32Array(N);
     for (let i = 0; i < N; i++) flowSeed(i, true);
   }
+  function flowRealloc() {           // domain flip: field sizes and box changed
+    flow.f0 = null; flow.f1 = null;
+    if (flow.hx) for (let i = 0; i < FLOW_N; i++) flowSeed(i, true);
+  }
 
   const wSamp = { u: 0, v: 0 };
-  function sampleWind(x, y, zft) {
+  function sampleField(F, x, y, zft) {
     const gfx = clamp((x + HALF_X) / (2 * HALF_X), 0, 1) * (GN - 1);
     const gfy = clamp((HALF_Y - y) / (2 * HALF_Y), 0, 1) * (GN - 1);   // row 0 = north
     const ix = Math.min(GN - 2, Math.floor(gfx)), tx = gfx - ix;
     const iy = Math.min(GN - 2, Math.floor(gfy)), ty = gfy - iy;
     let k = 0;
-    while (k < flow.nL - 2 && flow.h[k + 1] < zft) k++;
-    const tz = clamp((zft - flow.h[k]) / Math.max(1, flow.h[k + 1] - flow.h[k]), 0, 1);
+    while (k < F.nL - 2 && F.h[k + 1] < zft) k++;
+    const tz = clamp((zft - F.h[k]) / Math.max(1, F.h[k + 1] - F.h[k]), 0, 1);
     const i00 = iy * GN + ix, i10 = i00 + GN;
     const w00 = (1 - tx) * (1 - ty), w01 = tx * (1 - ty);
     const w10 = (1 - tx) * ty, w11 = tx * ty;
     const b0 = k * GN * GN, b1 = b0 + GN * GN;
-    const u0 = flow.u[b0 + i00] * w00 + flow.u[b0 + i00 + 1] * w01 + flow.u[b0 + i10] * w10 + flow.u[b0 + i10 + 1] * w11;
-    const v0 = flow.v[b0 + i00] * w00 + flow.v[b0 + i00 + 1] * w01 + flow.v[b0 + i10] * w10 + flow.v[b0 + i10 + 1] * w11;
-    const u1 = flow.u[b1 + i00] * w00 + flow.u[b1 + i00 + 1] * w01 + flow.u[b1 + i10] * w10 + flow.u[b1 + i10 + 1] * w11;
-    const v1 = flow.v[b1 + i00] * w00 + flow.v[b1 + i00 + 1] * w01 + flow.v[b1 + i10] * w10 + flow.v[b1 + i10 + 1] * w11;
+    const u0 = F.u[b0 + i00] * w00 + F.u[b0 + i00 + 1] * w01 + F.u[b0 + i10] * w10 + F.u[b0 + i10 + 1] * w11;
+    const v0 = F.v[b0 + i00] * w00 + F.v[b0 + i00 + 1] * w01 + F.v[b0 + i10] * w10 + F.v[b0 + i10 + 1] * w11;
+    const u1 = F.u[b1 + i00] * w00 + F.u[b1 + i00 + 1] * w01 + F.u[b1 + i10] * w10 + F.u[b1 + i10 + 1] * w11;
+    const v1 = F.v[b1 + i00] * w00 + F.v[b1 + i00 + 1] * w01 + F.v[b1 + i10] * w10 + F.v[b1 + i10 + 1] * w11;
     wSamp.u = u0 + (u1 - u0) * tz;
     wSamp.v = v0 + (v1 - v0) * tz;
+  }
+  function sampleWind(x, y, zft, tf) {
+    sampleField(flow.f0, x, y, zft);
+    if (tf > 0.002 && flow.f1) {
+      const u0 = wSamp.u, v0 = wSamp.v;
+      sampleField(flow.f1, x, y, zft);
+      wSamp.u = u0 + (wSamp.u - u0) * tf;
+      wSamp.v = v0 + (wSamp.v - v0) * tf;
+    }
   }
 
   function stepParticles(now) {
     const dt = Math.min(0.05, Math.max(0.001, (now - flow.lastT) / 1000));
     flow.lastT = now;
-    const kk = KT_KMS * FLOW_SPEED * dt;
+    // where between this hour and the next the field should sit
+    let tf = 0;
+    if (playing) tf = clamp((now - playTickT) / PLAY_MS, 0, 1);
+    else if (state.sel === state.nowIdx && data.times.length > state.sel + 1) {
+      tf = clamp((Date.now() - data.times[state.sel]) /
+                 (data.times[state.sel + 1] - data.times[state.sel]), 0, 1);
+    }
+    flow.tf = tf;
+    const kk = KT_KMS * FLOW_SPEED * DOMAINS[DK].flowBoost * dt;
     const lag = Math.min(1, dt * 9);
+    const top = flowTopFt();
+    const bLo = clamp(state.band[0], 150, top - 600) - 1;
+    const bHi = clamp(state.band[1], bLo + 400, top) + 1;
     for (let i = 0; i < flow.live; i++) {
-      sampleWind(flow.hx[i], flow.hy[i], flow.hz[i]);
+      sampleWind(flow.hx[i], flow.hy[i], flow.hz[i], tf);
       flow.sp[i] = Math.hypot(wSamp.u, wSamp.v);
       flow.hx[i] += wSamp.u * kk;
       flow.hy[i] += wSamp.v * kk;
@@ -658,15 +829,16 @@
       flow.ty[i] += (flow.hy[i] - flow.ty[i]) * lag;
       flow.age[i] += dt;
       if (flow.age[i] > flow.life[i] ||
-          Math.abs(flow.hx[i]) > HALF_X || Math.abs(flow.hy[i]) > HALF_Y) flowSeed(i, false);
+          Math.abs(flow.hx[i]) > HALF_X || Math.abs(flow.hy[i]) > HALF_Y ||
+          flow.hz[i] < bLo || flow.hz[i] > bHi) flowSeed(i, false);
     }
   }
 
   // one path per (altitude band × speed color): thousands of streaklets,
   // a handful of stroke() calls
   function drawFlowBand(k) {
-    for (let c = 0; c < 4; c++) {
-      const list = flow.buckets[k * 4 + c];
+    for (let c = 0; c < NCOL; c++) {
+      const list = flow.buckets[k * NCOL + c];
       if (!list.length) continue;
       ctx.strokeStyle = FLOW_COLS[c];
       ctx.lineWidth = 1.2;
@@ -698,8 +870,8 @@
     const diag = Math.hypot(HALF_X, HALF_Y);
     const w = 2 * diag, h = 2 * HALF_Y * sinP + TOP_Z * cosP;
     scale = Math.min(cssW * 0.95 / w, cssH * 0.88 / h) * state.zoom;
-    cx = cssW / 2;
-    cy = cssH / 2 + TOP_Z * cosP * scale / 2;
+    cx = cssW / 2 + state.panX;
+    cy = cssH / 2 + TOP_Z * cosP * scale / 2 + state.panY;
   }
   function project(x, y, z) {
     const xr = x * cosY - y * sinY;
@@ -847,10 +1019,11 @@
       const pw = project(-HALF_X - 12, 0, 0); ctx.fillText('W', pw.X, pw.Y);
     } });
 
-    // airports
+    // airports + landmarks
     items.push({ z: -1.2, fn: () => {
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      for (const ap of SITE.weather.nearbyAirports) {
+      // the nearby-field cluster only makes sense at local scale
+      for (const ap of (DK === 'local' ? SITE.weather.nearbyAirports : [])) {
         const x = (ap.lon - A.lon) * KM_LON, y = (ap.lat - A.lat) * KM_LAT;
         if (Math.abs(x) > HALF_X || Math.abs(y) > HALF_Y) continue;
         const P = project(x, y, 0);
@@ -992,15 +1165,15 @@
             .map((s) => zOf(Math.min(s.hFt, TOP_FT))).sort((a, b) => a - b)
         : [];
       const nb = cuts.length + 1;
-      if (!flow.buckets || flow.buckets.length !== nb * 4) {
-        flow.buckets = Array.from({ length: nb * 4 }, () => []);
+      if (!flow.buckets || flow.buckets.length !== nb * NCOL) {
+        flow.buckets = Array.from({ length: nb * NCOL }, () => []);
       }
       for (const b of flow.buckets) b.length = 0;
       for (let p = 0; p < flow.live; p++) {
         const z = flow.hz[p] * Z_K;
         let k = 0;
         while (k < cuts.length && cuts[k] < z) k++;
-        flow.buckets[k * 4 + flowCol(flow.sp[p])].push(p);
+        flow.buckets[k * NCOL + flowCol(flow.sp[p])].push(p);
       }
       for (let k = 0; k < nb; k++) {
         const zb = k === 0 ? -0.9 : cuts[k - 1] + 0.006;
@@ -1090,6 +1263,27 @@
       ctx.textAlign = 'left';
       ctx.fillText(`0 °C · ${fmtK(built.fz.meanFt)}`, P.X + 7, P.Y);
     }
+    // flow altitude band: dashed frames at floor and ceiling + a bright
+    // axis segment, so the slider's numbers are visible in the geometry
+    if (state.wind === 'flow' && (state.band[0] > 200 || state.band[1] < TOP_FT - 200)) {
+      const zlo = zOf(clamp(state.band[0], 0, TOP_FT));
+      const zhi = zOf(clamp(state.band[1], 0, TOP_FT));
+      ctx.strokeStyle = 'rgba(74,158,255,0.22)';
+      ctx.setLineDash([5, 6]);
+      ctx.lineWidth = 1;
+      for (const zz of [zlo, zhi]) {
+        ctx.beginPath();
+        corners.forEach(([x, y], k) => {
+          const P = project(x, y, zz);
+          k ? ctx.lineTo(P.X, P.Y) : ctx.moveTo(P.X, P.Y);
+        });
+        ctx.closePath(); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      const A1 = project(cl.x, cl.y, zlo), A2 = project(cl.x, cl.y, zhi);
+      ctx.strokeStyle = 'rgba(74,158,255,0.55)'; ctx.lineWidth = 2.5;
+      line(A1.X, A1.Y, A2.X, A2.Y);
+    }
   }
 
   // ------------------------------------------------------------ panel
@@ -1172,11 +1366,19 @@
   }
 
   // ------------------------------------------------------------ interaction
+  // drag = orbit · shift/right-drag = pan · wheel = zoom · double-click = reset
+  // touch: one finger orbits, two fingers pinch-zoom AND pan together
   const pointers = new Map();
   let pinchD = 0;
+  const clampPan = () => {
+    const m = Math.max(cssW, cssH) * state.zoom;
+    state.panX = clamp(state.panX, -m, m);
+    state.panY = clamp(state.panY, -m, m);
+  };
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerdown', (e) => {
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or stale pointer */ }
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey });
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       pinchD = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1188,29 +1390,72 @@
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (pointers.size === 1) {
-      state.yaw = (state.yaw + dx * 0.35) % 360;
-      state.pitch = clamp(state.pitch + dy * 0.25, 12, 88);
+      if (p.pan) {
+        state.panX += dx; state.panY += dy; clampPan();
+      } else {
+        state.yaw = (state.yaw + dx * 0.35) % 360;
+        state.pitch = clamp(state.pitch + dy * 0.25, 12, 88);
+      }
       dirty = true;
     } else if (pointers.size === 2) {
+      // two fingers: centroid moves the view, spread zooms it
+      state.panX += dx / 2; state.panY += dy / 2; clampPan();
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinchD > 0) { state.zoom = clamp(state.zoom * d / pinchD, 0.45, 3); dirty = true; }
+      if (pinchD > 0) zoomTo(state.zoom * d / pinchD);
       pinchD = d;
+      dirty = true;
     }
   });
   const drop = (e) => { pointers.delete(e.pointerId); pinchD = 0; };
   canvas.addEventListener('pointerup', drop);
   canvas.addEventListener('pointercancel', drop);
+  // zoom routes through zoomTo so zooming out past the local box slides
+  // into the wide domain (and zooming way into the wide box comes back)
+  function zoomTo(v) {
+    if (DK === 'local' && v < 0.42) { switchDomain('wide', v * SPAN_RATIO); return; }
+    if (DK === 'wide' && v > 5.9) { switchDomain('local', v / SPAN_RATIO); return; }
+    state.zoom = clamp(v, 0.4, 6.2);
+    clampPan();
+    dirty = true;
+  }
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    state.zoom = clamp(state.zoom * Math.exp(-e.deltaY * 0.0012), 0.45, 3);
-    dirty = true;
+    zoomTo(state.zoom * Math.exp(-e.deltaY * 0.0012));
   }, { passive: false });
   canvas.addEventListener('dblclick', () => {
-    state.yaw = 0; state.pitch = 35; state.zoom = 1; dirty = true;
+    state.yaw = 0; state.pitch = 35; state.zoom = 1;
+    state.panX = 0; state.panY = 0;
+    dirty = true;
   });
 
   // ------------------------------------------------------------ controls
+  const PLAY_MS = 700;
+  let playTickT = 0;                   // when the current play step began (flow tf)
+
+  function markDomUI() {
+    $('dom-local').classList.toggle('sel', DK === 'local');
+    $('dom-wide').classList.toggle('sel', DK === 'wide');
+    $('dom-note').textContent = DOMAINS[DK].label;
+    document.body.classList.toggle('flowmode', state.wind === 'flow');
+  }
+  function setBandUI() {
+    const [lo, hi] = state.band;
+    $('band-lo').value = lo;
+    $('band-hi').value = hi;
+    const full = lo <= 0 && hi >= TOP_FT;
+    $('band-label').textContent = full ? 'all altitudes' : `${fmtK(lo)}–${fmtK(hi)} ft`;
+    const f = $('band-fill');
+    f.style.left = (lo / TOP_FT * 100) + '%';
+    f.style.width = ((hi - lo) / TOP_FT * 100) + '%';
+  }
+  function bandInput(which) {
+    let lo = +$('band-lo').value, hi = +$('band-hi').value;
+    if (hi - lo < 1000) { if (which === 'lo') lo = hi - 1000; else hi = lo + 1000; }
+    state.band = [clamp(lo, 0, TOP_FT), clamp(hi, 0, TOP_FT)];
+    setBandUI(); persist(); dirty = true;
+  }
+
   function wireControls() {
     $('hour-slider').addEventListener('input', (e) => { stopPlay(); setHour(+e.target.value); });
     $('now-btn').addEventListener('click', () => { stopPlay(); setHour(state.nowIdx); });
@@ -1231,16 +1476,29 @@
     const chips = document.querySelectorAll('#wind-chips .chip');
     const mark = () => chips.forEach((c) => c.classList.toggle('sel', c.dataset.w === state.wind));
     chips.forEach((c) => c.addEventListener('click', () => {
-      state.wind = c.dataset.w; mark(); persist(); dirty = true;
+      state.wind = c.dataset.w;
+      mark(); markDomUI(); persist(); dirty = true;
     }));
     mark();
+    $('dom-local').addEventListener('click', () => switchDomain('local'));
+    $('dom-wide').addEventListener('click', () => switchDomain('wide'));
+    $('band-lo').addEventListener('input', () => bandInput('lo'));
+    $('band-hi').addEventListener('input', () => bandInput('hi'));
+    $('band-all').addEventListener('click', () => {
+      state.band = [0, TOP_FT];
+      setBandUI(); persist(); dirty = true;
+    });
+    setBandUI();
+    markDomUI();
   }
   function startPlay() {
     playing = true; $('play-btn').textContent = '❚❚';
+    playTickT = performance.now();
     playTimer = setInterval(() => {
       if (document.hidden) return;
+      playTickT = performance.now();
       setHour(state.sel + 1 > data.times.length - 1 ? state.nowIdx : state.sel + 1);
-    }, 700);
+    }, PLAY_MS);
   }
   function stopPlay() {
     playing = false; $('play-btn').textContent = '▶';
@@ -1301,11 +1559,16 @@
     setHour,
     sheets: () => built.sheets.map((s) => ({ p: s.p, hFt: Math.round(s.hFt), max: +s.maxCover.toFixed(2) })),
     flow: () => ({ on: state.wind === 'flow', ready: flow.ready, live: flow.live,
-                   emaMs: +flow.emaMs.toFixed(1), levels: flow.nL,
+                   emaMs: +flow.emaMs.toFixed(1), levels: flow.f0 ? flow.f0.nL : 0,
                    sample: flow.ready ? { x: +flow.hx[0].toFixed(2), y: +flow.hy[0].toFixed(2), zft: Math.round(flow.hz[0]), kt: +flow.sp[0].toFixed(1) } : null }),
     terr: () => ({ ok: terr.ok, cells: terr.mesh.length, marks: terr.marks.length,
                    kanpM: terr.ok ? Math.round(elevAtLL(A.lat, A.lon)) : null,
                    sugarloafM: terr.ok ? Math.round(elevAtLL(39.2621, -77.3944)) : null,
                    midBayM: terr.ok ? Math.round(elevAtLL(38.55, -76.4)) : null }),
+    domain: () => DK,
+    switchDomain,
+    view: () => ({ yaw: +state.yaw.toFixed(1), pitch: +state.pitch.toFixed(1),
+                   zoom: +state.zoom.toFixed(2), panX: Math.round(state.panX),
+                   panY: Math.round(state.panY), band: state.band.slice(), tf: +flow.tf.toFixed(3) }),
   };
 })();

@@ -28,16 +28,44 @@ import time
 import urllib.request
 from pathlib import Path
 
-# Mirrors js/wx3d.js (SITE.airport + the volume constants there).
+# Mirrors js/wx3d.js (SITE.airport + the DOMAINS table there). Run once with
+# no args for the local box and once with --wide for the multi-state box.
+WIDE = '--wide' in sys.argv
 CENTER_LAT, CENTER_LON = 38.9429, -76.5684
-SPAN_LAT, SPAN_LON = 2.0, 2.5
-N = 192                      # grid points per side; row 0 = north edge
-API = 'https://api.opentopodata.org/v1/ned10m'
+SPAN_LAT, SPAN_LON = (10.8, 13.9) if WIDE else (2.0, 2.5)
+N = 160 if WIDE else 192     # grid points per side; row 0 = north edge
+# ned10m stops at the border; the wide box clips Ontario, so it uses srtm90m
+# (global to 60°N). SRTM reports lakes at their SURFACE height, which breaks
+# the water = sea-level rule — flatten_lakes() handles that below.
+DATASET = 'srtm90m' if WIDE else 'ned10m'
+OUT_NAME = 'terrain-wide.json' if WIDE else 'terrain.json'
+API = 'https://api.opentopodata.org/v1/' + DATASET
 CHUNK = 100                  # the API's per-request location limit
 UA = 'jesselevine.net wx3d terrain build (one-time, stdlib urllib)'
 
 # Landmarks the page draws over the map. kind: city / apt / bridge / peak.
 # Airports here are the majors NOT already in SITE.weather.nearbyAirports.
+LANDMARKS_WIDE = [
+    {'kind': 'city', 'name': 'New York', 'lat': 40.7128, 'lon': -74.0060},
+    {'kind': 'city', 'name': 'Boston', 'lat': 42.3601, 'lon': -71.0589},
+    {'kind': 'city', 'name': 'Philadelphia', 'lat': 39.9526, 'lon': -75.1652},
+    {'kind': 'city', 'name': 'Pittsburgh', 'lat': 40.4406, 'lon': -79.9959},
+    {'kind': 'city', 'name': 'Cleveland', 'lat': 41.4993, 'lon': -81.6944},
+    {'kind': 'city', 'name': 'Detroit', 'lat': 42.3314, 'lon': -83.0458},
+    {'kind': 'city', 'name': 'Toronto', 'lat': 43.6532, 'lon': -79.3832},
+    {'kind': 'city', 'name': 'Buffalo', 'lat': 42.8864, 'lon': -78.8784},
+    {'kind': 'city', 'name': 'Columbus', 'lat': 39.9612, 'lon': -82.9988},
+    {'kind': 'city', 'name': 'Charlotte', 'lat': 35.2271, 'lon': -80.8431},
+    {'kind': 'city', 'name': 'Raleigh', 'lat': 35.7796, 'lon': -78.6382},
+    {'kind': 'city', 'name': 'Norfolk', 'lat': 36.8508, 'lon': -76.2859},
+    {'kind': 'city', 'name': 'Richmond', 'lat': 37.5407, 'lon': -77.4360},
+    {'kind': 'city', 'name': 'Washington', 'lat': 38.9047, 'lon': -77.0164},
+    {'kind': 'city', 'name': 'Baltimore', 'lat': 39.2904, 'lon': -76.6122},
+    {'kind': 'peak', 'name': 'Mt Mitchell', 'lat': 35.7650, 'lon': -82.2652},
+    {'kind': 'peak', 'name': 'Spruce Knob', 'lat': 38.6998, 'lon': -79.5326},
+    {'kind': 'peak', 'name': 'Mt Marcy', 'lat': 44.1126, 'lon': -73.9235},
+    {'kind': 'peak', 'name': 'Mt Washington', 'lat': 44.2706, 'lon': -71.3033},
+]
 LANDMARKS = [
     {'kind': 'city', 'name': 'Washington', 'lat': 38.9047, 'lon': -77.0164},
     {'kind': 'city', 'name': 'Baltimore', 'lat': 39.2904, 'lon': -76.6122},
@@ -77,6 +105,42 @@ def fetch_chunk(points, tries=4):
             time.sleep(5.0 * (attempt + 1))
 
 
+def flatten_lakes(elev, n, min_cells=35):
+    """Zero out large flat above-sea-level regions (lake surfaces).
+
+    SRTM reports a lake at its surface elevation (Lake Ontario ~74 m), so
+    the page's water rule (elevation <= ~0) misses it. A connected region
+    that stays within +/-1 m of its seed and covers >= min_cells cells
+    (~2,000 km2 at the wide grid's spacing) is a lake surface: set it to 0.
+    Sea-level cells are already water and are skipped.
+    """
+    seen = bytearray(n * n)
+    lakes = 0
+    for start in range(n * n):
+        if seen[start] or elev[start] <= 0:
+            continue
+        seed = elev[start]
+        stack = [start]
+        seen[start] = 1
+        region = []
+        while stack:
+            j = stack.pop()
+            region.append(j)
+            y, x = divmod(j, n)
+            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                yy, xx = y + dy, x + dx
+                if 0 <= yy < n and 0 <= xx < n:
+                    jj = yy * n + xx
+                    if not seen[jj] and abs(elev[jj] - seed) <= 1:
+                        seen[jj] = 1
+                        stack.append(jj)
+        if len(region) >= min_cells:
+            lakes += 1
+            for j in region:
+                elev[j] = 0
+    print(f'flattened {lakes} lake surface(s)', file=sys.stderr)
+
+
 def main():
     lat0 = CENTER_LAT + SPAN_LAT / 2          # north edge (row 0)
     lon0 = CENTER_LON - SPAN_LON / 2          # west edge (col 0)
@@ -95,6 +159,8 @@ def main():
             print(f'  {c + 1}/{nchunks} chunks', file=sys.stderr)
         time.sleep(1.05)                        # public-API limit: 1 request/second
 
+    if WIDE:
+        flatten_lakes(elev, N)
     water = sum(1 for e in elev if e <= 0)
     print(f'grid {N}x{N}: min {min(elev)} m, max {max(elev)} m, '
           f'{100 * water / len(elev):.0f}% at sea level', file=sys.stderr)
@@ -105,9 +171,9 @@ def main():
         'dlat': round(dlat, 7), 'dlon': round(dlon, 7),
         'ny': N, 'nx': N,
         'elev': elev,                          # int meters, row-major, row 0 = north
-        'landmarks': LANDMARKS,
+        'landmarks': LANDMARKS_WIDE if WIDE else LANDMARKS,
     }
-    dest = Path(__file__).resolve().parent.parent / 'data' / 'wx3d' / 'terrain.json'
+    dest = Path(__file__).resolve().parent.parent / 'data' / 'wx3d' / OUT_NAME
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
     print(f'wrote {dest} ({dest.stat().st_size / 1024:.0f} KB)', file=sys.stderr)
