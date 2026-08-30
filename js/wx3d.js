@@ -98,6 +98,7 @@
     layers: { cl: true, fz: true, pr: true, gd: true },
     wind: '850',                       // 'off' | 'flow' | 'sfc' | one of LEVELS as string
     band: [0, TOP_FT],                 // flow-mode altitude filter, ft
+    bandLev: null,                     // the winds-aloft chip that set the band, if any
   };
   try {
     const s = JSON.parse(localStorage.getItem('wx3d_layers') || 'null');
@@ -109,13 +110,15 @@
         const lo = clamp(+s.band[0] || 0, 0, TOP_FT), hi = clamp(+s.band[1] || TOP_FT, 0, TOP_FT);
         if (hi - lo >= 1000) state.band = [lo, hi];
       }
+      if (typeof s.bandLev === 'string') state.bandLev = s.bandLev;
     }
   } catch (e) { /* private mode */ }
   TOP_Z = zOf(TOP_FT);                 // the stored exaggeration may have changed it
   const persist = () => {
     try {
       localStorage.setItem('wx3d_layers',
-        JSON.stringify({ layers: state.layers, wind: state.wind, band: state.band, vex: ZSCALE }));
+        JSON.stringify({ layers: state.layers, wind: state.wind, band: state.band,
+                        bandLev: state.bandLev, vex: ZSCALE }));
     } catch (e) { /* private mode */ }
   };
 
@@ -1436,6 +1439,7 @@
   const PLAY_MS = 700;
   let playTickT = 0;                   // when the current play step began (flow tf)
 
+  let markWind = () => {};              // set by wireControls once the chips exist
   function markDomUI() {
     $('dom-local').classList.toggle('sel', DK === 'local');
     $('dom-wide').classList.toggle('sel', DK === 'wide');
@@ -1447,7 +1451,9 @@
     $('band-lo').value = lo;
     $('band-hi').value = hi;
     const full = lo <= 0 && hi >= TOP_FT;
-    $('band-label').textContent = full ? 'all altitudes' : `${fmtK(lo)}–${fmtK(hi)} ft`;
+    const lev = state.bandLev;
+    $('band-label').textContent = full ? 'all altitudes'
+      : `${fmtK(lo)}–${fmtK(hi)} ft` + (lev ? ` · ${lev === 'sfc' ? 'surface' : lev + ' mb'}` : '');
     const f = $('band-fill');
     f.style.left = (lo / TOP_FT * 100) + '%';
     f.style.width = ((hi - lo) / TOP_FT * 100) + '%';
@@ -1474,11 +1480,31 @@
     setVexUI(); persist(); dirty = true;
   }
 
+  // In flow mode the winds-aloft chips stop being "draw arrows here" and
+  // become altitude presets: each one confines the tracers to the slab of sky
+  // that level owns (its neighbours' midpoints), so picking 700 mb shows the
+  // 10,000 ft flow instead of the whole 40,000 ft column. Clicking the chip
+  // that already owns the band drops back to that level's arrow layer.
+  const CHIP_LEVELS = ['sfc', '925', '850', '700', '500', '300'];
+  const chipFt = (w) => (w === 'sfc' ? 0 : (built.hFt && built.hFt[+w] != null ? built.hFt[+w] : STD_FT[+w]));
+  function flowBandFor(w) {
+    const i = CHIP_LEVELS.indexOf(w);
+    if (i < 0) return null;
+    const h = CHIP_LEVELS.map(chipFt);
+    const q = (v) => clamp(Math.round(v / 250) * 250, 0, TOP_FT);
+    const lo = i === 0 ? 0 : q((h[i - 1] + h[i]) / 2);
+    const hi = i === h.length - 1 ? TOP_FT : q((h[i] + h[i + 1]) / 2);
+    return hi - lo >= 1000 ? [lo, hi] : [lo, clamp(lo + 1000, 0, TOP_FT)];
+  }
+  // which preset owns the band right now (null once the band is dragged by hand)
+  const bandChip = () => (state.wind === 'flow' ? state.bandLev : null);
+
   function bandInput(which) {
     let lo = +$('band-lo').value, hi = +$('band-hi').value;
     if (hi - lo < 1000) { if (which === 'lo') lo = hi - 1000; else hi = lo + 1000; }
     state.band = [clamp(lo, 0, TOP_FT), clamp(hi, 0, TOP_FT)];
-    setBandUI(); persist(); dirty = true;
+    state.bandLev = null;
+    setBandUI(); markWind(); persist(); dirty = true;
   }
 
   function wireControls() {
@@ -1499,19 +1525,46 @@
       });
     }
     const chips = document.querySelectorAll('#wind-chips .chip');
-    const mark = () => chips.forEach((c) => c.classList.toggle('sel', c.dataset.w === state.wind));
+    markWind = () => {
+      const bc = bandChip();
+      chips.forEach((c) => {
+        const w = c.dataset.w;
+        c.classList.toggle('sel', w === state.wind || w === bc);
+        if (CHIP_LEVELS.includes(w)) {
+          c.title = state.wind === 'flow'
+            ? (w === bc ? 'flow tracers in this layer — click again for the arrow layer'
+                        : 'confine the flow to this layer')
+            : (w === 'sfc' ? 'surface wind' : w + ' mb');
+        }
+      });
+    };
     chips.forEach((c) => c.addEventListener('click', () => {
-      state.wind = c.dataset.w;
-      mark(); markDomUI(); persist(); dirty = true;
+      const w = c.dataset.w;
+      // in flow mode a level chip re-aims the band instead of leaving flow
+      if (state.wind === 'flow' && CHIP_LEVELS.includes(w) && w !== bandChip()) {
+        state.band = flowBandFor(w);
+        state.bandLev = w;
+        setBandUI(); markWind(); persist(); dirty = true;
+        return;
+      }
+      if (state.wind === 'flow' && w === 'flow') {      // flow again = whole column
+        state.band = [0, TOP_FT];
+        state.bandLev = null;
+        setBandUI(); markWind(); persist(); dirty = true;
+        return;
+      }
+      state.wind = w;
+      markWind(); markDomUI(); persist(); dirty = true;
     }));
-    mark();
+    markWind();
     $('dom-local').addEventListener('click', () => switchDomain('local'));
     $('dom-wide').addEventListener('click', () => switchDomain('wide'));
     $('band-lo').addEventListener('input', () => bandInput('lo'));
     $('band-hi').addEventListener('input', () => bandInput('hi'));
     $('band-all').addEventListener('click', () => {
       state.band = [0, TOP_FT];
-      setBandUI(); persist(); dirty = true;
+      state.bandLev = null;
+      setBandUI(); markWind(); persist(); dirty = true;
     });
     $('vex').addEventListener('input', (e) => setZScale(+e.target.value));
     $('vex').addEventListener('dblclick', () => setZScale(VEX_DEF));
