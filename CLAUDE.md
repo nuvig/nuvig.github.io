@@ -326,7 +326,10 @@ concepts; to relink, add the tools.html card back.
   parsing/data fix in one probably belongs in both. **Deliberately unlinked** (no tools.html
   card, no sitemap entry; indexable) — sky.html is the one on tools.html.
 - `wx3d.html` + `js/wx3d.js` — The Air Above: the GFS forecast as a rotatable 3-D volume
-  (~120 nm across × 40,000 ft, vertical **×7.5 exaggerated**, disclosed in the footer).
+  (~120 nm across × 40,000 ft, vertical exaggeration **×7.5 by default and user-set ×1–20** by the
+  top-bar slider — `setZScale()` re-derives everything cached in world z, so the terrain mesh stores
+  feet and converts at draw time; the choice persists in `wx3d_layers` and the footer disclosure
+  tracks it).
   **Centered on KDCA, not the field** (`SITE.weather.wx3d` — Jesse's choice: DCA is the region's
   natural center and the site's verification station; KANP draws as a landmark pin). Deliberately
   chrome-light — no subtitle, no how-to card, no range rings ("this is a DATA page"); the honesty
@@ -365,7 +368,7 @@ concepts; to relink, add the tools.html card back.
   file so a stale one is dropped, not misdrawn. Water is wherever the hydro-flattened DEM says sea level — that one rule draws the
   Bay and the tidal rivers with no coastline data; land is hillshaded hypsometric tint baked into
   the flat affine ground texture (so radar still drapes with one transform), ground above ~90 m is
-  *additionally* drawn as a displaced mesh at the same ×7.5 exaggeration (radar paints flat at
+  *additionally* drawn as a displaced mesh at the same exaggeration as the air (radar paints flat at
   z=0, so echoes can visually underlie the NW ridges — known, accepted), and the JSON's landmark
   list (cities, BWI/DCA/ADW, the Bay Bridge, peaks locally; big cities + Appalachian summits
   wide) draws as screen-space pins. Data: Open-Meteo `gfs_seamless` — one multi-location grid

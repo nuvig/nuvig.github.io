@@ -42,9 +42,12 @@
   // one mid-box E–W scale (edges of the wide box run ±8% — fine for weather)
   const KM_LON = 111.32 * Math.cos(A.lat * D2R);
   const TOP_FT = 40000;
-  const ZSCALE = 7.5;                  // vertical exaggeration (km world per km alt)
+  // vertical exaggeration (km world per km alt) — user-adjustable via the
+  // top-bar slider; setZScale() re-derives everything cached in world z.
+  const VEX_MIN = 1, VEX_MAX = 20, VEX_DEF = 7.5;
+  let ZSCALE = VEX_DEF;
   const zOf = (ft) => ft * 0.0003048 * ZSCALE;
-  const TOP_Z = zOf(TOP_FT);
+  let TOP_Z = zOf(TOP_FT);
   const DOMAINS = {
     local: { gn: 5, spanLat: 2.0, spanLon: 2.5, terrUrl: 'data/wx3d/terrain.json',
              grat: 0.5, radarZ: 7, meshMin: 90, meshStep: 3,
@@ -101,16 +104,18 @@
     if (s) {
       Object.assign(state.layers, s.layers || {});
       if (s.wind) state.wind = s.wind;
+      if (+s.vex) ZSCALE = clamp(+s.vex, VEX_MIN, VEX_MAX);
       if (Array.isArray(s.band) && s.band.length === 2) {
         const lo = clamp(+s.band[0] || 0, 0, TOP_FT), hi = clamp(+s.band[1] || TOP_FT, 0, TOP_FT);
         if (hi - lo >= 1000) state.band = [lo, hi];
       }
     }
   } catch (e) { /* private mode */ }
+  TOP_Z = zOf(TOP_FT);                 // the stored exaggeration may have changed it
   const persist = () => {
     try {
       localStorage.setItem('wx3d_layers',
-        JSON.stringify({ layers: state.layers, wind: state.wind, band: state.band }));
+        JSON.stringify({ layers: state.layers, wind: state.wind, band: state.band, vex: ZSCALE }));
     } catch (e) { /* private mode */ }
   };
 
@@ -417,8 +422,10 @@
         const [r, g, b] = rampAt(em);
         T.mesh.push({
           x0: wx(ix), x1: wx(ix + STEP), y0: wy(iy), y1: wy(iy + STEP),
-          z00: zOf(Math.max(0, e00) * M2FT), z01: zOf(Math.max(0, e01) * M2FT),
-          z10: zOf(Math.max(0, e10) * M2FT), z11: zOf(Math.max(0, e11) * M2FT),
+          // stored in ft — the draw converts, so the exaggeration slider
+          // doesn't have to rebuild the mesh
+          f00: Math.max(0, e00) * M2FT, f01: Math.max(0, e01) * M2FT,
+          f10: Math.max(0, e10) * M2FT, f11: Math.max(0, e11) * M2FT,
           depth: 0,
           col: `rgb(${Math.round(r * sm)},${Math.round(g * sm)},${Math.round(b * sm)})`,
         });
@@ -434,8 +441,8 @@
     terr.mesh.sort((a, b) => b.depth - a.depth);        // farthest first
     ctx.lineWidth = 0.75;
     for (const q of terr.mesh) {
-      const p1 = project(q.x0, q.y0, q.z00), p2 = project(q.x1, q.y0, q.z01);
-      const p3 = project(q.x1, q.y1, q.z11), p4 = project(q.x0, q.y1, q.z10);
+      const p1 = project(q.x0, q.y0, zOf(q.f00)), p2 = project(q.x1, q.y0, zOf(q.f01));
+      const p3 = project(q.x1, q.y1, zOf(q.f11)), p4 = project(q.x0, q.y1, zOf(q.f10));
       ctx.fillStyle = q.col; ctx.strokeStyle = q.col;
       ctx.beginPath();
       ctx.moveTo(p1.X, p1.Y); ctx.lineTo(p2.X, p2.Y);
@@ -680,7 +687,7 @@
   const FLOW_MIN = 1500;               // FPS-governor floor
   const FLOW_SPEED = 2900;             // time-lapse: ~48 min of wind per second
   const KT_KMS = 1.852 / 3600;
-  const Z_K = 0.0003048 * ZSCALE;      // ft → world km (matches zOf)
+  let Z_K = 0.0003048 * ZSCALE;        // ft → world km (matches zOf; setZScale re-derives)
   // speed colors: NCOL buckets lerped between the legend's anchor hues, so
   // the ramp reads as a gradient instead of four hard bands
   const FLOW_ANCH = [[0, 148, 166, 190, 0.40], [18, 74, 158, 255, 0.50],
@@ -1445,6 +1452,28 @@
     f.style.left = (lo / TOP_FT * 100) + '%';
     f.style.width = ((hi - lo) / TOP_FT * 100) + '%';
   }
+  // vertical exaggeration: everything cached in world z has to be re-derived
+  // (terrain mesh stores ft, cloud decks and the flow field read zOf/Z_K live)
+  function setVexUI() {
+    const txt = '×' + (ZSCALE % 1 ? ZSCALE.toFixed(1) : ZSCALE);
+    $('vex').value = ZSCALE;
+    $('vex-label').textContent = txt;
+    const f = $('vex-foot');
+    if (f) f.textContent = txt.slice(1);
+  }
+  function setZScale(v) {
+    v = clamp(+v || VEX_DEF, VEX_MIN, VEX_MAX);
+    if (v === ZSCALE) { setVexUI(); return; }
+    ZSCALE = v;
+    TOP_Z = zOf(TOP_FT);
+    Z_K = 0.0003048 * ZSCALE;
+    if (data.grid && built.hour >= 0) {
+      built.cols = buildColumns(built.hour);
+      built.fz = buildFreezing(built.hour);
+    }
+    setVexUI(); persist(); dirty = true;
+  }
+
   function bandInput(which) {
     let lo = +$('band-lo').value, hi = +$('band-hi').value;
     if (hi - lo < 1000) { if (which === 'lo') lo = hi - 1000; else hi = lo + 1000; }
@@ -1484,6 +1513,9 @@
       state.band = [0, TOP_FT];
       setBandUI(); persist(); dirty = true;
     });
+    $('vex').addEventListener('input', (e) => setZScale(+e.target.value));
+    $('vex').addEventListener('dblclick', () => setZScale(VEX_DEF));
+    setVexUI();
     setBandUI();
     markDomUI();
   }
@@ -1565,6 +1597,8 @@
                    midBayM: terr.ok ? Math.round(elevAtLL(38.55, -76.4)) : null }),
     domain: () => DK,
     switchDomain,
+    vex: () => ZSCALE,
+    setZScale,
     view: () => ({ yaw: +state.yaw.toFixed(1), pitch: +state.pitch.toFixed(1),
                    zoom: +state.zoom.toFixed(2), panX: Math.round(state.panX),
                    panY: Math.round(state.panY), band: state.band.slice(), tf: +flow.tf.toFixed(3) }),
