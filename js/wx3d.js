@@ -7,7 +7,9 @@
 // to a parallelogram — and everything else (winds, the freezing surface,
 // precip columns, the wind-barb staff) is projected vector work. The scene
 // is painted bottom-up, which is the correct painter's order for stacked
-// horizontal layers seen from above (pitch is clamped ≥ 12°).
+// horizontal layers seen from above (pitch is clamped ≥ 3° — at 0° a horizontal
+// plane projects to a zero-height parallelogram, so the decks and the ground
+// map would vanish and coplanar layers would have no painter order at all).
 //
 // Data (all directions °true, like everywhere on this site):
 //  · Open-Meteo, models=gfs_seamless (NOAA GFS, HRRR-blended near-term):
@@ -867,7 +869,7 @@
   let sinY = 0, cosY = 1, sinP = 0, cosP = 1, scale = 1, cx = 0, cy = 0;
 
   function setupView() {
-    const yaw = state.yaw * D2R, pitch = clamp(state.pitch, 12, 88) * D2R;
+    const yaw = state.yaw * D2R, pitch = clamp(state.pitch, 3, 88) * D2R;
     sinY = Math.sin(yaw); cosY = Math.cos(yaw);
     sinP = Math.sin(pitch); cosP = Math.cos(pitch);
     // fit: the projected box is at most 2·diag wide and 2·HY·sinP + TOP·cosP tall
@@ -1400,7 +1402,7 @@
         state.panX += dx; state.panY += dy; clampPan();
       } else {
         state.yaw = (state.yaw + dx * 0.35) % 360;
-        state.pitch = clamp(state.pitch + dy * 0.25, 12, 88);
+        state.pitch = clamp(state.pitch + dy * 0.25, 3, 88);
       }
       dirty = true;
     } else if (pointers.size === 2) {

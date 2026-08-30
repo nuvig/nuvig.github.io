@@ -367,7 +367,9 @@ concepts; to relink, add the tools.html card back.
   Hand-rolled **orthographic** canvas 3-D: every horizontal surface (ground map, each cloud deck)
   is an offscreen texture drawn with one affine transform — legal only because the projection is
   orthographic — and the scene paints bottom-up (correct painter's order for stacked horizontal
-  layers with pitch clamped ≥ 12°; don't switch to perspective without redoing both). Cloud decks
+  layers with pitch clamped ≥ 3° — at 0° a horizontal plane projects to a zero-height
+  parallelogram, so the decks and the ground map vanish and coplanar layers have no painter
+  order; don't switch to perspective without redoing both). Cloud decks
   are per-pressure-level cloud cover (noise-thresholded so opaque share tracks the model's number)
   at their per-hour geopotential heights; winds-aloft arrow layers per level plus a WMO barb staff
   at the field (NH convention, feathers 90° clockwise of the upwind shaft); a **flow mode** (chip
