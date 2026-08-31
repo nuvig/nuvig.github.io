@@ -48,6 +48,14 @@
       width: 15px; height: 15px; border-radius: 3px; background: #222;
       cursor: pointer; position: relative; flex: none;
     }
+    /* a day the archive is short hours on: the category color is still the
+       worst hour *archived*, which is not necessarily the worst hour flown —
+       the notch says the day is not a complete record */
+    .cal-day.short::after {
+      content: ''; position: absolute; inset: 0; border-radius: 3px;
+      background: linear-gradient(135deg, transparent 60%, #0009 60%);
+      pointer-events: none;
+    }
     .cal-day.empty { background: transparent; cursor: default; }
     .cal-day.nodata { background: #1d1d1d; cursor: default; }
     .cal-day:not(.empty):not(.nodata):hover { outline: 1px solid #aaa; }
@@ -133,6 +141,9 @@
 
     .stat-line { font-size: 13px; color: #999; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
     .stat-line b { color: #ddd; font-weight: 600; }
+    /* qualifies every number on the line above it, so it sits with them
+       rather than in a footnote nobody reads */
+    .obs-caveat { color: #c9a227; font-size: 12px; margin-top: 5px; }
     .cat-word { font-weight: 700; }
 
     details.fold { margin-top: 10px; }
@@ -383,7 +394,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/almanac.js?v=3"></script>
+  <script src="js/almanac.js?v=4"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

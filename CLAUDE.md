@@ -80,7 +80,12 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   42-day coverage strips; alerts are event-driven, so absent days there are "quiet", never gaps —
   and a **reach/integrity** pair read from `index.json` over the *whole* archive, not the drawn
   window: first day held per stream, and the missing days collapsed into `--since/--until`-shaped
-  ranges, marked `(unrecoverable)` for the streams `wxbackfill.py` deliberately can't refill
+  ranges. **Integrity counts hours, not just days** — it read day lists only and so reported the
+  archive COMPLETE through three weeks in which a quarter of every day's hours was missing, which
+  is the worst thing a health panel can do; a day that is on file but short hours is now its own
+  state in the strip (hatched), in the row badge and in the verdict, and a stream whose hours were
+  never published says "days only" rather than borrowing the day verdict's confidence.
+  Missing days are still collapsed into ranges, marked `(unrecoverable)` for the streams `wxbackfill.py` deliberately can't refill
   (`forecast`/`grid`). Today is never counted a gap — a day-forward stream fills it as the day runs)
   and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
   heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
@@ -501,7 +506,11 @@ concepts; to relink, add the tools.html card back.
   reports TS if it carries lightning detection, so absence there is not evidence of absence.
   Advertised-vs-observed precip must overlap in time to score a
   hit (`overlapsHours`): an advertised 2 PM shower and an observed 4 AM one are both "rain
-  today" but are not the same event. Busts that closed are explained from the hindcast
+  today" but are not the same event. **And an advertised hour with no observation is not a bust** —
+  the rain and thunder rows check that the advertised hours are actually archived before scoring
+  them, and say "not judged — the hours are not archived" otherwise, the same rule the ceiling and
+  wind rows already followed by construction. Scoring absence-of-evidence as a bust explained a
+  failure that may never have happened. Busts that closed are explained from the hindcast
   (CAPE/CIN, front position). The drift card is a 7-day strip centered on today
   (`DRIFT_SPAN`): behind today it verifies — archived METAR high, plus the overnight low read
   from the **next** day's pre-09:00 obs, since the NWS "low" for day D is D+1's minimum —
@@ -551,6 +560,17 @@ concepts; to relink, add the tools.html card back.
   - **A null ceiling is a reading, not a gap** — "clear" gets a rail along the top of the lane and
     breaks the step line, which otherwise bridges two ceilings that never met. Chance-of-precip
     shades the precip lane instead of earning a scale of its own.
+  - **An absent hour is not a reading at all, and must never be drawn as one.** Lines break wherever
+    consecutive obs are more than `CONT_S` (1.5 h) apart, the category ribbon paints each ob for at
+    most that long instead of running it to the next one, and the missing stretch is hatched across
+    the whole stack and labelled "no obs" — a straight line through six lost hours is an invented
+    reading, and for three weeks that invented line was most of the lane. The card states its
+    coverage next to its sources ("KDCA · 14 observations · 10 h missing"), and the headline
+    numbers carry a caveat saying they are the extremes of what was recorded. The calendar notches
+    any day short hours, since its color is the worst *archived* hour, not necessarily the worst
+    hour flown. Hours the station never reported (`nh`) are not gaps and are never counted as such.
+  - Both observed sources are labelled with their station id everywhere — hover readout, legend,
+    table. An unlabelled "temp" beside a labelled "KNAK temp" reads as generic rather than as KDCA.
   - Density altitude is the NWS method (same formulas as `airlab.js`); KNAK's is worked at
     **KANP's** elevation, since KNAK is standing in for the field.
   - One hue per measure from a palette checked for CVD separation and ≥3:1 on the card; two hues
@@ -578,7 +598,11 @@ concepts; to relink, add the tools.html card back.
   own sensor, **hourly not 5-minute, so it is sparser than `obs/` by nature**; set by
   `WX_FIELD_OBS`, skipped when blank or equal to `WX_OBS`) ·
   `stations/<ID>/` (**the local ring** — every other METAR-reporting field around KANP, one
-  directory per station, same day-file shape as `obs/`; list in `WX_STATIONS`, default
+  directory per station, same day-file shape as `obs/`. **Not redundancy**: a ceilometer is a
+  pencil beam over one point, and the deck that decides whether a lesson flies — BKN/SCT
+  1,000–3,000 ft, nowhere near IFR — is exactly what a single site misses, so KNAK can report
+  clear with a layer over the field while KFME/KBWI/W29 see it. Jesse's reason for wanting the
+  ring; don't drop stations as duplicates. List in `WX_STATIONS`, default
   W29 · KFME · KCGS · KADW · KBWI · KMTN · KESN · KGAI · KRJD · KAPG · KCGE · KNHK. KDCA and
   KNAK are deliberately excluded — they already have dedicated streams the verification cards
   are built on, and archiving them twice would fork the record. A station nobody publishes logs
@@ -633,7 +657,10 @@ concepts; to relink, add the tools.html card back.
   `station(id, date)` / `stations()` / `stationDays(id)` (the local ring — `stations()` reports
   what is *archived*, out of `index.json`, not what was configured),
   `firstSnap(stream, date)` (the morning baseline a go/no-go was made against) and
-  `gridAt(snap, field, ms)`. Every call resolves to `null` rather than throwing, so a page can
+  `gridAt(snap, field, ms)`. `index.json` also carries **`hours`** — hours held per day,
+  parallel to each METAR stream's day list, minus the hours the station never reported — because
+  a day file existing is not the same as a day being complete, and nothing on the site could tell
+  the two apart. Every call resolves to `null` rather than throwing, so a page can
   read the archive first and fall back to the live NWS API. `discussion.html` uses it for the
   hourly grid's "vs this morning" column; other pages can adopt it incrementally instead of
   each calling NWS themselves. Requires `js/site-config.js` first.

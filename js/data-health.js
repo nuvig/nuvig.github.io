@@ -51,7 +51,17 @@
   // gap — a day-forward stream fills it as the day goes on, and the freshness
   // row is what flags an archiver that has actually stopped. Event-driven
   // streams have no gaps by definition: an absent day is a quiet day.
-  function coverage(days, eventDriven) {
+  //
+  // `hours` (from index.json, parallel to `days`) is what makes this honest
+  // for METAR streams. A day file existing says nothing about the day being
+  // complete: this panel read day lists only, and so reported the archive
+  // COMPLETE through three weeks in which a quarter of every day's hours was
+  // missing. A present-but-short day is now its own state everywhere — in the
+  // strip, in the row, and in the integrity line. Hours the station never
+  // reported ("nh": a part-time AWOS overnight) are not losses and are not
+  // counted; today is excluded from hour checks for the same reason it is
+  // excluded from day checks.
+  function coverage(days, eventDriven, hours) {
     if (!days || !days.length) return null;
     const have = new Set(days);
     const first = days[0];
@@ -60,7 +70,21 @@
     if (!eventDriven) {
       for (let d = first; d <= stop; d = nextDay(d)) if (!have.has(d)) missing.push(d);
     }
-    return { first, have, held: have.size, missing };
+    const held = (hours && hours.h) || null;
+    const nh = (hours && hours.nh) || null;
+    const hourly = held ? new Map() : null;   // date -> hours the day holds
+    const short = [];
+    let lost = 0, checked = 0;
+    if (held) {
+      days.forEach((d, i) => {
+        hourly.set(d, held[i]);
+        if (d > stop) return;                       // today is still filling
+        const want = 24 - ((nh && nh[i]) || 0);     // hours anyone could have
+        checked += want;
+        if (held[i] < want) { short.push(d); lost += want - held[i]; }
+      });
+    }
+    return { first, have, held: have.size, missing, hourly, short, lost, checked };
   }
 
   // Consecutive missing days collapse into ranges — the shape
@@ -120,12 +144,25 @@
   }
 
   // Day-coverage strip: one cell per day of the span. 'pre' (before the
-  // stream existed) is neutral, 'off' after its first day is a real gap.
+  // stream existed) is neutral, 'off' after its first day is a real gap,
+  // 'part' is a day that is there but short hours — the state this strip
+  // used to paint as a full green square.
   // For event-driven streams absent days are normal → 'quiet', never 'off'.
-  function strip(days, haveSet, firstDay, eventDriven) {
+  function strip(days, haveSet, firstDay, eventDriven, cov) {
+    // "short" is the stream's own judgement — a day can hold fewer than 24
+    // hours and still be complete, if the station never reported the rest.
+    const short = new Set((cov && cov.short) || []);
+    const hourly = cov && cov.hourly;
     const cells = days.map(d => {
       let cls, what;
-      if (haveSet.has(d)) { cls = 'on'; what = eventDriven ? 'events archived' : 'archived'; }
+      const held = hourly ? hourly.get(d) : undefined;
+      if (short.has(d)) {
+        cls = 'part'; what = `${held} of 24 h archived — ${24 - held} missing`;
+      } else if (haveSet.has(d)) {
+        cls = 'on';
+        what = eventDriven ? 'events archived'
+          : held != null ? `archived · ${held} of 24 h` : 'archived';
+      }
       else if (eventDriven) { cls = 'quiet'; what = 'no events'; }
       else if (!firstDay || d < firstDay) { cls = 'pre'; what = 'before this stream started'; }
       else { cls = 'off'; what = 'missing'; }
@@ -147,6 +184,7 @@
     }
     const t = now();
     const days = daySpan();
+    const IH = idx.hours || {};
 
     const maxTs = list => {
       let m = null;
@@ -184,6 +222,23 @@
     const ringWorst = ringAges.reduce((m, s) => (s.age == null ? Infinity : Math.max(m, s.age)), 0);
     const ringTip = ringAges.map(s => `${s.id} ${fmtAge(s.age)}`).join(' · ');
     const ringDays = [...new Set(Object.values(idx.station_days || {}).flat())].sort();
+    // The ring is one row, so its hour coverage is the worst station per day —
+    // "the ring has this day" should not mean "one of twelve fields does".
+    const ringHours = (() => {
+      const per = (idx.hours || {}).stations || {};
+      if (!ringIds.length) return null;
+      const h = ringDays.map(d => {
+        let worst = null;
+        for (const id of ringIds) {
+          const i = (idx.station_days[id] || []).indexOf(d);
+          if (i < 0) continue;
+          const v = ((per[id] || {}).h || [])[i];
+          if (v != null && (worst == null || v < worst)) worst = v;
+        }
+        return worst == null ? 0 : worst;
+      });
+      return { h };
+    })();
 
     // AFD day list comes from the issuance index (its entries are per
     // issuance, not per day), oldest first to match every other stream.
@@ -198,15 +253,17 @@
       // NWS's observation API often lags the station by an hour or two on top
       // of the hourly archive cadence — 3 h is a normal-healthy obs age.
       { label: 'KDCA METARs', short: 'KDCA obs', note: 'verifies the forecast',
-        age: age(maxTs(latest.obs)), okH: 3, lateH: 6, days: idx.obs_days, fill: true },
+        age: age(maxTs(latest.obs)), okH: 3, lateH: 6, days: idx.obs_days,
+        hours: IH.obs, fill: true },
       { label: 'KNAK METARs', short: 'KNAK obs', note: 'the field sensor · hourly',
-        age: age(maxTs(latest.fieldobs)), okH: 4, lateH: 9, days: idx.fieldobs_days, fill: true },
+        age: age(maxTs(latest.fieldobs)), okH: 4, lateH: 9, days: idx.fieldobs_days,
+        hours: IH.fieldobs, fill: true },
       // …only once the ring has actually archived something: an empty row
       // before the first run would read as a broken stream.
       ...(ringIds.length ? [{ label: 'Local ring METARs', short: 'ring obs',
         note: `${ringIds.length} field${ringIds.length === 1 ? '' : 's'} · hourly`,
         age: ringWorst === Infinity ? null : ringWorst, okH: 4, lateH: 9,
-        days: ringDays, fill: true, tip: ringTip }] : []),
+        days: ringDays, hours: ringHours, fill: true, tip: ringTip }] : []),
       { label: 'LWX discussion', short: 'discussions', note: '~4 issuances/day',
         age: age((idx.afd || [{}])[0].t), okH: 9, lateH: 15, days: afdDays, fill: true },
       { label: 'DC forecast', short: 'forecast', note: 'snapshot each run',
@@ -228,16 +285,28 @@
 
     let rows = '';
     for (const s of streams) {
-      s.cov = coverage(s.days, s.event);
+      s.cov = coverage(s.days, s.event, s.hours);
       // Alerts get a neutral dot either way — an active alert is weather, not
       // a pipeline problem; the count is the information.
       const v = s.event ? { cls: 'quiet', word: '' } : verdict(s.age, s.okH, s.lateH);
+      // The badge names whichever loss the stream actually has — whole days,
+      // hours inside days it holds, or both. A stream that is short only
+      // hours used to show nothing here at all.
       const gaps = s.cov ? s.cov.missing.length : 0;
-      const gapHtml = gaps
-        ? ` <span class="dh-gap" title="${esc(fmtRanges(s.cov.missing, 12))}">${gaps} missing</span>`
+      const shortH = s.cov ? s.cov.lost : 0;
+      const bits = [];
+      if (gaps) bits.push(`${gaps} day${gaps === 1 ? '' : 's'}`);
+      if (shortH) bits.push(`${shortH} h`);
+      const gapTip = [
+        gaps ? `days: ${fmtRanges(s.cov.missing, 12)}` : '',
+        shortH ? `hours missing on ${s.cov.short.length} day(s): ${fmtRanges(s.cov.short, 12)}` : '',
+      ].filter(Boolean).join(' · ');
+      const gapHtml = bits.length
+        ? ` <span class="dh-gap" title="${esc(gapTip)}">${bits.join(' + ')} missing</span>`
         : '';
       rows += row(s.label, s.note, s.text || fmtAge(s.age), v,
-        strip(days, new Set(s.days || []), s.cov && s.cov.first, s.event), s.tip, gapHtml);
+        strip(days, new Set(s.days || []), s.cov && s.cov.first, s.event, s.cov),
+        s.tip, gapHtml);
     }
 
     // Reach — how far back the archive goes, streams grouped by the day they
@@ -256,21 +325,49 @@
       ? Math.round((Date.now() - Date.parse(oldest + 'T12:00:00Z')) / 86400e3) : 0;
 
     // Integrity — the whole archive, not just the drawn window. Never silent:
-    // a clean archive says so, because "no news" and "nothing checked" have
-    // to look different.
-    const holed = streams.filter(s => s.cov && s.cov.missing.length);
-    const lost = holed.reduce((n, s) => n + s.cov.missing.length, 0);
+    // a clean archive says so, because "no news" and "nothing checked" have to
+    // look different. And "complete" is only ever said about what was actually
+    // measured: this line counted missing *days* while calling itself
+    // integrity, so a stream holding a file for every day read as COMPLETE
+    // with a quarter of its hours gone. A stream whose hours were never
+    // published says so rather than borrowing the day verdict's confidence.
+    const holedDays = streams.filter(s => s.cov && s.cov.missing.length);
+    const holedHours = streams.filter(s => s.cov && s.cov.lost);
+    const lostDays = holedDays.reduce((n, s) => n + s.cov.missing.length, 0);
+    const lostHours = holedHours.reduce((n, s) => n + s.cov.lost, 0);
+    const hourly = streams.filter(s => s.cov && s.cov.checked);
+    const checked = hourly.reduce((n, s) => n + s.cov.checked, 0);
+    // Streams with no hour dimension at all (a forecast snapshot is not an
+    // hourly reading) are complete on days alone; METAR streams are not.
+    const unmeasured = streams.filter(s => s.cov && s.hours === undefined &&
+      /obs|ring/.test(s.short));
     let integrity;
     if (!streams.some(s => s.cov)) {
       integrity = '<span class="dh-word warn">unknown</span> — no day index to check';
-    } else if (!holed.length) {
-      integrity = `<span class="dh-word ok">complete</span>` +
-        (oldest ? ` — no gaps since ${esc(shortDate(oldest))}` : '');
+    } else if (unmeasured.length && !holedDays.length && !holedHours.length) {
+      integrity = '<span class="dh-word warn">days only</span> — every day is on file, but ' +
+        `this archive publishes no hour counts for ${esc(unmeasured.map(s => s.short).join(', '))}, ` +
+        'so hours inside those days are unchecked';
+    } else if (!holedDays.length && !holedHours.length) {
+      integrity = '<span class="dh-word ok">complete</span>' +
+        (oldest ? ` — no gaps since ${esc(shortDate(oldest))}` : '') +
+        (checked ? `, and every one of ${checked.toLocaleString()} station-hours is on file` : '');
     } else {
-      const parts = holed.map(s => `${esc(s.short)} ${esc(fmtRanges(s.cov.missing))}` +
-        (s.fill ? '' : ' <i>(unrecoverable)</i>'));
-      integrity = `<span class="dh-word warn">${lost} missing day${lost === 1 ? '' : 's'}</span> — ` +
-        parts.join(' · ');
+      const parts = [];
+      for (const s of holedDays) {
+        parts.push(`${esc(s.short)} ${esc(fmtRanges(s.cov.missing))}` +
+          (s.fill ? '' : ' <i>(unrecoverable)</i>'));
+      }
+      for (const s of holedHours) {
+        parts.push(`${esc(s.short)} ${s.cov.lost} h across ` +
+          `${s.cov.short.length} day${s.cov.short.length === 1 ? '' : 's'} ` +
+          `(${esc(fmtRanges(s.cov.short, 3))})`);
+      }
+      const head = [
+        lostDays ? `${lostDays} missing day${lostDays === 1 ? '' : 's'}` : '',
+        lostHours ? `${lostHours} missing hour${lostHours === 1 ? '' : 's'}` : '',
+      ].filter(Boolean).join(' · ');
+      integrity = `<span class="dh-word warn">${esc(head)}</span> — ` + parts.join(' · ');
     }
 
     el.innerHTML = `
@@ -279,7 +376,7 @@
         <span class="dh-sub">hourly GitHub Action</span></div>
       ${rows}
       <div class="dh-axis"><span>${esc(days[0])}</span>
-        <span class="dh-key"><i class="on"></i>day held <i class="off"></i>missing
+        <span class="dh-key"><i class="on"></i>day held <i class="part"></i>short hours <i class="off"></i>missing
           <i class="pre"></i>before start / quiet</span>
         <span>today</span></div>
       <dl class="dh-cover">

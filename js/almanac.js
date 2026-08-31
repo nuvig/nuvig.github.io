@@ -131,6 +131,42 @@ function parseMetar(raw) {
 
 const cToF = (c) => Math.round(c * 9 / 5 + 32);
 
+/* Which hours of a local day hold no observation at all.
+
+   Every number this page prints about a day — the calendar's worst category,
+   the high and low, the peak gust — is an extreme over the obs that were
+   archived, which is only the same thing as an extreme over the day when the
+   day is complete. It often isn't: api.weather.gov drops routine obs, and
+   before the archiver healed itself from IEM a fifth of a typical day could
+   be absent. So the page states its coverage rather than quietly ranging over
+   holes. Hours the station never reported ("nh" in the day file — a part-time
+   AWOS overnight) are not gaps and are not counted. */
+function hourGaps(doc) {
+  const date = doc && doc.date;
+  if (!date || !doc.metars) return null;
+  const seen = new Set();
+  for (const [t] of doc.metars) {
+    const p = lp(t);
+    if (p.date === date) seen.add(p.h);
+  }
+  const never = new Set(doc.nh || []);
+  const missing = [];
+  for (let h = 0; h < 24; h++) if (!seen.has(h) && !never.has(h)) missing.push(h);
+  return { held: seen.size, never: never.size, missing };
+}
+
+/* "6 h missing" / "" — the phrase every card uses, so the wording never
+   drifts between them. */
+function gapNote(gaps) {
+  if (!gaps || !gaps.missing.length) return '';
+  const n = gaps.missing.length;
+  return `${n} h missing`;
+}
+
+const gapHours = (gaps) => (gaps && gaps.missing.length)
+  ? `hours with no ob: ${gaps.missing.map((h) => String(h).padStart(2, '0')).join(', ')}`
+  : '';
+
 /* Day summary for the calendar + trends. Daytime = 8 am–8 pm local: a single
    5 am fog ob shouldn't paint a flyable day LIFR. */
 function summarize(metars) {
@@ -325,6 +361,8 @@ function buildCalendar() {
     CAT.map((c) => `<span><span class="chip" style="background:${c.color}"></span>${c.name}</span>`).join('') +
     '<span><span class="chip" style="background:#222"></span>no METARs</span>' +
     '<span><span class="chip" style="background:#1d1d1d"></span>nothing archived</span>' +
+    '<span><span class="chip cal-day short" style="background:#3d7dc4;position:relative">' +
+    '</span>hours missing</span>' +
     '<span>⚡ thunderstorms</span>';
 
   $('cal-scroll').scrollLeft = $('cal-scroll').scrollWidth;
@@ -340,10 +378,17 @@ function paintCell(d) {
   cell.style.background = CAT[s.worstDay].color;
   if (s.ts) cell.appendChild(el('span', 'bolt', '⚡'));
   const parts = CAT.map((c, i) => (s.counts[i] ? `${s.counts[i]} ${c.name}` : null)).filter(Boolean);
+  /* A day's color is its worst *daytime* category — a claim about the whole
+     day, made from whatever hours were archived. When hours are missing the
+     cell is hatched and says so: the color may simply not have seen the worst
+     hour. */
+  const note = gapNote(s.gaps);
+  cell.classList.toggle('short', !!note);
   cell.title = `${d} · ${parts.join(' / ')}` +
     (s.hiC != null ? ` · ${cToF(s.hiC)}°/${cToF(s.loC)}°` : '') +
     (s.maxGst ? ` · gust ${s.maxGst} kt` : '') +
-    (s.ts ? ' · TS' : s.rain ? ' · rain' : '');
+    (s.ts ? ' · TS' : s.rain ? ' · rain' : '') +
+    (note ? `\n${s.gaps.held} of 24 h archived — ${note}, so this may not be the day's worst hour` : '');
   if (d === S.selected) cell.classList.add('sel');
 }
 
@@ -359,7 +404,12 @@ async function loadAllObs() {
       const d = dates.shift();
       const doc = await WXA.day('obs', d);
       const s = doc && summarize(doc.metars);
-      if (s) { S.summaries.set(d, s); paintCell(d); }
+      if (s) {
+        s.gaps = hourGaps(doc);   // today is still filling, so it never counts
+        if (d === lp(Date.now() / 1000).date) s.gaps = null;
+        S.summaries.set(d, s);
+        paintCell(d);
+      }
       done++;
       if (done % 10 === 0) prog.textContent = `Reading METAR history… ${done} days`;
     }
@@ -684,7 +734,11 @@ const CEIL_BANDS = [[0, 500, 3], [500, 1000, 2], [1000, 3000, 1]];
    never rests on color. */
 function obsOn(D, src) {
   const out = [];
-  if (src.obs && D.obs.length) out.push({ p: D.obs, pre: '', tint: (c) => c, main: true, w: 2 });
+  /* Both observed sources carry their station id, never just one: an
+     unlabelled "temp" next to a labelled "KNAK temp" reads as a generic
+     series rather than as KDCA, which is exactly the confusion the
+     name-every-source rule exists to prevent. */
+  if (src.obs && D.obs.length) out.push({ p: D.obs, pre: `${D.station} `, tint: (c) => c, main: true, w: 2 });
   if (src.field && D.fobs.length) {
     out.push({ p: D.fobs, pre: `${D.fieldStation} `, tint: (c) => lighten(c, 0.55), main: false, w: 1.5 });
   }
@@ -940,11 +994,20 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
   card.hidden = false;
 
   const srcBits = [];
-  if (D.obs.length) srcBits.push(`${D.station} · ${D.obs.length} observations`);
-  if (D.fobs.length) srcBits.push(`${D.fieldStation} · ${D.fobs.length}`);
+  const oGap = hourGaps(obsDoc), fGap = hourGaps(fieldDoc);
+  if (D.obs.length) {
+    srcBits.push(`${D.station} · ${D.obs.length} observations` +
+      (gapNote(oGap) ? ` · ${gapNote(oGap)}` : ''));
+  }
+  if (D.fobs.length) {
+    srcBits.push(`${D.fieldStation} · ${D.fobs.length}` +
+      (gapNote(fGap) ? ` · ${gapNote(fGap)}` : ''));
+  }
   if (D.gridAt) srcBits.push(`NWS grid ${hhmm(D.gridAt)}`);
   if (D.modelAt) srcBits.push(`GFS ${hhmm(D.modelAt)}`);
   $('obs-sub').textContent = srcBits.join(' · ');
+  $('obs-sub').title = [gapHours(oGap) && `${D.station} — ${gapHours(oGap)}`,
+    gapHours(fGap) && `${D.fieldStation} — ${gapHours(fGap)}`].filter(Boolean).join('\n');
 
   syncPicker();
   drawObsChart();
@@ -971,7 +1034,15 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
     if (s.snow) bits.push('winter precip');
     if (s.fog) bits.push('fog/mist');
   }
-  $('obs-stats').innerHTML = bits.join(' · ');
+  /* Every number above is an extreme over the obs on file. Saying so is the
+     whole difference between "the day peaked at 12 kt" and "the archived hours
+     peaked at 12 kt" on a day missing six of them. */
+  const worstGap = [oGap, fGap].filter((g) => g && g.missing.length)
+    .sort((a, b) => b.missing.length - a.missing.length)[0];
+  $('obs-stats').innerHTML = bits.join(' · ') +
+    (worstGap ? `<div class="obs-caveat" title="${esc(gapHours(worstGap))}">` +
+      `${worstGap.held} of 24 hours archived — these are the extremes of what ` +
+      'was recorded, not necessarily of the day</div>' : '');
 
   renderObsTable(D);
   const raw = obsOn(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);
@@ -1037,6 +1108,28 @@ function drawObsChart() {
   wireHover($('obs-chart'));
 }
 
+/* Stretches of the day with no observation at all, from whichever observed
+   station the reader has switched on. Absence has to be drawn: a break in a
+   line and an unpainted ribbon read as "nothing happened" just as easily as
+   "nothing recorded", and only one of those is true. */
+function obsGaps(D, src) {
+  const on = obsOn(D, src);
+  if (!on.length) return [];
+  const ts = [...new Set(on.flatMap((o) => o.p.map((p) => p.t)))].sort((a, b) => a - b);
+  if (!ts.length) return [{ a: D.t0, b: Math.min(D.t1, nowSec()) }];
+  const end = Math.min(D.t1, Math.max(nowSec(), D.t0));   // today stops at now
+  const out = [];
+  if (ts[0] - D.t0 > CONT_S) out.push({ a: D.t0, b: ts[0] });
+  for (let i = 1; i < ts.length; i++) {
+    if (ts[i] - ts[i - 1] > CONT_S) out.push({ a: ts[i - 1], b: ts[i] });
+  }
+  const last = ts[ts.length - 1];
+  if (end - last > CONT_S) out.push({ a: last, b: end });
+  return out;
+}
+
+const nowSec = () => Date.now() / 1000;
+
 function drawMeteogram(ctx, W, H, D, lanes) {
   ctx.clearRect(0, 0, W, H);
   ctx.font = '10px system-ui, sans-serif';
@@ -1052,9 +1145,14 @@ function drawMeteogram(ctx, W, H, D, lanes) {
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x0, 0, x1 - x0, RIB_H, 3); else ctx.rect(x0, 0, x1 - x0, RIB_H);
     ctx.clip();
+    /* each ob paints until the next one — but only as far as it can speak
+       for: an ob at 14:52 whose successor is at 19:52 does not make the
+       intervening four hours VFR, so its block stops after CONT_S and the
+       gap is left to the hatch below */
     for (let i = 0; i < D.obs.length; i++) {
-      const a = x(D.obs[i].t);
-      const b = i + 1 < D.obs.length ? x(D.obs[i + 1].t) : Math.min(x(D.obs[i].t + 3600), x1);
+      const t = D.obs[i].t;
+      const next = i + 1 < D.obs.length ? D.obs[i + 1].t : t + 3600;
+      const a = x(t), b = Math.min(x(Math.min(next, t + CONT_S)), x1);
       ctx.fillStyle = CAT[D.obs[i].cat].color;
       ctx.fillRect(a, 0, Math.max(b - a, 1.5), RIB_H);
     }
@@ -1076,6 +1174,36 @@ function drawMeteogram(ctx, W, H, D, lanes) {
   S.meteo.boxes = boxes; S.meteo.lanes = lanes;
 
   const top = RIB_H + 10, bot = y - LANE_GAP;
+
+  /* the day's holes, hatched across the ribbon and every lane at once, so a
+     gap reads as one missing column of the day rather than as a quiet patch
+     in each measure */
+  const gaps = obsGaps(D, S.src);
+  for (const g of gaps) {
+    const a = Math.max(x(g.a), x0), b = Math.min(x(g.b), x1);
+    if (b - a < 1) continue;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(a, 0, b - a, Math.max(bot, RIB_H) - 0);
+    ctx.clip();
+    /* faint on purpose: the hatch has to be unmistakable where you look for
+       it and quiet everywhere else — on a day missing ten hours it covers
+       nearly half the card, and a loud fill would bury the readings that
+       *are* there */
+    ctx.strokeStyle = 'rgba(201,162,39,0.13)'; ctx.lineWidth = 1;
+    for (let px = a - Math.max(bot, RIB_H); px < b; px += 9) {
+      ctx.beginPath(); ctx.moveTo(px, Math.max(bot, RIB_H)); ctx.lineTo(px + Math.max(bot, RIB_H), 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (b - a > 46) {                       // label the wide ones only
+      ctx.save();
+      ctx.fillStyle = 'rgba(201,162,39,0.6)';
+      ctx.textAlign = 'center'; ctx.font = '9px system-ui, sans-serif';
+      ctx.fillText('no obs', (a + b) / 2, RIB_H - 3);
+      ctx.restore();
+      ctx.font = '10px system-ui, sans-serif';
+    }
+  }
   if (!n) {
     ctx.fillStyle = C.muted; ctx.textAlign = 'center';
     ctx.fillText('Pick a measure above to plot it.', (x0 + x1) / 2, top + 16);
@@ -1275,13 +1403,26 @@ function drawLane(ctx, D, lane, box, x) {
    clear, so the trace has to break there instead of bridging two ceilings that
    never met. Split into runs, hold each run's last value up to the ob that
    ended it, and draw the runs separately. */
+/* Longest step between two readings that still counts as continuous. Every
+   source here is hourly at worst (KDCA 5-minutely, KNAK and the NWS grid
+   hourly), so 1.5 h keeps a normal hourly line joined and breaks the moment an
+   hour is missing. */
+const CONT_S = 5400;
+
 function plotSeries(ctx, box, sc, s, x) {
   const runs = [];
-  let cur = null;
+  let cur = null, prevT = null;
   for (const p of s.pts) {
-    if (p[1] == null) { if (cur) { cur.end = x(p[0]); cur = null; } continue; }
+    if (p[1] == null) { if (cur) { cur.end = x(p[0]); cur = null; } prevT = p[0]; continue; }
+    /* A missing hour is not a straight line between the obs either side of it.
+       Drawing one invents a reading — the same reason a null ceiling breaks
+       this line rather than bridging two ceilings that never met — and on a
+       day the archiver lost six hours to, that invented line was most of the
+       lane. */
+    if (cur && prevT != null && p[0] - prevT > CONT_S) cur = null;
     if (!cur) { cur = { pts: [], end: null }; runs.push(cur); }
     cur.pts.push(p);
+    prevT = p[0];
   }
   for (const r of runs) plotRun(ctx, box, sc, s, x, r.pts, r.end);
 }

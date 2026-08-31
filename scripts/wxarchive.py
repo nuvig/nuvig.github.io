@@ -71,10 +71,19 @@ OBS_STATION = os.environ.get("WX_OBS", "KDCA")
 FIELD_OBS_STATION = os.environ.get("WX_FIELD_OBS", "KNAK")
 # Every other METAR-reporting field in the local ring, archived per station
 # under stations/<ID>/. This is "the weather where I actually fly" — the fields
-# on the sectional around KANP, near-to-far. KDCA and KNAK are deliberately
-# absent: they already have dedicated streams (obs/ and fieldobs/) that the
-# verification cards are built on, and archiving them twice would fork the
-# record. An id nobody publishes is not fatal — it logs and the run continues.
+# on the sectional around KANP, near-to-far.
+#
+# It is not redundancy. A ceilometer is a pencil beam over one point, and the
+# deck that decides whether a lesson flies — broken or scattered at 1,000 to
+# 3,000 ft, nowhere near IFR — is exactly the deck a single site misses:
+# KNAK can report clear while there is a layer over the field. Neighbours a
+# few minutes away (KFME, KBWI, W29) see it. One station is a point sample;
+# the ring is the sky.
+#
+# KDCA and KNAK are deliberately absent: they already have dedicated streams
+# (obs/ and fieldobs/) that the verification cards are built on, and archiving
+# them twice would fork the record. An id nobody publishes is not fatal — it
+# logs and the run continues.
 STATIONS = [s for s in os.environ.get(
     "WX_STATIONS",
     "W29,KFME,KCGS,KADW,KBWI,KMTN,KESN,KGAI,KRJD,KAPG,KCGE,KNHK"
@@ -824,6 +833,28 @@ def build_index():
     listing = lambda d: sorted(
         f[:-5] for f in (os.listdir(d) if os.path.isdir(d) else [])
         if f.endswith(".json"))
+
+    def hour_coverage(out_dir, days):
+        """How many of each day's 24 hours actually hold a METAR, and how many
+        are settled as "the station never reported this hour" ("nh").
+
+        Published because a day file existing is not the same as a day being
+        complete, and the health panel had no way to tell the difference: it
+        called the archive COMPLETE while a quarter of every recent day was
+        missing. Arrays run parallel to the stream's day list. Reading a few
+        thousand small files per run costs milliseconds and is the only
+        honest way to compute this."""
+        tz = local_now().tzinfo
+        held, never = [], []
+        for day in days:
+            doc = read_json(os.path.join(out_dir, day + ".json"), {})
+            nh = [h for h in (doc.get("nh") or []) if 0 <= h < 24]
+            held.append(24 - len(missing_hours(doc, day, tz)))
+            never.append(len(nh))
+        out = {"h": held}
+        if any(never):
+            out["nh"] = never          # omitted entirely when nothing settled
+        return out
     # only stations that actually have days on disk — the catalog reports what
     # is archived, not what was asked for, so an id that publishes nothing
     # never shows up as an empty stream
@@ -833,6 +864,12 @@ def build_index():
         days = listing(os.path.join(STATIONS_DIR, station))
         if days:
             station_days[station] = days
+    obs_days, fieldobs_days = listing(OBS_DIR), listing(FIELDOBS_DIR)
+    hours = {"obs": hour_coverage(OBS_DIR, obs_days)}
+    if FIELD_OBS_STATION and FIELD_OBS_STATION != OBS_STATION:
+        hours["fieldobs"] = hour_coverage(FIELDOBS_DIR, fieldobs_days)
+    hours["stations"] = {st: hour_coverage(os.path.join(STATIONS_DIR, st), d)
+                         for st, d in station_days.items()}
     write_json(os.path.join(WX, "index.json"), {
         "updated": int(datetime.datetime.now().timestamp()),
         "office": OFFICE,
@@ -840,14 +877,17 @@ def build_index():
         "field_station": FIELD_OBS_STATION,
         "afd": afd,
         "forecast_days": listing(FC_DIR),
-        "obs_days": listing(OBS_DIR),
-        "fieldobs_days": listing(FIELDOBS_DIR),
+        "obs_days": obs_days,
+        "fieldobs_days": fieldobs_days,
         "grid_days": listing(GRID_DIR),
         "taf_days": listing(TAF_DIR),
         "alert_days": listing(ALERT_DIR),
         "model_days": listing(MODEL_DIR),
         "stations": sorted(station_days),
         "station_days": station_days,
+        # hours held per day, parallel to each METAR stream's day list — a day
+        # file is not a complete day, and nothing could tell the two apart
+        "hours": hours,
         "field": FIELD,
         "taf_stations": TAF_STATIONS,
     })

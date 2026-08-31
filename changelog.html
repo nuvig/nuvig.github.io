@@ -115,6 +115,11 @@
     .dh-strip { display: flex; gap: 2px; height: 10px; min-width: 0; }
     .dh-strip i { flex: 1 1 0; min-width: 0; border-radius: 2px; }
     .dh-strip i.on    { background: #2f6f43; }
+    /* a day that is on file but short hours — deliberately not the same green
+       as a complete day, because for three weeks it was drawn as one */
+    .dh-strip i.part  { background: #2f6f43;
+      background-image: repeating-linear-gradient(135deg,
+        #7a5a1e 0 2px, transparent 2px 4px); }
     .dh-strip i.quiet { background: #242424; }
     .dh-strip i.pre   { background: #1e1e1e; }
     .dh-strip i.off   { background: #7f1d1d; }
@@ -136,6 +141,9 @@
     .dh-key i { width: 8px; height: 8px; border-radius: 2px; margin-left: 8px; }
     .dh-key i:first-child { margin-left: 0; }
     .dh-key i.on  { background: #2f6f43; }
+    .dh-key i.part { background: #2f6f43;
+      background-image: repeating-linear-gradient(135deg,
+        #7a5a1e 0 2px, transparent 2px 4px); }
     .dh-key i.off { background: #7f1d1d; }
     .dh-key i.pre { background: #1e1e1e; border: 1px solid #333; }
     .dh-foot { color: #555; font-size: 11.5px; line-height: 1.5; margin-top: 10px; }

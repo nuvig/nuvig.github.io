@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 35;
+const DISC_VER = 36;
 
 const $ = (id) => document.getElementById(id);
 
@@ -2170,6 +2170,20 @@ async function vfBuild(date, off) {
      still ahead of you read as pending instead of as a bust. */
   const stormHrs = gridHours(gridSnap, /thunder/i, date);
   const rainHrs = gridHours(gridSnap, /rain|shower|drizzle/i, date);
+  /* Which advertised hours we can actually speak about. An advertised 3 PM
+     shower with no 3 PM observation is not a bust — it is an unobserved hour,
+     and scoring it as "nothing reached the field" explains a failure that may
+     never have happened. The archive lost ~7 h a day to api.weather.gov for
+     three weeks (see heal_metars in scripts/wxarchive.py), so this is the
+     common case on any day from that stretch, not a corner. Same rule as the
+     ceiling and wind rows above, which are already built only from hours that
+     have an ob. */
+  const hourKey = (ms) => Math.round(ms / 3600000);
+  const observedHours = (list) => new Set(list.map((d) => hourKey(d.ms)));
+  const tsHours = observedHours(decoded);        // KDCA — thunder stays there
+  const fieldHours = observedHours(fDecoded);    // KNAK — rain, ceiling, wind
+  const covered = (advMs, have) => advMs.filter((ms) => have.has(hourKey(ms)));
+
   const stormPast = stormHrs.filter((ms) => ms <= nowCap);
   const stormAhead = stormHrs.filter((ms) => ms > nowCap);
   const rainPast = rainHrs.filter((ms) => ms <= nowCap);
@@ -2191,14 +2205,23 @@ async function vfBuild(date, off) {
     }
   } else if (rainPast.length || rainObs.length) {
     const obsMs = rainObs.map((d) => d.ms);
+    const seen = covered(rainPast, fieldHours);
     const hit = rainPast.length > 0 && obsMs.length > 0 && overlapsHours(rainPast, obsMs);
     const timingOff = rainPast.length > 0 && obsMs.length > 0 && !hit;
+    const blind = rainPast.length > 0 && !seen.length && !obsMs.length;
     settled.push({
-      state: hit ? 'hit' : timingOff ? 'near' : 'miss',
+      state: blind ? 'na' : hit ? 'hit' : timingOff ? 'near' : 'miss',
       what: rainWhat,
       said: rainPast.length ? `${esc(FIELD_ID)} grid: rain ${esc(hourSpan(rainPast))}` : `${esc(FIELD_ID)} grid: dry`,
-      got: obsMs.length ? `${esc(fieldStation)} <b>rain</b> ${esc(hourSpan(obsMs))}` : `${esc(fieldStation)} <b>dry</b>`,
-      note: timingOff ? 'different hours' : rainPast.length && !obsMs.length ? `nothing reached ${fieldStation}`
+      got: blind ? `<span class="faint">${esc(fieldStation)} has no ob for those hours</span>`
+        : obsMs.length ? `${esc(fieldStation)} <b>rain</b> ${esc(hourSpan(obsMs))}`
+        : `${esc(fieldStation)} <b>dry</b>`,
+      note: blind ? 'not judged — the hours are not archived'
+        : timingOff ? 'different hours'
+        : rainPast.length && !obsMs.length
+          ? `nothing reached ${fieldStation}` +
+            (seen.length < rainPast.length
+              ? ` (${seen.length} of ${rainPast.length} advertised h observed)` : '')
         : !rainPast.length && obsMs.length ? 'unadvertised' : '',
     });
   } else {
@@ -2224,11 +2247,16 @@ async function vfBuild(date, off) {
       note: hit ? '' : stormPast.length ? 'different hours' : 'no grid signal for it',
     });
   } else if (stormPast.length) {
+    const seen = covered(stormPast, tsHours);
     settled.push({
-      state: 'miss', what: live ? 'Thunder so far' : 'Thunder',
+      state: seen.length ? 'miss' : 'na', what: live ? 'Thunder so far' : 'Thunder',
       said: `${esc(FIELD_ID)} grid: storms ${esc(hourSpan(stormPast))}`,
-      got: `${OBS_STATION} <b>none</b>`,
-      note: stormAhead.length ? `${stormPast.length} h passed empty` : 'window closed',
+      got: seen.length ? `${OBS_STATION} <b>none</b>`
+        : `<span class="faint">${OBS_STATION} has no ob for those hours</span>`,
+      note: !seen.length ? 'not judged — the hours are not archived'
+        : seen.length < stormPast.length
+          ? `${seen.length} of ${stormPast.length} advertised h observed, all empty`
+        : stormAhead.length ? `${stormPast.length} h passed empty` : 'window closed',
     });
   }
   if (stormAhead.length) {
