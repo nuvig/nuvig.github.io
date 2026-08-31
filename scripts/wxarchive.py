@@ -834,42 +834,53 @@ def build_index():
         f[:-5] for f in (os.listdir(d) if os.path.isdir(d) else [])
         if f.endswith(".json"))
 
-    def hour_coverage(out_dir, days):
-        """How many of each day's 24 hours actually hold a METAR, and how many
-        are settled as "the station never reported this hour" ("nh").
+    def metar_stream(out_dir):
+        """(days, hours) for a METAR stream, reading each day file once.
 
-        Published because a day file existing is not the same as a day being
-        complete, and the health panel had no way to tell the difference: it
-        called the archive COMPLETE while a quarter of every recent day was
-        missing. Arrays run parallel to the stream's day list. Reading a few
-        thousand small files per run costs milliseconds and is the only
-        honest way to compute this."""
+        Two things the catalog has to get right, both learned the hard way:
+
+        A day *file* existing is not a day being *complete* — the health panel
+        had no way to tell, and so called the archive COMPLETE while a quarter
+        of every recent day's hours was missing. So "hours" carries, per day,
+        how many hours hold an ob and how many are settled as never reported.
+
+        And a file holding no obs at all is not a day of data — it is
+        heal_metars' record that nobody reported, and listing it as a day let
+        KFME (dark since Aug 11) show 106 day files and read as healthy. The
+        file stays on disk so the heal pass doesn't re-fetch it; it just isn't
+        a day.
+
+        Reading a few thousand small files per run costs ~0.2 s and is the
+        only honest way to compute either."""
         tz = local_now().tzinfo
-        held, never = [], []
-        for day in days:
+        days, held, never = [], [], []
+        for day in listing(out_dir):
             doc = read_json(os.path.join(out_dir, day + ".json"), {})
+            if not (doc.get("metars") or []):
+                continue                       # a record of absence, not a day
             nh = [h for h in (doc.get("nh") or []) if 0 <= h < 24]
+            days.append(day)
             held.append(24 - len(missing_hours(doc, day, tz)))
             never.append(len(nh))
-        out = {"h": held}
+        hours = {"h": held}
         if any(never):
-            out["nh"] = never          # omitted entirely when nothing settled
-        return out
-    # only stations that actually have days on disk — the catalog reports what
-    # is archived, not what was asked for, so an id that publishes nothing
-    # never shows up as an empty stream
-    station_days = {}
+            hours["nh"] = never        # omitted entirely when nothing settled
+        return days, hours
+    # only stations that actually have observations on disk — the catalog
+    # reports what is archived, not what was asked for, so an id that
+    # publishes nothing never shows up as an empty stream
+    station_days, station_hours = {}, {}
     for station in sorted(os.listdir(STATIONS_DIR)
                           if os.path.isdir(STATIONS_DIR) else []):
-        days = listing(os.path.join(STATIONS_DIR, station))
+        days, hrs = metar_stream(os.path.join(STATIONS_DIR, station))
         if days:
-            station_days[station] = days
-    obs_days, fieldobs_days = listing(OBS_DIR), listing(FIELDOBS_DIR)
-    hours = {"obs": hour_coverage(OBS_DIR, obs_days)}
+            station_days[station], station_hours[station] = days, hrs
+    obs_days, obs_hours = metar_stream(OBS_DIR)
+    fieldobs_days, fieldobs_hours = metar_stream(FIELDOBS_DIR)
+    hours = {"obs": obs_hours}
     if FIELD_OBS_STATION and FIELD_OBS_STATION != OBS_STATION:
-        hours["fieldobs"] = hour_coverage(FIELDOBS_DIR, fieldobs_days)
-    hours["stations"] = {st: hour_coverage(os.path.join(STATIONS_DIR, st), d)
-                         for st, d in station_days.items()}
+        hours["fieldobs"] = fieldobs_hours
+    hours["stations"] = station_hours
     write_json(os.path.join(WX, "index.json"), {
         "updated": int(datetime.datetime.now().timestamp()),
         "office": OFFICE,

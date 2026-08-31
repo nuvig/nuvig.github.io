@@ -627,6 +627,9 @@ concepts; to relink, add the tools.html card back.
   reported — normal for a part-time AWOS overnight) and never re-fetched, so a field that sleeps
   at night can't make this pass re-scrape the ring every hour forever. `wxbackfill.py` ignores
   `nh`, so a wrongly settled hour is still repairable by hand. Consumers only ever read `metars`.
+  A day file that ends up holding **no** obs is that bookkeeping and nothing else — `index.json`
+  does not list it as a day, or a station that has gone dark shows a full day count and reads as
+  healthy (KFME did exactly that).
   Don't "simplify" the archiver back to a single API.
 - `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
   two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the

@@ -511,12 +511,20 @@ def run_selftest():
             wxa.write_json(os.path.join(wxa.AFD_DIR, "2026",
                                         "afd-20260102-1200.json"), {"bf": 1})
             wxa.write_json(os.path.join(wxa.OBS_DIR, "2026-01-02.json"),
-                           {"date": "2026-01-02", "station": "KDCA", "metars": []})
+                           {"date": "2026-01-02", "station": "KDCA",
+                            "metars": [[1767330720, "KDCA 021052Z"]]})
+            # a file holding no obs is heal_metars' record that nobody
+            # reported — bookkeeping, not a day of data, and listing it let a
+            # dark station read as healthy
+            wxa.write_json(os.path.join(wxa.OBS_DIR, "2026-01-03.json"),
+                           {"date": "2026-01-03", "station": "KDCA",
+                            "metars": [], "nh": list(range(24))})
             n = wxa.build_index()
             idx = wxa.read_json(os.path.join(wxa.WX, "index.json"), {})
             self.assertEqual(n, 1)
             self.assertEqual(idx["afd"][0]["t"], int(t.timestamp()))
-            self.assertIn("2026-01-02", idx["obs_days"])
+            self.assertEqual(idx["obs_days"], ["2026-01-02"])
+            self.assertEqual(len(idx["hours"]["obs"]["h"]), 1)
 
         def test_missing_hours(self):
             tz = wxa.local_now().tzinfo
