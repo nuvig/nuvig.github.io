@@ -110,6 +110,13 @@ const SITE = {
       id: 'KDCA', lat: 38.8521, lon: -77.0377, elevFt: 15,
       metarStation: 'KDCA',
       runwayAxisTrue: 356,   // RWY 01/19 true alignment (FAA data via OurAirports)
+
+      // Where the hourly model snapshot lives: the wx3d-data branch of this
+      // repo, written by .github/workflows/wx3dsnap.yml and read over
+      // raw.githubusercontent (CORS-open) like the tracker's snapshots.
+      // The page calls Open-Meteo directly only when this is unreachable or
+      // hours stale. Blank it to force every visitor back onto the live API.
+      snapshotBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/wx3d-data',
     },
 
     // Nearest airports that publish TAFs (KANP itself does not).

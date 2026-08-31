@@ -1,0 +1,52 @@
+# The Air Above snapshot — one Open-Meteo pull an hour, shared by every
+# visitor. wx3d.html used to make the model calls itself from each browser,
+# which is what earned it HTTP 429s; now scripts/wx3dsnap.py makes them here
+# and the page reads the published files (falling back to the live API only
+# when they are missing or hours stale).
+#
+# Published to the `wx3d-data` branch as a SINGLE force-pushed commit — the
+# files are ~900 KB a run, so keeping history would add ~20 MB a day to the
+# repo. The branch is re-created from scratch each run (git init in the output
+# directory), so there is never more than one commit to garbage-collect. Same
+# pattern pi/exporter.py uses for the tracker's traffic-data branch.
+#
+# The page reads it over raw.githubusercontent.com (CORS-open), like
+# js/kanp-static.js does for tracker snapshots — GitHub Pages only serves
+# main, and this data has no business on main.
+
+name: Air Above snapshot
+
+on:
+  schedule:
+    - cron: '38 * * * *'   # hourly, clear of wxarchive's :18
+  workflow_dispatch: {}     # manual "run now" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wx3dsnap
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull the GFS grids from Open-Meteo
+        run: python3 scripts/wx3dsnap.py --out snap
+
+      - name: Publish to the wx3d-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd snap
+          git init -q -b wx3d-data
+          git config user.name  "wx-archive[bot]"
+          git config user.email "wx-archive[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "wx3d: snapshot $(date -u +'%Y-%m-%d %H:%MZ')"
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" \
+            wx3d-data

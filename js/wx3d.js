@@ -150,17 +150,67 @@
       '&models=gfs_seamless&windspeed_unit=kn&timezone=UTC&forecast_days=3';
   }
 
+  // ---- the hourly snapshot ------------------------------------------------
+  // One Actions runner pulls these grids once an hour (scripts/wx3dsnap.py)
+  // and force-pushes them to the wx3d-data branch, so a page view costs
+  // Open-Meteo nothing. The live API is the fallback, not the default: it is
+  // used when the snapshot is unreachable, built for a different box, or old
+  // enough that the model has moved on. A stale snapshot still beats an empty
+  // volume, so it is kept as the fallback's fallback.
+  const SNAP = (A.snapshotBase || '').replace(/\/+$/, '');
+  const SNAP_STALE_MS = 3 * 3600e3;    // past this, prefer a live call
+  const modelSrc = { snap: false, t: 0, stale: false };
+
+  async function loadSnap(name, fresh) {
+    if (!SNAP) return null;
+    try {
+      const j = await fetchJSON(`${SNAP}/${name}.json`, fresh);
+      return (j && Array.isArray(j.times) && j.hourly && +j.t) ? j : null;
+    } catch (e) { return null; }        // any failure just means "go live"
+  }
+  // A snapshot built for a different center or a resized box is not this
+  // page's data — same rule the terrain files get.
+  function snapFitsDomain(j, d) {
+    return j.gn === d.gn && Array.isArray(j.center) && Array.isArray(j.span) &&
+      Math.abs(j.center[0] - A.lat) < 0.01 && Math.abs(j.center[1] - A.lon) < 0.01 &&
+      Math.abs(j.span[0] - d.spanLat) < 1e-6 && Math.abs(j.span[1] - d.spanLon) < 1e-6 &&
+      Array.isArray(j.hourly) && j.hourly.length === d.gn * d.gn;
+  }
+  const snapAge = (j) => Date.now() - j.t * 1000;
+  function noteSource(j) {             // j = the snapshot used, or null for live
+    modelSrc.snap = !!j;
+    modelSrc.t = j ? j.t * 1000 : Date.now();
+    modelSrc.stale = !!j && snapAge(j) > SNAP_STALE_MS;
+    updateModelChip();
+  }
+
   function ensureDomainData(k, fresh) {
     const c = domCache[k];
     if (c.hourly) return Promise.resolve();
     if (c.pending) return c.pending;
     c.pending = (async () => {
-      const g = await fetchJSON(gridUrl(k), fresh);
-      const arr = Array.isArray(g) ? g : [g];
       const d = DOMAINS[k];
-      if (arr.length !== d.gn * d.gn) throw new Error('grid came back short');
-      c.hourly = arr.map((o) => o.hourly);
-      c.times = c.hourly[0].time.map((t) => new Date(t + 'Z').getTime());
+      const snap = await loadSnap(k, fresh);
+      const fits = snap && snapFitsDomain(snap, d);
+      if (fits && snapAge(snap) <= SNAP_STALE_MS) {
+        c.hourly = snap.hourly;
+        c.times = snap.times.map((t) => new Date(t + 'Z').getTime());
+        noteSource(snap);
+        return;
+      }
+      try {
+        const g = await fetchJSON(gridUrl(k), fresh);
+        const arr = Array.isArray(g) ? g : [g];
+        if (arr.length !== d.gn * d.gn) throw new Error('grid came back short');
+        c.hourly = arr.map((o) => o.hourly);
+        c.times = c.hourly[0].time.map((t) => new Date(t + 'Z').getTime());
+        noteSource(null);
+      } catch (e) {
+        if (!fits) throw e;            // nothing to fall back to
+        c.hourly = snap.hourly;        // stale, but a stale sky beats no sky
+        c.times = snap.times.map((t) => new Date(t + 'Z').getTime());
+        noteSource(snap);
+      }
     })().finally(() => { c.pending = null; });
     return c.pending;
   }
@@ -240,6 +290,15 @@
     return j;
   }
 
+  // the readout column: snapshot first, live if it is missing or stale
+  async function loadCenter(fresh) {
+    const snap = await loadSnap('center', fresh);
+    if (snap && snapAge(snap) <= SNAP_STALE_MS) return snap.hourly;
+    const live = await fetchJSON(centerUrl(), fresh).catch(() => null);
+    if (live) return live.hourly;
+    return snap ? snap.hourly : null;
+  }
+
   async function loadAll(fresh) {
     setStatus('loading the atmosphere…');
     domCache.local.hourly = domCache.local.times = null;   // Refresh re-pulls both domains
@@ -249,9 +308,9 @@
     try {
       const [, c] = await Promise.all([
         ensureDomainData(DK, fresh),
-        fetchJSON(centerUrl(), fresh).catch(() => null),   // volume still works without it
+        loadCenter(fresh),             // volume still works without it
       ]);
-      data.center = c ? c.hourly : null;
+      data.center = c;
       adoptDomainData();
       setStatus('');
       rebuild(state.sel);
@@ -1389,6 +1448,26 @@
     $('chip-rel').textContent = i === state.nowIdx ? 'now' : (d > 0 ? '+' : '−') + Math.abs(d) + ' h';
     $('col-when').textContent = fmtHour.format(new Date(data.times[i]));
   }
+  // The chip says where the numbers came from, because "the model" from an
+  // hourly snapshot and "the model" fetched live are not the same claim — and
+  // a snapshot the Action failed to refresh must never pass for current.
+  function updateModelChip() {
+    const el = $('chip-model');
+    if (!el) return;
+    if (!modelSrc.snap) {
+      el.textContent = 'GFS · Open-Meteo · live';
+      el.title = 'fetched from Open-Meteo by this browser';
+      el.style.color = '';
+      return;
+    }
+    const mins = Math.round((Date.now() - modelSrc.t) / 60000);
+    const age = mins < 90 ? mins + ' min' : (mins / 60).toFixed(1) + ' h';
+    el.textContent = 'GFS · Open-Meteo · snapshot ' + age + ' old';
+    el.title = 'hourly snapshot from this site\u2019s archive' +
+      (modelSrc.stale ? ' — the refresh is running late and the live API did not answer' : '');
+    el.style.color = modelSrc.stale ? '#f0c040' : '';
+  }
+
   function updateNote() {
     const el = $('scene-note');
     if (!data.grid) { el.textContent = ''; return; }
@@ -1691,6 +1770,8 @@
     domain: () => DK,
     switchDomain,
     vex: () => ZSCALE,
+    source: () => ({ snap: modelSrc.snap, stale: modelSrc.stale,
+                     ageMin: Math.round((Date.now() - modelSrc.t) / 60000) }),
     setZScale,
     view: () => ({ yaw: +state.yaw.toFixed(1), pitch: +state.pitch.toFixed(1),
                    zoom: +state.zoom.toFixed(2), panX: Math.round(state.panX),

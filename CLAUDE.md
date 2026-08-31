@@ -404,9 +404,23 @@ concepts; to relink, add the tools.html card back.
   list (cities, BWI/DCA/ADW, the Bay Bridge, peaks locally; big cities + Appalachian summits
   wide) draws as screen-space pins. Data: Open-Meteo `gfs_seamless` — one multi-location grid
   call per domain (responses are arrays in request order; the wide call skips the per-level RH
-  fallback to stay lean, and is pre-warmed a few seconds after load so zooming out doesn't
-  stall) and one full-fidelity column at the center for the readout + level heights — plus the
-  KDCA METAR line. Changing the center means rerunning the terrain builds (both boxes) — the
+  fallback to stay lean) and one full-fidelity column at the center for the readout + level
+  heights — plus the KDCA METAR line. **Those calls are normally made once an hour by
+  `scripts/wx3dsnap.py` (`.github/workflows/wx3dsnap.yml`), not by the browser**: Open-Meteo
+  weights a request by locations × variables × range, so a 25-column grid per page view earned
+  HTTP 429s. The snapshot is force-pushed as a single commit to the **`wx3d-data` branch**
+  (~900 KB/run — history would add ~20 MB/day to main; same amend-and-force pattern as the
+  tracker's `traffic-data`) and read over raw.githubusercontent via
+  `SITE.weather.wx3d.snapshotBase`. The page validates `gn`/`span`/`center` like it does the
+  terrain files and **falls back to calling Open-Meteo live** when the snapshot is missing,
+  built for a different box, or older than 3 h; a stale snapshot is still kept as the
+  fallback's fallback (a stale sky beats no sky). The `#chip-model` chip says which one is on
+  screen and how old it is — snapshot age is a different claim from live, so it is never
+  hidden. The wide domain is **not** pre-fetched; `switchDomain()` loads it on demand.
+  Live responses are also cached per clock hour in `sessionStorage`, so a reload or a Refresh
+  inside the hour costs nothing. **`wx3dsnap.py` mirrors `DOMAINS`/`LEVELS`/`gridUrl()`/
+  `centerUrl()` from `wx3d.js` — change the two together** (`--selftest` covers the geometry
+  and rounding). Changing the center means rerunning the terrain builds (both boxes) — the
   page bbox-validates and drops mismatched files. Layer/wind-level choices persist (`wx3d_layers`); read-only
   `window.WX3D_DEBUG` drives it headlessly.
 - `discussion.html` + `js/discussion.js` — DC Forecast Discussion, led by a **headline card**
@@ -568,6 +582,10 @@ concepts; to relink, add the tools.html card back.
   field). `git add data/wx` in the workflow picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
   Growth is roughly 40 KB/day (~15 MB/year).
+- `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
+  two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the
+  `wx3d-data` branch (see The Air Above above). Stdlib only, no Pi involved; `--selftest` runs
+  its offline checks.
 - `scripts/wxbackfill.py` + `.github/workflows/wxbackfill.yml` — **manual** backfill of the
   factual streams (`obs`/`fieldobs`/`afd`/`taf` from IEM's archives; `model` opt-in from
   Open-Meteo's historical-forecast API) for a date range, run from the Actions tab or by hand.
