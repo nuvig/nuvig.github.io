@@ -29,6 +29,10 @@ drift/verification cards with forecasts nobody ever saw:
   alerts     (an IEM archive exists, but the page only reads alerts live)
 
 Honesty rules, enforced here:
+  - an hour IEM has no ob for, on a day that is over, is recorded as "nh" —
+    the station never reported it. A part-time AWOS (KAPG runs 06-15, KNHK
+    sleeps overnight) is not an archive gap, and counting it as one is the
+    same failure as calling a short day complete, pointed the other way
   - never modify or replace an entry the live archiver captured
   - never rewrite an existing AFD issuance file
   - everything backfilled is tagged ("bf") so consumers can tell provenance
@@ -120,17 +124,41 @@ def _backfill_metars(station, out_dir, label, since, until, dry):
         if lo <= day <= hi:
             by_day.setdefault(day, []).append((t, raw))
     total = 0
-    for day, ents in sorted(by_day.items()):
+    settled = 0
+    today = f"{wxa.local_now():%Y-%m-%d}"
+    # Every day in range that either IEM has entries for or we already hold a
+    # file for — a day we hold but IEM returned nothing for still needs its
+    # hours settled.
+    on_disk = {f[:-5] for f in (os.listdir(out_dir) if os.path.isdir(out_dir) else [])
+               if f.endswith(".json") and lo <= f[:-5] <= hi}
+    for day in sorted(set(by_day) | on_disk):
+        ents = by_day.get(day, [])
         path = os.path.join(out_dir, f"{day}.json")
         doc = wxa.read_json(path, {"date": day, "station": station, "metars": []})
+        before_nh = doc.get("nh") or []
         added = merge_obs_day(doc, ents)
-        if added and not dry:
+        # For a day that is over, IEM *is* the archive of record: an hour it
+        # doesn't have is an hour the station never reported, not a hole in
+        # ours. Recording that (same "nh" key the hourly heal writes) is what
+        # keeps the health panel from crying wolf — KAPG reports 06–15 and
+        # KNHK sleeps overnight, which is a thousand "missing" hours that were
+        # never observable. Without this the panel swaps one dishonesty for
+        # its mirror image.
+        nh = before_nh
+        if day < today:
+            nh = sorted(set(before_nh) | set(wxa.missing_hours(doc, day, tz)))
+            if nh:
+                doc["nh"] = nh
+        if (added or nh != before_nh) and not dry:
             wxa.write_json(path, doc)
         if added:
             wxa.log(f"{label} {day}: +{added} METAR(s)")
+        if nh != before_nh:
+            settled += len(nh) - len(before_nh)
         total += added
     wxa.log(f"{label}: {total} METAR(s) backfilled from {station} "
-            f"({len(entries)} fetched)")
+            f"({len(entries)} fetched)" +
+            (f", {settled} hour(s) settled as never reported" if settled else ""))
     return total
 
 
@@ -563,6 +591,30 @@ def run_selftest():
             finally:
                 (wxa.fetch_text, wxa.STATIONS, wxa.FIELD_OBS_STATION,
                  wxa.HEAL_DAYS) = saved
+
+        def test_backfill_settles_part_time_station(self):
+            """A field that only reports 06-15 is not an archive with 14 holes
+            a day. The hours IEM has no ob for, on a day that is over, are
+            recorded as never-reported so the health panel counts real losses
+            only."""
+            tz = wxa.local_now().tzinfo
+            day = wxa.local_now().date() - datetime.timedelta(days=2)
+            rows = ["station,valid,metar"]
+            for h in range(6, 16):
+                t = datetime.datetime(day.year, day.month, day.day, h, 55, tzinfo=tz)
+                rows.append(f"APG,{t.astimezone(UTC):%Y-%m-%d %H:%M},KAPG raw {h:02d}")
+            saved = globals()["http_text"]
+            globals()["http_text"] = lambda u: "\n".join(rows)
+            try:
+                out = os.path.join(wxa.STATIONS_DIR, "KAPG")
+                n = _backfill_metars("KAPG", out, "stations/KAPG", day, day, dry=False)
+            finally:
+                globals()["http_text"] = saved
+            doc = wxa.read_json(os.path.join(out, f"{day:%Y-%m-%d}.json"), {})
+            self.assertEqual(n, 10)
+            self.assertEqual(doc["nh"], [0, 1, 2, 3, 4, 5, 16, 17, 18, 19, 20, 21, 22, 23])
+            self.assertEqual(wxa.missing_hours(doc, f"{day:%Y-%m-%d}", tz),
+                             doc["nh"])          # settled, and still visible
 
         def test_days_between(self):
             got = days_between(datetime.date(2026, 1, 30), datetime.date(2026, 2, 2))
