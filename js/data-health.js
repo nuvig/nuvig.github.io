@@ -72,14 +72,18 @@
     }
     const held = (hours && hours.h) || null;
     const nh = (hours && hours.nh) || null;
-    const hourly = held ? new Map() : null;   // date -> hours the day holds
+    /* A day is 24 station-hours for a single station, and 24 × however many
+       stations reported for an aggregate row like the local ring. `cap` is a
+       per-day array when the row stands for more than one station. */
+    const capAt = (i) => (hours && hours.cap ? hours.cap[i] : 24);
+    const hourly = held ? new Map() : null;   // date -> [held, observable]
     const short = [];
     let lost = 0, checked = 0;
     if (held) {
       days.forEach((d, i) => {
-        hourly.set(d, held[i]);
-        if (d > stop) return;                       // today is still filling
-        const want = 24 - ((nh && nh[i]) || 0);     // hours anyone could have
+        const want = capAt(i) - ((nh && nh[i]) || 0);   // hours anyone could have
+        hourly.set(d, [held[i], want]);
+        if (d > stop) return;                           // today is still filling
         checked += want;
         if (held[i] < want) { short.push(d); lost += want - held[i]; }
       });
@@ -155,13 +159,13 @@
     const hourly = cov && cov.hourly;
     const cells = days.map(d => {
       let cls, what;
-      const held = hourly ? hourly.get(d) : undefined;
+      const hv = hourly ? hourly.get(d) : undefined;
       if (short.has(d)) {
-        cls = 'part'; what = `${held} of 24 h archived — ${24 - held} missing`;
+        cls = 'part'; what = `${hv[0]} of ${hv[1]} h archived — ${hv[1] - hv[0]} missing`;
       } else if (haveSet.has(d)) {
         cls = 'on';
         what = eventDriven ? 'events archived'
-          : held != null ? `archived · ${held} of 24 h` : 'archived';
+          : hv ? `archived · ${hv[0]} of ${hv[1]} h` : 'archived';
       }
       else if (eventDriven) { cls = 'quiet'; what = 'no events'; }
       else if (!firstDay || d < firstDay) { cls = 'pre'; what = 'before this stream started'; }
@@ -222,23 +226,44 @@
     const ringWorst = ringAges.reduce((m, s) => (s.age == null ? Infinity : Math.max(m, s.age)), 0);
     const ringTip = ringAges.map(s => `${s.id} ${fmtAge(s.age)}`).join(' · ');
     const ringDays = [...new Set(Object.values(idx.station_days || {}).flat())].sort();
-    // The ring is one row, so its hour coverage is the worst station per day —
-    // "the ring has this day" should not mean "one of twelve fields does".
+    /* The ring is one row standing for a dozen stations that keep different
+       hours: KAPG reports 06–15, KNHK sleeps overnight, KBWI never stops. So
+       its coverage is station-hours held against station-hours *observable*
+       that day — not the worst station against a 24 h day, which counted
+       every closed AWOS hour as an archive loss and had this row shouting
+       about 1,166 missing hours that were never there to miss. */
     const ringHours = (() => {
       const per = (idx.hours || {}).stations || {};
       if (!ringIds.length) return null;
-      const h = ringDays.map(d => {
-        let worst = null;
+      /* Only the stations that have that day count toward it. A day a
+         part-time field never opened has no file at all, and billing it 24
+         lost hours is crying wolf just as loudly as calling a short day
+         complete was under-reporting. A field that has stopped reporting
+         altogether is a real fact, but it is a *different* fact from an hour
+         going missing, so it is reported as itself below rather than being
+         folded into an hour count. */
+      const h = [], nh = [], cap = [];
+      for (const d of ringDays) {
+        let held = 0, never = 0, sites = 0;
         for (const id of ringIds) {
           const i = (idx.station_days[id] || []).indexOf(d);
           if (i < 0) continue;
-          const v = ((per[id] || {}).h || [])[i];
-          if (v != null && (worst == null || v < worst)) worst = v;
+          sites++;
+          held += ((per[id] || {}).h || [])[i] || 0;
+          never += (((per[id] || {}).nh || [])[i]) || 0;
         }
-        return worst == null ? 0 : worst;
-      });
-      return { h };
+        h.push(held); nh.push(never); cap.push(sites * 24);
+      }
+      return { h, nh, cap };
     })();
+    /* Name the field, not just the hour count — "the ring is short" is not
+       actionable, "KFME has nothing since Aug 11" is. */
+    const ringDark = ringIds.map((id) => {
+      const ds = idx.station_days[id] || [];
+      const last = ds[ds.length - 1];
+      const stop = localDay(Date.now() - 86400e3);
+      return last && last < stop ? `${id} nothing since ${shortDate(last)}` : null;
+    }).filter(Boolean);
 
     // AFD day list comes from the issuance index (its entries are per
     // issuance, not per day), oldest first to match every other stream.
@@ -263,7 +288,8 @@
       ...(ringIds.length ? [{ label: 'Local ring METARs', short: 'ring obs',
         note: `${ringIds.length} field${ringIds.length === 1 ? '' : 's'} · hourly`,
         age: ringWorst === Infinity ? null : ringWorst, okH: 4, lateH: 9,
-        days: ringDays, hours: ringHours, fill: true, tip: ringTip }] : []),
+        days: ringDays, hours: ringHours, fill: true,
+        tip: [ringTip, ...ringDark].join(' · '), dark: ringDark }] : []),
       { label: 'LWX discussion', short: 'discussions', note: '~4 issuances/day',
         age: age((idx.afd || [{}])[0].t), okH: 9, lateH: 15, days: afdDays, fill: true },
       { label: 'DC forecast', short: 'forecast', note: 'snapshot each run',
@@ -361,13 +387,23 @@
       for (const s of holedHours) {
         parts.push(`${esc(s.short)} ${s.cov.lost} h across ` +
           `${s.cov.short.length} day${s.cov.short.length === 1 ? '' : 's'} ` +
-          `(${esc(fmtRanges(s.cov.short, 3))})`);
+          `(${esc(fmtRanges(s.cov.short, 3))})` +
+          (s.dark && s.dark.length ? ` — ${esc(s.dark.join(', '))}` : ''));
       }
       const head = [
         lostDays ? `${lostDays} missing day${lostDays === 1 ? '' : 's'}` : '',
         lostHours ? `${lostHours} missing hour${lostHours === 1 ? '' : 's'}` : '',
       ].filter(Boolean).join(' · ');
       integrity = `<span class="dh-word warn">${esc(head)}</span> — ` + parts.join(' · ');
+    }
+    /* A field that has gone quiet is neither a missing day nor a missing hour
+       — nothing is owed for a station that isn't reporting — but it is the
+       thing most worth knowing about the ring, so it is always said, and
+       always by name. */
+    const dark = streams.flatMap(s => s.dark || []);
+    if (dark.length) {
+      integrity += ` · <span class="dh-word warn">${dark.length} field` +
+        `${dark.length === 1 ? '' : 's'} quiet</span> — ${esc(dark.join(', '))}`;
     }
 
     el.innerHTML = `
