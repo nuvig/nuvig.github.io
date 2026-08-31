@@ -388,7 +388,7 @@ function paintCell(d) {
     (s.hiC != null ? ` · ${cToF(s.hiC)}°/${cToF(s.loC)}°` : '') +
     (s.maxGst ? ` · gust ${s.maxGst} kt` : '') +
     (s.ts ? ' · TS' : s.rain ? ' · rain' : '') +
-    (note ? `\n${s.gaps.held} of 24 h archived — ${note}, so this may not be the day's worst hour` : '');
+    (note ? `\n${s.gaps.held} of 24 h on file — may not include the day's worst hour` : '');
   if (d === S.selected) cell.classList.add('sel');
 }
 
@@ -1041,8 +1041,8 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
     .sort((a, b) => b.missing.length - a.missing.length)[0];
   $('obs-stats').innerHTML = bits.join(' · ') +
     (worstGap ? `<div class="obs-caveat" title="${esc(gapHours(worstGap))}">` +
-      `${worstGap.held} of 24 hours archived — these are the extremes of what ` +
-      'was recorded, not necessarily of the day</div>' : '');
+      `${worstGap.held} of 24 hours on file — highs and lows of what was ` +
+      'recorded, not of the day</div>' : '');
 
   renderObsTable(D);
   const raw = obsOn(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);

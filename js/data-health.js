@@ -161,11 +161,11 @@
       let cls, what;
       const hv = hourly ? hourly.get(d) : undefined;
       if (short.has(d)) {
-        cls = 'part'; what = `${hv[0]} of ${hv[1]} h archived — ${hv[1] - hv[0]} missing`;
+        cls = 'part'; what = `${hv[0]} of ${hv[1]} h — ${hv[1] - hv[0]} missing`;
       } else if (haveSet.has(d)) {
         cls = 'on';
         what = eventDriven ? 'events archived'
-          : hv ? `archived · ${hv[0]} of ${hv[1]} h` : 'archived';
+          : hv ? `${hv[0]} of ${hv[1]} h` : 'archived';
       }
       else if (eventDriven) { cls = 'quiet'; what = 'no events'; }
       else if (!firstDay || d < firstDay) { cls = 'pre'; what = 'before this stream started'; }
@@ -223,8 +223,15 @@
     const ringIds = idx.stations || [];
     const ringLatest = latest.stations || {};
     const ringAges = ringIds.map(id => ({ id, age: age((ringLatest[id] || [])[0]) }));
-    const ringWorst = ringAges.reduce((m, s) => (s.age == null ? Infinity : Math.max(m, s.age)), 0);
-    const ringTip = ringAges.map(s => `${s.id} ${fmtAge(s.age)}`).join(' · ');
+    /* Freshness is the oldest station that is still reporting. A field that
+       has gone silent is named in the verdict line instead — folding it in
+       here (the rule the three-station TAF row uses) let one NOTAM'd-out
+       ceilometer mark the whole ring "no data" while ten fields reported
+       normally. Only an entirely silent ring has no data. */
+    const ringLive = ringAges.filter(s => s.age != null);
+    const ringWorst = ringLive.length
+      ? ringLive.reduce((m, s) => Math.max(m, s.age), 0) : null;
+    const ringTip = ringAges.map(s => `${s.id} ${s.age == null ? 'silent' : fmtAge(s.age)}`).join(' · ');
     const ringDays = [...new Set(Object.values(idx.station_days || {}).flat())].sort();
     /* The ring is one row standing for a dozen stations that keep different
        hours: KAPG reports 06–15, KNHK sleeps overnight, KBWI never stops. So
@@ -262,7 +269,7 @@
       const ds = idx.station_days[id] || [];
       const last = ds[ds.length - 1];
       const stop = localDay(Date.now() - 86400e3);
-      return last && last < stop ? `${id} nothing since ${shortDate(last)}` : null;
+      return last && last < stop ? `${id} silent since ${shortDate(last)}` : null;
     }).filter(Boolean);
 
     // AFD day list comes from the issuance index (its entries are per
@@ -287,7 +294,7 @@
       // before the first run would read as a broken stream.
       ...(ringIds.length ? [{ label: 'Local ring METARs', short: 'ring obs',
         note: `${ringIds.length} field${ringIds.length === 1 ? '' : 's'} · hourly`,
-        age: ringWorst === Infinity ? null : ringWorst, okH: 4, lateH: 9,
+        age: ringWorst, okH: 4, lateH: 9,
         days: ringDays, hours: ringHours, fill: true,
         tip: [ringTip, ...ringDark].join(' · '), dark: ringDark }] : []),
       { label: 'LWX discussion', short: 'discussions', note: '~4 issuances/day',
@@ -371,13 +378,13 @@
     if (!streams.some(s => s.cov)) {
       integrity = '<span class="dh-word warn">unknown</span> — no day index to check';
     } else if (unmeasured.length && !holedDays.length && !holedHours.length) {
-      integrity = '<span class="dh-word warn">days only</span> — every day is on file, but ' +
-        `this archive publishes no hour counts for ${esc(unmeasured.map(s => s.short).join(', '))}, ` +
-        'so hours inside those days are unchecked';
+      integrity = '<span class="dh-word warn">days only</span> — no hour counts for ' +
+        `${esc(unmeasured.map(s => s.short).join(', '))}; hours inside them unchecked`;
     } else if (!holedDays.length && !holedHours.length) {
       integrity = '<span class="dh-word ok">complete</span>' +
-        (oldest ? ` — no gaps since ${esc(shortDate(oldest))}` : '') +
-        (checked ? `, and every one of ${checked.toLocaleString()} station-hours is on file` : '');
+        (checked ? ` — ${checked.toLocaleString()} station-hours` : '') +
+        (oldest ? ` since ${esc(shortDate(oldest))}` : '') +
+        (checked ? ', none missing' : ', no missing days');
     } else {
       const parts = [];
       for (const s of holedDays) {
@@ -385,14 +392,14 @@
           (s.fill ? '' : ' <i>(unrecoverable)</i>'));
       }
       for (const s of holedHours) {
-        parts.push(`${esc(s.short)} ${s.cov.lost} h across ` +
+        parts.push(`${esc(s.short)} ${s.cov.lost} h over ` +
           `${s.cov.short.length} day${s.cov.short.length === 1 ? '' : 's'} ` +
           `(${esc(fmtRanges(s.cov.short, 3))})` +
           (s.dark && s.dark.length ? ` — ${esc(s.dark.join(', '))}` : ''));
       }
       const head = [
-        lostDays ? `${lostDays} missing day${lostDays === 1 ? '' : 's'}` : '',
-        lostHours ? `${lostHours} missing hour${lostHours === 1 ? '' : 's'}` : '',
+        lostDays ? `${lostDays} day${lostDays === 1 ? '' : 's'} missing` : '',
+        lostHours ? `${lostHours} h missing` : '',
       ].filter(Boolean).join(' · ');
       integrity = `<span class="dh-word warn">${esc(head)}</span> — ` + parts.join(' · ');
     }
@@ -401,10 +408,7 @@
        thing most worth knowing about the ring, so it is always said, and
        always by name. */
     const dark = streams.flatMap(s => s.dark || []);
-    if (dark.length) {
-      integrity += ` · <span class="dh-word warn">${dark.length} field` +
-        `${dark.length === 1 ? '' : 's'} quiet</span> — ${esc(dark.join(', '))}`;
-    }
+    if (dark.length) integrity += ` · <span class="dh-word name">${esc(dark.join(' · '))}</span>`;
 
     el.innerHTML = `
       <div class="dh-head">${pill(runV.cls, head)}
