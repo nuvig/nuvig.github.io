@@ -1,8 +1,14 @@
 # DC weather archive — replaces pi/wxarchive.py so the Pi holds no weather
 # history at all. Hourly: fetch new LWX AFDs, a DC forecast snapshot, KDCA
-# METARs (what verifies the DC forecast) and KNAK METARs (what happened at the
-# field), the NWS hourly grid at KANP, every TAF issuance, active alerts
-# and a GFS digest into data/wx/, then commit whatever changed to main.
+# METARs (what verifies the DC forecast), KNAK METARs (what happened at the
+# field), METARs from every field in the local ring, the NWS hourly grid at
+# KANP, every TAF issuance, active alerts and a GFS digest into data/wx/,
+# then commit whatever changed to main.
+#
+# The last step of each run re-checks the METAR streams against IEM's ASOS
+# archive and fills anything api.weather.gov never served — that API loses
+# roughly a quarter of the routine obs it is asked for, and a missing hour is
+# permanent otherwise. See heal_metars() in scripts/wxarchive.py.
 # `git add data/wx` picks up new streams automatically — no change needed here
 # when scripts/wxarchive.py grows one.
 #

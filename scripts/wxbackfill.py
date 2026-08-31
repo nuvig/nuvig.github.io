@@ -10,6 +10,8 @@ the past for the streams where a trustworthy public archive exists:
   fieldobs KNAK METARs     same IEM ASOS archive — the field's own sensor,
                            so aviation rows verify a KANP forecast against
                            KANP weather instead of KDCA 25 nm NW
+  stations local ring      same again, one directory per field in
+                           wxarchive.STATIONS (W29, KFME, KBWI, KESN …)
   afd   LWX discussions    IEM NWS text-product archive (AFOS pil AFDLWX)
   taf   KMTN/KBWI/KDCA     IEM text-product archive (pils TAFMTN/TAFBWI/TAFDCA)
                            — raw text incl. AMD amendments (Ogimet has the
@@ -94,63 +96,22 @@ def local_day(epoch_s, tzinfo):
     return f"{datetime.datetime.fromtimestamp(epoch_s, tzinfo):%Y-%m-%d}"
 
 
-def mark_bf(doc, added):
-    """Additive per-file provenance note: how many entries came from backfill."""
-    bf = doc.get("bf") or {"src": "iem", "n": 0}
-    bf["n"] += added
-    bf["at"] = int(time.time())
-    doc["bf"] = bf
+mark_bf = wxa.mark_bf
 
 
 # ---------------------------------------------------------------------------
 # obs — IEM ASOS archive, one bulk CSV request for the whole range
 # ---------------------------------------------------------------------------
 
-def parse_asos_csv(text):
-    """IEM asos.py onlycomma CSV -> [(epoch, raw_metar)]. Pure."""
-    out = []
-    for line in text.splitlines():
-        parts = line.split(",", 2)
-        if len(parts) != 3 or parts[1] == "valid":
-            continue
-        _station, valid, raw = parts
-        raw = raw.strip()
-        if not raw or raw == "M":
-            continue
-        try:
-            t = datetime.datetime.strptime(valid.strip(), "%Y-%m-%d %H:%M")
-        except ValueError:
-            continue
-        out.append((int(t.replace(tzinfo=UTC).timestamp()), raw))
-    return out
-
-
-def merge_obs_day(doc, entries, tol_s=90):
-    """Add only observations the live archiver missed: anything within tol_s
-    of an existing timestamp is treated as already captured. Pure."""
-    have = sorted(m[0] for m in doc["metars"])
-    added = 0
-    for t, raw in sorted(entries):
-        if any(abs(t - h) <= tol_s for h in have):
-            continue
-        doc["metars"].append([t, raw])
-        have.append(t)
-        added += 1
-    if added:
-        doc["metars"].sort()
-        mark_bf(doc, added)
-    return added
+# These live in wxarchive.py now: the hourly archiver heals its own gaps from
+# the same IEM endpoint, and live and backfill must agree on parsing, dedupe
+# and provenance tagging down to the tolerance.
+parse_asos_csv = wxa.parse_asos_csv
+merge_obs_day = wxa.merge_metars
 
 
 def _backfill_metars(station, out_dir, label, since, until, dry):
-    iem_id = station[1:] if len(station) == 4 and station.startswith("K") else station
-    end = until + datetime.timedelta(days=2)   # IEM end date is exclusive; pad
-    url = (f"{IEM}/cgi-bin/request/asos.py?station={iem_id}&data=metar"
-           f"&year1={since:%Y}&month1={since:%m}&day1={since:%d}"
-           f"&year2={end:%Y}&month2={end:%m}&day2={end:%d}"
-           "&tz=Etc/UTC&format=onlycomma&missing=M&trace=T"
-           "&report_type=3&report_type=4")
-    entries = parse_asos_csv(http_text(url))
+    entries = parse_asos_csv(http_text(wxa.asos_url(station, since, until)))
     tz = wxa.local_now().tzinfo
     lo, hi = f"{since:%Y-%m-%d}", f"{until:%Y-%m-%d}"
     by_day = {}
@@ -175,6 +136,24 @@ def _backfill_metars(station, out_dir, label, since, until, dry):
 
 def backfill_obs(since, until, dry):
     return _backfill_metars(wxa.OBS_STATION, wxa.OBS_DIR, "obs", since, until, dry)
+
+
+def backfill_stations(since, until, dry):
+    """Every other field in the local ring (wxarchive.STATIONS), one directory
+    per station. These are ordinary ASOS/AWOS sites, so IEM has them as far
+    back as anyone needs — a station added to the ring today can be given the
+    same history as the rest with one run."""
+    total = 0
+    for station in wxa.STATIONS:
+        if station in (wxa.OBS_STATION, wxa.FIELD_OBS_STATION):
+            continue          # dedicated streams — see wxarchive.archive_stations
+        try:
+            total += _backfill_metars(station, wxa.station_dir(station),
+                                      f"stations/{station}", since, until, dry)
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            wxa.log(f"stations {station}: FAILED — {e}")
+        _pause()
+    return total
 
 
 def backfill_fieldobs(since, until, dry):
@@ -352,7 +331,8 @@ def backfill_model(since, until, dry):
 # ---------------------------------------------------------------------------
 
 STREAMS = {"obs": backfill_obs, "fieldobs": backfill_fieldobs,
-           "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model}
+           "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model,
+           "stations": backfill_stations}
 
 
 def main(argv=None):
@@ -360,9 +340,9 @@ def main(argv=None):
         description="Backfill data/wx/ from IEM / Open-Meteo archives.")
     ap.add_argument("--since", help="first local day, YYYY-MM-DD")
     ap.add_argument("--until", help="last local day (default: yesterday)")
-    ap.add_argument("--streams", default="obs,fieldobs,afd,taf",
-                    help="comma list of obs,fieldobs,afd,taf,model "
-                         "(default: obs,fieldobs,afd,taf)")
+    ap.add_argument("--streams", default="obs,fieldobs,stations,afd,taf",
+                    help="comma list of obs,fieldobs,stations,afd,taf,model "
+                         "(default: obs,fieldobs,stations,afd,taf)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and report, write nothing")
     ap.add_argument("--selftest", action="store_true",
@@ -416,8 +396,9 @@ def run_selftest():
             self.tmp = tempfile.TemporaryDirectory()
             root = self.tmp.name
             self.saved = {k: getattr(wxa, k) for k in
-                          ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "GRID_DIR",
-                           "TAF_DIR", "ALERT_DIR", "MODEL_DIR")}
+                          ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "FIELDOBS_DIR",
+                           "GRID_DIR", "TAF_DIR", "ALERT_DIR", "MODEL_DIR",
+                           "STATIONS_DIR")}
             wxa.WX = root
             for k in list(self.saved)[1:]:
                 setattr(wxa, k, os.path.join(root, k[:-4].lower()))
@@ -508,6 +489,80 @@ def run_selftest():
             self.assertEqual(n, 1)
             self.assertEqual(idx["afd"][0]["t"], int(t.timestamp()))
             self.assertIn("2026-01-02", idx["obs_days"])
+
+        def test_missing_hours(self):
+            tz = wxa.local_now().tzinfo
+            noon = int(datetime.datetime(2026, 8, 20, 12, 52,
+                                         tzinfo=tz).timestamp())
+            doc = {"metars": [[noon, "RAW"], [noon + 3600, "RAW"]]}
+            miss = wxa.missing_hours(doc, "2026-08-20", tz)
+            self.assertNotIn(12, miss)
+            self.assertNotIn(13, miss)
+            self.assertIn(14, miss)
+            self.assertEqual(len(miss), 22)
+
+        def test_index_lists_only_stations_with_days(self):
+            wxa.write_json(os.path.join(wxa.STATIONS_DIR, "W29",
+                                        "2026-01-02.json"),
+                           {"date": "2026-01-02", "station": "W29",
+                            "metars": [[1, "W29 raw"]]})
+            os.makedirs(os.path.join(wxa.STATIONS_DIR, "KXXX"), exist_ok=True)
+            wxa.build_index()
+            idx = wxa.read_json(os.path.join(wxa.WX, "index.json"), {})
+            self.assertEqual(idx["stations"], ["W29"])   # empty KXXX omitted
+            self.assertEqual(idx["station_days"]["W29"], ["2026-01-02"])
+
+        def test_heal_fills_and_settles(self):
+            """The hourly archiver's IEM catch-up: fills what the NWS API
+            never served, never touches a live entry, and stops asking about
+            hours the station simply didn't report."""
+            tz = wxa.local_now().tzinfo
+            day = wxa.local_now().date() - datetime.timedelta(days=1)
+            key = f"{day:%Y-%m-%d}"
+            at = lambda h, m: int(datetime.datetime(
+                day.year, day.month, day.day, h, m, tzinfo=tz).timestamp())
+            wxa.write_json(os.path.join(wxa.OBS_DIR, key + ".json"),
+                           {"date": key, "station": "KDCA",
+                            "metars": [[at(0, 52), "LIVE 00"]]})
+            calls = []
+
+            now = wxa.local_now()
+
+            def fake_text(url):
+                """Every routine ob for the healed range except hour 05
+                yesterday, which nobody observed. Today only as far as now."""
+                calls.append(url)
+                rows = ["station,valid,metar"]
+                for d in (day, now.date()):
+                    for h in range(24):
+                        if d == day and h == 5:
+                            continue
+                        t = datetime.datetime(d.year, d.month, d.day, h, 52,
+                                              tzinfo=tz)
+                        if t > now:
+                            continue
+                        rows.append(f"DCA,{t.astimezone(UTC):%Y-%m-%d %H:%M},"
+                                    f"KDCA IEM {d:%m%d} {h:02d}")
+                return "\n".join(rows)
+
+            saved = (wxa.fetch_text, wxa.STATIONS, wxa.FIELD_OBS_STATION,
+                     wxa.HEAL_DAYS)
+            wxa.fetch_text, wxa.STATIONS = fake_text, []
+            wxa.FIELD_OBS_STATION, wxa.HEAL_DAYS = "", 2
+            try:
+                wxa.heal_metars()
+                doc = wxa.read_json(os.path.join(wxa.OBS_DIR, key + ".json"), {})
+                # 24 hours − the live 00 already held − the 05 nobody observed
+                self.assertEqual(doc["bf"]["n"], 22)
+                self.assertEqual(len(doc["metars"]), 23)
+                self.assertEqual(doc["metars"][0][1], "LIVE 00")   # not clobbered
+                self.assertEqual(doc["nh"], [5])     # settled, not a hole
+                calls.clear()
+                self.assertEqual(wxa.heal_metars(), 0)
+                self.assertEqual(calls, [])          # nothing left to ask for
+            finally:
+                (wxa.fetch_text, wxa.STATIONS, wxa.FIELD_OBS_STATION,
+                 wxa.HEAL_DAYS) = saved
 
         def test_days_between(self):
             got = days_between(datetime.date(2026, 1, 30), datetime.date(2026, 2, 2))

@@ -173,6 +173,18 @@
       return end == null || end > t;
     }).length;
 
+    // The local ring is one row, not a dozen: the health question is "is the
+    // ring reporting", and the oldest station is the number that answers it
+    // (a single field that went quiet shows). Days are the union — a station
+    // added later shouldn't blank the whole strip — and the tip carries each
+    // station's own count so an outlier is still findable.
+    const ringIds = idx.stations || [];
+    const ringLatest = latest.stations || {};
+    const ringAges = ringIds.map(id => ({ id, age: age((ringLatest[id] || [])[0]) }));
+    const ringWorst = ringAges.reduce((m, s) => (s.age == null ? Infinity : Math.max(m, s.age)), 0);
+    const ringTip = ringAges.map(s => `${s.id} ${fmtAge(s.age)}`).join(' · ');
+    const ringDays = [...new Set(Object.values(idx.station_days || {}).flat())].sort();
+
     // AFD day list comes from the issuance index (its entries are per
     // issuance, not per day), oldest first to match every other stream.
     const afdDays = [...new Set((idx.afd || []).map(a => localDay(a.t * 1000)))].sort();
@@ -189,6 +201,12 @@
         age: age(maxTs(latest.obs)), okH: 3, lateH: 6, days: idx.obs_days, fill: true },
       { label: 'KNAK METARs', short: 'KNAK obs', note: 'the field sensor · hourly',
         age: age(maxTs(latest.fieldobs)), okH: 4, lateH: 9, days: idx.fieldobs_days, fill: true },
+      // …only once the ring has actually archived something: an empty row
+      // before the first run would read as a broken stream.
+      ...(ringIds.length ? [{ label: 'Local ring METARs', short: 'ring obs',
+        note: `${ringIds.length} field${ringIds.length === 1 ? '' : 's'} · hourly`,
+        age: ringWorst === Infinity ? null : ringWorst, okH: 4, lateH: 9,
+        days: ringDays, fill: true, tip: ringTip }] : []),
       { label: 'LWX discussion', short: 'discussions', note: '~4 issuances/day',
         age: age((idx.afd || [{}])[0].t), okH: 9, lateH: 15, days: afdDays, fill: true },
       { label: 'DC forecast', short: 'forecast', note: 'snapshot each run',

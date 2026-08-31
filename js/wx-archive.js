@@ -5,9 +5,10 @@
    a same-origin data source any page here can read — no CORS, no NWS rate
    limits, no per-page fetch logic, and history for free.
 
-   Streams: afd · forecast · obs · fieldobs · grid · taf · alerts · model
-   (obs is the station the DC forecast is verified against, KDCA; fieldobs is
-   the airfield's own sensor, KNAK — hourly, so expect gaps)
+   Streams: afd · forecast · obs · fieldobs · stations · grid · taf · alerts ·
+   model (obs is the station the DC forecast is verified against, KDCA;
+   fieldobs is the airfield's own sensor, KNAK; stations/<ID>/ is every other
+   METAR-reporting field in the local ring, same day-file shape as obs)
    (see CLAUDE.md and the docstring in scripts/wxarchive.py for shapes).
 
    Everything is optional and every call resolves to null rather than throwing:
@@ -39,6 +40,24 @@ const WXA = {
 
   /* One day of one stream. date = 'YYYY-MM-DD' in the airport's timezone. */
   day(stream, date) { return this.json(`${stream}/${date}.json`); },
+
+  /* One day of one nearby field's METARs: {date, station, metars:[[t, raw]]}.
+     Same shape as day('obs', …) — KDCA and KNAK keep their own streams, so
+     ask for those as 'obs' / 'fieldobs', not through here. */
+  station(id, date) { return this.day(`stations/${id}`, date); },
+
+  /* Which nearby fields the archive actually holds, and which days each has.
+     Reports what is archived, not what was configured — a station that
+     publishes nothing never appears. */
+  async stations() {
+    const idx = await this.index();
+    return (idx && idx.stations) || [];
+  },
+
+  async stationDays(id) {
+    const idx = await this.index();
+    return (idx && idx.station_days && idx.station_days[id]) || [];
+  },
 
   /* The earliest snapshot archived on a given day — the version of the
      forecast a morning go/no-go was made against. */

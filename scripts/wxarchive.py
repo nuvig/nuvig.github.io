@@ -13,6 +13,8 @@ device (localStorage only remembers one browser):
   - KNAK METARs per day (what actually happened *at the field* — KANP has no
     on-field sensor, and verifying a KANP forecast against KDCA means
     verifying it 25 nm away)
+  - METARs from every reporting field in the local ring (W29, KFME, KBWI,
+    KESN, KADW … — what a KANP pilot actually looks at before launching)
   - the NWS hourly grid at KANP (ceiling/vis/wind/PoP/weather, 48 h out)
   - every TAF issuance for KMTN/KBWI/KDCA, decoded from IWXXM
   - active alerts, and a GFS CAPE/CIN/precip digest at the field
@@ -34,9 +36,20 @@ Output layout (data/wx/):
   obs/YYYY-MM-DD.json              {date, station, metars:[[t, raw], ...]}
   fieldobs/YYYY-MM-DD.json         same shape, the field's own station (hourly,
                                    so sparser than obs/ — tolerate gaps)
+  stations/<ID>/YYYY-MM-DD.json    same shape again, one directory per station
+                                   in the local ring (WX_STATIONS)
 
-Growth math: AFDs are ~8 KB × ~5/day, forecasts + obs a few KB/day —
-roughly 15 MB/year of JSON. A public repo doesn't notice.
+METAR day files may also carry "nh": hours of that day neither the NWS API nor
+IEM has an observation for, i.e. hours the station never reported. It is a
+bookkeeping key for heal_metars(); consumers only ever read "metars".
+
+Self-healing: api.weather.gov is the live source, but it is not a reliable
+source of *record* — see heal_metars() for what it drops and why every METAR
+stream is re-checked against IEM's ASOS archive at the end of each run.
+
+Growth math: AFDs are ~8 KB × ~5/day, forecasts + obs a few KB/day, and each
+extra station ~2.5 KB/day — roughly 25 MB/year of JSON with a dozen stations.
+A public repo doesn't notice.
 """
 
 import datetime
@@ -56,6 +69,16 @@ OBS_STATION = os.environ.get("WX_OBS", "KDCA")
 # forecast against KDCA weather ~25 nm NW. Blank — or the same id as WX_OBS,
 # for a field that reports its own METAR — disables the stream.
 FIELD_OBS_STATION = os.environ.get("WX_FIELD_OBS", "KNAK")
+# Every other METAR-reporting field in the local ring, archived per station
+# under stations/<ID>/. This is "the weather where I actually fly" — the fields
+# on the sectional around KANP, near-to-far. KDCA and KNAK are deliberately
+# absent: they already have dedicated streams (obs/ and fieldobs/) that the
+# verification cards are built on, and archiving them twice would fork the
+# record. An id nobody publishes is not fatal — it logs and the run continues.
+STATIONS = [s for s in os.environ.get(
+    "WX_STATIONS",
+    "W29,KFME,KCGS,KADW,KBWI,KMTN,KESN,KGAI,KRJD,KAPG,KCGE,KNHK"
+).split(",") if s.strip()]
 POINT = os.environ.get("WX_POINT", "38.8894,-77.0352")  # downtown DC
 TZ = "America/New_York"   # archive days are local DC days (matches the page)
 
@@ -70,6 +93,7 @@ GRID_DIR = os.path.join(WX, "grid")
 TAF_DIR = os.path.join(WX, "taf")
 ALERT_DIR = os.path.join(WX, "alerts")
 MODEL_DIR = os.path.join(WX, "model")
+STATIONS_DIR = os.path.join(WX, "stations")
 
 # The airfield the aviation streams describe (KANP), its TAF neighbours (KANP
 # has no TAF of its own), and how far ahead each hourly snapshot reaches.
@@ -90,6 +114,15 @@ OBS_LOOKBACK_H = int(os.environ.get("WX_OBS_LOOKBACK_H", "36"))
 # Same idea for TAFs: how far back each run is willing to re-check the
 # issuance list. Bounds the per-run XML fetches without capping by position.
 TAF_LOOKBACK_H = int(os.environ.get("WX_TAF_LOOKBACK_H", "36"))
+# How many local days back heal_metars() re-checks against IEM. Three days is
+# well past any plausible NWS ingest delay while keeping the request cheap;
+# older holes are wxbackfill.py's job.
+HEAL_DAYS = int(os.environ.get("WX_HEAL_DAYS", "3"))
+# An hour neither the NWS API nor IEM has, once this old, is taken as an hour
+# the station never reported (normal for a part-time AWOS overnight) and
+# recorded in the day file's "nh" list so it is never re-fetched.
+NH_SETTLE_H = int(os.environ.get("WX_NH_SETTLE_H", "3"))
+IEM = os.environ.get("WX_IEM", "https://mesonet.agron.iastate.edu")
 
 
 def log(msg):
@@ -152,6 +185,88 @@ def read_json(path, default):
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# IEM ASOS archive — the source of record behind every METAR stream.
+# Shared with scripts/wxbackfill.py, which fills older ranges from the same
+# endpoint; keep the parsing in one place so live and backfill agree.
+# ---------------------------------------------------------------------------
+
+def iem_id(station):
+    """IEM keys ASOS sites without the leading K (DCA, NAK); non-ICAO ids
+    like W29 are stored verbatim."""
+    return station[1:] if len(station) == 4 and station.startswith("K") else station
+
+
+def asos_url(station, since, until):
+    """One bulk CSV request for a whole date range. `until` is inclusive here;
+    IEM's end date is exclusive, so it is padded by a day."""
+    end = until + datetime.timedelta(days=2)
+    return (f"{IEM}/cgi-bin/request/asos.py?station={iem_id(station)}&data=metar"
+            f"&year1={since:%Y}&month1={since:%m}&day1={since:%d}"
+            f"&year2={end:%Y}&month2={end:%m}&day2={end:%d}"
+            "&tz=Etc/UTC&format=onlycomma&missing=M&trace=T"
+            "&report_type=3&report_type=4")
+
+
+def parse_asos_csv(text):
+    """IEM asos.py onlycomma CSV -> [(epoch, raw_metar)]. Pure."""
+    out = []
+    for line in text.splitlines():
+        parts = line.split(",", 2)
+        if len(parts) != 3 or parts[1] == "valid":
+            continue
+        _station, valid, raw = parts
+        raw = raw.strip()
+        if not raw or raw == "M":
+            continue
+        try:
+            t = datetime.datetime.strptime(valid.strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        out.append((int(t.replace(tzinfo=datetime.timezone.utc).timestamp()), raw))
+    return out
+
+
+def mark_bf(doc, added):
+    """Tag what came from an archive rather than the live wire, so consumers
+    (and anyone reading the JSON) can tell provenance apart."""
+    bf = doc.get("bf") or {"src": "iem", "n": 0}
+    bf["n"] += added
+    bf["at"] = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    doc["bf"] = bf
+
+
+def merge_metars(doc, entries, tol_s=90):
+    """Add only observations the live archiver missed: anything within tol_s
+    of an existing timestamp is treated as already captured, because IEM and
+    the NWS API round the same ob to slightly different seconds. Never
+    replaces a live entry. Pure."""
+    have = sorted(m[0] for m in doc["metars"])
+    added = 0
+    for t, raw in sorted(entries):
+        if any(abs(t - h) <= tol_s for h in have):
+            continue
+        doc["metars"].append([t, raw])
+        have.append(t)
+        added += 1
+    if added:
+        doc["metars"].sort()
+        mark_bf(doc, added)
+    return added
+
+
+def missing_hours(doc, day, tz):
+    """Which local hours of `day` hold no METAR at all. A routine ob is issued
+    every hour at every station here, so an empty hour is a hole, not weather.
+    Today's not-yet-happened hours are excluded by the caller."""
+    seen = set()
+    for m in doc.get("metars", []):
+        t = datetime.datetime.fromtimestamp(m[0], tz)
+        if f"{t:%Y-%m-%d}" == day:
+            seen.add(t.hour)
+    return [h for h in range(24) if h not in seen]
 
 
 def archive_afds():
@@ -269,6 +384,115 @@ def archive_field_obs():
     if not FIELD_OBS_STATION or FIELD_OBS_STATION == OBS_STATION:
         return 0
     return archive_metars(FIELD_OBS_STATION, FIELDOBS_DIR)
+
+
+def station_dir(station):
+    return os.path.join(STATIONS_DIR, station)
+
+
+def archive_stations():
+    """The rest of the local ring. Same shape and same rules as obs/, one
+    directory per station, so a page can read any nearby field's day exactly
+    the way it reads KDCA's. A station the NWS API doesn't publish (some
+    non-ICAO AWOS sites are IEM-only) fails alone and is picked up by the
+    heal pass below rather than sinking the run."""
+    total = 0
+    for station in STATIONS:
+        if station in (OBS_STATION, FIELD_OBS_STATION):
+            continue          # already has a dedicated stream — don't fork it
+        try:
+            total += archive_metars(station, station_dir(station))
+        except (urllib.error.URLError, OSError, KeyError, ValueError,
+                json.JSONDecodeError) as e:
+            log(f"stations {station}: {e}")
+    return total
+
+
+def heal_metars():
+    """Re-check every METAR stream against IEM and fill whatever the live wire
+    never handed us.
+
+    Why this exists: api.weather.gov is a good live source and a poor source of
+    record. Over 2026-08-12..30 the obs/ and fieldobs/ streams lost ~7 hours a
+    day each, and on 13 of those 19 days the *set of missing hours was
+    identical for both stations* — KDCA on a 5-minute cadence and KNAK on an
+    hourly one do not fail in the same hours by coincidence, so the loss is on
+    the fetch side, not at the stations. It is not the scheduler either: each
+    run already re-reads OBS_LOOKBACK_H=36 h, and runs land every few hours, so
+    every one of those hours was asked for again and still came back absent.
+    IEM has all of them (a backfill fills those days to 24/24), so the fix is
+    to stop treating one API as the whole record.
+
+    One bulk CSV per station, and only when that station is actually short an
+    hour — on a healthy day this makes no requests at all. An hour that IEM
+    doesn't have either is recorded in the day file as "nh" (no ob: the station
+    was simply not reporting, which is normal for a part-time AWOS overnight)
+    and never asked about again, so a field that sleeps at night doesn't make
+    this pass fetch its whole ring every hour for the rest of time. Only hours
+    at least NH_SETTLE_H old are settled that way — a hole younger than that
+    may still be an ingest delay at either source. wxbackfill.py ignores "nh",
+    so a wrongly settled hour can always be repaired by hand.
+    """
+    tz = local_now().tzinfo
+    now = local_now()
+    days = [(now - datetime.timedelta(days=d)).date() for d in range(HEAL_DAYS)]
+    days.sort()
+    streams = [(OBS_STATION, OBS_DIR)]
+    if FIELD_OBS_STATION and FIELD_OBS_STATION != OBS_STATION:
+        streams.append((FIELD_OBS_STATION, FIELDOBS_DIR))
+    streams += [(st, station_dir(st)) for st in STATIONS
+                if st not in (OBS_STATION, FIELD_OBS_STATION)]
+    healed = 0
+    for station, out_dir in streams:
+        holes = {}
+        for day in days:
+            key = f"{day:%Y-%m-%d}"
+            doc = read_json(os.path.join(out_dir, key + ".json"),
+                            {"date": key, "station": station, "metars": []})
+            settled = set(doc.get("nh") or [])
+            miss = [h for h in missing_hours(doc, key, tz) if h not in settled]
+            if key == f"{now:%Y-%m-%d}":
+                # the day is still running: only hours that have fully passed
+                # can be called missing
+                miss = [h for h in miss if h < now.hour]
+            if miss:
+                holes[key] = miss
+        if not holes:
+            continue
+        log(f"heal {station}: {sum(len(v) for v in holes.values())} missing "
+            f"hour(s) across {len(holes)} day(s)")
+        try:
+            text = fetch_text(asos_url(station, days[0], days[-1]))
+        except (urllib.error.URLError, OSError) as e:
+            log(f"heal {station}: {e}")
+            continue
+        by_day = {}
+        for t, raw in parse_asos_csv(text):
+            key = f"{datetime.datetime.fromtimestamp(t, tz):%Y-%m-%d}"
+            if key in holes:
+                by_day.setdefault(key, []).append((t, raw))
+        for key in sorted(holes):
+            path = os.path.join(out_dir, key + ".json")
+            doc = read_json(path, {"date": key, "station": station, "metars": []})
+            before = doc.get("nh") or []
+            added = merge_metars(doc, by_day.get(key, []))
+            # Whatever is still missing and old enough to have settled is not a
+            # hole in the archive — it is an hour nobody observed. wxbackfill.py
+            # ignores "nh" entirely, so a wrongly settled hour is still
+            # repairable by hand.
+            cutoff = now.hour - NH_SETTLE_H if key == f"{now:%Y-%m-%d}" else 24
+            nh = sorted(set(before) |
+                        {h for h in missing_hours(doc, key, tz) if h < cutoff})
+            if nh:
+                doc["nh"] = nh
+            if added or nh != before:
+                write_json(path, doc)
+            if added:
+                log(f"heal {station} {key}: +{added} METAR(s) from IEM")
+                healed += added
+    if healed:
+        log(f"heal: {healed} METAR(s) recovered that the NWS API never served")
+    return healed
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +777,14 @@ def write_latest():
             cur = tafs.get(t["station"])
             if not cur or t["t"] > cur["t"]:
                 tafs[t["station"]] = t
+    stations_now = {}
+    for station in STATIONS:
+        if station in (OBS_STATION, FIELD_OBS_STATION):
+            continue
+        doc = read_json(os.path.join(station_dir(station), today + ".json"), {})
+        metars = doc.get("metars") or []
+        if metars:
+            stations_now[station] = metars[-1]
     afd = newest_afd()
     write_json(os.path.join(WX, "latest.json"), {
         "t": int(now.timestamp()),
@@ -567,6 +799,9 @@ def write_latest():
         "obs": (obs.get("metars") or [])[-12:],
         # hourly station, so a shorter tail still covers the same span as obs
         "fieldobs": (fieldobs.get("metars") or [])[-6:],
+        # the local ring: just the current ob per station, which is all a
+        # "weather around the field right now" view needs
+        "stations": stations_now,
     })
     log("latest.json written")
 
@@ -589,6 +824,15 @@ def build_index():
     listing = lambda d: sorted(
         f[:-5] for f in (os.listdir(d) if os.path.isdir(d) else [])
         if f.endswith(".json"))
+    # only stations that actually have days on disk — the catalog reports what
+    # is archived, not what was asked for, so an id that publishes nothing
+    # never shows up as an empty stream
+    station_days = {}
+    for station in sorted(os.listdir(STATIONS_DIR)
+                          if os.path.isdir(STATIONS_DIR) else []):
+        days = listing(os.path.join(STATIONS_DIR, station))
+        if days:
+            station_days[station] = days
     write_json(os.path.join(WX, "index.json"), {
         "updated": int(datetime.datetime.now().timestamp()),
         "office": OFFICE,
@@ -602,6 +846,8 @@ def build_index():
         "taf_days": listing(TAF_DIR),
         "alert_days": listing(ALERT_DIR),
         "model_days": listing(MODEL_DIR),
+        "stations": sorted(station_days),
+        "station_days": station_days,
         "field": FIELD,
         "taf_stations": TAF_STATIONS,
     })
@@ -610,8 +856,11 @@ def build_index():
 
 def main():
     problems = 0
+    # heal_metars runs last: it repairs whatever the live METAR passes above
+    # could not get out of api.weather.gov, in the same run.
     for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
-                 snapshot_grid, archive_tafs, snapshot_alerts, snapshot_model):
+                 archive_stations, snapshot_grid, archive_tafs, snapshot_alerts,
+                 snapshot_model, heal_metars):
         try:
             step()
         except (urllib.error.URLError, OSError, KeyError, ValueError,

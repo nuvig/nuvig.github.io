@@ -577,19 +577,44 @@ concepts; to relink, add the tools.html card back.
   the station the DC forecast is verified against) · `fieldobs/` (KNAK METARs — the airfield's
   own sensor, **hourly not 5-minute, so it is sparser than `obs/` by nature**; set by
   `WX_FIELD_OBS`, skipped when blank or equal to `WX_OBS`) ·
+  `stations/<ID>/` (**the local ring** — every other METAR-reporting field around KANP, one
+  directory per station, same day-file shape as `obs/`; list in `WX_STATIONS`, default
+  W29 · KFME · KCGS · KADW · KBWI · KMTN · KESN · KGAI · KRJD · KAPG · KCGE · KNHK. KDCA and
+  KNAK are deliberately excluded — they already have dedicated streams the verification cards
+  are built on, and archiving them twice would fork the record. A station nobody publishes logs
+  and is skipped, never fatal) ·
   `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
   KMTN/KBWI/KDCA issuance, decoded from IWXXM) · `alerts/` · `model/` (GFS CAPE/CIN/precip at the
   field). `git add data/wx` in the workflow picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
-  Growth is roughly 40 KB/day (~15 MB/year).
+  Growth is roughly 70 KB/day (~25 MB/year) with the ring.
+- **`api.weather.gov` is a live source, not a source of record — every METAR stream is healed
+  from IEM at the end of each run** (`heal_metars()`). Measured over 2026-08-12..30, `obs/` and
+  `fieldobs/` each lost ~7 hours a day, and on 13 of those 19 days *the set of missing hours was
+  identical for both stations* — KDCA on a 5-minute cadence and KNAK on an hourly one do not fail
+  in the same hours by coincidence, so the loss is on the fetch side, not at the stations. It is
+  not the scheduler either: each run already re-reads 36 h (`WX_OBS_LOOKBACK_H`) and runs land
+  every few hours, so those hours were re-requested and still came back absent. So each run now
+  looks for hours with no METAR in the last `WX_HEAL_DAYS` (3) days and, **only for a station
+  actually short an hour**, pulls one bulk IEM CSV and merges it — same parsing, dedupe tolerance
+  and `bf` tagging as `wxbackfill.py`, which is why those helpers live in `wxarchive.py` now and
+  the backfiller imports them. On a healthy day it makes no requests at all. An hour IEM doesn't
+  have either, once ≥3 h old, is recorded in the day file as **`nh`** (hours the station never
+  reported — normal for a part-time AWOS overnight) and never re-fetched, so a field that sleeps
+  at night can't make this pass re-scrape the ring every hour forever. `wxbackfill.py` ignores
+  `nh`, so a wrongly settled hour is still repairable by hand. Consumers only ever read `metars`.
+  Don't "simplify" the archiver back to a single API.
 - `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
   two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the
   `wx3d-data` branch (see The Air Above above). Stdlib only, no Pi involved; `--selftest` runs
   its offline checks.
 - `scripts/wxbackfill.py` + `.github/workflows/wxbackfill.yml` — **manual** backfill of the
-  factual streams (`obs`/`fieldobs`/`afd`/`taf` from IEM's archives; `model` opt-in from
+  factual streams (`obs`/`fieldobs`/`stations`/`afd`/`taf` from IEM's archives; `model` opt-in from
   Open-Meteo's historical-forecast API) for a date range, run from the Actions tab or by hand.
-  KNAK is in IEM's ASOS archive under id `NAK`, so `fieldobs` backfills exactly like `obs`.
+  It is now for *history* only — hours inside the last three days heal themselves hourly.
+  KNAK is in IEM's ASOS archive under id `NAK`, so `fieldobs` backfills exactly like `obs`;
+  `stations` walks the whole ring the same way, so a field added to `WX_STATIONS` today can be
+  given the same history as the rest in one run.
   It never
   touches an entry the live archiver captured and tags everything it writes (`bf`).
   `forecast`/`grid` are deliberately **not** backfillable — no public archive preserves what
@@ -605,6 +630,8 @@ concepts; to relink, add the tools.html card back.
 - **`data/wx/latest.json` + `js/wx-archive.js` (the `WXA` global) are the site's centralized
   weather source.** `latest.json` is the current state of every stream in one same-origin
   document, rewritten each run; `WXA` wraps it with `latest()`, `index()`, `day(stream, date)`,
+  `station(id, date)` / `stations()` / `stationDays(id)` (the local ring — `stations()` reports
+  what is *archived*, out of `index.json`, not what was configured),
   `firstSnap(stream, date)` (the morning baseline a go/no-go was made against) and
   `gridAt(snap, field, ms)`. Every call resolves to `null` rather than throwing, so a page can
   read the archive first and fall back to the live NWS API. `discussion.html` uses it for the
