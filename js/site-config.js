@@ -125,6 +125,25 @@ const SITE = {
       { id: 'KBWI', label: 'Baltimore/Washington Intl' },
       { id: 'KDCA', label: 'Washington National' },
     ],
+
+    // Metro-area verification stations: discussion.html's "low clouds, area"
+    // row and the head of the almanac's station explorer. Order = display
+    // order. These are the fields a KANP go/no-go actually cares about —
+    // BWI/FME close by, ADW/DCA/GAI around the metro, W29/ESN/CGE the usual
+    // training runs. Ids must match the archive: KDCA lives in obs/, the
+    // rest in stations/<ID>/ (the wxarchive ring, WX_STATIONS — W29 carries
+    // no K prefix there). KFME's live NWS feed is dead as of 2026-08-31, but
+    // IEM healing/backfill still fills its history — keep it listed.
+    areaStations: [
+      { id: 'KBWI', label: 'BWI Marshall' },
+      { id: 'KFME', label: 'Tipton · Fort Meade' },
+      { id: 'KADW', label: 'Andrews' },
+      { id: 'KDCA', label: 'Washington National' },
+      { id: 'KGAI', label: 'Gaithersburg' },
+      { id: 'W29', label: 'Bay Bridge' },
+      { id: 'KESN', label: 'Easton' },
+      { id: 'KCGE', label: 'Cambridge' },
+    ],
   },
 
   // Shared map-tile settings.

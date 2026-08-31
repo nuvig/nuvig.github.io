@@ -277,6 +277,11 @@
     .grid-tab td.wx { color: #8a959f; white-space: normal; }
 
     .note { font-size: 12px; color: #667; margin-top: 8px; line-height: 1.5; }
+    .stn-none {
+      font-size: 12.5px; color: #667; padding: 6px 8px; margin: 6px 0;
+      border: 1px dashed #2a2a2a; border-radius: 6px;
+    }
+    .stn-none .who { color: #55606b; font-weight: 600; margin-right: 8px; }
     .empty-note { font-size: 13px; color: #667; }
   </style>
 </head>
@@ -375,6 +380,19 @@
     <div id="afd-list"></div>
   </section>
 
+  <section class="card" id="stn-card" hidden>
+    <h2>Station explorer <span class="sub">every archived METAR and TAF for this day, station by station</span></h2>
+    <details class="fold">
+      <summary id="stn-summary">Show stations</summary>
+      <div id="stn-list"></div>
+      <p class="note">The field sensor plus the metro-area stations the discussion page's
+        verification sweeps — BWI and Tipton close by, Andrews / National / Gaithersburg around
+        the metro, Bay Bridge / Easton / Cambridge on the training runs. A station with nothing
+        archived says so: absence of data is never a clear sky. TAFs appear under the stations
+        that issue them.</p>
+    </details>
+  </section>
+
   <p class="empty-note" id="day-empty" hidden>Nothing archived for this day.</p>
 
   <section class="card" id="trend-card" hidden>
@@ -394,7 +412,7 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/almanac.js?v=4"></script>
+  <script src="js/almanac.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

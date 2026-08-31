@@ -261,6 +261,11 @@ async function boot() {
     ['alerts', 'alert_days'], ['model', 'model_days']]) {
     S.have[stream] = new Set(ix[key] || []);
   }
+  /* the local METAR ring: which nearby fields the archive actually holds,
+     and which days each has (stations/<ID>/ — the station explorer's fuel) */
+  S.ringIds = ix.stations || [];
+  S.ringDays = {};
+  for (const id of S.ringIds) S.ringDays[id] = new Set((ix.station_days || {})[id] || []);
   for (const a of (ix.afd || []).slice().reverse()) {
     const d = lp(a.t).date;
     if (!S.afdByDate.has(d)) S.afdByDate.set(d, []);
@@ -309,6 +314,7 @@ function renderStats() {
     `Archive updated <b>${age <= 0 ? 'this hour' : `${age} h ago`}</b>`,
     `METARs (${esc(ix.station)}): ${span(S.have.obs)}`,
     ...(ix.field_station ? [`Field (${esc(ix.field_station)}): ${span(S.have.fieldobs)}`] : []),
+    ...(S.ringIds.length ? [`Ring: <b>${S.ringIds.length}</b> stations`] : []),
     `TAFs: ${span(S.have.taf)}`,
     `Discussions: <b>${(ix.afd || []).length}</b> issuances`,
     `Forecast snaps: ${span(S.have.forecast)}`,
@@ -458,9 +464,11 @@ async function selectDay(date) {
   $('day-prev').disabled = date <= S.first;
   $('day-next').disabled = date >= S.last;
 
+  const ringToday = S.ringIds.filter((id) => S.ringDays[id].has(date));
   const chips = [
     ['METARs', S.have.obs.has(date)],
     [`${S.index.field_station || 'field'} obs`, S.have.fieldobs.has(date)],
+    [`ring ×${ringToday.length}`, ringToday.length > 0],
     ['forecast', S.have.forecast.has(date)],
     ['grid', S.have.grid.has(date)],
     ['TAFs', S.have.taf.has(date)],
@@ -472,9 +480,10 @@ async function selectDay(date) {
     .map(([label, on]) => `<span class="${on ? '' : 'off'}">${esc(label)}</span>`).join('');
 
   /* fetch everything the day has in parallel; WXA caches repeats */
-  const [obs, fobs, nextObs, grid, model, taf, alerts] = await Promise.all([
+  const [obs, fobs, ringPairs, nextObs, grid, model, taf, alerts] = await Promise.all([
     S.have.obs.has(date) ? WXA.day('obs', date) : null,
     S.have.fieldobs.has(date) ? WXA.day('fieldobs', date) : null,
+    Promise.all(ringToday.map(async (id) => [id, await WXA.station(id, date)])),
     S.have.obs.has(addDays(date, 1)) ? WXA.day('obs', addDays(date, 1)) : null,
     S.have.grid.has(date) ? WXA.day('grid', date) : null,
     S.have.model.has(date) ? WXA.day('model', date) : null,
@@ -490,8 +499,9 @@ async function selectDay(date) {
   renderAlerts(date, alerts);
   renderTafs(date, taf);
   renderAfds(date);
+  renderStations(date, new Map(ringPairs), obs, fobs, taf);
 
-  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'taf-card', 'afd-card']
+  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'taf-card', 'afd-card', 'stn-card']
     .some((id) => !$(id).hidden);
 
   const trend = S.charts.get('trend-chart');   // move the selected-day marker
@@ -2226,6 +2236,18 @@ function tafPeriodLine(p) {
   return bits.join(' · ') || '—';
 }
 
+/* One issuance's body — decoded periods when the live archiver stored them,
+   raw text for backfilled entries. Shared with the station explorer. */
+function tafBodyHtml(taf) {
+  if (taf.periods) {
+    return taf.periods.map((p) =>
+      `<div class="taf-line"><span class="ind">${esc(tafInd(p.ind))}</span>` +
+      `<span class="when">${hhmm(p.b)}–${hhmm(p.e)}</span>` +
+      `<span class="what">${esc(tafPeriodLine(p))}</span></div>`).join('');
+  }
+  return `<pre class="product">${esc((taf.raw || '').trim())}</pre>`;
+}
+
 function renderTafs(date, doc) {
   const card = $('taf-card');
   const tafs = doc && doc.tafs;
@@ -2236,21 +2258,88 @@ function renderTafs(date, doc) {
   const sorted = tafs.slice().sort((a, b) =>
     (order.indexOf(a.station) - order.indexOf(b.station)) || (a.t - b.t));
 
-  $('taf-list').innerHTML = sorted.map((taf) => {
-    let body;
-    if (taf.periods) {
-      body = taf.periods.map((p) =>
-        `<div class="taf-line"><span class="ind">${esc(tafInd(p.ind))}</span>` +
-        `<span class="when">${hhmm(p.b)}–${hhmm(p.e)}</span>` +
-        `<span class="what">${esc(tafPeriodLine(p))}</span></div>`).join('');
-    } else {
-      body = `<pre class="product">${esc((taf.raw || '').trim())}</pre>`;
-    }
-    return `<details class="iss"><summary><span class="who">${esc(taf.station)}</span>` +
-      `issued ${hhmm(taf.t)}` +
-      `<span class="meta">${taf.periods ? `${taf.periods.length} periods` : 'raw text (backfilled)'}</span>` +
-      `</summary><div class="body">${body}</div></details>`;
+  $('taf-list').innerHTML = sorted.map((taf) =>
+    `<details class="iss"><summary><span class="who">${esc(taf.station)}</span>` +
+    `issued ${hhmm(taf.t)}` +
+    `<span class="meta">${taf.periods ? `${taf.periods.length} periods` : 'raw text (backfilled)'}</span>` +
+    `</summary><div class="body">${tafBodyHtml(taf)}</div></details>`).join('');
+}
+
+/* ---------------------------------------------------------------------------
+   Station explorer — every archived METAR and TAF for the day, per station.
+   ---------------------------------------------------------------------------
+   The field sensor + KDCA come from their own streams; the rest from the
+   local ring (stations/<ID>/). Order is SITE.weather.areaStations (the same
+   set the discussion page's area low-cloud check sweeps), then whatever else
+   the ring archived that day. Collapsed by default — this is the bottom
+   drawer, not the headline. A listed station with no data renders as
+   "nothing archived": absence of data must never read as a clear sky.
+--------------------------------------------------------------------------- */
+
+/* Names for ring stations beyond the configured area set (display only). */
+const RING_LABELS = {
+  KMTN: 'Martin State', KCGS: 'College Park', KAPG: 'Phillips AAF · Aberdeen',
+  KNHK: 'Patuxent River NAS', KRJD: 'Ridgely',
+};
+
+function stationHtml(st) {
+  if (!st.list.length && !st.tafs.length) {
+    return `<div class="stn-none"><span class="who">${esc(st.id)}</span>${esc(st.label)}` +
+      ' — nothing archived this day</div>';
+  }
+  const s = summarize(st.list);
+  const meta = [
+    st.list.length ? `${st.list.length} obs` : 'no METARs',
+    s ? `worst ${CAT[s.worstDay].name}` : null,
+    st.tafs.length ? `${st.tafs.length} TAF${st.tafs.length === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+  const obRows = st.list.map(([t, raw]) => {
+    const o = parseMetar(raw);
+    return `<div class="ob-row"><span class="t">${hhmm(t)}</span>` +
+      `<span class="cat" style="background:${CAT[o.cat].color}">${CAT[o.cat].name}</span>` +
+      `<code>${esc(raw)}</code></div>`;
   }).join('');
+  const tafBlocks = st.tafs.map((taf) =>
+    `<p class="note" style="margin:10px 0 2px">TAF issued ${hhmm(taf.t)}</p>${tafBodyHtml(taf)}`).join('');
+  return `<details class="iss"><summary><span class="who">${esc(st.id)}</span>${esc(st.label)}` +
+    `<span class="meta">${esc(meta)}</span></summary><div class="body">` +
+    (obRows ? `<div class="ob-list">${obRows}</div>` : '') + tafBlocks + '</div></details>';
+}
+
+function renderStations(date, ringDocs, obsDoc, fieldDoc, tafDoc) {
+  const card = $('stn-card');
+  const ringList = (id) => { const d = ringDocs.get(id); return (d && d.metars) || []; };
+  const tafs = (tafDoc && tafDoc.tafs) || [];
+  const stations = [];
+  const seen = new Set();
+  const add = (id, label, list) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    stations.push({ id, label: label || '', list: list || [],
+      tafs: tafs.filter((t) => t.station === id).sort((a, b) => a.t - b.t) });
+  };
+  if (S.index.field_station) {
+    add(S.index.field_station, 'the field sensor', fieldDoc && fieldDoc.metars);
+  }
+  for (const st of SITE.weather.areaStations || []) {
+    if (st.id === S.index.station) add(st.id, st.label, obsDoc && obsDoc.metars);
+    else add(st.id, st.label, ringList(st.id));
+  }
+  for (const id of [...ringDocs.keys()].sort()) {   // the rest of the ring
+    add(id, RING_LABELS[id] || '', ringList(id));
+  }
+  for (const t of tafs) {   // TAF-only stations not otherwise listed
+    const cfg = (SITE.weather.tafStations || []).find((s) => s.id === t.station);
+    add(t.station, cfg ? cfg.label : RING_LABELS[t.station] || '');
+  }
+  if (!stations.some((s) => s.list.length || s.tafs.length)) { card.hidden = true; return; }
+  card.hidden = false;
+  const withObs = stations.filter((s) => s.list.length);
+  $('stn-summary').textContent =
+    `${withObs.length} station${withObs.length === 1 ? '' : 's'} reporting · ` +
+    `${withObs.reduce((n, s) => n + s.list.length, 0)} METARs · ` +
+    `${tafs.length} TAF issuance${tafs.length === 1 ? '' : 's'}`;
+  $('stn-list').innerHTML = stations.map(stationHtml).join('');
 }
 
 function renderAfds(date) {

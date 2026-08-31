@@ -495,6 +495,17 @@ concepts; to relink, add the tools.html card back.
   deck and a clear sky are both VFR but not the same forecast, so the row prints both heights,
   a same-category day ≥2 bands off scores ≈ not ✓, and a missed hour is named with
   called-vs-saw (`catCause()`: the ceiling or the visibility, whichever drove the category).
+  Two low-cloud checks sit on top (added 2026-08-31, when 1–3 k SCT/BKN developed under an
+  all-VFR grid call and the card read it as a ✓): the ceiling row also flags **scattered layers
+  ≤ 3,000 ft** the grid never carried (`metarObs()` tracks `lowFt`, the lowest SCT+ base —
+  SCT020 is "no ceiling" to the category math but still boxes in a VFR lesson; a clean row
+  degrades to ≈, never stays ✓), and a **"Low clouds, area" row** sweeps
+  `SITE.weather.areaStations` (BWI/FME/ADW/DCA/GAI/W29/ESN/CGE — read from the `stations/<ID>/`
+  ring plus KDCA's own stream, topped up from `latest.json` when live, with a live-NWS
+  per-station fallback for today only if nothing is archived; NWS wants `KW29` where the
+  archive says `W29`), because one hourly AUTO station is a bad witness —
+  that day W29/ESN/ADW held BKN 1–2 k while KBWI read FEW. A station with no data contributes
+  nothing: absence is never scored as a clear sky.
   Sources are
   labelled per row because four places are involved: **the DC point** is the forecast being
   discussed, **KDCA** (`obs/`) is what verifies it, **KANP** is the NWS hourly grid behind the
@@ -577,6 +588,13 @@ concepts; to relink, add the tools.html card back.
     repeat across lanes on purpose (density altitude = temperature's orange, precip = dewpoint's
     aqua) — legal only because those lanes are separate plots that never share one.
   Lane/source choices persist in `localStorage` (`almanac_lanes`, `almanac_src`).
+  The **station explorer** (`#stn-card`, last card before the trends chart) is the day's METARs
+  and TAFs per station — the field sensor, then `SITE.weather.areaStations` (KDCA from `obs/`,
+  the rest from the `stations/<ID>/` ring, with the day's other ring stations appended after
+  the configured set), then TAF-only stations — **collapsed by default** (a
+  `details.fold` whose summary counts stations/obs/TAFs). A listed station with nothing archived
+  renders a dashed "nothing archived this day" row rather than disappearing — absence of data is
+  never a clear sky (KFME is the standing example).
   The **alerts card is a timeline, not a list**: the archive keeps one record per issuance, so
   records of the same event whose spans touch fold into one thread (`alertThreads()`) drawn as a
   bar on a shared axis — bar = in effect, ticks = issuances, dotted run-in = the lead time between
@@ -608,8 +626,9 @@ concepts; to relink, add the tools.html card back.
   are built on, and archiving them twice would fork the record. A station nobody publishes logs
   and is skipped, never fatal) ·
   `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
-  KMTN/KBWI/KDCA issuance, decoded from IWXXM) · `alerts/` · `model/` (GFS CAPE/CIN/precip at the
-  field). `git add data/wx` in the workflow picks up new streams automatically.
+  KMTN/KBWI/KDCA issuance, decoded from IWXXM; KADW has no TAF on the NWS API — checked) ·
+  `alerts/` · `model/` (GFS CAPE/CIN/precip at the field). `git add data/wx` in the workflow
+  picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
   Growth is roughly 70 KB/day (~25 MB/year) with the ring.
 - **`api.weather.gov` is a live source, not a source of record — every METAR stream is healed

@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 36;
+const DISC_VER = 37;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1768,7 +1768,7 @@ function ceilSpan(list) {
    load. Keep the two in step if the decoding changes. */
 function metarObs(raw) {
   const body = String(raw || '').split(' RMK')[0];
-  const o = { tC: metarTempC(raw), spd: null, gst: null, visSM: null, ceilFt: null };
+  const o = { tC: metarTempC(raw), spd: null, gst: null, visSM: null, ceilFt: null, lowFt: null, lowAmt: null };
   const w = body.match(/(?:^|\s)(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT\b/);
   if (w) { o.spd = +w[2]; o.gst = w[3] ? +w[3] : null; }
   if (/\bP6SM\b/.test(body)) o.visSM = 7;
@@ -1782,7 +1782,12 @@ function metarObs(raw) {
   const cre = /\b(FEW|SCT|BKN|OVC|VV)(\d{3})/g;
   let c;
   while ((c = cre.exec(body))) {
-    if (o.ceilFt === null && (c[1] === 'BKN' || c[1] === 'OVC' || c[1] === 'VV')) o.ceilFt = +c[2] * 100;
+    const ft = +c[2] * 100;
+    /* lowest SCT-or-worse base: SCT020 is "no ceiling" to the category math,
+       but it is still a deck a VFR flight has to deal with — the low-cloud
+       checks below read this so scattered layers can't slip past unseen */
+    if (c[1] !== 'FEW' && (o.lowFt === null || ft < o.lowFt)) { o.lowFt = ft; o.lowAmt = c[1]; }
+    if (o.ceilFt === null && (c[1] === 'BKN' || c[1] === 'OVC' || c[1] === 'VV')) o.ceilFt = ft;
   }
   o.ts = /(?:^|\s)[+-]?(?:VC)?TS(?!NO)/.test(body);
   o.rain = /(?:^|\s)[+-]?(?:VC)?(?:TS|SH|FZ)?(?:RA|DZ)\b/.test(body);
@@ -1825,6 +1830,88 @@ function gridHours(snap, re, date) {
     if (snap.wx[i] && re.test(snap.wx[i])) out.push(ms);
   }
   return out;
+}
+
+/* Hours of `date` behind the cap where a grid snapshot advertised a ceiling
+   at or below `ft` — the forecast side of the area low-cloud check. */
+function gridLowCeilHours(snap, date, capMs, ft = 3000) {
+  const out = [];
+  if (!snap || snap.t0 == null || !snap.ceil) return out;
+  for (let i = 0; i < snap.ceil.length; i++) {
+    const ms = (snap.t0 + i * 3600) * 1000;
+    if (localDay(ms) !== date || ms > capMs) continue;
+    if (snap.ceil[i] != null && snap.ceil[i] <= ft) out.push(ms);
+  }
+  return out;
+}
+
+/* The metro-area stations (SITE.weather.areaStations) — the field sensor is
+   one hourly AUTO station, and a deck of low clouds can register at BWI or
+   Easton in an hour KNAK happens to read clear. Excludes the two stations
+   with their own streams (the caller already holds their METARs). */
+const AREA_STATIONS = (typeof SITE !== 'undefined' && SITE.weather && SITE.weather.areaStations) || [];
+
+/* METARs per area station for one local day, from the archive's ring
+   (stations/<ID>/, same day-file shape as obs/), topped up with the last ob
+   in latest.json when live. If a live day has nothing archived at all (fresh
+   deploy, local dev) it falls back to the NWS store, one request per station
+   — NWS wants the K-prefixed id (KW29) even where the archive uses the bare
+   one (W29). A past day stays honest and reports no data instead. */
+async function loadAreaObs(date, live, nowCap) {
+  const out = new Map();
+  const ids = AREA_STATIONS.map((s) => s.id)
+    .filter((id) => id !== OBS_STATION && id !== FIELD_OBS_ID);
+  if (!ids.length) return out;
+  const inDay = (list) => list
+    .filter(([ts]) => localDay(ts * 1000) === date && ts * 1000 <= nowCap)
+    .sort((a, b) => a[0] - b[0]);
+  try {
+    const wl = live ? await WXA.latest() : null;
+    await Promise.all(ids.map(async (id) => {
+      const doc = await WXA.station(id, date);
+      const raws = new Map();
+      for (const [ts, raw] of (doc && doc.metars) || []) raws.set(ts, raw);
+      const now = wl && wl.stations && wl.stations[id];
+      if (now && now.length === 2) raws.set(now[0], now[1]);
+      const list = inDay([...raws.entries()]);
+      if (list.length) out.set(id, list);
+    }));
+  } catch (e) { /* archive unreachable — the live fallback below still runs */ }
+  if (!out.size && live) {
+    await Promise.all(ids.map(async (id) => {
+      const nwsId = id.length === 3 ? `K${id}` : id;
+      try {
+        const obs = await fetchJSON(`${NWS}/stations/${nwsId}/observations?limit=80`);
+        const list = inDay((obs.features || []).map((f) => f.properties)
+          .filter((p) => p && p.timestamp && p.rawMessage)
+          .map((p) => [Math.round(new Date(p.timestamp).getTime() / 1000), p.rawMessage]));
+        if (list.length) out.set(id, list);
+      } catch (e) { /* a silent station is absence of data, not a clear sky */ }
+    }));
+  }
+  return out;
+}
+
+/* One station's day reduced to what the low-cloud check needs: hours judged
+   (one ob per hour, nearest the top), hours with any SCT+ layer ≤ 3,000 ft,
+   hours where that layer was an actual ceiling, and the lowest base seen. */
+function areaLowSummary(id, list) {
+  const byHour = new Map();
+  for (const [ts, raw] of list) {
+    const ms = ts * 1000;
+    const hr = Math.round(ms / 3600000) * 3600000;
+    const prev = byHour.get(hr);
+    if (!prev || Math.abs(ms - hr) < Math.abs(prev.ms - hr)) byHour.set(hr, { ms, raw });
+  }
+  const st = { id, hours: byHour.size, low: [], ceil: [], minBase: null, amt: null };
+  for (const hr of [...byHour.keys()].sort((a, b) => a - b)) {
+    const o = metarObs(byHour.get(hr).raw);
+    if (o.lowFt == null || o.lowFt > 3000) continue;
+    st.low.push(hr);
+    if (o.ceilFt != null && o.ceilFt <= 3000) st.ceil.push(hr);
+    if (st.minBase == null || o.lowFt < st.minBase) { st.minBase = o.lowFt; st.amt = o.lowAmt; }
+  }
+  return st;
 }
 
 /* One ob per hour — the one nearest the top of the hour, since KDCA files
@@ -2147,7 +2234,84 @@ async function vfBuild(date, off) {
       got = `${esc(fieldStation)} <b>${CATS[agree[0].obs.cat]}</b> every hour${gotCeil}`;
       note = `${agree.length} of ${catPairs.length} h matched, ceilings in band`;
     }
+    /* Scattered decks at or below 3,000 ft are invisible to both the category
+       and the ceiling band — SCT020 is "no ceiling" — but they are exactly
+       the sky that boxes in a VFR lesson. When the morning grid carried
+       nothing that low for those hours, say so and don't call the day clean
+       (2026-08-31: 1–3 k SCT/BKN developed under an all-VFR grid call and the
+       old card read it as a ✓). */
+    const lowSneak = catPairs.filter((p) => p.obs.ceilFt == null &&
+      p.obs.lowFt != null && p.obs.lowFt <= 3000 &&
+      (p.fCeil == null || p.fCeil > 3000));
+    if (lowSneak.length && state !== 'miss') {
+      if (state === 'hit') state = 'near';
+      const lo = Math.min(...lowSneak.map((p) => p.obs.lowFt));
+      note += `${note ? ' — ' : ''}low clouds the grid never carried: ` +
+        `SCT ${lo.toLocaleString('en-US')} ft ${esc(hourSpan(lowSneak.map((p) => p.hr)))}, never a ceiling`;
+    }
     settled.push({ state, what: 'Ceiling & vis', said, got, note });
+  }
+
+  /* 2b — low clouds across the metro. One hourly AUTO station is a bad
+     witness for a developing deck — on 2026-08-31 W29/ESN/ADW held BKN
+     1–2 k while KBWI read FEW — so this row sweeps every area station
+     (plus KDCA, already in hand) for SCT+ layers at or below 3,000 ft and
+     checks them against what the morning grid carried. A station with no
+     data contributes nothing: absence is never read as a clear sky. */
+  const areaObs = await loadAreaObs(date, live, nowCap);
+  if (metars.length && !areaObs.has(OBS_STATION)) areaObs.set(OBS_STATION, metars);
+  const areaSums = [...areaObs.entries()].map(([id, list]) => areaLowSummary(id, list))
+    .filter((st) => st.hours > 0);
+  if (areaSums.length) {
+    /* significant = ≥2 h of low SCT+ layers, or any hour with a real low
+       ceiling — one passing SCT030 ob at one field is not a story */
+    const cloudy = areaSums.filter((st) => st.low.length >= 2 || st.ceil.length)
+      .sort((a, b) => a.minBase - b.minBase);
+    const advLow = gridSnap ? gridLowCeilHours(gridSnap, date, nowCap) : [];
+    const detail = cloudy.slice(0, 3).map((st) =>
+      `${st.id} ${st.ceil.length ? 'BKN/OVC' : 'SCT'} ${st.minBase.toLocaleString('en-US')} ft ${hourSpan(st.low)}`)
+      .join(' · ');
+    let row = null;
+    if (!gridSnap) {
+      if (cloudy.length) {
+        row = {
+          state: 'na', what: 'Low clouds, area',
+          said: '<span class="faint">no morning grid archived</span>',
+          got: `<b>low clouds</b> at ${cloudy.length} of ${areaSums.length} stations`,
+          note: esc(detail),
+        };
+      }
+    } else if (cloudy.length && !advLow.length) {
+      row = {
+        state: cloudy.some((st) => st.ceil.length >= 2) ? 'miss' : 'near',
+        what: 'Low clouds, area',
+        said: `${esc(FIELD_ID)} grid: no ceiling under 3,000 ft`,
+        got: `<b>low clouds</b> at ${cloudy.length} of ${areaSums.length} stations`,
+        note: esc(detail),
+      };
+    } else if (cloudy.length) {
+      row = {
+        state: 'hit', what: 'Low clouds, area',
+        said: `${esc(FIELD_ID)} grid: ceilings ≤3,000 ft ${esc(hourSpan(advLow))}`,
+        got: `<b>low clouds</b> at ${cloudy.length} of ${areaSums.length} stations`,
+        note: esc(detail),
+      };
+    } else if (advLow.length) {
+      row = {
+        state: 'near', what: 'Low clouds, area',
+        said: `${esc(FIELD_ID)} grid: ceilings ≤3,000 ft ${esc(hourSpan(advLow))}`,
+        got: `<b>none</b> below 3,000 ft at ${areaSums.length} stations — better than called`,
+        note: '',
+      };
+    } else {
+      row = {
+        state: 'hit', what: 'Low clouds, area',
+        said: `${esc(FIELD_ID)} grid: no ceiling under 3,000 ft`,
+        got: `<b>clear below 3,000 ft</b> at ${areaSums.length} stations`,
+        note: `through ${esc(hourLabel(lastObMs))}`,
+      };
+    }
+    if (row) settled.push(row);
   }
 
   /* 3 — wind, over the hours that have obs */
@@ -2342,6 +2506,10 @@ async function vfBuild(date, off) {
       ` Day rows are the DC forecast against ${OBS_STATION}` +
       (atField ? `, and thunder stays on ${OBS_STATION} — an AUTO station only reports TS if it carries lightning detection.` : '.')
     : `Day rows are the DC point forecast against ${OBS_STATION} METARs.`;
+  const areaNote = areaSums.length
+    ? ` The area row sweeps ${areaSums.length} metro station${areaSums.length === 1 ? '' : 's'} ` +
+      `(${areaSums.map((s) => s.id).join(', ')}) for SCT+ layers at or below 3,000 ft.`
+    : '';
 
   return (
     `<div class="vf-head">` +
@@ -2352,7 +2520,7 @@ async function vfBuild(date, off) {
     (settled.length ? `<div class="vf-sec">Settled</div>${settled.map(vRowHtml).join('')}` : '') +
     (open.length ? `<div class="vf-sec">Still open</div>${open.map(vRowHtml).join('')}` : '') +
     (S.length ? `<p class="v-why">${S.join(' ')}</p>` : '') +
-    `<div class="drift-note">${srcNote} ` +
+    `<div class="drift-note">${srcNote}${areaNote} ` +
     `PoPs are probabilities, not promises${exp && exp.pop != null && exp.pop > 0 && exp.pop < 100 ? ` — a ${exp.pop}% day stays dry about ${Math.round(10 - exp.pop / 10)} times in 10` : ''}. ` +
     `Forecast baseline: ${exp ? esc(expSrc) : 'none on record yet'}. ` +
     `Hindcast = the model’s own reconstruction (GFS).</div>`
