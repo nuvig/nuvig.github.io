@@ -852,7 +852,12 @@ the rendering engine. Commit the regenerated JSON alongside the Markdown. Full g
 ## Weather page constraints (breaks silently if violated)
 
 - **aviationweather.gov has no CORS** — never fetch it from the browser. METARs:
-  `api.weather.gov/stations/{id}/observations/latest` (parse rawMessage). TAFs: same host, IWXXM XML
+  `api.weather.gov/stations/{id}/observations?limit=4`, newest feature that carries a
+  `rawMessage` — **not** `/observations/latest`, which routinely serves an ob with blank raw text
+  (2026-09-01: every ring station's 23:45Z ob, and for KESN/KMTN it kept serving the blank one
+  while a newer good ob sat in the collection; the page reported "empty observation" on four of
+  five cards). The site archive's `latest.json` (`WXA`, so `wx-archive.js` is loaded) is the
+  fallback, labelled "via site archive" wherever it's used. TAFs: same host, IWXXM XML
   via DOMParser.
 - KANP has no sensor; obs come from KNAK (~3 NM NE). TAFs exist for KMTN/KBWI/KDCA only.
 - NWS TAF visibility is meters from a fixed SM table (3200=2SM … ≥16000=P6SM) — decode via table,

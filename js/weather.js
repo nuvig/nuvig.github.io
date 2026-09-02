@@ -548,19 +548,49 @@ function renderFlyStrip(hours) {
 
 /* ====================== data loading & rendering ========================= */
 
+// The newest ob the site's own archive holds for a station (data/wx/latest.json
+// via WXA): the field sensor, the verification station, or the local ring.
+function archiveOb(arc, id) {
+  if (!arc) return null;
+  const last = (list) => (list && list.length ? { ts: list[list.length - 1][0], raw: list[list.length - 1][1] } : null);
+  if (id === arc.field_station) return last(arc.fieldobs);
+  if (id === arc.station) return last(arc.obs);
+  const s = arc.stations && arc.stations[id];
+  return s && s.length === 2 ? { ts: s[0], raw: s[1] } : null;
+}
+
+// api.weather.gov's /observations/latest routinely serves an ob whose
+// rawMessage is blank (2026-09-01: every ring station's 23:45Z ob), and for
+// some stations kept serving that blank one while a newer good ob sat in the
+// collection — the page read it as "empty observation". So: read the last few
+// obs, keep the newest that carries text, and fall back to the site archive
+// (hourly, so up to a few hours old — labelled "via site archive").
 async function loadMetars() {
   const stations = [...new Set(AIRPORTS.map((a) => a.metarStation))];
+  const arc = typeof WXA !== 'undefined' ? await WXA.latest() : null;   // resolves null, never throws
   await Promise.all(stations.map(async (id) => {
+    let best = null, err = null;
     try {
-      const d = await fetchJSON(`${NWS}/stations/${id}/observations/latest`);
-      const p = d.properties;
-      if (!p.rawMessage) throw new Error('empty observation');
-      state.metars[id] = parseMetar(p.rawMessage, p.timestamp);
-    } catch (e) {
-      state.metars[id] = { error: e.message };
+      const d = await fetchJSON(`${NWS}/stations/${id}/observations?limit=4`);
+      const withRaw = (d.features || []).map((f) => f && f.properties)
+        .filter((p) => p && p.rawMessage && p.timestamp)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      if (withRaw.length) best = { raw: withRaw[0].rawMessage, time: withRaw[0].timestamp, src: 'NWS' };
+      else err = 'NWS served no METAR text';
+    } catch (e) { err = e.message; }
+    const a = archiveOb(arc, id);
+    if (a && (!best || a.ts * 1000 > new Date(best.time).getTime())) {
+      best = { raw: a.raw, time: new Date(a.ts * 1000).toISOString(), src: 'site archive' };
+    }
+    if (best) {
+      state.metars[id] = parseMetar(best.raw, best.time);
+      state.metars[id].src = best.src;
+    } else {
+      state.metars[id] = { error: err || 'no observation' };
     }
   }));
 }
+const viaArchive = (m) => (m && m.src === 'site archive' ? ' · via site archive' : '');
 
 async function loadOpenMeteo() {
   const H = [
@@ -716,7 +746,7 @@ function renderHero() {
   // Fall back to model wind if the METAR is missing
   let wind = ok ? metar : null;
   let src = ok
-    ? `${KANP.metarStation} METAR, ${ageMin(metar.time)} min ago · directions °true`
+    ? `${KANP.metarStation} METAR, ${ageMin(metar.time)} min ago${viaArchive(metar)} · directions °true`
     : null;
   if (!ok && cur) {
     wind = { windDir: round(cur.wind_direction_10m), windKt: round(cur.wind_speed_10m), gustKt: round(cur.wind_gusts_10m) };
@@ -783,7 +813,7 @@ function renderConditions() {
     <div class="kv"><span class="k">Altimeter</span><span class="v">${m.altInHg != null ? m.altInHg.toFixed(2) + ' inHg' : '—'}</span></div>
     ${daHtml}
     <div class="apt-raw" style="margin-bottom:0">${esc(m.raw)}</div>
-    <div class="apt-meta">${KANP.metarStation} · observed ${fmtTime(m.time)} · ${ageMin(m.time)} min ago</div>`;
+    <div class="apt-meta">${KANP.metarStation} · observed ${fmtTime(m.time)} · ${ageMin(m.time)} min ago${viaArchive(m)}</div>`;
 }
 
 function renderSun() {
@@ -935,7 +965,7 @@ function renderAirports() {
         <div class="apt-rows">${rows}</div>
         <div class="apt-compass">${compassSVG(apt, m, 128)}</div>
       </div>
-      <div class="apt-meta">${rwyMeta} · elev ${apt.elevFt} ft · obs ${ageMin(m.time)} min ago${apt.obsNote ? `<br>${esc(apt.obsNote)}` : ''}</div>`;
+      <div class="apt-meta">${rwyMeta} · elev ${apt.elevFt} ft · obs ${ageMin(m.time)} min ago${viaArchive(m)}${apt.obsNote ? `<br>${esc(apt.obsNote)}` : ''}</div>`;
     grid.appendChild(card);
   }
 }
