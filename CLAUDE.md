@@ -359,6 +359,16 @@ concepts; to relink, add the tools.html card back.
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,
   TAFs, radar. See the hard constraints section below.
+  **Density altitude** (conditions card, DA chart, flyability score) is the NWS humid method,
+  `densityAltFt()` — the same formula as airlab.js/almanac.js, so the hub's "now" matches the same
+  hour in the almanac; don't swap the dry 118.8 ft/°C shortcut back in. TAF visibility is decoded
+  through the SM table for the category dot too, not just the label (4800 m is 3 SM/MVFR, not
+  2.98/IFR). **TAF cards print issuance age and flag anything over 6 h old** — the NWS TAF
+  collection froze for days in Aug 2026 and "issued 6:57 PM" with no date read as tonight's.
+  `renderSkyWash()` paints a gentle fixed gradient behind the page from the sun phase at the field
+  plus the latest KNAK ob (blue day / indigo night / amber twilight, greyed by an overcast, steel
+  for rain, violet for thunder, pale for fog) — alphas are low on purpose and it crossfades between
+  two layers so the 5-minute refresh never flashes; cards are opaque so it lives in the margins.
 - `sky.html` + `js/sky.js` — METAR Sky: the current observation painted as an animated canvas
   scene — sky color from the real sun position (NOAA solar math anchored to the airport's TZ,
   same rule as `solarTimes()`), cloud decks at their reported bases, precip/fog/lightning from
@@ -540,6 +550,14 @@ concepts; to relink, add the tools.html card back.
   themselves and saying why**, for any day before the stream existed. **Thunder deliberately
   stays on KDCA even when KNAK is available** — KNAK is AUTO, and an automated station only
   reports TS if it carries lightning detection, so absence there is not evidence of absence.
+  **Observations are the archive first, the live NWS store as a top-up**: archive commits land every
+  few hours, so at 8 PM the newest archived KDCA ob could be 4:52 PM, and the card was blind to
+  exactly the storm window it exists to judge. Whenever the archive's newest ob is over an hour
+  old, live obs since then are merged in without replacing an archived entry (KNAK too). And an
+  advertised hour counts as *observed* only by an ob taken after the hour was mostly over
+  (`covered()`: inside it past its first half-hour, or in the half-hour after) — rounding obs to the
+  nearest hour let a 4:52 ob "cover" a 5 PM storm window and call it empty. The "why" paragraph
+  follows the same rule: an unobserved window is never explained as a bust.
   Advertised-vs-observed precip must overlap in time to score a
   hit (`overlapsHours`): an advertised 2 PM shower and an observed 4 AM one are both "rain
   today" but are not the same event. **And an advertised hour with no observation is not a bust** —
@@ -613,6 +631,10 @@ concepts; to relink, add the tools.html card back.
     repeat across lanes on purpose (density altitude = temperature's orange, precip = dewpoint's
     aqua) — legal only because those lanes are separate plots that never share one.
   Lane/source choices persist in `localStorage` (`almanac_lanes`, `almanac_src`).
+  The calendar legend's swatches are `.sw`, not `.chip` — the meteogram picker's `.chip` button
+  rule pads anything else with that class into a 24×16 pill. Today's coverage line counts only
+  the hours before the last archive run as expected (`hourGaps` span), so future hours never read
+  as "missing".
   The **station explorer** (`#stn-card`, last card before the trends chart) is the day's METARs
   and TAFs per station — the field sensor, then `SITE.weather.areaStations` (KDCA from `obs/`,
   the rest from the `stations/<ID>/` ring, with the day's other ring stations appended after

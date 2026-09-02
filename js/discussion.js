@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 37;
+const DISC_VER = 38;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1092,6 +1092,7 @@ function drawFields(tf = syn.tf) {
   if (!syn.ready) return;
   const cv = $('syn-canvas'), ctx = cv.getContext('2d');
   const w = parseInt(cv.style.width, 10), h = parseInt(cv.style.height, 10);
+  if (!(w > 0 && h > 0)) return;   // laid out at zero size (hidden tab) — the ResizeObserver redraws
   ctx.clearRect(0, 0, w, h);
 
   const air = upsampledAt('air', tf, (t) => airmassField(t));
@@ -1335,6 +1336,7 @@ const PARTICLE_N = 650;
 function buildWindLut(tf = syn.tf) {
   const cv = $('syn-particles');
   const w = parseInt(cv.style.width, 10), h = parseInt(cv.style.height, 10);
+  if (!(w > 0 && h > 0)) { syn.lut = null; return; }   // zero-size layout — nothing to sample yet
   const step = 8;
   let P = syn.lutProj;
   if (!P || P.w !== w || P.h !== h) {
@@ -1373,6 +1375,7 @@ function lutUV(x, y) {
 }
 
 function initParticles() {
+  if (!syn.lut) return;
   const { w, h } = syn.lut;
   const p = new Float32Array(PARTICLE_N * 4);
   for (let i = 0; i < PARTICLE_N; i++) resetParticle(p, i, w, h, true);
@@ -1630,6 +1633,28 @@ async function loadSynoptic() {
   drawLegendBar();
   const slider = $('syn-slider');
   slider.max = syn.times.length - 1;
+  /* Resize handling goes in before the first draw. A page laid out at zero
+     width (a background tab, a hidden pane) used to throw inside that draw,
+     never reach the listener below, and show "model grid unavailable" for the
+     life of the tab. The ResizeObserver catches the wrapper growing from 0. */
+  let resizeTimer = null;
+  const relayout = () => {
+    const w = $('syn-wrap').clientWidth;
+    if (w === syn.lastW) return;
+    syn.lastW = w;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      syn.map.invalidateSize();
+      syn.map.fitBounds(SYN.VIEW, { padding: [0, 0] });
+      sizeCanvases();
+      drawFields();
+      buildWindLut();
+      initParticles();
+    }, 200);
+  };
+  syn.lastW = $('syn-wrap').clientWidth;
+  window.addEventListener('resize', relayout);
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe($('syn-wrap'));
   syn.ready = true;
   synSetTime(synNowIndex());
   initParticles();
@@ -1660,18 +1685,6 @@ async function loadSynoptic() {
   });
   loadRadar().catch(() => { /* radar is optional garnish */ });
   setInterval(() => loadRadar().catch(() => {}), 5 * 60 * 1000);
-  let resizeTimer = null;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      syn.map.invalidateSize();
-      syn.map.fitBounds(SYN.VIEW, { padding: [0, 0] });
-      sizeCanvases();
-      drawFields();
-      buildWindLut();
-      initParticles();
-    }, 200);
-  });
 }
 
 /* ===========================================================================
@@ -1691,10 +1704,10 @@ async function loadSynoptic() {
      · KDCA — the observations that verify it (5-minute obs, archived hourly)
      · KANP — the NWS hourly grid, because the field rows are about flying at
        Lee, not about downtown
-   KANP has no archived observation of its own (the nearest sensor, KNAK
-   ~3 nm NE, is not a data/wx stream), so a field row necessarily checks a
-   KANP forecast against KDCA weather ~25 nm NW. The card says so rather than
-   letting the two read as one place.
+   KANP has no sensor of its own: the field rows verify against KNAK (~3 nm
+   NE, the fieldobs stream) and fall back to KDCA ~25 nm NW, relabelling
+   themselves, for days before that stream existed. Thunder stays on KDCA
+   either way — KNAK is AUTO and only reports TS with lightning detection.
 
    The ‹ › pager rebuilds the same card for any archived past day (every
    window closed), and ceilings are judged at band resolution on top of the
@@ -2041,26 +2054,37 @@ async function vfBuild(date, off) {
      store silently drops obs (it lost a whole TSRA sequence on 2026-08-10),
      while the archive accumulated them hourly. latest.json tops up the
      current hour; the live API is only the last resort. */
-  let metars = [];
+  /* The live NWS store is a top-up, never the record: the archive's commits
+     land every few hours, so at 8 PM its newest KDCA ob can be 4:52 PM — and
+     the storm window this card exists to judge is exactly the stretch it is
+     then blind to. Whenever the archive's newest ob is over an hour old, the
+     live obs since then are merged in without replacing an archived entry. */
+  const liveObs = async (id) => {
+    try {
+      const obs = await fetchJSON(`${NWS}/stations/${id}/observations?limit=40`);
+      return (obs.features || []).map((f) => f.properties)
+        .filter((p) => p && p.timestamp && p.rawMessage)
+        .map((p) => [Math.round(new Date(p.timestamp).getTime() / 1000), p.rawMessage]);
+    } catch (e) { return []; }
+  };
+  const inDay = (raws) => [...raws.entries()]
+    .filter(([ts]) => localDay(ts * 1000) === date && ts * 1000 <= nowCap)
+    .sort((a, b) => a[0] - b[0]);
+  const behind = (list) => live && (!list.length || now - list[list.length - 1][0] * 1000 > 3600e3);
+
+  const raws = new Map();
   try {
-    const raws = new Map();
     const arcObs = await WXA.day('obs', date);
     for (const [ts, raw] of (arcObs && arcObs.metars) || []) raws.set(ts, raw);
     if (live) {
       const wl = await WXA.latest();
       for (const [ts, raw] of (wl && wl.obs) || []) raws.set(ts, raw);
     }
-    metars = [...raws.entries()]
-      .filter(([ts]) => localDay(ts * 1000) === date && ts * 1000 <= nowCap)
-      .sort((a, b) => a[0] - b[0]);
-  } catch (e) { /* fall through to the live store */ }
-  if (!metars.length && live) {
-    const obs = await fetchJSON(`${NWS}/stations/${OBS_STATION}/observations?limit=40`);
-    metars = (obs.features || []).map((f) => f.properties)
-      .filter((p) => p && p.timestamp && p.rawMessage)
-      .map((p) => [Math.round(new Date(p.timestamp).getTime() / 1000), p.rawMessage])
-      .filter(([ts]) => localDay(ts * 1000) === date && ts * 1000 <= nowCap)
-      .sort((a, b) => a[0] - b[0]);
+  } catch (e) { /* archive unreachable — the live store below still runs */ }
+  let metars = inDay(raws);
+  if (behind(metars)) {
+    for (const [ts, raw] of await liveObs(OBS_STATION)) if (!raws.has(ts)) raws.set(ts, raw);
+    metars = inDay(raws);
   }
   if (!metars.length) {
     return live
@@ -2075,17 +2099,19 @@ async function vfBuild(date, off) {
      KDCA is 25 nm NW. Days before the fieldobs stream existed have none, so
      everything below falls back to the DC station and relabels itself. */
   let fieldMetars = [], fieldObsId = FIELD_OBS_ID;
+  const fraws = new Map();
   try {
-    const raws = new Map();
     const arc = await WXA.day('fieldobs', date);
-    for (const [ts, raw] of (arc && arc.metars) || []) raws.set(ts, raw);
+    for (const [ts, raw] of (arc && arc.metars) || []) fraws.set(ts, raw);
     const wl = await WXA.latest();
     if (wl && wl.field_station) fieldObsId = wl.field_station;
-    if (live) for (const [ts, raw] of (wl && wl.fieldobs) || []) raws.set(ts, raw);
-    fieldMetars = [...raws.entries()]
-      .filter(([ts]) => localDay(ts * 1000) === date && ts * 1000 <= nowCap)
-      .sort((a, b) => a[0] - b[0]);
+    if (live) for (const [ts, raw] of (wl && wl.fieldobs) || []) fraws.set(ts, raw);
   } catch (e) { /* no field stream — the fallback below covers it */ }
+  fieldMetars = inDay(fraws);
+  if (fieldObsId && behind(fieldMetars)) {   // same top-up rule as KDCA above
+    for (const [ts, raw] of await liveObs(fieldObsId)) if (!fraws.has(ts)) fraws.set(ts, raw);
+    fieldMetars = inDay(fraws);
+  }
   const atField = fieldMetars.length > 0;
   const fieldStation = atField ? fieldObsId : OBS_STATION;
   const fDecoded = (atField ? fieldMetars : metars)
@@ -2342,11 +2368,13 @@ async function vfBuild(date, off) {
      common case on any day from that stretch, not a corner. Same rule as the
      ceiling and wind rows above, which are already built only from hours that
      have an ob. */
-  const hourKey = (ms) => Math.round(ms / 3600000);
-  const observedHours = (list) => new Set(list.map((d) => hourKey(d.ms)));
-  const tsHours = observedHours(decoded);        // KDCA — thunder stays there
-  const fieldHours = observedHours(fDecoded);    // KNAK — rain, ceiling, wind
-  const covered = (advMs, have) => advMs.filter((ms) => have.has(hourKey(ms)));
+  /* An advertised hour counts as observed only by an ob taken after the hour
+     was mostly over — inside it past its first half-hour, or within the
+     half-hour after it (KNAK files at :52, KDCA every 5 min). Rounding obs to
+     the nearest hour let a 4:52 PM METAR "cover" a 5 PM storm window, and the
+     card called that window empty while the record still ended at 4:52. */
+  const covered = (advMs, list) => advMs.filter((ms) =>
+    list.some((d) => d.ms >= ms + 30 * 60000 && d.ms < ms + 90 * 60000));
 
   const stormPast = stormHrs.filter((ms) => ms <= nowCap);
   const stormAhead = stormHrs.filter((ms) => ms > nowCap);
@@ -2369,7 +2397,7 @@ async function vfBuild(date, off) {
     }
   } else if (rainPast.length || rainObs.length) {
     const obsMs = rainObs.map((d) => d.ms);
-    const seen = covered(rainPast, fieldHours);
+    const seen = covered(rainPast, fDecoded);
     const hit = rainPast.length > 0 && obsMs.length > 0 && overlapsHours(rainPast, obsMs);
     const timingOff = rainPast.length > 0 && obsMs.length > 0 && !hit;
     const blind = rainPast.length > 0 && !seen.length && !obsMs.length;
@@ -2411,7 +2439,7 @@ async function vfBuild(date, off) {
       note: hit ? '' : stormPast.length ? 'different hours' : 'no grid signal for it',
     });
   } else if (stormPast.length) {
-    const seen = covered(stormPast, tsHours);
+    const seen = covered(stormPast, decoded);
     settled.push({
       state: seen.length ? 'miss' : 'na', what: live ? 'Thunder so far' : 'Thunder',
       said: `${esc(FIELD_ID)} grid: storms ${esc(hourSpan(stormPast))}`,
@@ -2467,7 +2495,10 @@ async function vfBuild(date, off) {
   /* ---------- the "why", only for windows that actually closed ---------- */
 
   const S = [];
-  const stormMiss = stormPast.length && !tsObs.length && !stormAhead.length;
+  /* only a window that was actually observed can be explained as a bust —
+     the row above says "not judged" for the rest, and the paragraph agrees */
+  const stormMiss = stormPast.length && !tsObs.length && !stormAhead.length &&
+    covered(stormPast, decoded).length > 0;
   if (stormMiss && hindcastOk) {
     if (peakCape >= 800 && capJkg != null && capJkg >= 60) {
       S.push(`The fuel showed up — the hindcast has CAPE peaking near ${fmtJ(peakCape)} J/kg — but the lid never broke: inhibition held around −${Math.round(capJkg / 10) * 10} J/kg through the heating hours, and no trigger punched through it.`);
@@ -2488,6 +2519,11 @@ async function vfBuild(date, off) {
     S.push(`Thunder verified at ${OBS_STATION} around ${esc(hourLabel(tsObs[0].ms))}${peakCape ? ` — fuel (CAPE ~${fmtJ(peakCape)} J/kg) plus a trigger, the classic recipe` : ''}.`);
   } else if (stormAhead.length) {
     S.push(`Nothing is settled about the storms yet — the advertised window runs ${esc(hourSpan(stormAhead))}${capJkg != null ? `, and inhibition is still around −${Math.round(capJkg / 10) * 10} J/kg` : ''}. Treat the silence above as "not yet", not "clear".`);
+  } else if (!settled.length) {
+    /* no rows at all is not a clean sheet — say what's missing */
+    S.push(live
+      ? 'Nothing has closed that this page can check yet — no morning forecast or grid snapshot is archived for today.'
+      : 'Nothing is archived to check this day against.');
   } else if (!settled.some((r) => r.state === 'miss')) {
     S.push(live
       ? `Everything that has closed so far verified${hNow < 18 ? ' — the day is not over' : ''}.`

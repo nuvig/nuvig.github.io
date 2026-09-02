@@ -489,6 +489,7 @@
     .chg-row .what { color: #cfd7df; font-weight: 600; }
     .chg-row .what.ts { color: #f5b942; }
     .chg-why { font-size: 12.5px; color: #8b96a1; line-height: 1.55; margin: 2px 0 6px 128px; }
+    .chg-stale { font-size: 12.5px; color: #f0c040; line-height: 1.5; margin-bottom: 8px; }
 
     /* ---- forecast drift ---- */
     .drift-row {
@@ -675,7 +676,8 @@
       <p class="deck">Forecast windows close at different times, so each is checked when it closes and
         the rest stay listed as open — at noon that's last night's low and the morning's ceilings,
         not a verdict on storms that haven't fired yet. Day rows are the DC forecast against KDCA's
-        METARs; field rows are the KANP hourly grid against the same METARs. Ceilings are checked
+        METARs; field rows are the KANP hourly grid against KNAK, the field's own sensor (KDCA
+        for days before that stream existed, and for thunder always). Ceilings are checked
         by height band, not just flight category — a 3,000 ft VFR deck and a clear sky are
         different forecasts. When something closed and missed, the model's own hindcast says where
         it went sideways. The ‹ › arrows step back through earlier days, every window closed.</p>
@@ -724,8 +726,8 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=37"></script>
-  <script src="js/discussion-avn.js?v=4"></script>
+  <script src="js/discussion.js?v=38"></script>
+  <script src="js/discussion-avn.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

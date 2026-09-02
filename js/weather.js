@@ -35,6 +35,7 @@ const state = {
   outlook: null,
   tafs: {},
   errors: [],
+  wash: null, washIdx: 0,   // the page tint currently shown (see renderSkyWash)
 };
 
 /* =============================== utils =================================== */
@@ -56,6 +57,40 @@ function relHumidity(tempC, dewC) {
 function fmtTime(d, opts) {
   return new Date(d).toLocaleTimeString('en-US',
     Object.assign({ timeZone: TZ, hour: 'numeric', minute: '2-digit' }, opts));
+}
+// Date + time in the field's zone ("Sun 6:57 PM") — for stamps that may not be today's.
+function fmtDT(d, opts) {
+  return new Intl.DateTimeFormat('en-US', Object.assign({ timeZone: TZ }, opts)).format(new Date(d));
+}
+const localDay = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: TZ });
+function ageText(min) {
+  if (min < 60) return `${min} min ago`;
+  if (min < 36 * 60) return `${(min / 60).toFixed(min < 600 ? 1 : 0).replace(/\.0$/, '')} h ago`;
+  return `${Math.round(min / 1440)} d ago`;
+}
+
+// Density altitude, NWS method with humidity — the same formulas airlab.js and
+// almanac.js use, so a number here matches the same hour in the almanac. Moist
+// air is lighter than dry air at the same temperature and pressure, so a humid
+// summer afternoon reads a few hundred feet higher than the dry approximation.
+const satVapHpa = (tC) => 6.1078 * Math.pow(10, 7.5 * tC / (tC + 237.3));   // Tetens
+function densityAltFt(tC, dC, altimInHg, elevFt) {
+  const k = 0.190284;
+  const pHpa = Math.pow(Math.pow(altimInHg, k) - 1.313e-5 * elevFt, 1 / k) * 33.8639;
+  const e = dC == null ? 0 : satVapHpa(Math.min(dC, tC));
+  const T = tC + 273.15;
+  const rho = (100 * (pHpa - e)) / (287.05 * T) + (100 * e) / (461.495 * T);
+  return 145442.16 * (1 - Math.pow(rho / 1.225, 0.234969));
+}
+
+// NWS encodes TAF visibility in meters from a fixed SM table — decode through
+// the table, never by dividing by 1609: 4800 m is 3 SM (MVFR), not 2.98 (IFR).
+const VIS_SM = [[400, 0.25], [800, 0.5], [1200, 0.75], [1600, 1], [2400, 1.5],
+  [3200, 2], [4800, 3], [6000, 4], [8000, 5], [9000, 6], [9999, 6], [16000, 6]];
+function visSMfromM(m) {
+  if (m == null) return null;
+  for (const [mm, sm] of VIS_SM) if (Math.abs(m - mm) <= 100) return sm;
+  return m / 1609.34;
 }
 function fmtHour(d) { // "2 PM" -> "2p"
   const h = new Date(d).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', hour12: true });
@@ -650,10 +685,9 @@ function buildHours() {
     if (h.gst != null && h.gst < h.spd) h.gst = h.spd;
     h.cat = flightCat(h.visSM, h.ceil);
     if (tempC != null && pmsl != null) {
-      const altInHg = pmsl * 0.02953;
-      const pa = KANP.elevFt + (29.92 - altInHg) * 1000;
-      const isa = 15 - 1.98 * (KANP.elevFt / 1000);
-      h.da = pa + 118.8 * (tempC - isa);
+      // sea-level pressure stands in for the altimeter setting: at 34 ft the
+      // two differ by well under 0.01 inHg
+      h.da = densityAltFt(tempC, dewC, pmsl / 33.8639, KANP.elevFt);
     }
     const day = new Date(ms).toLocaleDateString('en-CA', { timeZone: TZ });
     if (!solarCache[day]) solarCache[day] = solarTimes(new Date(ms), KANP.lat, KANP.lon);
@@ -734,10 +768,8 @@ function renderConditions() {
 
   let daHtml = '';
   if (m.tempC != null && m.altInHg != null) {
-    const pa = KANP.elevFt + (29.92 - m.altInHg) * 1000;
-    const isa = 15 - 1.98 * (KANP.elevFt / 1000);
-    const da = round((pa + 118.8 * (m.tempC - isa)) / 50) * 50;
-    daHtml = `<div class="kv"><span class="k">Density altitude (${KANP.id}, ${KANP.elevFt} ft)</span>
+    const da = round(densityAltFt(m.tempC, m.dewC, m.altInHg, KANP.elevFt) / 50) * 50;
+    daHtml = `<div class="kv"><span class="k">Density altitude (${KANP.id}, ${KANP.elevFt} ft, with humidity)</span>
       <span class="v" style="color:${da > 3000 ? '#f59e0b' : '#ddd'}">${da.toLocaleString()} ft</span></div>`;
   }
   el.innerHTML = `
@@ -917,7 +949,10 @@ const code = (el) => href(el).split('/').pop();
 
 async function loadTaf(stationId) {
   const list = await fetchJSON(`${NWS}/stations/${stationId}/tafs`);
-  const item = (list['@graph'] || [])[0];
+  // newest first by issueTime — the collection is not guaranteed to be ordered
+  const items = (list['@graph'] || []).filter((i) => i && i.id && i.issueTime)
+    .sort((a, b) => new Date(b.issueTime) - new Date(a.issueTime));
+  const item = items[0];
   if (!item) return null;
   const res = await fetch(item.id);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -941,7 +976,7 @@ async function loadTaf(stationId) {
     const pv = tag(f, 'prevailingVisibility')[0];
     if (pv) {
       p.visM = +pv.textContent;
-      p.visSM = p.visM / 1609.34;
+      p.visSM = visSMfromM(p.visM);
       if (tag(f, 'prevailingVisibilityOperator')[0] && p.visSM >= 6) p.visPlus = true;
       if (p.visM >= 16000) p.visPlus = true;
     }
@@ -970,6 +1005,7 @@ function fmtVis(p) {
 function renderTafs() {
   const grid = $('tafs');
   grid.innerHTML = '';
+  const today = localDay(Date.now());
   for (const st of TAF_STATIONS) {
     const t = state.tafs[st.id];
     const card = document.createElement('div');
@@ -985,7 +1021,13 @@ function renderTafs() {
     const rows = t.periods.map((p) => {
       const indName = IND[p.indicator] || (p.indicator === 'FM' ? '' : p.indicator.replace(/_/g, ' '));
       const ind = indName ? `<span class="ind">${esc(indName)}</span> ` : '';
-      const when = p.begin ? `${fmtTime(p.begin, { minute: undefined })}–${fmtTime(p.end, { minute: undefined })}` : '';
+      // a period on another day carries its weekday — a stale TAF's "10 AM–8 PM"
+      // otherwise reads as today's
+      const dayTag = (d, ref) => (localDay(d) === ref ? {} : { weekday: 'short' });
+      const when = p.begin
+        ? `${fmtDT(p.begin, { hour: 'numeric', ...dayTag(p.begin, today) })}–` +
+          `${fmtDT(p.end, { hour: 'numeric', ...dayTag(p.end, localDay(p.begin)) })}`
+        : '';
       let wind = '';
       if (p.windKt != null) {
         wind = p.windKt === 0 ? 'calm'
@@ -1006,8 +1048,16 @@ function renderTafs() {
         <span class="what">${esc([wind, fmtVis(p), p.wx.join(' '), clouds].filter(Boolean).join(' · '))}</span>
       </div>`;
     }).join('');
+    // Issuance age is the honesty check: api.weather.gov served one frozen TAF
+    // collection for days at a time (Aug 2026), and "issued 6:57 PM" with no
+    // date read as this evening's. Over 6 h old is flagged, not hidden.
+    const age = ageMin(t.issued);
+    const stale = age > 6 * 60;
+    const issued = `${localDay(t.issued) === today ? fmtTime(t.issued)
+      : fmtDT(t.issued, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · ${ageText(age)}`;
     card.innerHTML = `<div class="taf-head"><span class="icao">${st.id}</span>
-      <span class="iss">${esc(st.label)} · issued ${fmtTime(t.issued)}</span></div>${rows}`;
+      <span class="iss${stale ? ' stale' : ''}">${esc(st.label)} · issued ${esc(issued)}` +
+      `${stale ? ' · ⚠ stale — NWS is not serving a newer issuance' : ''}</span></div>${rows}`;
     grid.appendChild(card);
   }
 }
@@ -1101,6 +1151,68 @@ async function loadRadarFrames() {
   }
 }
 
+/* ========================== sky wash (page tint) ========================= */
+// A gentle full-viewport gradient behind the page, keyed to the sun's phase at
+// the field and the current KNAK observation: blue by day, indigo at night,
+// amber through civil twilight; an overcast greys it, rain steels it, thunder
+// turns it violet, fog washes it pale. Alphas stay low on purpose — the cards
+// read exactly as before, the tint lives in the margins and the gaps between
+// them. Two stacked layers crossfade so a 5-minute refresh never flashes.
+
+const WASH = {
+  day: [74, 158, 255], night: [28, 40, 100], twilight: [236, 132, 72],
+  overcast: [118, 132, 156], rain: [56, 104, 168], thunder: [128, 88, 200],
+  snow: [186, 204, 232], fog: [138, 148, 160],
+};
+const mixRgb = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+
+function skyWashSpec() {
+  const now = Date.now(), s = state.sun;
+  let phase = 'day';
+  if (s && s.dawn && s.sunrise && s.sunset && s.dusk) {
+    const soft = 40 * 60000;   // the warm minutes either side of sunrise/sunset
+    if (now < s.dawn.getTime() || now > s.dusk.getTime()) phase = 'night';
+    else if (now < s.sunrise.getTime() + soft || now > s.sunset.getTime() - soft) phase = 'twilight';
+  }
+  let rgb = WASH[phase];
+  let alpha = phase === 'night' ? 0.22 : phase === 'twilight' ? 0.17 : 0.15;
+  const m = state.metars[KANP.metarStation];
+  if (m && !m.error) {
+    const ceil = ceilingFt(m);
+    const wx = (re) => m.wx.some((w) => re.test(w));
+    const wet = phase === 'night' ? 0.5 : 0.65;   // night keeps more of its own hue
+    if (wx(/TS/)) rgb = mixRgb(rgb, WASH.thunder, wet + 0.1);
+    else if (wx(/SN|SG|PL|IC|GS|GR/)) rgb = mixRgb(rgb, WASH.snow, wet);
+    else if (wx(/RA|DZ|SH|UP/)) rgb = mixRgb(rgb, WASH.rain, wet);
+    else if (wx(/FG|BR|HZ|FU/) || (m.visSM != null && m.visSM < 3)) { rgb = mixRgb(rgb, WASH.fog, wet); alpha *= 0.85; }
+    else if (ceil != null && ceil <= 3000) rgb = mixRgb(rgb, WASH.overcast, 0.6);
+    else if (m.clouds.some((c) => c.amt === 'BKN' || c.amt === 'OVC')) rgb = mixRgb(rgb, WASH.overcast, 0.35);
+    else if (m.clouds.some((c) => c.amt === 'SCT')) rgb = mixRgb(rgb, WASH.overcast, 0.15);
+  }
+  const c = (a) => `rgba(${rgb.join(',')},${a.toFixed(3)})`;
+  return `linear-gradient(180deg, ${c(alpha)} 0%, ${c(alpha * 0.45)} 38%, ${c(0)} 80%)`;
+}
+
+function renderSkyWash() {
+  let el = $('sky-wash');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sky-wash';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<div></div><div></div>';
+    document.body.prepend(el);
+  }
+  const g = skyWashSpec();
+  if (g === state.wash) return;          // same sky — leave it alone
+  state.wash = g;
+  state.washIdx = 1 - state.washIdx;
+  const [a, b] = el.children;
+  const next = state.washIdx ? b : a, cur = state.washIdx ? a : b;
+  next.style.background = g;
+  next.style.opacity = '1';
+  cur.style.opacity = '0';
+}
+
 /* ============================ orchestration ============================== */
 
 function renderCharts() {
@@ -1131,6 +1243,7 @@ async function loadAll() {
   renderSun();
   renderHero();
   renderConditions();
+  renderSkyWash();
   renderAirports();
   updateRadarMarkers();
   window.__wxState = state; // debug/inspection hook

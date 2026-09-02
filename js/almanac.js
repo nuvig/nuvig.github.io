@@ -150,9 +150,19 @@ function hourGaps(doc) {
     if (p.date === date) seen.add(p.h);
   }
   const never = new Set(doc.nh || []);
+  /* Today is still being written: an hour that hasn't happened, or that the
+     archiver hasn't run for yet, is not missing. Only the hours before the
+     last archive run are expected on file, so the span is capped there. */
+  let span = 24;
+  if (date === lp(nowSec()).date) {
+    const u = S.index && S.index.updated ? lp(S.index.updated) : null;
+    /* an archive that last ran yesterday has written none of today's hours */
+    const updH = !u ? lp(nowSec()).h : u.date === date ? u.h : u.date < date ? 0 : 24;
+    span = Math.min(lp(nowSec()).h, updH);
+  }
   const missing = [];
-  for (let h = 0; h < 24; h++) if (!seen.has(h) && !never.has(h)) missing.push(h);
-  return { held: seen.size, never: never.size, missing };
+  for (let h = 0; h < span; h++) if (!seen.has(h) && !never.has(h)) missing.push(h);
+  return { held: seen.size, never: never.size, missing, span };
 }
 
 /* "6 h missing" / "" — the phrase every card uses, so the wording never
@@ -363,11 +373,13 @@ function buildCalendar() {
     S.cells.set(d, cell);
   }
 
+  /* swatches are .sw, not .chip — the meteogram picker's .chip button rule
+     (padding, border, pointer) would pad these into 24×16 pills */
   $('cal-legend').innerHTML =
-    CAT.map((c) => `<span><span class="chip" style="background:${c.color}"></span>${c.name}</span>`).join('') +
-    '<span><span class="chip" style="background:#222"></span>no METARs</span>' +
-    '<span><span class="chip" style="background:#1d1d1d"></span>nothing archived</span>' +
-    '<span><span class="chip cal-day short" style="background:#3d7dc4;position:relative">' +
+    CAT.map((c) => `<span><span class="sw" style="background:${c.color}"></span>${c.name}</span>`).join('') +
+    '<span><span class="sw" style="background:#222"></span>no METARs</span>' +
+    '<span><span class="sw" style="background:#1d1d1d"></span>nothing archived</span>' +
+    '<span><span class="sw cal-day short" style="background:#3d7dc4;position:relative">' +
     '</span>hours missing</span>' +
     '<span>⚡ thunderstorms</span>';
 
@@ -1051,8 +1063,8 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
     .sort((a, b) => b.missing.length - a.missing.length)[0];
   $('obs-stats').innerHTML = bits.join(' · ') +
     (worstGap ? `<div class="obs-caveat" title="${esc(gapHours(worstGap))}">` +
-      `${worstGap.held} of 24 hours on file — highs and lows of what was ` +
-      'recorded, not of the day</div>' : '');
+      `${worstGap.held} of ${worstGap.span} hours ${worstGap.span < 24 ? 'archived so far' : 'on file'} — ` +
+      'highs and lows of what was recorded, not of the day</div>' : '');
 
   renderObsTable(D);
   const raw = obsOn(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);

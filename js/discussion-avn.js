@@ -298,7 +298,7 @@ function isDaylight(t) {
 function buildHours() {
   const start = Math.floor(Date.now() / 3600000) * 3600000;
   const out = [];
-  for (let t = start; t <= start + 24 * 3600000; t += 3600000) {
+  for (let t = start; t < start + 24 * 3600000; t += 3600000) {   // 24 cells, not 25
     const ceil = AVN.grid.ceil.get(t) ?? null;
     const vis = AVN.grid.vis.get(t) ?? null;
     if (ceil == null && vis == null && !AVN.grid.tempC.has(t)) continue;
@@ -331,7 +331,10 @@ const numbersOf = (h) =>
   `${h.ceil == null ? 'no ceiling' : `${Math.round(h.ceil / 100) * 100} ft`} / ` +
   `${h.vis == null ? '—' : h.vis >= 6 ? 'P6' : Math.round(h.vis * 2) / 2} SM`;
 
-/* The interpretation — where the windows are, in a sentence or two. */
+/* The interpretation — where the windows are, in a sentence or two. Hours are
+   phrased with clockPhrase/spanPhrase from discussion.js, which say "tomorrow":
+   a strip that starts at 7 PM is mostly tomorrow, and a bare "4 PM" read as
+   this afternoon's. */
 function windowSummary(hours) {
   if (!hours.length) return '';
   const now = hours[0];
@@ -339,17 +342,17 @@ function windowSummary(hours) {
   const change = hours.find((h) => h.cat !== now.cat);
   out += change
     ? `, ${CAT_RANK[change.cat] > CAT_RANK[now.cat] ? 'down to' : 'up to'} ` +
-      `<b class="${catClass(change.cat)}">${change.cat}</b> at ${esc(hourLbl(change.t))}.`
+      `<b class="${catClass(change.cat)}">${change.cat}</b> at ${esc(clockPhrase(change.t))}.`
     : `, and holding for the next 24 h.`;
 
   const worst = hours.reduce((a, h) => (CAT_RANK[h.cat] > CAT_RANK[a.cat] ? h : a), hours[0]);
   if (CAT_RANK[worst.cat] > CAT_RANK[now.cat]) {
     const run = hours.filter((h) => h.cat === worst.cat);
     out += ` Worst <b class="${catClass(worst.cat)}">${worst.cat}</b> ` +
-      `${esc(hourLbl(run[0].t))}–${esc(hourLbl(run[run.length - 1].t + 3600000))}, ` +
+      `${esc(spanPhrase(run[0].t, run[run.length - 1].t + 3600000))}, ` +
       `${esc(numbersOf(worst))}.`;
     const back = hours.find((h) => h.t > worst.t && h.cat === 'VFR');
-    if (back) out += ` VFR again from ${esc(hourLbl(back.t))}.`;
+    if (back) out += ` VFR again from ${esc(clockPhrase(back.t))}.`;
   }
   const moved = hours.filter((h) => h.was && /thunder/.test(h.was));
   if (moved.length) {
@@ -363,7 +366,7 @@ function readoutFor(h) {
   const wind = h.spd == null || h.spd < 1 ? 'calm'
     : `${String(Math.round((h.dir || 0) / 10) * 10).padStart(3, '0')}°T ${Math.round(h.spd)} kt` +
       `${h.gst && h.gst - h.spd >= 5 ? ` G${Math.round(h.gst)}` : ''}`;
-  const wx = h.wx.map((w) => w.wx).filter((w, i, a) => a.indexOf(w) === i).join(', ');
+  const wx = h.wx.map((w) => w.wx.replace(/_/g, ' ')).filter((w, i, a) => a.indexOf(w) === i).join(', ');
   return `<b>${esc(fmtTime(new Date(h.t), { weekday: 'short', hour: 'numeric' }))}</b> · ` +
     `<b class="${catClass(h.cat)}">${h.cat}</b> · ${esc(numbersOf(h))} · ${esc(wind)} · ` +
     `${h.pop ?? '—'}% precip · ${h.tC == null ? '—' : Math.round(h.tC * 9 / 5 + 32)}°/` +
@@ -434,18 +437,33 @@ function renderTafChanges() {
     blocks.push({ st, runs, issued: rec.cur.issued, prevIssued: rec.prev.issued });
   }
 
+  /* Staleness first. api.weather.gov served one frozen TAF collection for
+     days in Aug 2026, and "no change between the last two issuances" is the
+     wrong reading of a feed that stopped — say how old the newest is. */
+  const newest = Math.max(0, ...AVN.stations.map((st) =>
+    (AVN.tafs[st.id] && AVN.tafs[st.id].cur && AVN.tafs[st.id].cur.issued) || 0));
+  const ageH = newest ? (now - newest) / 3600e3 : null;
+  const stamp = (opts) => esc(fmtTime(new Date(newest), opts));
+  const staleNote = ageH != null && ageH > 6
+    ? `<div class="chg-stale">⚠ Newest TAF on the wire is ${ageH < 48 ? `${Math.round(ageH)} h` : `${Math.round(ageH / 24)} d`} old ` +
+      `(issued ${stamp({ weekday: 'short', hour: 'numeric', minute: '2-digit' })}) — ` +
+      'NWS is not serving a newer issuance, so nothing here is current.</div>'
+    : '';
+  const ids = AVN.stations.map((st) => st.id);
+  const idList = ids.length > 1 ? `${ids.slice(0, -1).join(', ')} or ${ids[ids.length - 1]}` : ids.join('');
   if (!blocks.length) {
-    host.innerHTML = '<div class="faint" style="font-size:13px">' +
-      'No category or thunder change between the last two TAF issuances at KMTN, KBWI or KDCA.</div>';
+    host.innerHTML = staleNote + '<div class="faint" style="font-size:13px">' +
+      `No category or thunder change between the last two TAF issuances at ${esc(idList)}` +
+      `${newest ? ` (newest ${stamp({ hour: 'numeric', minute: '2-digit' })})` : ''}.</div>`;
     return;
   }
 
   /* All three terminals sit inside 30 nm, so the same reason usually applies to
      all of them — say it once. */
   const saidWhy = new Set();
-  host.innerHTML = blocks.map((bl) => {
+  host.innerHTML = staleNote + blocks.map((bl) => {
     const rows = bl.runs.slice(0, 4).map((r) => {
-      const span = r.t0 === r.t1 ? hourLbl(r.t0) : `${hourLbl(r.t0)}–${hourLbl(r.t1 + 3600000)}`;
+      const span = r.t0 === r.t1 ? clockPhrase(r.t0) : spanPhrase(r.t0, r.t1 + 3600000);
       const what = r.kind === 'ts-gone' ? 'thunder dropped'
         : r.kind === 'ts-added' ? 'thunder added'
         : `${r.from} → ${r.to}`;

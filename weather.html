@@ -29,6 +29,13 @@
     .subtitle a { color: #4a9eff; text-decoration: none; }
     .subtitle a:hover { text-decoration: underline; }
 
+    /* ---- sky wash: a gentle page tint keyed to the sun and the latest ob
+       (js/weather.js renderSkyWash). Fixed behind everything, two layers
+       crossfading; cards are opaque so it only shows in the margins. ---- */
+    #sky-wash { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+    #sky-wash > div { position: absolute; inset: 0; opacity: 0; transition: opacity 2.5s ease; }
+    @media (prefers-reduced-motion: reduce) { #sky-wash > div { transition: none; } }
+
     .status-bar {
       display: flex;
       align-items: center;
@@ -203,6 +210,7 @@
     .taf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
     .taf-head .icao { font-weight: 700; color: #fff; }
     .taf-head .iss { font-size: 11px; color: #555; }
+    .taf-head .iss.stale { color: #f0c040; }
     .taf-period { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid #242424; font-size: 12px; align-items: baseline; }
     .taf-period:last-child { border-bottom: none; }
     .taf-period .when { width: 108px; flex-shrink: 0; color: #999; font-variant-numeric: tabular-nums; }
@@ -285,7 +293,7 @@
       <canvas id="chart-ceiling" class="chart" style="height:150px"></canvas>
     </div>
     <div class="card">
-      <div style="font-size:12px;color:#777;margin-bottom:6px">Density altitude at KANP (ft) — amber above 3,000</div>
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Density altitude at KANP (ft, NWS method with humidity) — amber above 3,000</div>
       <canvas id="chart-da" class="chart" style="height:150px"></canvas>
     </div>
   </div>
@@ -351,11 +359,13 @@
     charts: FAA VFR sectional tiles.
     KANP has no on-field weather sensor; surface obs come from KNAK (USNA, ~3 NM NE).
     Wind directions are °true. Runway alignments from FAA data.
+    Density altitude is the NWS method, humidity included.
+    The page tint follows the sun at the field and the latest KNAK observation.
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js"></script>
+  <script src="js/weather.js?v=1"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>
