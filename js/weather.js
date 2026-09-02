@@ -36,6 +36,7 @@ const state = {
   tafs: {},
   errors: [],
   wash: null, washIdx: 0,   // the page tint currently shown (see renderSkyWash)
+  gen: 0, liveGen: 0,       // load generation; liveGen = last one the live sources rendered
 };
 
 /* =============================== utils =================================== */
@@ -559,6 +560,48 @@ function archiveOb(arc, id) {
   return s && s.length === 2 ? { ts: s[0], raw: s[1] } : null;
 }
 
+// The site archive's current-state document. WXA caches a path for the life
+// of the tab, which is right for day files and wrong for latest.json — a hub
+// left open all afternoon would fall back to the archive as it stood at page
+// load. First call goes through WXA (shared with any other reader); refreshes
+// re-fetch with a 10-minute cache key, since the archiver runs hourly.
+async function archiveLatest() {
+  if (typeof WXA === 'undefined') return null;
+  if (!state.liveGen) return WXA.latest();
+  try {
+    const r = await fetch(`${WXA.base}/latest.json?t=${Math.floor(Date.now() / 600000)}`,
+      { headers: { Accept: 'application/json' } });
+    return r.ok ? await r.json() : WXA.latest();
+  } catch (e) { return WXA.latest(); }
+}
+
+// First paint from the archive. latest.json is same-origin and answers in
+// tens of milliseconds; api.weather.gov has taken 20 s. Everything a METAR
+// drives — compass, conditions, sky wash, the nearby fields, radar markers —
+// is drawn from the archived obs (labelled "via site archive") and replaced
+// as soon as the live sources answer. TAFs and the flight windows stay live:
+// the archive holds no decoded TAF periods and the windows need the model.
+async function paintFromArchive(gen) {
+  const arc = await archiveLatest();
+  if (!arc || state.liveGen >= gen) return;   // live already rendered this load
+  let any = false;
+  for (const id of new Set(AIRPORTS.map((a) => a.metarStation))) {
+    const a = archiveOb(arc, id);
+    if (!a) continue;
+    state.metars[id] = parseMetar(a.raw, new Date(a.ts * 1000).toISOString());
+    state.metars[id].src = 'site archive';
+    any = true;
+  }
+  if (!any || state.liveGen >= gen) return;
+  renderSun();
+  renderHero();
+  renderConditions();
+  renderSkyWash();
+  renderAirports();
+  updateRadarMarkers();
+  $('status-text').textContent = 'Updating… · showing the site archive';
+}
+
 // api.weather.gov's /observations/latest routinely serves an ob whose
 // rawMessage is blank (2026-09-01: every ring station's 23:45Z ob), and for
 // some stations kept serving that blank one while a newer good ob sat in the
@@ -567,7 +610,7 @@ function archiveOb(arc, id) {
 // (hourly, so up to a few hours old — labelled "via site archive").
 async function loadMetars() {
   const stations = [...new Set(AIRPORTS.map((a) => a.metarStation))];
-  const arc = typeof WXA !== 'undefined' ? await WXA.latest() : null;   // resolves null, never throws
+  const arc = await archiveLatest();   // resolves null, never throws
   await Promise.all(stations.map(async (id) => {
     let best = null, err = null;
     try {
@@ -1259,6 +1302,8 @@ async function loadAll() {
   dot.className = 'dot yellow';
   txt.textContent = 'Updating…';
   state.errors = [];
+  const gen = ++state.gen;
+  if (gen === 1) paintFromArchive(gen).catch(() => {});   // not awaited — the live jobs run alongside
 
   const jobs = [
     loadMetars().catch((e) => state.errors.push('obs: ' + e.message)),
@@ -1269,6 +1314,7 @@ async function loadAll() {
     loadTafs().catch(() => {}),
   ];
   await Promise.all(jobs);
+  state.liveGen = gen;   // from here on the archive paint may not overwrite
 
   renderSun();
   renderHero();

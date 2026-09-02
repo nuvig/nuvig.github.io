@@ -383,6 +383,14 @@ concepts; to relink, add the tools.html card back.
   through the SM table for the category dot too, not just the label (4800 m is 3 SM/MVFR, not
   2.98/IFR). **TAF cards print issuance age and flag anything over 6 h old** — the NWS TAF
   collection froze for days in Aug 2026 and "issued 6:57 PM" with no date read as tonight's.
+  **First paint comes from the archive** (`paintFromArchive()`, 2026-09-01): `latest.json` is
+  same-origin and answers in milliseconds where api.weather.gov has taken 20 s, so on the first
+  load every METAR-driven card (compass, conditions, sun, sky wash, nearby fields, radar markers)
+  is drawn from the archived obs, labelled "via site archive", and replaced when the live jobs
+  finish (`state.gen`/`state.liveGen` keep a slow archive from overwriting a faster live render).
+  TAFs and the flight windows stay live — `latest.json` holds no decoded TAF periods and the
+  windows need the model. `archiveLatest()` bypasses `WXA`'s per-tab cache on refreshes so the
+  archive fallback is never older than the archiver's last run.
   `renderSkyWash()` paints a gentle fixed gradient behind the page from the sun phase at the field
   plus the latest KNAK ob (blue day / indigo night / amber twilight, greyed by an overcast, steel
   for rain, violet for thunder, pale for fog) — alphas are low on purpose and it crossfades between
