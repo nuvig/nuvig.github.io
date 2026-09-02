@@ -17,7 +17,7 @@ starts two services:
 
 | service | what it does |
 |---|---|
-| `kanp-collector` | polls the public ADS-B feeds (adsb.lol → adsb.fi → airplanes.live, first non-empty answer wins) every 3 s, writes `/var/lib/kanp/kanp.db` |
+| `kanp-collector` | polls the public ADS-B feeds (adsb.lol → adsb.fi → airplanes.live, first non-empty answer wins) every 3 s over 60 nm, plus a 5 nm poll of the pattern area every second in between; writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
@@ -30,6 +30,13 @@ traffic), and the next feed is tried; a sustained all-feeds-empty run is
 logged to the journal. Both behaviors exist because on 2026-08-01 adsb.lol
 served empty 200s for 11 hours and silently masked the healthy feeds —
 11 hours of data lost with no journal trace.
+
+Each fix is stamped with the moment the feed received it (`now − seen_pos`),
+not the poll time, so a position is the same row whichever poll saw it and a
+3 s poll no longer smears fixes up to 3 s late. A position the feed reports
+as more than 5 min old is skipped as stale. Health keys (`last_poll`,
+`last_ok`, `last_count`) describe the wide poll only; the near poll writes
+`last_near_poll` / `last_near_count`.
 
 To update later: `git pull && sudo bash pi/install.sh`.
 
@@ -44,6 +51,8 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 | `KANP_SOURCE` | `airplanes` | or a local receiver URL, e.g. `http://127.0.0.1/skyaware/data/aircraft.json` (dump1090-fa) or `http://127.0.0.1/tar1090/data/aircraft.json` |
 | `KANP_POLL_SECONDS` | `3` | airplanes.live allows 1 req/s, so 1 is the floor. Raise to 15 to cut storage / be polite to the public feeds |
 | `KANP_RADIUS_NM` | `60` | search radius around KANP |
+| `KANP_NEAR_RADIUS_NM` | `5` | second, tight poll of the pattern area run between wide polls — 2 near + 1 wide per 3 s stays at the feeds' 1 req/s. Public feeds only; `0` disables |
+| `KANP_NEAR_POLL_SECONDS` | `1` | cadence of that near poll; must be under `KANP_POLL_SECONDS` |
 | `KANP_RETENTION_DAYS` | `365` | positions older than this are pruned hourly |
 | `KANP_MAX_DB_MB` | `8000` | hard cap; oldest 30-day chunks dropped if exceeded |
 | `KANP_PORT` | `8787` | API/web port |
