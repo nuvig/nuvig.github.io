@@ -16,7 +16,9 @@
 // SITE (js/site-config.js) — edit them there. Runway hdg = FAA true
 // alignment; METAR + model winds are also true.
 const KANP = SITE.airport;   // home airport (historical name; any field works)
-const AIRPORTS = [SITE.airport, ...SITE.weather.nearbyAirports];
+// Fields flagged `offline` in the config (sensor down for a while) are left
+// out entirely rather than shown as an error every refresh.
+const AIRPORTS = [SITE.airport, ...SITE.weather.nearbyAirports.filter((a) => !a.offline)];
 const TAF_STATIONS = SITE.weather.tafStations;
 
 const NWS = 'https://api.weather.gov';

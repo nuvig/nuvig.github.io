@@ -86,6 +86,9 @@ const SITE = {
       {
         id: 'KFME', name: 'Tipton · Fort Meade', lat: 39.0854, lon: -76.7594, elevFt: 148,
         metarStation: 'KFME',
+        // AWOS down since 2026-08-31 — weather.html skips offline fields
+        // (no card, no marker, no status-line error). Remove when it is back.
+        offline: true,
         runways: [{ ends: [{ name: '10', hdg: 94 }, { name: '28', hdg: 274 }], len: 3000, wid: 75 }],
       },
       {
