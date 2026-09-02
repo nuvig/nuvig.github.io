@@ -119,8 +119,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   METARs and the first added wins the dedupe, so the archived record wins and cites its own
   path instead of the current-state document. Live tail re-reads `latest.json` +
   `summary.json` every 60 s.
-  **Page copy is plain** (Jesse, 2026-09-01: "get rid of this AI speak") — labels, facts,
-  no slogans; keep it that way.
+  **Page copy is plain and minimal** (Jesse, 2026-09-01: "get rid of this AI speak", then
+  "remove header and footer text unless it's really important") — a one-line subtitle, no
+  footer prose; the hover titles carry the timestamp/healed explanations. Keep it that way.
   Site-meta page like `changelog.html`: sitemap entry + footer links on `index.html`/`tools.html`,
   and **no tools.html card**.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
