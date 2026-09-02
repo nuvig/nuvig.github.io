@@ -314,6 +314,24 @@
       { label: 'Alerts', short: 'alerts', note: 'event-driven',
         text: active ? `${active} active now` : 'none active',
         days: idx.alert_days, event: true, fill: false },
+      // The aviationweather.gov / FAA streams (added 2026-09-01). PIREPs,
+      // AIRMETs/SIGMETs and TFRs are event-driven like alerts: an absent day
+      // is a quiet one. The sounding and winds aloft have a cadence.
+      { label: 'PIREPs', short: 'PIREPs', note: '~150 nm · event-driven',
+        text: `${(latest.pireps || []).length} in the last 12 h`,
+        days: idx.pirep_days, event: true, fill: false },
+      { label: 'AIRMETs · SIGMETs', short: 'airsig', note: 'touching the region',
+        text: `${(latest.airsig || []).length} in effect`,
+        days: idx.airsig_days, event: true, fill: false },
+      { label: 'TFRs', short: 'TFRs', note: 'MD/VA/DC/DE/PA/WV/NJ · ZDC/PCT',
+        text: `${(latest.tfrs || []).length} listed`,
+        days: idx.tfr_days, event: true, fill: false },
+      { label: `${idx.raob_station || 'KIAD'} sounding`, short: 'raob', note: '00Z · 12Z',
+        age: age(latest.raob && latest.raob.t), okH: 14, lateH: 26,
+        days: idx.raob_days, fill: true },
+      { label: 'Winds aloft', short: 'aloft', note: 'GFS · snapshot each run',
+        age: age(latest.aloft && latest.aloft.t), okH: 2.5, lateH: 6,
+        days: idx.aloft_days, fill: false },
     ];
 
     let rows = '';

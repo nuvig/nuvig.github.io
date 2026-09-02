@@ -85,6 +85,11 @@ const STREAMS = {
   metar:    { name: 'metar',    color: '#4a9eff', what: 'METAR. KDCA verifies the DC forecast, KNAK stands in for KANP, the rest are the nearby fields' },
   taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF for KMTN, KBWI or KDCA' },
   afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion from NWS Baltimore/Washington' },
+  pirep:    { name: 'pirep',    color: '#facc15', what: 'PIREP filed within ~150 nm of the field, at the report\'s own time' },
+  airsig:   { name: 'airsig',   color: '#fb7185', what: 'G-AIRMET, SIGMET or AIRMET touching the region, stamped when first seen' },
+  tfr:      { name: 'tfr',      color: '#c084fc', what: 'FAA TFR listed for MD/VA/DC/DE/PA/WV/NJ or ZDC/PCT, stamped when first seen' },
+  raob:     { name: 'raob',     color: '#38bdf8', what: 'KIAD radiosonde sounding (00Z/12Z), at its launch time' },
+  aloft:    { name: 'aloft',    color: '#a3e635', what: 'GFS winds and temps aloft at the field, 925/850/700/500 hPa' },
   forecast: { name: 'forecast', color: '#f0883e', what: 'NWS daily forecast digest at the DC point' },
   grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field: 48 h of ceiling, vis, wind, PoP' },
   model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field: CAPE, CIN, precip' },
@@ -161,6 +166,58 @@ function modelOne(snap) {
   return `${snap.n} h from ${clock(snap.t0)} · CAPE ${cape.length ? cape[0] : '—'} now, peak ${peak == null ? '—' : peak} J/kg · ${pr.toFixed(1)} mm total`;
 }
 
+const hm = (ts) => clock(ts).slice(0, 5);
+const pad3 = (n) => (n == null ? '—' : String(n).padStart(3, '0'));
+
+/* A G-AIRMET has no text of its own; a SIGMET's raw product is the
+   expansion. The one-liner is kind, hazard, window, altitudes. */
+function airsigOne(it) {
+  const win = it.from && it.to ? `${hm(it.from)}–${hm(it.to)}` : '';
+  const alt = it.kind === 'G-AIRMET'
+    ? [it.base != null ? `base ${it.base}` : null, it.top != null ? `top ${it.top}` : null].filter(Boolean).join(' ')
+    : [it.lo != null ? `${it.lo.toLocaleString()}` : null, it.hi != null ? `to ${it.hi.toLocaleString()} ft` : null].filter(Boolean).join(' ');
+  return [`${it.kind}${it.product ? ' ' + it.product : ''} ${it.hazard || ''}`.trim(), win, alt, it.due]
+    .filter(Boolean).join(' · ');
+}
+
+/* Freezing level from the first sub-zero level, interpolated, in feet. */
+function freezingFt(levels) {
+  for (let i = 1; i < levels.length; i++) {
+    const a = levels[i - 1], b = levels[i];
+    if (a[2] == null || b[2] == null || a[1] == null || b[1] == null) continue;
+    if (a[2] > 0 && b[2] <= 0) {
+      const f = a[2] / (a[2] - b[2]);
+      return Math.round((a[1] + f * (b[1] - a[1])) * 3.28084);
+    }
+  }
+  return null;
+}
+
+function raobOne(s, station) {
+  const L = s.levels || [];
+  const sfc = L[0] || [];
+  const z = new Date(s.t * 1000).getUTCHours();
+  const fz = freezingFt(L);
+  return [`${station} ${pad(z)}Z`, `${L.length} levels`,
+    sfc.length ? `sfc ${sfc[2]}/${sfc[3]} °C ${pad3(sfc[4])}/${sfc[5] == null ? '—' : sfc[5]} kt` : null,
+    fz != null ? `frz lvl ${fz.toLocaleString()} ft` : null].filter(Boolean).join(' · ');
+}
+
+function raobText(s, station) {
+  const lines = [`${station} ${new Date(s.t * 1000).toISOString().slice(0, 16)}Z`,
+    '  hPa      ft   T °C  Td °C   dir   kt'];
+  for (const l of s.levels || []) {
+    const f = (v, w, d = 0) => (v == null ? '—' : (+v).toFixed(d)).padStart(w);
+    lines.push(`${f(l[0], 5)} ${f(l[1] == null ? null : l[1] * 3.28084, 7)} ${f(l[2], 6, 1)} ${f(l[3], 6, 1)} ${f(l[4], 5)} ${f(l[5], 4)}`);
+  }
+  return lines.join('\n');
+}
+
+function aloftOne(s) {
+  const at = (i) => `${s.lev[i]} ${pad3((s.dir[i] || [])[0])}/${(s.spd[i] || [])[0] == null ? '—' : s.spd[i][0]}`;
+  return [`${s.n} h from ${clock(s.t0)}`].concat(s.lev.map((_, i) => at(i))).join(' · ') + ' kt';
+}
+
 /* ---------------------------------------------------------------------------
    Row building. A row is one record: its own time, which clock that time is
    on, the stream, the source, a one-liner, the file it came from, and the
@@ -168,12 +225,23 @@ function modelOne(snap) {
 --------------------------------------------------------------------------- */
 
 const rows = [];
-const seen = new Set();               // stream|src|t — dedupes day files against latest.json
+const seen = new Set();               // record keys — dedupes day files against latest.json
+const metarTimes = new Map();         // station -> its ts, for the 90 s tolerance below
 
 function add(r) {
-  const key = `${r.stream}|${r.src}|${r.t}`;
+  const key = r.key || `${r.stream}|${r.src}|${r.t}`;
   if (seen.has(key)) return false;
+  if (r.stream === 'metar') {
+    /* the archiver treats obs within 90 s as one ob — IEM and NWS round the
+       same METAR to different seconds — so a live copy and a healed copy of
+       one ob must not become two rows here */
+    const ts = metarTimes.get(r.src) || [];
+    if (ts.some((t) => Math.abs(t - r.t) <= 90)) return false;
+    ts.push(r.t);
+    metarTimes.set(r.src, ts);
+  }
   seen.add(key);
+  r.key = key;
   rows.push(r);
   return true;
 }
@@ -207,7 +275,7 @@ function snapRows(doc, stream, path, one) {
 function alertRows(doc, path) {
   if (!doc || !doc.alerts) return;
   for (const a of doc.alerts) {
-    add({ t: a.seen, clock: 'in', stream: 'alert', src: 'LWX',
+    add({ t: a.seen, clock: 'in', stream: 'alert', src: 'NWS',
           one: a.headline || a.event, text: a.desc, rec: a,
           bytes: JSON.stringify(a).length, path });
   }
@@ -231,6 +299,40 @@ function afdRow(doc, path) {
         tag: doc.bf ? 'healed' : null });
 }
 
+function pirepRows(doc, path) {
+  if (!doc || !doc.pireps) return;
+  for (const p of doc.pireps) {
+    add({ t: p.t, clock: 'own', stream: 'pirep', src: p.ac || '?', one: p.raw, text: p.raw,
+          rec: p, bytes: JSON.stringify(p).length, path, key: `pirep|${p.t}|${p.raw}` });
+  }
+}
+
+function airsigRows(doc, path) {
+  if (!doc || !doc.items) return;
+  for (const it of doc.items) {
+    add({ t: it.first, clock: 'in', stream: 'airsig', src: it.product || it.kind, one: airsigOne(it),
+          text: it.raw || null, rec: it, bytes: JSON.stringify(it).length, path, key: `airsig|${it.id}` });
+  }
+}
+
+function tfrRows(doc, path) {
+  if (!doc || !doc.tfrs) return;
+  for (const f of doc.tfrs) {
+    add({ t: f.first, clock: 'in', stream: 'tfr', src: f.state || f.facility || '?',
+          one: `${f.type || 'TFR'} · ${f.desc || f.id}`, rec: f, bytes: JSON.stringify(f).length,
+          path, key: `tfr|${f.id}` });
+  }
+}
+
+function raobRows(doc, path) {
+  if (!doc || !doc.soundings) return;
+  for (const s of doc.soundings) {
+    add({ t: s.t, clock: 'own', stream: 'raob', src: doc.station || 'KIAD', one: raobOne(s, doc.station || 'KIAD'),
+          text: raobText(s, doc.station || 'KIAD'), rec: s, bytes: JSON.stringify(s).length, path,
+          tag: s.bf ? 'healed' : null });
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Loading. index.json is the catalog: which days each stream holds. Days are
    loaded newest first, one whole day at a time, all streams in parallel.
@@ -241,10 +343,13 @@ let loaded = [];                      // days already pulled, newest first
 let allDays = [];                     // every day any stream holds, newest first
 const dayMeta = new Map();            // date -> coverage/provenance notes
 
+const has = (list, date) => Array.isArray(list) && list.includes(date);
+
 function catalogDays(idx) {
   const set = new Set();
   for (const k of ['obs_days', 'fieldobs_days', 'grid_days', 'taf_days',
-                   'alert_days', 'model_days', 'forecast_days']) {
+                   'alert_days', 'model_days', 'forecast_days', 'pirep_days',
+                   'airsig_days', 'tfr_days', 'raob_days', 'aloft_days']) {
     for (const d of idx[k] || []) set.add(d);
   }
   for (const days of Object.values(idx.station_days || {})) for (const d of days) set.add(d);
@@ -278,24 +383,47 @@ function hoursNote(idx, stream, id, date) {
   return { h, nh, missing: Math.max(0, expect - h - nh) };
 }
 
+/* The streams a day is read from, in the order loadDay() unpacks them —
+   only the files index.json says exist, so a stream that never held the day
+   is not a 404 worth asking for. */
+const DAY_STREAMS = [
+  ['obs', 'obs_days'], ['fieldobs', 'fieldobs_days'], ['taf', 'taf_days'], ['grid', 'grid_days'],
+  ['forecast', 'forecast_days'], ['model', 'model_days'], ['alerts', 'alert_days'],
+  ['pirep', 'pirep_days'], ['airsig', 'airsig_days'], ['tfr', 'tfr_days'], ['raob', 'raob_days'],
+  ['aloft', 'aloft_days'],
+];
+const ringOn = (ids, date) => ids.filter((id) => has((IDX.station_days || {})[id], date));
+
+/* Every archive path a day's rows come from, so a live refresh can drop them
+   from WXA's cache and read the day again. */
+function dayPaths(date, ids) {
+  const p = DAY_STREAMS.filter(([, k]) => has(IDX[k], date)).map(([s]) => `${s}/${date}.json`);
+  for (const id of ringOn(ids, date)) p.push(`stations/${id}/${date}.json`);
+  return p;
+}
+
 async function loadDay(date) {
   const ids = await WXA.stations();
-  const all = await Promise.all([
-    WXA.day('obs', date), WXA.day('fieldobs', date), WXA.day('taf', date),
-    WXA.day('grid', date), WXA.day('forecast', date), WXA.day('model', date),
-    WXA.day('alerts', date),
-  ].concat(ids.map((id) => WXA.station(id, date))));
-  const obs = all[0], fobs = all[1], taf = all[2], grid = all[3],
-        fc = all[4], model = all[5], alerts = all[6], st = all.slice(7);
+  const ringIds = ringOn(ids, date);
+  const all = await Promise.all(
+    DAY_STREAMS.map(([s, k]) => (has(IDX[k], date) ? WXA.day(s, date) : Promise.resolve(null)))
+      .concat(ringIds.map((id) => WXA.station(id, date))));
+  const [obs, fobs, taf, grid, fc, model, alerts, pirep, airsig, tfr, raob, aloft] = all;
+  const st = all.slice(DAY_STREAMS.length);
 
   metarRows(obs, `obs/${date}.json`);
   metarRows(fobs, `fieldobs/${date}.json`);
-  ids.forEach((id, i) => metarRows(st[i], `stations/${id}/${date}.json`));
+  ringIds.forEach((id, i) => metarRows(st[i], `stations/${id}/${date}.json`));
   tafRows(taf, `taf/${date}.json`);
   snapRows(grid, 'grid', `grid/${date}.json`, gridOne);
   snapRows(fc, 'forecast', `forecast/${date}.json`, forecastOne);
   snapRows(model, 'model', `model/${date}.json`, modelOne);
   alertRows(alerts, `alerts/${date}.json`);
+  pirepRows(pirep, `pirep/${date}.json`);
+  airsigRows(airsig, `airsig/${date}.json`);
+  tfrRows(tfr, `tfr/${date}.json`);
+  raobRows(raob, `raob/${date}.json`);
+  snapRows(aloft, 'aloft', `aloft/${date}.json`, aloftOne);
 
   const afds = (IDX.afd || []).filter((a) => dayOf(a.t) === date);
   await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));
@@ -310,7 +438,7 @@ async function loadDay(date) {
   push((obs && obs.station) || 'KDCA', hoursNote(IDX, 'obs', null, date));
   push((fobs && fobs.station) || 'KNAK', hoursNote(IDX, 'field', null, date));
   let ringH = 0, ringMiss = 0, ringNh = 0, ringN = 0;
-  ids.forEach((id, i) => {
+  ringIds.forEach((id, i) => {
     if (!st[i]) return;
     ringN++;
     const n = hoursNote(IDX, 'ring', id, date);
@@ -325,7 +453,7 @@ async function loadDay(date) {
     const doc = pair[0];
     if (doc && doc.bf && doc.bf.n) heal.push(`${pair[1]} ${doc.bf.n}`);
   }
-  ids.forEach((id, i) => {
+  ringIds.forEach((id, i) => {
     const d = st[i];
     if (d && d.bf && d.bf.n) heal.push(`${id} ${d.bf.n}`);
   });
@@ -380,10 +508,24 @@ function mergeLatest(doc) {
   }
   for (const a of doc.alerts || []) {
     if (a && a.seen) {
-      add({ t: a.seen, clock: 'in', stream: 'alert', src: 'LWX', one: a.headline || a.event,
+      add({ t: a.seen, clock: 'in', stream: 'alert', src: 'NWS', one: a.headline || a.event,
             text: a.desc, rec: a, bytes: JSON.stringify(a).length,
             path: `alerts/${dayOf(a.seen)}.json` });
     }
+  }
+  pirepRows({ pireps: doc.pireps || [] }, null);
+  for (const r of rows) if (r.stream === 'pirep' && !r.path) r.path = `pirep/${dayOf(r.t)}.json`;
+  for (const it of doc.airsig || []) {
+    if (it && it.first) airsigRows({ items: [it] }, `airsig/${dayOf(it.first)}.json`);
+  }
+  for (const f of doc.tfrs || []) {
+    if (f && f.first) tfrRows({ tfrs: [f] }, `tfr/${dayOf(f.first)}.json`);
+  }
+  if (doc.raob && doc.raob.t) {
+    raobRows({ station: doc.raob.station, soundings: [doc.raob] }, `raob/${dayOf(doc.raob.t)}.json`);
+  }
+  if (doc.aloft && doc.aloft.t) {
+    snapRows({ snaps: [doc.aloft] }, 'aloft', `aloft/${dayOf(doc.aloft.t)}.json`, aloftOne);
   }
   return rows.length - before;
 }
@@ -422,7 +564,8 @@ function visible() {
   const q = query.trim().toLowerCase();
   return rows.filter((r) => !off.has(r.stream)
     && (!q || r.one.toLowerCase().includes(q) || r.src.toLowerCase().includes(q)
-        || STREAMS[r.stream].name.includes(q)));
+        || STREAMS[r.stream].name.includes(q)
+        || (r.text != null && (r.lc || (r.lc = r.text.toLowerCase())).includes(q))));
 }
 
 const MAXEXP = 20000;                 // an expansion longer than this is cut, and says so
@@ -439,10 +582,13 @@ function fullText(r) {
   return s + note;
 }
 
+const openKeys = new Set();           // expanded rows, kept open across re-renders
+
 function rowHTML(r, i) {
   const st = STREAMS[r.stream];
   const own = r.clock === 'own';
-  return `<div class="row" data-i="${i}">`
+  return `<div class="row${openKeys.has(r.key) ? ' open' : ''}" data-i="${i}" tabindex="0" role="button"`
+    + ` aria-expanded="${openKeys.has(r.key)}">`
     + `<time class="${own ? 'own' : ''}" title="${own
         ? 'Observation or issuance time. The archiver picked this record up on a later run.'
         : 'When the site captured this record.'}">${clock(r.t)}</time>`
@@ -472,7 +618,7 @@ function render() {
     html += `<section class="day"><div class="day-head">`
       + `<h2>${esc(niceDate(date))}</h2>`
       + `<span class="day-n">${day.length.toLocaleString()} record${day.length === 1 ? '' : 's'}</span>`
-      + `<a class="day-link" href="almanac.html">almanac →</a></div>`;
+      + `<a class="day-link" href="almanac.html#d=${date}">almanac →</a></div>`;
     if (!meta) {
       /* A record's day is its own local day, so a TAF issued at 8 PM lands
          here even though this day's files were never opened. Say so rather
@@ -492,24 +638,53 @@ function render() {
   }
   $('feed').innerHTML = html || `<p class="empty">Nothing matches those filters.</p>`;
   $('count').textContent = `${list.length.toLocaleString()} of ${rows.length.toLocaleString()} records`;
+  if (openKeys.size) {
+    for (const row of $('feed').querySelectorAll('.row')) {
+      const r = rows[+row.dataset.i];
+      if (openKeys.has(r.key)) expand(row, r);
+    }
+  }
 }
 
 /* Expansion is built on demand. Four hundred <pre> blocks a day would cost
    more than the records they hold. */
-function onClick(e) {
-  const row = e.target.closest('.row');
-  if (!row) return;
-  const open = row.nextElementSibling;
-  if (open && open.classList.contains('full')) { open.remove(); row.classList.remove('open'); return; }
-  const r = rows[+row.dataset.i];
+function expand(row, r) {
   const href = r.ext ? r.path : `${WXA.base}/${r.path}`;
   const el = document.createElement('div');
   el.className = 'full';
   el.innerHTML = `<pre>${esc(fullText(r))}</pre>`
     + `<div class="prov"><a href="${esc(href)}">${esc(r.ext ? r.path : `${WXA.base}/${r.path}`)}</a>`
+    + (r.rec && r.rec.url ? ` · <a href="${esc(r.rec.url)}" target="_blank" rel="noopener">FAA detail</a>` : '')
     + ` · ${size(r.bytes)} · ${esc(STREAMS[r.stream].what)}</div>`;
   row.after(el);
   row.classList.add('open');
+  row.setAttribute('aria-expanded', 'true');
+}
+
+function toggle(row) {
+  const r = rows[+row.dataset.i];
+  const open = row.nextElementSibling;
+  if (open && open.classList.contains('full')) {
+    open.remove();
+    row.classList.remove('open');
+    row.setAttribute('aria-expanded', 'false');
+    openKeys.delete(r.key);
+    return;
+  }
+  expand(row, r);
+  openKeys.add(r.key);
+}
+
+function onClick(e) {
+  const row = e.target.closest('.row');
+  if (row && !e.target.closest('a')) toggle(row);
+}
+
+function onKey(e) {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('row')) {
+    e.preventDefault();
+    toggle(e.target);
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -522,7 +697,21 @@ let live = true, timer = null, lastPoll = null;
 
 async function poll() {
   WXA._cache.delete('latest.json');
-  const n = mergeLatest(await WXA.latest()) + (await loadTracker());
+  let n = mergeLatest(await WXA.latest()) + (await loadTracker());
+  /* A new archive run: re-read the catalog and today's files, so the day
+     header's coverage and any healed records follow the archive instead of
+     freezing at page load. */
+  WXA._cache.delete('index.json');
+  const idx = await WXA.index();
+  if (idx && IDX && idx.updated !== IDX.updated) {
+    IDX = idx;
+    allDays = catalogDays(IDX);
+    const today = dayOf(Date.now() / 1000);
+    for (const p of dayPaths(today, await WXA.stations())) WXA._cache.delete(p);
+    await loadDay(today);
+    if (!loaded.includes(today)) loaded.unshift(today);
+    n += 1;
+  }
   lastPoll = Date.now() / 1000;
   if (n) render();
   tick();
@@ -561,17 +750,25 @@ function chips() {
   });
 }
 
+const MORE_DAYS = 7;
+
+function moreLabel() {
+  const next = allDays.slice(loaded.length, loaded.length + MORE_DAYS);
+  $('more').textContent = next.length
+    ? `Load ${next.length} more day${next.length === 1 ? '' : 's'} → ${next[next.length - 1]}`
+    : 'That is the whole archive';
+  $('more').disabled = !next.length;
+}
+
 async function more() {
-  const next = allDays[loaded.length];
-  if (!next) return;
+  const batch = allDays.slice(loaded.length, loaded.length + MORE_DAYS);
+  if (!batch.length) return;
   $('more').disabled = true;
-  $('more').textContent = `loading ${next}…`;
-  await loadDay(next);
-  loaded.push(next);
+  $('more').textContent = `loading ${batch[batch.length - 1]} … ${batch[0]}`;
+  await Promise.all(batch.map(loadDay));
+  loaded.push(...batch);
   render();
-  const after = allDays[loaded.length];
-  $('more').textContent = after ? `Load ${after}` : 'That is the whole archive';
-  $('more').disabled = !after;
+  moreLabel();
 }
 
 async function boot() {
@@ -593,13 +790,12 @@ async function boot() {
   await loadTracker();
   render();
 
-  const next = allDays[loaded.length];
-  $('more').textContent = next ? `Load ${next}` : 'That is the whole archive';
-  $('more').disabled = !next;
+  moreLabel();
   $('more').style.display = '';
   $('more').addEventListener('click', more);
 
   $('feed').addEventListener('click', onClick);
+  $('feed').addEventListener('keydown', onKey);
   $('q').addEventListener('input', (e) => { query = e.target.value; render(); });
   $('live').addEventListener('click', () => setLive(!live));
   chips();
