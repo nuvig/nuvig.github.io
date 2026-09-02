@@ -831,12 +831,38 @@
     window.addEventListener('resize', () => drawAsrsChart());
   }
 
+  // ---------------------------------------------------------------- TFRs
+  // The region's rows of the FAA TFR list, as the hourly archiver last saw
+  // them (data/wx/latest.json — tfr.faa.gov has no CORS). The standing DC
+  // security NOTAMs come through as state "USA" and sit last.
+  async function initTfrs() {
+    const box = $('tfr-list');
+    if (!box || typeof WXA === 'undefined') return;
+    const L = await WXA.latest();
+    if (!L) { box.textContent = 'archive unreachable'; return; }
+    const rows = L.tfrs || [];
+    const ageH = (Date.now() / 1000 - L.t) / 3600;
+    $('tfr-stamp').textContent = `as of ${new Date(L.t * 1000).toLocaleTimeString('en-US',
+      { hour: 'numeric', minute: '2-digit', timeZone: SITE.weather.timeZone })}` +
+      (ageH > 3 ? ` · ${Math.round(ageH)} h old` : '');
+    if (!rows.length) { box.textContent = 'none listed'; return; }
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const standing = (r) => r.state === 'USA';
+    const sorted = rows.slice().sort((a, b) => (standing(a) - standing(b)) || String(a.id).localeCompare(String(b.id)));
+    box.innerHTML = sorted.map((r) =>
+      `<div><a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#4a9eff">${esc(r.id)}</a>` +
+      ` <span style="color:#a7b0bc">${esc(r.type || 'TFR')}</span> · ${esc(r.desc || '')}` +
+      (standing(r) ? ' <span style="color:#666">· standing</span>' : '') + '</div>').join('');
+    box.classList.remove('faint');
+  }
+
   // ---------------------------------------------------------------- boot
   document.addEventListener('DOMContentLoaded', () => {
     initMap();
     renderTree();
     buildOutline();
     initRecord();
+    initTfrs();
     $('tree-back').onclick = () => { if (path.length) { path.pop(); renderTree(); } };
     $('tree-restart').onclick = () => { path.length = 0; renderTree(); };
   });
