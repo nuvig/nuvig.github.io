@@ -213,6 +213,17 @@ def fetch(url, fresh=False):
         return json.load(r)
 
 
+def fetch_soft(url):
+    """fetch() for the optional streams: an empty or non-JSON body (the
+    aviationweather.gov data API does that now and then) is logged and
+    returned as None — nothing this run — instead of failing the step."""
+    try:
+        return fetch(url)
+    except json.JSONDecodeError as e:
+        log(f"{url.split('?')[0]}: not JSON ({e}); skipping this run")
+        return None
+
+
 def fetch_text(url):
     req = urllib.request.Request(url, headers={
         "User-Agent": "wxarchive (jesselevine.net)",
@@ -1092,7 +1103,9 @@ def snapshot_pireps():
     observation time (the report's day, not the run's). Deduped on
     (time, raw text)."""
     lat0, lon0, lat1, lon1 = region_box()
-    data = fetch(f"{AWC}/pirep?bbox={lat0},{lon0},{lat1},{lon1}&age=6&format=json")
+    data = fetch_soft(f"{AWC}/pirep?bbox={lat0},{lon0},{lat1},{lon1}&age=6&format=json")
+    if data is None:
+        return 0
     now = local_now()
     seen = int(now.timestamp())
     docs, changed, added = {}, set(), 0
@@ -1180,8 +1193,10 @@ def merge_active(doc, key, items, seen):
 def snapshot_airsig():
     """G-AIRMETs (SIERRA/TANGO/ZULU) and SIGMETs/AIRMETs touching the region,
     as a per-day record of what was in effect: first/last seen per item."""
-    gair = fetch(f"{AWC}/gairmet?format=json")
-    sigs = fetch(f"{AWC}/airsigmet?format=json")
+    gair = fetch_soft(f"{AWC}/gairmet?format=json")
+    sigs = fetch_soft(f"{AWC}/airsigmet?format=json")
+    if gair is None and sigs is None:
+        return 0
     now = local_now()
     seen = int(now.timestamp())
     day = f"{now:%Y-%m-%d}"
@@ -1218,7 +1233,9 @@ def tfr_rows(rows, seen):
 
 
 def snapshot_tfrs():
-    data = fetch(TFR_LIST)
+    data = fetch_soft(TFR_LIST)
+    if data is None:
+        return 0
     now = local_now()
     seen = int(now.timestamp())
     day = f"{now:%Y-%m-%d}"

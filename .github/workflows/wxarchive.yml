@@ -35,8 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A step that hits an upstream blip (an empty body from
+      # aviationweather.gov, an NWS 5xx) exits 1 after logging it. That must
+      # not skip the commit: everything the other steps wrote this hour would
+      # be thrown away, and the next run would have to re-fetch it. Commit
+      # what landed; the exit code becomes a warning annotation on the run.
       - name: Fetch AFDs, forecast snapshot, METARs
-        run: python3 scripts/wxarchive.py
+        run: python3 scripts/wxarchive.py || echo "::warning::wxarchive.py reported problems (see the log); committing what landed"
 
       - name: Commit archive
         run: |

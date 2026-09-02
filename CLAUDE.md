@@ -797,6 +797,11 @@ concepts; to relink, add the tools.html card back.
   `pireps` (last 12 h), `airsig` and `tfrs` (in effect at the last run), `raob` (newest
   sounding) and `aloft` (last snap); `index.json` lists `*_days` for each plus `raob_station`,
   `region`, `aloft_levels`. Shapes are in the `wxarchive.py` docstring.
+  **A failing step never blocks the commit** (2026-09-02): the workflow runs the archiver with
+  `|| echo ::warning`, because one upstream blip (aviationweather.gov handed the PIREP fetch an
+  empty body) made the script exit 1 and the commit step was skipped, throwing away every
+  other stream's writes for that hour. The optional AWC/FAA fetches go through `fetch_soft()`
+  (empty/non-JSON body → logged, nothing this run).
   Don't "simplify" the archiver back to a single API.
 - `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
   two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the
