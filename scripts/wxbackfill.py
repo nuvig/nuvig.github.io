@@ -199,34 +199,19 @@ def backfill_fieldobs(since, until, dry):
 # afd + taf — IEM AFOS text-product archive
 # ---------------------------------------------------------------------------
 
-PRODUCT_ID_RE = re.compile(r"^(\d{12})-")
-
-
-def product_time(product_id):
-    """'202608061838-KLWX-FXUS61-AFDLWX' -> aware UTC datetime. Pure."""
-    m = PRODUCT_ID_RE.match(product_id or "")
-    if not m:
-        return None
-    try:
-        return datetime.datetime.strptime(m.group(1), "%Y%m%d%H%M").replace(tzinfo=UTC)
-    except ValueError:
-        return None
-
-
-def clean_product(text):
-    """Strip AFOS control chars; keep the WMO header lines the live archiver
-    also keeps (parity with NWS productText). Pure."""
-    text = text.replace("\x01", "").replace("\x03", "").replace("\r", "")
-    return text.strip("\n") + "\n"
+# The AFOS helpers live in wxarchive.py now (heal_tafs() uses them hourly);
+# these wrappers add the politeness pause a long backfill needs.
+product_time = wxa.product_time
+clean_product = wxa.clean_product
 
 
 def list_products(pil, day):
-    data = http_json(f"{IEM}/api/1/nws/afos/list.json?pil={pil}&date={day:%Y-%m-%d}")
+    data = http_json(wxa.afos_list_url(pil, day))
     return [p.get("product_id") for p in (data.get("data") or []) if p.get("product_id")]
 
 
 def fetch_product(product_id):
-    return clean_product(http_text(f"{IEM}/api/1/nwstext/{product_id}"))
+    return clean_product(http_text(wxa.afos_text_url(product_id)))
 
 
 def backfill_afd(since, until, dry):
@@ -260,22 +245,14 @@ def backfill_afd(since, until, dry):
     return added
 
 
-def merge_taf_day(doc, station, t, raw):
-    """Append one backfilled raw-text TAF unless that issuance is already
-    there (live decoded or previously backfilled). Pure."""
-    if any(x["station"] == station and abs(x["t"] - t) <= 90 for x in doc["tafs"]):
-        return 0
-    doc["tafs"].append({"station": station, "t": t, "raw": raw, "bf": 1})
-    doc["tafs"].sort(key=lambda x: (x["t"], x["station"]))
-    mark_bf(doc, 1)
-    return 1
+merge_taf_day = wxa.merge_taf_day
 
 
 def backfill_taf(since, until, dry):
     tz = wxa.local_now().tzinfo
     added = 0
     for station in wxa.TAF_STATIONS:
-        pil = "TAF" + (station[1:] if len(station) == 4 else station)
+        pil = wxa.taf_pil(station)
         for day in days_between(since, until):
             try:
                 pids = list_products(pil, day)
@@ -628,6 +605,115 @@ def run_selftest():
             got = days_between(datetime.date(2026, 1, 30), datetime.date(2026, 2, 2))
             self.assertEqual(len(got), 4)
 
+        def _taf_run(self, stamps_docs, cap=30):
+            """Drive wxa.archive_tafs() against a canned collection.
+            stamps_docs: [(iso_utc, doc_key)] — doc_key names which fake XML
+            the per-issuance URL serves; decode is stubbed to map it to a
+            distinct periods payload. Returns the list of doc_keys fetched."""
+            fetched = []
+            saved = (wxa.taf_collection, wxa.fetch_text, wxa.decode_taf_xml,
+                     wxa.TAF_STATIONS, wxa.TAF_FETCH_CAP)
+            wxa.taf_collection = lambda station, on_disk: [
+                {"issueTime": iso, "id": key} for iso, key in stamps_docs]
+            wxa.fetch_text = lambda url: (fetched.append(url), url)[1]
+            wxa.decode_taf_xml = lambda xml: [{"ind": "FM", "doc": xml,
+                                              "b": 1, "e": 2}]
+            wxa.TAF_STATIONS, wxa.TAF_FETCH_CAP = ["KBWI"], cap
+            try:
+                added = wxa.archive_tafs()
+            finally:
+                (wxa.taf_collection, wxa.fetch_text, wxa.decode_taf_xml,
+                 wxa.TAF_STATIONS, wxa.TAF_FETCH_CAP) = saved
+            return added, fetched
+
+        def test_taf_phantom_stamps_settle_as_dup(self):
+            """2026-08-30 in miniature: the collection lists per-minute
+            issueTimes that all serve the same document. One issuance is
+            archived; the rest settle into "dup" and are never re-fetched."""
+            now = wxa.local_now()
+            iso = lambda mins: (now - datetime.timedelta(minutes=mins)) \
+                .astimezone(datetime.timezone.utc) \
+                .strftime("%Y-%m-%dT%H:%M:00+00:00")
+            coll = [(iso(300), "docA")] + [(iso(m), "docB")
+                                           for m in (90, 60, 45, 30)]
+            added, fetched = self._taf_run(coll)
+            self.assertEqual(added, 2)               # docA once, docB once
+            self.assertEqual(len(fetched), 5)        # each stamp fetched once
+            day = f"{now:%Y-%m-%d}"
+            doc = wxa.read_json(os.path.join(wxa.TAF_DIR, day + ".json"), {})
+            tafs = [x for x in doc.get("tafs", []) if x["station"] == "KBWI"]
+            dups = (doc.get("dup") or {}).get("KBWI", [])
+            # the same stamps may straddle local midnight into yesterday's file
+            prev = wxa.read_json(os.path.join(
+                wxa.TAF_DIR, f"{now - datetime.timedelta(days=1):%Y-%m-%d}.json"), {})
+            tafs += [x for x in prev.get("tafs", []) if x["station"] == "KBWI"]
+            dups += (prev.get("dup") or {}).get("KBWI", [])
+            self.assertEqual(len(tafs), 2)
+            self.assertEqual(len(dups), 3)
+            # a second run over the same frozen collection fetches nothing
+            added, fetched = self._taf_run(coll)
+            self.assertEqual((added, fetched), (0, []))
+
+        def test_taf_fetch_cap_defers_oldest(self):
+            now = wxa.local_now()
+            iso = lambda mins: (now - datetime.timedelta(minutes=mins)) \
+                .astimezone(datetime.timezone.utc) \
+                .strftime("%Y-%m-%dT%H:%M:00+00:00")
+            coll = [(iso(m), f"doc{m}") for m in (240, 180, 120, 60)]
+            added, fetched = self._taf_run(coll, cap=2)
+            self.assertEqual(added, 2)
+            self.assertEqual(fetched, ["doc60", "doc120"])   # newest first
+            added, fetched = self._taf_run(coll, cap=2)      # next run: the rest
+            self.assertEqual(added, 2)
+            self.assertEqual(fetched, ["doc180", "doc240"])
+
+        def test_taf_holes_are_unfilled_settled_slots(self):
+            tz = wxa.local_now().tzinfo
+            day = "2026-08-30"
+            # 05:20Z slot filled (issued 05:23Z); 11:20Z, 17:20Z, 23:20Z empty
+            doc = {"date": day, "tafs": [
+                {"station": "KBWI", "t": 1788067380, "raw": "x"}]}
+            now = datetime.datetime(2026, 8, 31, 1, 0, tzinfo=UTC)   # 21:00 EDT 08-30
+            holes = wxa.taf_holes(doc, "KBWI", day, tz, now)
+            hm = [datetime.datetime.fromtimestamp(s, UTC).strftime("%H:%M") for s in holes]
+            self.assertEqual(hm, ["11:20", "17:20"])   # 23:20Z not settled yet
+            # a station with nothing on file is short every settled slot
+            self.assertEqual(len(wxa.taf_holes(doc, "KDCA", day, tz, now)), 3)
+
+        def test_heal_tafs_fills_from_iem_then_goes_quiet(self):
+            day = "2026-08-30"
+            path = os.path.join(wxa.TAF_DIR, day + ".json")
+            wxa.write_json(path, {"date": day, "tafs": [
+                {"station": "KBWI", "t": 1788067380, "raw": "x"}]})
+            calls = []
+            listing = {"data": [
+                {"product_id": "202608301120-KLWX-FTUS41-TAFBWI"},
+                {"product_id": "202608301722-KLWX-FTUS41-TAFBWI"},
+                {"product_id": "202608300523-KLWX-FTUS41-TAFBWI"},   # already there
+            ]}
+            saved = (wxa.fetch, wxa.fetch_text, wxa.local_now, wxa.TAF_STATIONS,
+                     wxa.HEAL_DAYS)
+            wxa.fetch = lambda url, fresh=False: (calls.append(url), listing)[1]
+            wxa.fetch_text = lambda url: (calls.append(url), "\x01TAF\nKBWI " + url[-30:] + "\x03")[1]
+            wxa.local_now = lambda: datetime.datetime(2026, 8, 31, 1, 0, tzinfo=UTC) \
+                .astimezone(self.saved_tz)
+            wxa.TAF_STATIONS, wxa.HEAL_DAYS = ["KBWI"], 1
+            try:
+                healed = wxa.heal_tafs()
+                doc = wxa.read_json(path, {})
+                self.assertEqual(healed, 2)
+                self.assertEqual(len(doc["tafs"]), 3)
+                self.assertEqual(doc["bf"]["n"], 2)
+                self.assertTrue(all(x.get("bf") for x in doc["tafs"][1:]))
+                self.assertEqual(sum("afos/list" in c for c in calls), 1)
+                calls.clear()
+                self.assertEqual(wxa.heal_tafs(), 0)
+                self.assertEqual(calls, [])              # healthy day: no requests
+            finally:
+                (wxa.fetch, wxa.fetch_text, wxa.local_now, wxa.TAF_STATIONS,
+                 wxa.HEAL_DAYS) = saved
+
+    Fixtures.saved_tz = wxa.local_now().tzinfo
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1

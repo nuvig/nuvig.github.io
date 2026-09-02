@@ -683,7 +683,15 @@ concepts; to relink, add the tools.html card back.
   are built on, and archiving them twice would fork the record. A station nobody publishes logs
   and is skipped, never fatal) ·
   `grid/` (NWS hourly grid at KANP — ceiling/vis/wind/PoP/weather, 48 h out) · `taf/` (every
-  KMTN/KBWI/KDCA issuance, decoded from IWXXM; KADW has no TAF on the NWS API — checked) ·
+  KMTN/KBWI/KDCA issuance, decoded from IWXXM; KADW has no TAF on the NWS API — checked.
+  **Deduped by content as well as by issue time**: over 2026-08-27..31 the NWS collection
+  endpoint listed hundreds of phantom per-minute issueTimes per station per day, all serving
+  the same document — 1,075 entries archived on the 30th holding two distinct forecasts, most
+  under wrong times — then froze outright while LWX kept issuing normally. A stamp whose
+  decoded periods match a temporal neighbour's now settles into the day file's `"dup"`
+  bookkeeping (never re-fetched, capped at `WX_TAF_FETCH_CAP` XML fetches/station/run,
+  newest first); consumers only read `"tafs"`. The corrupt days were wiped into `dup` and
+  rebuilt from IEM as raw-text `bf` entries) ·
   `alerts/` · `model/` (GFS CAPE/CIN/precip at the field). `git add data/wx` in the workflow
   picks up new streams automatically.
   Its forecast digest mirrors `js/discussion.js` `loadDrift()` — change both together.
@@ -706,6 +714,18 @@ concepts; to relink, add the tools.html card back.
   A day file that ends up holding **no** obs is that bookkeeping and nothing else — `index.json`
   does not list it as a day, or a station that has gone dark shows a full day count and reads as
   healthy (KFME did exactly that).
+  **TAFs heal the same way** (`heal_tafs()`, added 2026-09-01): the NWS `/stations/{id}/tafs`
+  collection listed hundreds of phantom per-minute issue times a day from 08-27 and then froze
+  outright on 08-30 22:57Z for every station (still frozen 09-01) while LWX kept issuing, so the
+  stream simply stopped. Each run checks the last `WX_HEAL_DAYS` days for a scheduled slot
+  (`WX_TAF_SLOTS`, 0520/1120/1720/2320Z) with no issuance within −1 h/+100 min for a station,
+  and only for such a station-day lists IEM's AFOS products (`TAF<ID>` pil) and merges what is
+  missing as raw-text `bf` entries — the same shape `wxbackfill.py` writes, whose AFOS helpers
+  now live in `wxarchive.py`. Amendments between slots are only picked up alongside a missed
+  slot; the backfiller remains the thorough repair. **The 08-31 fix commit `adaa826b`
+  (content-dedupe into `dup`, 08-27..30 rebuilt from IEM) had been stranded on an unmerged
+  web-session branch** — the almanac showed 1,082 TAF "issuances" for 08-30 until it was
+  cherry-picked to main on 09-01.
   Don't "simplify" the archiver back to a single API.
 - `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
   two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the
@@ -714,7 +734,7 @@ concepts; to relink, add the tools.html card back.
 - `scripts/wxbackfill.py` + `.github/workflows/wxbackfill.yml` — **manual** backfill of the
   factual streams (`obs`/`fieldobs`/`stations`/`afd`/`taf` from IEM's archives; `model` opt-in from
   Open-Meteo's historical-forecast API) for a date range, run from the Actions tab or by hand.
-  It is now for *history* only — hours inside the last three days heal themselves hourly.
+  It is now for *history* only — METAR hours and scheduled TAF slots inside the last three days heal themselves hourly.
   KNAK is in IEM's ASOS archive under id `NAK`, so `fieldobs` backfills exactly like `obs`;
   `stations` walks the whole ring the same way, so a field added to `WX_STATIONS` today can be
   given the same history as the rest in one run.

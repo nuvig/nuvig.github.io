@@ -123,6 +123,13 @@ OBS_LOOKBACK_H = int(os.environ.get("WX_OBS_LOOKBACK_H", "36"))
 # Same idea for TAFs: how far back each run is willing to re-check the
 # issuance list. Bounds the per-run XML fetches without capping by position.
 TAF_LOOKBACK_H = int(os.environ.get("WX_TAF_LOOKBACK_H", "36"))
+# Bound on per-run TAF XML fetches per station. Over 2026-08-27..31 the
+# collection endpoint dumped hundreds of retroactive per-minute phantom
+# issueTimes per station at once; every stamp is fetched at most once ever
+# (then remembered in the day file's "dup" bookkeeping), and this cap keeps
+# the first run that meets such a dump polite. Stamps are processed newest
+# first, so the cap only ever defers the oldest ones to the next run.
+TAF_FETCH_CAP = int(os.environ.get("WX_TAF_FETCH_CAP", "30"))
 # How many local days back heal_metars() re-checks against IEM. Three days is
 # well past any plausible NWS ingest delay while keeping the request cheap;
 # older holes are wxbackfill.py's job.
@@ -132,6 +139,10 @@ HEAL_DAYS = int(os.environ.get("WX_HEAL_DAYS", "3"))
 # recorded in the day file's "nh" list so it is never re-fetched.
 NH_SETTLE_H = int(os.environ.get("WX_NH_SETTLE_H", "3"))
 IEM = os.environ.get("WX_IEM", "https://mesonet.agron.iastate.edu")
+# When the scheduled TAFs for these stations are issued (UTC). heal_tafs()
+# treats a scheduled slot with no issuance near it as a hole to fill from IEM.
+TAF_SLOTS_Z = [s.strip() for s in os.environ.get(
+    "WX_TAF_SLOTS", "05:20,11:20,17:20,23:20").split(",") if s.strip()]
 
 
 def log(msg):
@@ -624,15 +635,26 @@ def decode_taf_xml(text):
     return periods
 
 
+def taf_stamps(doc, station):
+    """Every issueTime a day file already accounts for: archived issuances
+    plus the stamps in "dup" — ones fetched once and dismissed because the
+    collection listed the same document again under a new time. Either way
+    the stamp is settled and never re-fetched."""
+    stamps = {x["t"] for x in doc.get("tafs", []) if x["station"] == station}
+    stamps.update((doc.get("dup") or {}).get(station, []))
+    return stamps
+
+
 def newest_taf_on_disk(station, now):
-    """Latest issue time already archived for a station, over the window we
-    re-read. The staleness check below compares against this."""
+    """Latest issue time already accounted for, over the window we re-read.
+    The staleness check below compares against this."""
     newest = 0
     for back in range(0, TAF_LOOKBACK_H // 24 + 2):
         day = f"{now - datetime.timedelta(days=back):%Y-%m-%d}"
-        for x in read_json(os.path.join(TAF_DIR, f"{day}.json"), {}).get("tafs", []):
-            if x["station"] == station:
-                newest = max(newest, x["t"])
+        doc = read_json(os.path.join(TAF_DIR, f"{day}.json"), {})
+        stamps = taf_stamps(doc, station)
+        if stamps:
+            newest = max(newest, max(stamps))
     return newest
 
 
@@ -661,8 +683,14 @@ def taf_collection(station, on_disk):
 
 
 def archive_tafs():
-    """Every TAF issuance, decoded, deduped by issue time. The NWS collection
-    endpoint only keeps recent ones — this keeps them all."""
+    """Every TAF issuance, decoded, deduped by issue time — and by content.
+    Content matters because the collection endpoint malfunctions in bulk:
+    over 2026-08-27..31 it listed hundreds of phantom per-minute issueTimes
+    per station per day, every one serving the same document (the 30th
+    archived 1,075 entries holding two distinct forecasts), then froze
+    outright. A stamp whose decoded periods match a temporal neighbour's is
+    recorded in the day file's "dup" bookkeeping — settled, never re-fetched
+    — instead of archived as an issuance. Consumers only read "tafs"."""
     now = local_now()
     cutoff = int((now - datetime.timedelta(hours=TAF_LOOKBACK_H)).timestamp())
     added = 0
@@ -672,28 +700,211 @@ def archive_tafs():
         except (urllib.error.URLError, OSError, KeyError) as e:
             log(f"taf {station}: {e}")
             continue
-        for item in items:
+        if items:
+            age_h = (now.timestamp() - max(epoch(i["issueTime"])
+                                           for i in items)) / 3600
+            if age_h > 12:      # TAFs come at least 4x/day; this is upstream
+                log(f"taf {station}: collection newest is {age_h:.0f} h old — "
+                    "NWS is publishing nothing new for this station")
+
+        docs = {}               # local day -> its day file, read once
+
+        def day_doc(t):
+            day = f"{datetime.datetime.fromtimestamp(t, now.tzinfo):%Y-%m-%d}"
+            if day not in docs:
+                docs[day] = read_json(os.path.join(TAF_DIR, f"{day}.json"),
+                                      {"date": day, "tafs": []})
+            return day, docs[day]
+
+        def neighbours(t):
+            """The archived issuances just before and just after t, looking
+            into the adjacent day files for stamps near local midnight."""
+            entries = []
+            for off in (-86400, 0, 86400):
+                entries += [x for x in day_doc(t + off)[1]["tafs"]
+                            if x["station"] == station]
+            before = [x for x in entries if x["t"] < t]
+            after = [x for x in entries if x["t"] > t]
+            return (max(before, key=lambda x: x["t"]) if before else None,
+                    min(after, key=lambda x: x["t"]) if after else None)
+
+        fetches = 0
+        for item in sorted(items, key=lambda i: epoch(i["issueTime"]),
+                           reverse=True):
             iso = item["issueTime"]
             t = epoch(iso)
             if t < cutoff:      # bounded work; anything older is already ours
                 continue
-            day = f"{datetime.datetime.fromtimestamp(t, now.tzinfo):%Y-%m-%d}"
-            path = os.path.join(TAF_DIR, f"{day}.json")
-            doc = read_json(path, {"date": day, "tafs": []})
-            if any(x["station"] == station and x["t"] == t for x in doc["tafs"]):
+            day, doc = day_doc(t)
+            if t in taf_stamps(doc, station):
                 continue
+            if fetches >= TAF_FETCH_CAP:
+                log(f"taf {station}: fetch cap ({TAF_FETCH_CAP}) hit — the "
+                    "rest of the collection waits for the next run")
+                break
             try:
                 periods = decode_taf_xml(fetch_text(item["id"]))
             except (urllib.error.URLError, OSError, ET.ParseError) as e:
                 log(f"taf {station} {iso}: {e}")
                 continue
+            fetches += 1
+            prev, nxt = neighbours(t)
+            if any(n is not None and n.get("periods") == periods
+                   for n in (prev, nxt)):
+                # the same document under another stamp — settle it. Checked
+                # both ways because stamps are processed newest first: during
+                # a freeze the one stored copy sits *after* the phantoms.
+                doc.setdefault("dup", {}).setdefault(station, []).append(t)
+                doc["dup"][station].sort()
+                write_json(os.path.join(TAF_DIR, f"{day}.json"), doc)
+                continue
             doc["tafs"].append({"station": station, "t": t, "periods": periods})
             doc["tafs"].sort(key=lambda x: (x["t"], x["station"]))
-            write_json(path, doc)
+            write_json(os.path.join(TAF_DIR, f"{day}.json"), doc)
             added += 1
     if added:
         log(f"archived {added} TAF issuance(s)")
     return added
+
+
+# ---------------------------------------------------------------------------
+# TAF healing from IEM's text-product archive
+# ---------------------------------------------------------------------------
+
+PRODUCT_ID_RE = re.compile(r"^(\d{12})-")
+
+
+def taf_pil(station):
+    """'KBWI' -> 'TAFBWI', the AFOS product id IEM files the TAF under."""
+    return "TAF" + (station[1:] if len(station) == 4 else station)
+
+
+def product_time(product_id):
+    """'202608061838-KLWX-FXUS61-AFDLWX' -> aware UTC datetime. Pure."""
+    m = PRODUCT_ID_RE.match(product_id or "")
+    if not m:
+        return None
+    try:
+        return datetime.datetime.strptime(
+            m.group(1), "%Y%m%d%H%M").replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+
+
+def clean_product(text):
+    """Strip AFOS control chars; keep the WMO header lines the live archiver
+    also keeps (parity with NWS productText). Pure."""
+    text = text.replace("\x01", "").replace("\x03", "").replace("\r", "")
+    return text.strip("\n") + "\n"
+
+
+def afos_list_url(pil, day):
+    return f"{IEM}/api/1/nws/afos/list.json?pil={pil}&date={day:%Y-%m-%d}"
+
+
+def afos_text_url(product_id):
+    return f"{IEM}/api/1/nwstext/{product_id}"
+
+
+def merge_taf_day(doc, station, t, raw):
+    """Append one raw-text TAF unless that issuance is already there (live
+    decoded or previously filled in). Tagged bf. Pure."""
+    if any(x["station"] == station and abs(x["t"] - t) <= 90 for x in doc["tafs"]):
+        return 0
+    doc["tafs"].append({"station": station, "t": t, "raw": raw, "bf": 1})
+    doc["tafs"].sort(key=lambda x: (x["t"], x["station"]))
+    mark_bf(doc, 1)
+    return 1
+
+
+def taf_holes(doc, station, day, tz, now):
+    """Scheduled slots of local day `day` with no issuance for `station`
+    within [slot - 1 h, slot + 100 min), among slots settled NH_SETTLE_H ago.
+    Returns the slot times (epoch). Pure."""
+    stamps = [x["t"] for x in doc.get("tafs", []) if x["station"] == station]
+    d0 = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=tz)
+    lo, hi = int(d0.timestamp()), int((d0 + datetime.timedelta(days=1)).timestamp())
+    settle = int(now.timestamp()) - NH_SETTLE_H * 3600
+    holes = []
+    for back in (-1, 0, 1):        # slots of the UTC dates the local day spans
+        base = (d0 + datetime.timedelta(days=back)).astimezone(datetime.timezone.utc)
+        for hm in TAF_SLOTS_Z:
+            hh, mm = (int(v) for v in hm.split(":"))
+            s = int(base.replace(hour=hh, minute=mm, second=0).timestamp())
+            if not (lo <= s < hi) or s > settle:
+                continue
+            if not any(s - 3600 <= t < s + 6000 for t in stamps):
+                holes.append(s)
+    return sorted(set(holes))
+
+
+def heal_tafs():
+    """Fill scheduled TAF issuances the NWS collection never served, from
+    IEM's AFOS archive, over the last HEAL_DAYS days.
+
+    Why this exists: api.weather.gov's /stations/{id}/tafs collection is not a
+    source of record either. From 2026-08-27 it listed hundreds of phantom
+    per-minute issue times a day, then froze outright on the 30th at 22:57Z
+    for every station while LWX kept issuing normally — so the taf stream
+    simply stopped, and stayed stopped until someone ran wxbackfill.py by
+    hand. Same rule as heal_metars(): one API is not the whole record.
+
+    A scheduled slot (TAF_SLOTS_Z) with no issuance near it is a hole. Only
+    for a station-day that has one does this list IEM's products for that
+    day and merge whatever is missing, as raw-text bf entries like the
+    backfiller writes. On a healthy day it makes no requests at all.
+    Amendments between scheduled slots are only picked up alongside a missed
+    slot; wxbackfill.py remains the thorough repair."""
+    now = local_now()
+    tz = now.tzinfo
+    days = [f"{now - datetime.timedelta(days=d):%Y-%m-%d}" for d in range(HEAL_DAYS)]
+    healed = 0
+    for station in TAF_STATIONS:
+        for day in sorted(days):
+            path = os.path.join(TAF_DIR, f"{day}.json")
+            doc = read_json(path, {"date": day, "tafs": []})
+            holes = taf_holes(doc, station, day, tz, now)
+            if not holes:
+                continue
+            log(f"heal taf {station} {day}: {len(holes)} scheduled slot(s) with no issuance")
+            pids = []
+            seen = set()
+            for s in holes:
+                utc_day = datetime.datetime.fromtimestamp(s, datetime.timezone.utc).date()
+                if utc_day in seen:
+                    continue
+                seen.add(utc_day)
+                try:
+                    data = fetch(afos_list_url(taf_pil(station), utc_day))
+                except (urllib.error.URLError, OSError, ValueError) as e:
+                    log(f"heal taf {station} {utc_day}: {e}")
+                    continue
+                pids += [p.get("product_id") for p in (data.get("data") or [])
+                         if p.get("product_id")]
+            added = 0
+            for pid in pids:
+                t = product_time(pid)
+                if not t:
+                    continue
+                ts = int(t.timestamp())
+                if f"{t.astimezone(tz):%Y-%m-%d}" != day:
+                    continue            # belongs to a neighbouring local day
+                if any(x["station"] == station and abs(x["t"] - ts) <= 90
+                       for x in doc["tafs"]):
+                    continue
+                try:
+                    raw = clean_product(fetch_text(afos_text_url(pid)))
+                except (urllib.error.URLError, OSError) as e:
+                    log(f"heal taf {pid}: {e}")
+                    continue
+                added += merge_taf_day(doc, station, ts, raw)
+            if added:
+                write_json(path, doc)
+                log(f"heal taf {station} {day}: +{added} issuance(s) from IEM")
+                healed += added
+    if healed:
+        log(f"heal: {healed} TAF issuance(s) recovered that the NWS API never served")
+    return healed
 
 
 # ---------------------------------------------------------------------------
@@ -907,11 +1118,11 @@ def build_index():
 
 def main():
     problems = 0
-    # heal_metars runs last: it repairs whatever the live METAR passes above
-    # could not get out of api.weather.gov, in the same run.
+    # the heal passes run last: they repair whatever the live METAR and TAF
+    # passes above could not get out of api.weather.gov, in the same run.
     for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
                  archive_stations, snapshot_grid, archive_tafs, snapshot_alerts,
-                 snapshot_model, heal_metars):
+                 snapshot_model, heal_metars, heal_tafs):
         try:
             step()
         except (urllib.error.URLError, OSError, KeyError, ValueError,
