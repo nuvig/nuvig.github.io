@@ -8,6 +8,14 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 
 ## Conventions
 
+- **Visitor-facing copy is terse. No prose.** Jesse has said this repeatedly (last 2026-09-01:
+  "stop using like human prose for stuff like that, i dont know how many times i have to tell
+  you"). Rules: label → value, never a sentence; a link is `label → link`, not
+  "(those are on the data feed)"; no aphorisms, slogans, bolded taglines or explanatory
+  parentheticals; no page has a footer essay; a subtitle is one line or absent; tooltips are a
+  clause. Name records by what they are (METAR, TAF, AFD) and stations by ID; never an
+  archive-internal name (`obs`, `ring`, `fieldobs`) in the UI. Before shipping, reread every
+  string a visitor sees and cut anything that reads like a writer talking.
 - **`js/site-config.js` holds all site-specific constants** (airport, coordinates, runway geometry,
   ops gates, nearby airports, TAF stations, snapshot URL, timezone) in one `SITE` global, loaded
   first on every page that needs it. Pi mirror: `pi/site.env.example` → `/etc/kanp/site.env` (read by
