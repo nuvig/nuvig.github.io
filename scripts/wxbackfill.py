@@ -19,6 +19,8 @@ the past for the streams where a trustworthy public archive exists:
   model GFS CAPE/CIN/pr    Open-Meteo historical *forecast* API (what the
                            model said at the time, not a reanalysis).
                            Opt-in via --streams: less battle-tested.
+  raob  IAD soundings      IEM RAOB archive (00Z/12Z), same shape the hourly
+                           archiver writes. Opt-in via --streams.
 
 Deliberately NOT backfillable — no public archive preserves what was
 *predicted* at the time, and substituting later data would poison the
@@ -335,9 +337,41 @@ def backfill_model(since, until, dry):
 # CLI
 # ---------------------------------------------------------------------------
 
+def backfill_raob(since, until, dry):
+    tz = wxa.local_now().tzinfo
+    added = 0
+    for day in days_between(since, until):
+        key = f"{day:%Y-%m-%d}"
+        path = os.path.join(wxa.RAOB_DIR, key + ".json")
+        doc = wxa.read_json(path, {"date": key, "station": wxa.RAOB_STATION, "soundings": []})
+        have = {s["t"] for s in doc["soundings"]}
+        got = 0
+        for t in wxa.raob_cycles(key, tz):
+            if t in have:
+                continue
+            try:
+                data = http_json(wxa.raob_url(t))
+            except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+                wxa.log(f"raob {key} {t}: {e}")
+                continue
+            profs = [p for p in (data.get("profiles") or []) if p.get("profile")]
+            if not profs:
+                continue
+            doc["soundings"].append({"t": t, "levels": wxa.raob_levels(profs[0]["profile"]), "bf": 1})
+            doc["soundings"].sort(key=lambda s: s["t"])
+            got += 1
+        if got:
+            mark_bf(doc, got)
+            if not dry:
+                wxa.write_json(path, doc)
+            added += got
+    wxa.log(f"raob: {added} sounding(s) backfilled")
+    return added
+
+
 STREAMS = {"obs": backfill_obs, "fieldobs": backfill_fieldobs,
            "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model,
-           "stations": backfill_stations}
+           "stations": backfill_stations, "raob": backfill_raob}
 
 
 def main(argv=None):
@@ -346,7 +380,7 @@ def main(argv=None):
     ap.add_argument("--since", help="first local day, YYYY-MM-DD")
     ap.add_argument("--until", help="last local day (default: yesterday)")
     ap.add_argument("--streams", default="obs,fieldobs,stations,afd,taf",
-                    help="comma list of obs,fieldobs,stations,afd,taf,model "
+                    help="comma list of obs,fieldobs,stations,afd,taf,model,raob "
                          "(default: obs,fieldobs,stations,afd,taf)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and report, write nothing")
@@ -403,7 +437,8 @@ def run_selftest():
             self.saved = {k: getattr(wxa, k) for k in
                           ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "FIELDOBS_DIR",
                            "GRID_DIR", "TAF_DIR", "ALERT_DIR", "MODEL_DIR",
-                           "STATIONS_DIR")}
+                           "STATIONS_DIR", "PIREP_DIR", "AIRSIG_DIR", "TFR_DIR",
+                           "RAOB_DIR", "ALOFT_DIR")}
             wxa.WX = root
             for k in list(self.saved)[1:]:
                 setattr(wxa, k, os.path.join(root, k[:-4].lower()))
@@ -712,6 +747,57 @@ def run_selftest():
             finally:
                 (wxa.fetch, wxa.fetch_text, wxa.local_now, wxa.TAF_STATIONS,
                  wxa.HEAL_DAYS) = saved
+
+        def test_region_polygons(self):
+            box = (37.0, -79.5, 41.0, -74.0)
+            inside = [(38, -77), (38, -76), (39, -76), (39, -77)]
+            around = [(30, -90), (30, -60), (48, -60), (48, -90)]   # swallows the box
+            away = [(30, -90), (30, -85), (33, -85), (33, -90)]
+            self.assertTrue(wxa.touches_region(inside, box))
+            self.assertTrue(wxa.touches_region(around, box))
+            self.assertFalse(wxa.touches_region(away, box))
+            self.assertTrue(wxa.point_in_poly(38.5, -76.5, inside))
+            self.assertFalse(wxa.point_in_poly(40, -76.5, inside))
+
+        def test_raob_cycles_are_the_local_days_launches(self):
+            tz = self.saved_tz
+            hm = [datetime.datetime.fromtimestamp(t, UTC).strftime("%m-%d %HZ")
+                  for t in wxa.raob_cycles("2026-08-30", tz)]
+            # EDT: 12Z of the 30th is 8 AM, 00Z of the 31st is 8 PM on the 30th
+            self.assertEqual(hm, ["08-30 12Z", "08-31 00Z"])
+
+        def test_airsig_items_keep_only_the_region(self):
+            gair = [{"product": "SIERRA", "tag": "1E", "hazard": "IFR", "issueTime": 1,
+                     "forecastHour": 6, "validTime": "2026-09-02T03:00:00.000Z",
+                     "expireTime": 1788318000,
+                     "coords": [{"lat": "38.0", "lon": "-77.0"}, {"lat": "38.0", "lon": "-76.0"},
+                                {"lat": "39.0", "lon": "-76.0"}]},
+                    {"product": "TANGO", "tag": "2W", "hazard": "TURB-HI", "issueTime": 1,
+                     "forecastHour": 6, "validTime": "2026-09-02T03:00:00.000Z",
+                     "coords": [{"lat": "45.0", "lon": "-120.0"}, {"lat": "45.0", "lon": "-119.0"},
+                                {"lat": "46.0", "lon": "-119.0"}]}]
+            sigs = [{"icaoId": "KKCI", "seriesId": "7C", "validTimeFrom": 10, "validTimeTo": 20,
+                     "airSigmetType": "SIGMET", "hazard": "CONVECTIVE", "rawAirSigmet": "x",
+                     "coords": [{"lat": 30, "lon": -90}, {"lat": 30, "lon": -60}, {"lat": 48, "lon": -60}]}]
+            items = wxa.airsig_items(gair, sigs, 99)
+            self.assertEqual([i["kind"] for i in items], ["G-AIRMET", "SIGMET"])
+            self.assertEqual(items[0]["from"], int(datetime.datetime(2026, 9, 2, 3, tzinfo=UTC).timestamp()))
+            doc = {"date": "d", "items": []}
+            self.assertEqual(wxa.merge_active(doc, "items", items, 99), (2, True))
+            self.assertEqual(wxa.merge_active(doc, "items", items[:1], 100), (0, True))
+            self.assertEqual(doc["items"][0]["last"], 100)
+            self.assertEqual(doc["items"][1]["last"], 99)
+
+        def test_pirep_entry_decodes_bands(self):
+            p = {"obsTime": 1, "rawOb": "UA /OV DCA/TM 0100/FL050/TP C172/TB LGT CHOP/IC NEG",
+                 "pirepType": "PIREP", "acType": "C172", "lat": 38.9, "lon": -76.6,
+                 "fltLvl": 50, "tbInt1": "LGT", "tbType1": "CHOP", "tbBas1": None, "tbTop1": None,
+                 "icgInt1": "NEG", "wdir": 270, "wspd": 15}
+            e = wxa.pirep_entry(p, 1, p["rawOb"], 2)
+            self.assertEqual(e["tb"], [["LGT", "CHOP", None, None]])
+            self.assertEqual(e["ic"], [["NEG", None, None, None]])
+            self.assertEqual(e["wind"], [270, 15])
+            self.assertEqual(e["fl"], 50)
 
     Fixtures.saved_tz = wxa.local_now().tzinfo
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures)

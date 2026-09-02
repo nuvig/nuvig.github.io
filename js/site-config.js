@@ -134,6 +134,17 @@ const SITE = {
     // rest in stations/<ID>/ (the wxarchive ring, WX_STATIONS — W29 carries
     // no K prefix there). KFME's live NWS feed is dead as of 2026-08-31, but
     // IEM healing/backfill still fills its history — keep it listed.
+    // Coordinates for every METAR station the archive holds (the ring plus
+    // KDCA/KNAK/KANP), for maps that place a station by id. Sources: FAA
+    // airport data; accurate to well under a mile.
+    stationCoords: {
+      KANP: [38.9429, -76.5684], KNAK: [38.9917, -76.4894], KDCA: [38.8521, -77.0377],
+      KBWI: [39.1754, -76.6683], KFME: [39.0854, -76.7594], KADW: [38.8108, -76.8670],
+      KGAI: [39.1683, -77.1660], W29: [38.9761, -76.3297], KESN: [38.8042, -76.0690],
+      KCGE: [38.5393, -76.0304], KMTN: [39.3254, -76.4138], KCGS: [38.9806, -76.9223],
+      KAPG: [39.4662, -76.1688], KNHK: [38.2859, -76.4118], KRJD: [39.0302, -75.8662],
+    },
+
     areaStations: [
       { id: 'KBWI', label: 'BWI Marshall' },
       { id: 'KFME', label: 'Tipton · Fort Meade' },

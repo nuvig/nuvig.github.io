@@ -742,6 +742,19 @@ concepts; to relink, add the tools.html card back.
   (content-dedupe into `dup`, 08-27..30 rebuilt from IEM) had been stranded on an unmerged
   web-session branch** — the almanac showed 1,082 TAF "issuances" for 08-30 until it was
   cherry-picked to main on 09-01.
+  **Five streams added 2026-09-01, all server-side because their sources have no CORS:**
+  `pirep/` (aviationweather.gov PIREPs in `WX_REGION`, ~150 nm box, keyed by report time,
+  raw + decoded /TB /IC bands) · `airsig/` (G-AIRMETs SIERRA/TANGO/ZULU and SIGMETs/AIRMETs
+  whose polygon touches the region — one record per item per day with `first`/`last` seen,
+  so a day file says what was in effect that day) · `tfr/` (the region's rows of the FAA TFR
+  list by state/ARTCC, same first/last shape, each with a link to the FAA detail page — there
+  is no public detail endpoint; the permanent DC SFRA/FRZ security NOTAMs come through as
+  `state: USA` rows) · `raob/` (KIAD 00Z/12Z soundings from IEM as level arrays, ~14 KB/day,
+  backfilled to 2026-05-01 with `wxbackfill.py --streams raob`) · `aloft/` (GFS winds/temps
+  aloft at the field, 925/850/700/500 hPa + 10 m, 12 h per snap). `latest.json` carries
+  `pireps` (last 12 h), `airsig` and `tfrs` (in effect at the last run), `raob` (newest
+  sounding) and `aloft` (last snap); `index.json` lists `*_days` for each plus `raob_station`,
+  `region`, `aloft_levels`. Shapes are in the `wxarchive.py` docstring.
   Don't "simplify" the archiver back to a single API.
 - `.github/workflows/wx3dsnap.yml` + `scripts/wx3dsnap.py` — hourly Action that pulls wx3d.html's
   two GFS grids + center column from Open-Meteo once for everyone and force-pushes them to the

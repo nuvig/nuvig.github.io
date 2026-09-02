@@ -38,6 +38,20 @@ Output layout (data/wx/):
                                    so sparser than obs/ — tolerate gaps)
   stations/<ID>/YYYY-MM-DD.json    same shape again, one directory per station
                                    in the local ring (WX_STATIONS)
+  pirep/YYYY-MM-DD.json            {date, region, pireps:[{t, seen, raw, type, ac,
+                                   lat, lon, fl, tb, ic, sky, wx, temp, wind}]} —
+                                   keyed by the report's own time
+  airsig/YYYY-MM-DD.json           {date, region, items:[{id, kind, hazard, from,
+                                   to, coords, first, last, …}]} — G-AIRMETs and
+                                   SIGMETs/AIRMETs touching the region, with
+                                   first/last seen that day
+  tfr/YYYY-MM-DD.json              {date, tfrs:[{id, type, facility, state, desc,
+                                   url, first, last}]} — the region's rows of the
+                                   FAA TFR list, first/last seen that day
+  raob/YYYY-MM-DD.json             {date, station, soundings:[{t, levels:[[pres,
+                                   hght, tmpc, dwpc, drct, sknt]]}], miss}
+  aloft/YYYY-MM-DD.json            {date, field, snaps:[{t, t0, n, lev, hgt, dir,
+                                   spd, tmp, sfc}]} — GFS winds/temps aloft
 
 METAR day files may also carry "nh": hours of that day neither the NWS API nor
 IEM has an observation for, i.e. hours the station never reported. It is a
@@ -103,6 +117,11 @@ TAF_DIR = os.path.join(WX, "taf")
 ALERT_DIR = os.path.join(WX, "alerts")
 MODEL_DIR = os.path.join(WX, "model")
 STATIONS_DIR = os.path.join(WX, "stations")
+PIREP_DIR = os.path.join(WX, "pirep")
+AIRSIG_DIR = os.path.join(WX, "airsig")
+TFR_DIR = os.path.join(WX, "tfr")
+RAOB_DIR = os.path.join(WX, "raob")
+ALOFT_DIR = os.path.join(WX, "aloft")
 
 # The airfield the aviation streams describe (KANP), its TAF neighbours (KANP
 # has no TAF of its own), and how far ahead each hourly snapshot reaches.
@@ -143,6 +162,23 @@ IEM = os.environ.get("WX_IEM", "https://mesonet.agron.iastate.edu")
 # treats a scheduled slot with no issuance near it as a hole to fill from IEM.
 TAF_SLOTS_Z = [s.strip() for s in os.environ.get(
     "WX_TAF_SLOTS", "05:20,11:20,17:20,23:20").split(",") if s.strip()]
+# aviationweather.gov's data API sends no CORS headers, so the browser can
+# never read it; this script can, and latest.json is how the site gets its
+# PIREPs, G-AIRMETs and SIGMETs at all.
+AWC = os.environ.get("WX_AWC", "https://aviationweather.gov/api/data")
+# The region those are kept for: lat0,lon0,lat1,lon1 — roughly 150 nm around
+# the field, Harrisburg to Richmond and the Alleghenies to the coast.
+REGION = os.environ.get("WX_REGION", "37.0,-79.5,41.0,-74.0")
+# FAA TFR list. There is no public detail endpoint; each row links to the
+# FAA's own detail page. Rows are kept by state or ARTCC.
+TFR_LIST = os.environ.get("WX_TFR_LIST", "https://tfr.faa.gov/tfrapi/exportTfrList")
+TFR_STATES = [s for s in os.environ.get("WX_TFR_STATES", "MD,VA,DC,DE,PA,WV,NJ").split(",") if s]
+TFR_FACILITIES = [s for s in os.environ.get("WX_TFR_FACILITIES", "ZDC,PCT").split(",") if s]
+# The nearest radiosonde site (00Z/12Z launches); IEM serves the profile.
+RAOB_STATION = os.environ.get("WX_RAOB", "KIAD")
+# GFS winds/temps aloft archived at the field, per pressure level.
+ALOFT_LEVELS = [int(v) for v in os.environ.get("WX_ALOFT_LEVELS", "925,850,700,500").split(",") if v]
+ALOFT_HOURS = int(os.environ.get("WX_ALOFT_HOURS", "12"))
 
 
 def log(msg):
@@ -965,6 +1001,360 @@ def snapshot_model():
 
 
 # ---------------------------------------------------------------------------
+# PIREPs, G-AIRMETs / SIGMETs, TFRs, the sounding, winds aloft
+# ---------------------------------------------------------------------------
+
+def iso_epoch(s):
+    """ISO stamp with or without fractional seconds / Z -> epoch, else None."""
+    if not s:
+        return None
+    try:
+        s = re.sub(r"\.\d+", "", str(s)).replace("Z", "+00:00")
+        return int(datetime.datetime.fromisoformat(s).timestamp())
+    except ValueError:
+        return None
+
+
+def region_box():
+    a = [float(v) for v in REGION.split(",")]
+    return min(a[0], a[2]), min(a[1], a[3]), max(a[0], a[2]), max(a[1], a[3])
+
+
+def point_in_poly(lat, lon, poly):
+    """Ray-cast point-in-polygon; poly = [(lat, lon), ...]. Pure."""
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        y1, x1 = poly[i]
+        y2, x2 = poly[(i + 1) % n]
+        if (y1 > lat) != (y2 > lat):
+            x = x1 + (lat - y1) * (x2 - x1) / (y2 - y1)
+            if lon < x:
+                inside = not inside
+    return inside
+
+
+def touches_region(poly, box=None):
+    """A polygon counts for the region if any vertex is inside the box or it
+    covers the box's centre or a corner — a big convective SIGMET can swallow
+    the whole box with no vertex inside it. Pure."""
+    lat0, lon0, lat1, lon1 = box or region_box()
+    if any(lat0 <= la <= lat1 and lon0 <= lo <= lon1 for la, lo in poly):
+        return True
+    probes = [((lat0 + lat1) / 2, (lon0 + lon1) / 2),
+              (lat0, lon0), (lat0, lon1), (lat1, lon0), (lat1, lon1)]
+    return any(point_in_poly(la, lo, poly) for la, lo in probes)
+
+
+def coords_of(rec):
+    out = []
+    for c in rec.get("coords") or []:
+        try:
+            out.append((round(float(c["lat"]), 2), round(float(c["lon"]), 2)))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _num(v):
+    return v if isinstance(v, (int, float)) else None
+
+
+def pirep_entry(p, t, raw, seen):
+    """One PIREP: the raw report plus the fields a pilot scans for, decoded
+    once here so no page has to parse /TB and /IC. Altitudes are hundreds of
+    feet as the API gives them. Pure."""
+    def bands(kind):
+        out = []
+        for i in (1, 2):
+            inten = (p.get(f"{kind}Int{i}") or "").strip() or None
+            typ = (p.get(f"{kind}Type{i}") or "").strip() or None
+            lo, hi = _num(p.get(f"{kind}Bas{i}")), _num(p.get(f"{kind}Top{i}"))
+            if inten or typ or lo is not None or hi is not None:
+                out.append([inten, typ, lo, hi])
+        return out or None
+    wind = None
+    if _num(p.get("wdir")) is not None or _num(p.get("wspd")) is not None:
+        wind = [_num(p.get("wdir")), _num(p.get("wspd"))]
+    return {
+        "t": t, "seen": seen, "raw": raw,
+        "type": p.get("pirepType") or "PIREP", "ac": p.get("acType") or None,
+        "lat": _num(p.get("lat")), "lon": _num(p.get("lon")),
+        "fl": _num(p.get("fltLvl")), "flType": p.get("fltLvlType") or None,
+        "tb": bands("tb"), "ic": bands("icg"),
+        "sky": p.get("clouds") or None, "wx": (p.get("wxString") or "").strip() or None,
+        "temp": _num(p.get("temp")), "wind": wind,
+    }
+
+
+def snapshot_pireps():
+    """Every PIREP filed in the region in the last 6 h, keyed by its own
+    observation time (the report's day, not the run's). Deduped on
+    (time, raw text)."""
+    lat0, lon0, lat1, lon1 = region_box()
+    data = fetch(f"{AWC}/pirep?bbox={lat0},{lon0},{lat1},{lon1}&age=6&format=json")
+    now = local_now()
+    seen = int(now.timestamp())
+    docs, changed, added = {}, set(), 0
+    for p in data if isinstance(data, list) else []:
+        t = _num(p.get("obsTime"))
+        raw = (p.get("rawOb") or "").strip()
+        if t is None or not raw:
+            continue
+        t = int(t)
+        day = f"{datetime.datetime.fromtimestamp(t, now.tzinfo):%Y-%m-%d}"
+        if day not in docs:
+            docs[day] = read_json(os.path.join(PIREP_DIR, f"{day}.json"),
+                                  {"date": day, "region": REGION, "pireps": []})
+        doc = docs[day]
+        if any(x["t"] == t and x["raw"] == raw for x in doc["pireps"]):
+            continue
+        doc["pireps"].append(pirep_entry(p, t, raw, seen))
+        doc["pireps"].sort(key=lambda x: x["t"])
+        changed.add(day)
+        added += 1
+    for day in changed:
+        write_json(os.path.join(PIREP_DIR, f"{day}.json"), docs[day])
+    if added:
+        log(f"archived {added} PIREP(s)")
+    return added
+
+
+def airsig_items(gair, sigs, seen):
+    """Region-relevant G-AIRMET and SIGMET/AIRMET records in one shape:
+    id, kind, hazard, valid window, altitudes, polygon, and the raw product
+    where there is one (G-AIRMETs are graphical — no text). Pure."""
+    box = region_box()
+    out = []
+    for g in gair or []:
+        poly = coords_of(g)
+        if not poly or not touches_region(poly, box):
+            continue
+        out.append({
+            "id": f"G-{g.get('product')}-{g.get('tag')}-{g.get('hazard')}-"
+                  f"{g.get('issueTime')}-{g.get('forecastHour')}",
+            "kind": "G-AIRMET", "product": g.get("product"), "hazard": g.get("hazard"),
+            "from": iso_epoch(g.get("validTime")), "to": _num(g.get("expireTime")),
+            "issued": _num(g.get("issueTime")), "fh": _num(g.get("forecastHour")),
+            "due": (g.get("due_to") or "").strip() or None,
+            "base": _num(g.get("base")), "top": _num(g.get("top")),
+            "fzl": ([_num(g.get("fzlbase")), _num(g.get("fzltop"))]
+                    if g.get("fzltop") is not None or g.get("fzlbase") is not None else None),
+            "severity": g.get("severity") or None, "level": g.get("level") or None,
+            "coords": poly, "first": seen, "last": seen,
+        })
+    for s in sigs or []:
+        poly = coords_of(s)
+        if not poly or not touches_region(poly, box):
+            continue
+        out.append({
+            "id": f"S-{s.get('icaoId')}-{s.get('seriesId')}-{s.get('validTimeFrom')}",
+            "kind": s.get("airSigmetType") or "SIGMET", "hazard": s.get("hazard"),
+            "from": _num(s.get("validTimeFrom")), "to": _num(s.get("validTimeTo")),
+            "raw": (s.get("rawAirSigmet") or "").strip() or None,
+            "lo": _num(s.get("altitudeLow1")), "hi": _num(s.get("altitudeHi1")),
+            "mov": ([_num(s.get("movementDir")), _num(s.get("movementSpd"))]
+                    if s.get("movementDir") is not None else None),
+            "severity": s.get("severity") or None,
+            "coords": poly, "first": seen, "last": seen,
+        })
+    return out
+
+
+def merge_active(doc, key, items, seen):
+    """Fold this run's active items into a day file that records what was
+    in effect that day: a known id gets its `last` moved up, a new one is
+    appended with first = last = now. Returns (new, changed). Pure."""
+    have = {x["id"]: x for x in doc[key]}
+    new = 0
+    for it in items:
+        cur = have.get(it["id"])
+        if cur:
+            cur["last"] = seen
+        else:
+            doc[key].append(it)
+            new += 1
+    return new, bool(items)
+
+
+def snapshot_airsig():
+    """G-AIRMETs (SIERRA/TANGO/ZULU) and SIGMETs/AIRMETs touching the region,
+    as a per-day record of what was in effect: first/last seen per item."""
+    gair = fetch(f"{AWC}/gairmet?format=json")
+    sigs = fetch(f"{AWC}/airsigmet?format=json")
+    now = local_now()
+    seen = int(now.timestamp())
+    day = f"{now:%Y-%m-%d}"
+    path = os.path.join(AIRSIG_DIR, f"{day}.json")
+    doc = read_json(path, {"date": day, "region": REGION, "items": []})
+    items = airsig_items(gair if isinstance(gair, list) else [],
+                         sigs if isinstance(sigs, list) else [], seen)
+    new, changed = merge_active(doc, "items", items, seen)
+    _NOW["airsig"] = items
+    if changed:
+        write_json(path, doc)
+    log(f"airsig: {len(items)} in effect for the region, {new} new today")
+    return new
+
+
+def tfr_rows(rows, seen):
+    """The region's rows of the FAA TFR list, with a link to the FAA detail
+    page (the list is all the public API offers). Pure."""
+    out = []
+    for r in rows or []:
+        nid = (r.get("notam_id") or "").strip()
+        if not nid:
+            continue
+        if (r.get("state") or "") not in TFR_STATES and (r.get("facility") or "") not in TFR_FACILITIES:
+            continue
+        out.append({
+            "id": nid, "type": r.get("type") or None, "facility": r.get("facility") or None,
+            "state": r.get("state") or None, "desc": (r.get("description") or "").strip() or None,
+            "created": r.get("creation_date") or None,
+            "url": f"https://tfr.faa.gov/tfr3/?page=detail_{nid.replace('/', '_')}",
+            "first": seen, "last": seen,
+        })
+    return out
+
+
+def snapshot_tfrs():
+    data = fetch(TFR_LIST)
+    now = local_now()
+    seen = int(now.timestamp())
+    day = f"{now:%Y-%m-%d}"
+    path = os.path.join(TFR_DIR, f"{day}.json")
+    doc = read_json(path, {"date": day, "tfrs": []})
+    rows = tfr_rows(data if isinstance(data, list) else [], seen)
+    new, changed = merge_active(doc, "tfrs", rows, seen)
+    _NOW["tfrs"] = rows
+    if changed:
+        write_json(path, doc)
+    log(f"tfr: {len(rows)} listed for the region, {new} new today")
+    return new
+
+
+def raob_cycles(day, tz):
+    """The 00Z/12Z launch times whose local day is `day`. Pure."""
+    d0 = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=tz)
+    out = set()
+    for back in (0, 1):
+        base = (d0 + datetime.timedelta(days=back)).astimezone(datetime.timezone.utc)
+        for hh in (0, 12):
+            t = base.replace(hour=hh, minute=0, second=0, microsecond=0)
+            if f"{t.astimezone(tz):%Y-%m-%d}" == day:
+                out.add(int(t.timestamp()))
+    return sorted(out)
+
+
+def raob_levels(profile):
+    """IEM profile -> [[pres, hght_m, tmpc, dwpc, drct, sknt], ...]. Pure."""
+    out = []
+    for lv in profile or []:
+        if not isinstance(lv, dict) or lv.get("pres") is None:
+            continue
+        row = [lv.get(k) for k in ("pres", "hght", "tmpc", "dwpc", "drct", "sknt")]
+        out.append([None if v is None else round(float(v), 1) for v in row])
+    return out
+
+
+def raob_url(t):
+    stamp = datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    return f"{IEM}/json/raob.py?ts={stamp}&station={RAOB_STATION}"
+
+
+def snapshot_raob():
+    """The nearest radiosonde's 00Z and 12Z soundings, from IEM, for the
+    last HEAL_DAYS days. A launch IEM still has nothing for 8 h later is
+    settled into `miss` and not asked about again."""
+    now = local_now()
+    tz = now.tzinfo
+    nowt = int(now.timestamp())
+    added = 0
+    for back in range(HEAL_DAYS):
+        day = f"{now - datetime.timedelta(days=back):%Y-%m-%d}"
+        path = os.path.join(RAOB_DIR, f"{day}.json")
+        doc = read_json(path, {"date": day, "station": RAOB_STATION, "soundings": []})
+        have = {s["t"] for s in doc["soundings"]}
+        miss = set(doc.get("miss") or [])
+        changed = False
+        for t in raob_cycles(day, tz):
+            if t in have or t in miss or nowt < t + 2 * 3600:
+                continue
+            try:
+                data = fetch(raob_url(t))
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                log(f"raob {day} {t}: {e}")
+                continue
+            profs = [p for p in (data.get("profiles") or []) if p.get("profile")]
+            if not profs:
+                if nowt > t + 8 * 3600:
+                    miss.add(t)
+                    changed = True
+                continue
+            doc["soundings"].append({"t": t, "levels": raob_levels(profs[0]["profile"])})
+            doc["soundings"].sort(key=lambda s: s["t"])
+            added += 1
+            changed = True
+        if changed:
+            if miss:
+                doc["miss"] = sorted(miss)
+            write_json(path, doc)
+    if added:
+        log(f"archived {added} sounding(s) from {RAOB_STATION}")
+    return added
+
+
+def aloft_url():
+    lat, lon = FIELD.split(",")
+    names = []
+    for lv in ALOFT_LEVELS:
+        names += [f"wind_speed_{lv}hPa", f"wind_direction_{lv}hPa",
+                  f"temperature_{lv}hPa", f"geopotential_height_{lv}hPa"]
+    names += ["wind_speed_10m", "wind_direction_10m"]
+    return (f"{OPEN_METEO}?latitude={lat}&longitude={lon}&hourly={','.join(names)}"
+            f"&forecast_hours={ALOFT_HOURS}&timeformat=unixtime&timezone=UTC"
+            "&wind_speed_unit=kn&models=gfs_seamless")
+
+
+def aloft_snap(hourly, t):
+    """Open-Meteo hourly block -> one compact snap, arrays per level. Pure."""
+    times = hourly.get("time") or []
+    r0 = lambda arr: [None if v is None else round(v) for v in (arr or [])]
+    r1 = lambda arr: [None if v is None else round(v, 1) for v in (arr or [])]
+    return {
+        "t": t, "t0": times[0] if times else None, "n": len(times), "lev": ALOFT_LEVELS,
+        "hgt": [r0(hourly.get(f"geopotential_height_{lv}hPa")) for lv in ALOFT_LEVELS],
+        "dir": [r0(hourly.get(f"wind_direction_{lv}hPa")) for lv in ALOFT_LEVELS],
+        "spd": [r0(hourly.get(f"wind_speed_{lv}hPa")) for lv in ALOFT_LEVELS],
+        "tmp": [r1(hourly.get(f"temperature_{lv}hPa")) for lv in ALOFT_LEVELS],
+        "sfc": {"dir": r0(hourly.get("wind_direction_10m")), "spd": r0(hourly.get("wind_speed_10m"))},
+    }
+
+
+def snapshot_aloft():
+    """GFS winds and temps aloft at the field (the same column wx3d.html
+    draws, kept as history here): ALOFT_HOURS hours ahead at ALOFT_LEVELS,
+    plus the 10 m wind. Throttled like the other snapshot streams."""
+    d = fetch(aloft_url())
+    now = local_now()
+    path = os.path.join(ALOFT_DIR, f"{now:%Y-%m-%d}.json")
+    doc = read_json(path, {"date": f"{now:%Y-%m-%d}", "field": FIELD, "snaps": []})
+    if doc["snaps"] and int(now.timestamp()) - doc["snaps"][-1]["t"] < SNAP_GAP_S:
+        return False
+    snap = aloft_snap(d.get("hourly") or {}, int(now.timestamp()))
+    if not snap["n"]:
+        return False
+    doc["snaps"].append(snap)
+    write_json(path, doc)
+    log(f"aloft snapshot #{len(doc['snaps'])} for {doc['date']}")
+    return True
+
+
+# what this run saw in effect, for latest.json (day files keep first/last)
+_NOW = {}
+
+
+# ---------------------------------------------------------------------------
 # latest.json — one same-origin fetch that gives any page the current state
 # ---------------------------------------------------------------------------
 
@@ -1006,6 +1396,26 @@ def write_latest():
         if metars:
             stations_now[station] = metars[-1]
     afd = newest_afd()
+    yday = f"{now - datetime.timedelta(days=1):%Y-%m-%d}"
+    nowt = int(now.timestamp())
+    pireps = []
+    for day in (yday, today):
+        pireps += read_json(os.path.join(PIREP_DIR, day + ".json"), {}).get("pireps") or []
+    pireps = sorted((p for p in pireps if p["t"] >= nowt - 12 * 3600), key=lambda p: -p["t"])
+    if "airsig" not in _NOW:
+        # the fetch failed this run: whatever today's file saw in the last 2 h
+        _NOW["airsig"] = [x for x in (read_json(os.path.join(AIRSIG_DIR, today + ".json"), {})
+                                      .get("items") or []) if x.get("last", 0) >= nowt - 7200]
+    if "tfrs" not in _NOW:
+        _NOW["tfrs"] = [x for x in (read_json(os.path.join(TFR_DIR, today + ".json"), {})
+                                    .get("tfrs") or []) if x.get("last", 0) >= nowt - 7200]
+    raob = None
+    for day in (today, yday):
+        snd = read_json(os.path.join(RAOB_DIR, day + ".json"), {}).get("soundings") or []
+        if snd:
+            raob = dict(snd[-1], station=RAOB_STATION)
+            break
+    aloft = read_json(os.path.join(ALOFT_DIR, today + ".json"), {})
     write_json(os.path.join(WX, "latest.json"), {
         "t": int(now.timestamp()),
         "office": OFFICE, "station": OBS_STATION, "point": POINT, "field": FIELD,
@@ -1022,6 +1432,12 @@ def write_latest():
         # the local ring: just the current ob per station, which is all a
         # "weather around the field right now" view needs
         "stations": stations_now,
+        # aviationweather.gov has no CORS: these exist on the site only here
+        "pireps": pireps,
+        "airsig": _NOW["airsig"],
+        "tfrs": _NOW["tfrs"],
+        "raob": raob,
+        "aloft": last(aloft, "snaps"),
     })
     log("latest.json written")
 
@@ -1092,6 +1508,9 @@ def build_index():
     if FIELD_OBS_STATION and FIELD_OBS_STATION != OBS_STATION:
         hours["fieldobs"] = fieldobs_hours
     hours["stations"] = station_hours
+    # a raob day file that holds only `miss` bookkeeping is not a day
+    raob_days = [d for d in listing(RAOB_DIR)
+                 if read_json(os.path.join(RAOB_DIR, d + ".json"), {}).get("soundings")]
     write_json(os.path.join(WX, "index.json"), {
         "updated": int(datetime.datetime.now().timestamp()),
         "office": OFFICE,
@@ -1112,6 +1531,14 @@ def build_index():
         "hours": hours,
         "field": FIELD,
         "taf_stations": TAF_STATIONS,
+        "pirep_days": listing(PIREP_DIR),
+        "airsig_days": listing(AIRSIG_DIR),
+        "tfr_days": listing(TFR_DIR),
+        "raob_days": raob_days,
+        "aloft_days": listing(ALOFT_DIR),
+        "raob_station": RAOB_STATION,
+        "region": REGION,
+        "aloft_levels": ALOFT_LEVELS,
     })
     return len(afd)
 
@@ -1122,7 +1549,8 @@ def main():
     # passes above could not get out of api.weather.gov, in the same run.
     for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
                  archive_stations, snapshot_grid, archive_tafs, snapshot_alerts,
-                 snapshot_model, heal_metars, heal_tafs):
+                 snapshot_model, snapshot_pireps, snapshot_airsig, snapshot_tfrs,
+                 snapshot_raob, snapshot_aloft, heal_metars, heal_tafs):
         try:
             step()
         except (urllib.error.URLError, OSError, KeyError, ValueError,
