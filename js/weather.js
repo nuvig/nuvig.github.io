@@ -970,26 +970,6 @@ function fromField(lat, lon) {
   return { nm, brg };
 }
 
-const flText = (fl) => (fl == null ? null : fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
-
-// PIREP /SK as the archiver stores it: a list of {cover, base, top} (feet;
-// top 0 = not reported) or a plain string
-function skyText(sky) {
-  if (!sky) return null;
-  if (typeof sky === 'string') return sky;
-  if (!Array.isArray(sky)) return JSON.stringify(sky);
-  return sky.map((c) => `${c.cover || '?'}${c.base ? ' ' + Number(c.base).toLocaleString() : ''}${c.top ? '–' + Number(c.top).toLocaleString() : ''}`).join(', ');
-}
-
-const hundreds = (v) => (v == null ? null : v >= 180 ? `FL${String(v).padStart(3, '0')}` : (v * 100).toLocaleString());
-
-// [intensity, type, baseFL, topFL] -> "MOD CHOP 3,000–6,000"
-function bandText(b) {
-  const alt = (b[2] != null || b[3] != null)
-    ? ` ${b[2] != null ? hundreds(b[2]) : 'sfc'}–${b[3] != null ? hundreds(b[3]) : '?'}` : '';
-  return ([b[0], b[1]].filter(Boolean).join(' ') || '?') + alt;
-}
-
 function archiveStamp(arc) {
   const age = Date.now() / 1000 - arc.t;
   return `as of ${hmLocal(arc.t)}${age > 3 * 3600 ? ` · ${ageShort(age)} old` : ''}`;
@@ -1004,32 +984,17 @@ function renderPireps(arc) {
   const urgent = (p) => /urgent|UUA/i.test(p.type || '');
   list.sort((a, b) => (urgent(b) - urgent(a)) || (b.t - a.t));
   const now = Date.now() / 1000;
-  box.innerHTML = list.map((p, i) => {
+  // raw text only — the /TB /IC decode is gone (2026-09-02): the reports
+  // drop the format too often for a decoded line to be trusted, and the raw
+  // report is what a pilot reads anyway
+  box.innerHTML = list.map((p) => {
     const loc = (p.lat != null && p.lon != null) ? fromField(p.lat, p.lon) : null;
-    const bits = [];
-    if (p.tb) bits.push(`<span class="pr-k">TB</span> ${esc(p.tb.map(bandText).join('; '))}`);
-    if (p.ic) bits.push(`<span class="pr-k">IC</span> ${esc(p.ic.map(bandText).join('; '))}`);
-    if (p.sky) bits.push(`<span class="pr-k">SK</span> ${esc(skyText(p.sky))}`);
-    if (p.wx) bits.push(`<span class="pr-k">WX</span> ${esc(p.wx)}`);
-    if (p.temp != null) bits.push(`<span class="pr-k">TA</span> ${p.temp}°C`);
-    if (p.wind && (p.wind[0] != null || p.wind[1] != null)) {
-      bits.push(`<span class="pr-k">WV</span> ${p.wind[0] != null ? String(p.wind[0]).padStart(3, '0') : '—'}/${p.wind[1] != null ? p.wind[1] : '—'} kt`);
-    }
-    return `<div class="pr-row${urgent(p) ? ' urgent' : ''}" data-i="${i}">
+    return `<div class="pr-row${urgent(p) ? ' urgent' : ''}">
       <span class="pr-age num-mono" title="${esc(hmLocal(p.t))}">${ageShort(now - p.t)}</span>
       <span class="pr-loc num-mono">${loc ? `${round(loc.nm)} nm ${String(round(loc.brg)).padStart(3, '0')}°` : '—'}</span>
-      <span class="pr-alt num-mono">${esc(flText(p.fl) || '—')}</span>
-      <span class="pr-ac">${esc(p.ac || '')}</span>
-      <span class="pr-txt">${urgent(p) ? '<b class="pr-uua">URGENT</b> ' : ''}${bits.join(' · ') || '<span class="faint">no remarks decoded</span>'}</span>
-      <div class="pr-raw" hidden>${esc(p.raw)}</div>
+      <code>${esc((p.raw || '').trim())}</code>
     </div>`;
   }).join('');
-  box.onclick = (e) => {
-    const row = e.target.closest('.pr-row');
-    if (!row) return;
-    const raw = row.querySelector('.pr-raw');
-    raw.hidden = !raw.hidden;
-  };
 }
 
 function renderAirsig(arc) {
@@ -1292,15 +1257,57 @@ function renderTafs() {
       : fmtDT(t.issued, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · ${ageText(age)}`;
     card.innerHTML = `<div class="taf-head"><span class="icao">${st.id}</span>
       <span class="iss${stale ? ' stale' : ''}">${esc(st.label)} · issued ${esc(issued)}` +
-      `${stale ? ' · ⚠ stale — NWS is not serving a newer issuance' : ''}</span></div>${rows}`;
+      `${t.src === 'site archive' ? ' · via site archive' : ''}` +
+      `${stale ? ' · ⚠ stale — no newer issuance on NWS or in the archive' : ''}</span></div>${rows}`;
     grid.appendChild(card);
   }
 }
 
+// The archive's newest issuance for a station (latest.json `tafs`), in the
+// shape renderTafs() draws. The archiver stores live captures decoded
+// (`periods`, the same keys js/taf-tac.js emits) and IEM-healed ones as raw
+// text — the NWS TAF collection froze on 2026-08-30 22:57Z and stayed frozen
+// for days while LWX kept issuing, so the archive is where current TAFs are.
+function archiveTaf(arc, id) {
+  const t = arc && arc.tafs && arc.tafs[id];
+  if (!t || !t.t) return null;
+  let periods = t.periods;
+  if (!periods && t.raw && typeof TafTac !== 'undefined') {
+    try { periods = TafTac.parse(t.raw, t.t).periods; } catch (e) { periods = null; }
+  }
+  if (!periods || !periods.length) return null;
+  const IND = { FM: 'FM', TEMPO: 'TEMPORARY_FLUCTUATIONS', BECMG: 'BECOMING', PROB30: 'PROBABILITY_30', PROB40: 'PROBABILITY_40' };
+  return {
+    issued: new Date(t.t * 1000).toISOString(), src: 'site archive',
+    periods: periods.map((p) => {
+      const q = {
+        indicator: IND[p.ind] || String(p.ind || 'FM').replace(/ /g, '_'),
+        begin: new Date(p.b * 1000), end: new Date(p.e * 1000),
+        wx: p.wx || [],
+        clouds: (p.cld || []).map((c) => ({ amt: c.amt, baseFt: c.ft != null ? c.ft : null, cb: c.cb ? 'CB' : '' })),
+      };
+      if (typeof p.dir === 'number') q.windDir = p.dir;
+      if (p.dir === 'VRB' || p.vrb) q.windVrb = true;
+      if (p.kt != null) q.windKt = p.kt;
+      if (p.gust != null) q.gustKt = p.gust;
+      if (p.visM != null) {
+        q.visM = p.visM; q.visSM = visSMfromM(p.visM);
+        if (p.visM >= 16000) q.visPlus = true;
+      }
+      return q;
+    }),
+  };
+}
+
 async function loadTafs() {
+  const arc = await archiveLatest();
   await Promise.all(TAF_STATIONS.map(async (st) => {
-    try { state.tafs[st.id] = await loadTaf(st.id) || { error: 'No TAF published right now.' }; }
-    catch (e) { state.tafs[st.id] = { error: `TAF unavailable (${e.message})` }; }
+    let live = null, err = null;
+    try { live = await loadTaf(st.id); } catch (e) { err = `TAF unavailable (${e.message})`; }
+    const a = archiveTaf(arc, st.id);
+    // newest issuance wins, whichever source holds it
+    if (a && (!live || new Date(a.issued) > new Date(live.issued))) state.tafs[st.id] = a;
+    else state.tafs[st.id] = live || { error: err || 'No TAF published right now.' };
   }));
   renderTafs();
 }
@@ -1495,13 +1502,17 @@ async function loadAll() {
     renderAloft();
   }
 
-  const metarFails = Object.values(state.metars).filter((m) => m.error).length;
+  const noOb = Object.entries(state.metars).filter(([, m]) => m.error).map(([id]) => id);
+  const metarFails = noOb.length;
   if (state.errors.length === 0 && metarFails === 0) {
     dot.className = 'dot green';
     txt.textContent = 'Live';
   } else if (state.om || metarFails < AIRPORTS.length) {
     dot.className = 'dot yellow';
-    txt.textContent = 'Partial data';
+    // say what is missing — a bare "Partial data" reads as a page problem
+    const why = state.errors.map((e) => e.split(':')[0] + ' failed');
+    if (noOb.length) why.push(`no ob: ${noOb.join(', ')}`);
+    txt.textContent = `Partial data · ${why.join(' · ')}`;
   } else {
     dot.className = 'dot red';
     txt.textContent = 'Data sources unreachable';

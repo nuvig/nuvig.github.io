@@ -518,7 +518,6 @@ async function selectDay(date) {
   renderGrid(date, grid, model);
   renderModelVsObs(date, model, obs);
   renderAlerts(date, alerts);
-  renderTafs(date, taf);
   renderTafVerify(date, taf, obs, ringDocs);
   renderRadar(date, ringDocs, obs, fobs);
   renderPireps(date, pirep);
@@ -527,7 +526,7 @@ async function selectDay(date) {
   renderAfds(date);
   renderStations(date, ringDocs, obs, fobs, taf);
 
-  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'taf-card', 'tafv-card',
+  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'tafv-card',
     'radar-card', 'pirep-card', 'airsig-card', 'raob-card', 'afd-card', 'stn-card']
     .some((id) => !$(id).hidden);
 
@@ -1866,6 +1865,12 @@ async function loadDrift(date) {
   return points;
 }
 
+/* What was forecast — one row per morning the call for this day was archived
+   (that day's first snapshot, the same baseline the drift and verification
+   cards use), high / low / precip % / wording, then what verified. A table,
+   not a chart: 42 near-identical points over a six-day lead-up drew as a flat
+   line with no readable axis, and the question is "what did they say, and
+   when did it change", which reads as rows. */
 function renderDrift(date, points, obsDoc, nextObsDoc) {
   const card = $('drift-card');
   if (!points || !points.length) { card.hidden = true; return; }
@@ -1873,96 +1878,24 @@ function renderDrift(date, points, obsDoc, nextObsDoc) {
 
   const obsHi = obsDoc ? dayHighF(obsDoc.metars) : null;
   const obsLo = nextObsDoc ? overnightLowF(nextObsDoc.metars) : null;
+  const byDay = new Map();
+  for (const p of points) { const d = lp(p.t).date; if (!byDay.has(d)) byDay.set(d, p); }
+  const deg = (v) => (v != null ? `${v}°` : '—');
+  const rows = [...byDay.entries()].map(([d, p]) => {
+    const back = Math.round((midnight(date) - midnight(d)) / 86400);
+    return `<tr><td>${back === 0 ? 'day of' : `${back} d before`}</td>` +
+      `<td class="d">${d.slice(5).replace('-', '/')} ${hhmm(p.t)}</td>` +
+      `<td>${deg(p.hi)}</td><td>${deg(p.lo)}</td><td>${p.pop != null ? p.pop : '—'}</td>` +
+      `<td class="wx">${esc(p.short || '')}</td></tr>`;
+  });
+  if (obsHi != null || obsLo != null) {
+    rows.push(`<tr class="vf"><td>verified</td><td class="d">KDCA</td>` +
+      `<td>${deg(obsHi)}</td><td>${deg(obsLo)}</td><td></td><td class="wx"></td></tr>`);
+  }
   const firstDay = lp(points[0].t).date;
-  $('drift-sub').textContent = `${points.length} snapshots, first archived ${firstDay === date ? 'that morning' : firstDay}`;
-
-  chart('drift-chart', (ctx, W, H) => drawDriftChart(ctx, W, H, date, points, obsHi, obsLo));
-
-  const first = points[0], last = points[points.length - 1];
-  const bits = [];
-  bits.push(`first call: <b>${esc(first.short || '—')}</b>` +
-    (first.hi != null ? ` (${first.hi}°` + (first.lo != null ? `/${first.lo}°` : '') + (first.pop != null ? `, ${first.pop}% precip` : '') + ')' : ''));
-  if (last.short && last.short !== first.short) bits.push(`final: <b>${esc(last.short)}</b>`);
-  if (obsHi != null) {
-    const missHi = first.hi != null ? obsHi - first.hi : null;
-    bits.push(`verified <b>${obsHi}°</b>${obsLo != null ? ` / <b>${obsLo}°</b>` : ''}` +
-      (missHi != null && Math.abs(missHi) >= 2 ? ` — high missed by ${missHi > 0 ? '+' : ''}${missHi}°` : missHi != null ? ' — on the money' : ''));
-  }
-  $('drift-stats').innerHTML = bits.join(' · ');
-}
-
-function drawDriftChart(ctx, W, H, date, points, obsHi, obsLo) {
-  const L = 36, R = 44, T = 10, B = H - 18;
-  const tEnd = midnight(date) + 86400;
-  const tStart = Math.min(points[0].t, tEnd - 86400);
-  const x = (t) => L + (t - tStart) / (tEnd - tStart) * (W - L - R);
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.font = '10px system-ui, sans-serif';
-
-  /* day boundaries */
-  ctx.textAlign = 'center';
-  for (let d = lp(tStart).date; d <= date; d = addDays(d, 1)) {
-    const px = x(midnight(d));
-    if (px < L - 1) continue;
-    ctx.strokeStyle = '#242424';
-    ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, B); ctx.stroke();
-    ctx.fillStyle = d === date ? '#aaa' : '#555';
-    ctx.fillText(d.slice(5).replace('-', '/'), Math.max(px + 16, L + 16), H - 4);
-  }
-
-  const temps = [...points.map((p) => p.hi), ...points.map((p) => p.lo), obsHi, obsLo]
-    .filter((v) => v != null);
-  if (!temps.length) return;
-  let lo = Math.min(...temps) - 3, hi = Math.max(...temps) + 3;
-  const y = (f) => B - (f - lo) / (hi - lo) * (B - T);
-
-  /* PoP bars along the bottom, right axis */
-  ctx.fillStyle = 'rgba(74,158,255,0.25)';
-  for (const p of points) {
-    if (p.pop == null) continue;
-    const px = x(p.t);
-    ctx.fillRect(px - 1.5, B - p.pop / 100 * (B - T) * 0.5, 3, p.pop / 100 * (B - T) * 0.5);
-  }
-  ctx.fillStyle = '#4a7ba5'; ctx.textAlign = 'left';
-  ctx.fillText('precip %', W - R + 4, B - 4);
-
-  const series = (pick, color) => {
-    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    let started = false;
-    for (const p of points) {
-      const v = pick(p);
-      if (v == null) continue;
-      const px = x(p.t), py = y(v);
-      started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-      started = true;
-    }
-    ctx.stroke(); ctx.lineWidth = 1;
-    for (const p of points) {
-      const v = pick(p);
-      if (v != null) { ctx.beginPath(); ctx.arc(x(p.t), y(v), 2, 0, 7); ctx.fill(); }
-    }
-  };
-  series((p) => p.hi, '#f59e0b');
-  series((p) => p.lo, '#4a9eff');
-
-  /* what verified */
-  ctx.setLineDash([4, 3]);
-  ctx.textAlign = 'left';
-  const ref = (v, color, label) => {
-    if (v == null) return;
-    ctx.strokeStyle = color;
-    ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(W - R, y(v)); ctx.stroke();
-    ctx.fillStyle = color;
-    ctx.fillText(`${label} ${v}°`, W - R + 4, y(v) + 3);
-  };
-  ref(obsHi, '#fbbf24', 'obs');
-  ref(obsLo, '#7ab8ff', 'obs');
-  ctx.setLineDash([]);
-
-  ctx.fillStyle = '#f59e0b'; ctx.fillText('forecast high', L + 4, T + 9);
-  ctx.fillStyle = '#4a9eff'; ctx.fillText('low', L + 82, T + 9);
+  $('drift-sub').textContent = `${points.length} snapshots · first ${firstDay === date ? 'that morning' : firstDay} · each morning's call`;
+  $('drift-table').innerHTML = '<table class="grid-tab"><tr><th>lead</th><th>archived</th><th>high</th>' +
+    '<th>low</th><th>precip %</th><th>wording</th></tr>' + rows.join('') + '</table>';
 }
 
 /* ---------------------------------------------------------------------------
@@ -1990,11 +1923,12 @@ function renderGrid(date, gridDoc, modelDoc) {
     }
     return out;
   };
-  const gh = hours(gsnap), mh = hours(msnap);
-
-  chart('grid-chart', (ctx, W, H) => drawGridChart(ctx, W, H, date, gsnap, gh, msnap, mh));
+  const gh = hours(gsnap);
 
   /* hour-by-hour table from the grid */
+  $('grid-summary').textContent = gsnap && gh.length
+    ? `${gh.length} hours · temp · wind · ceiling · vis · precip % · weather`
+    : 'no grid snapshot archived this day';
   if (gsnap && gh.length) {
     const fmtWind = (i) => {
       const d = gsnap.dir[i], s = gsnap.spd[i], g = gsnap.gst[i];
@@ -2015,82 +1949,6 @@ function renderGrid(date, gridDoc, modelDoc) {
       }).join('') + '</table>';
   } else {
     $('grid-table').innerHTML = '<p class="note">No grid snapshot archived this day.</p>';
-  }
-}
-
-function drawGridChart(ctx, W, H, date, gsnap, gh, msnap, mh) {
-  const L = 44, R = 44, T = 10, B = H - 18;
-  const t0 = midnight(date), x = (t) => L + (t - t0) / 86400 * (W - L - R);
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.font = '10px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  for (let h = 0; h <= 24; h += 3) {
-    const px = x(t0 + h * 3600);
-    ctx.strokeStyle = '#242424';
-    ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, B); ctx.stroke();
-    ctx.fillStyle = '#666';
-    ctx.fillText(String(h).padStart(2, '0'), px, H - 4);
-  }
-
-  /* CAPE area, left axis */
-  if (msnap && mh.length) {
-    const maxCape = Math.max(500, ...mh.map(({ i }) => msnap.cape[i] || 0));
-    const yc = (v) => B - v / maxCape * (B - T);
-    ctx.beginPath();
-    ctx.moveTo(x(mh[0].ts), B);
-    for (const { i, ts } of mh) ctx.lineTo(x(ts), yc(msnap.cape[i] || 0));
-    ctx.lineTo(x(mh[mh.length - 1].ts), B);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(245,158,11,0.18)';
-    ctx.fill();
-    ctx.strokeStyle = '#f59e0b';
-    ctx.beginPath();
-    for (let k = 0; k < mh.length; k++) {
-      const { i, ts } = mh[k];
-      const px = x(ts), py = yc(msnap.cape[i] || 0);
-      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-    }
-    ctx.stroke();
-    ctx.fillStyle = '#666'; ctx.textAlign = 'right';
-    ctx.fillText(`${maxCape}`, L - 4, T + 8);
-    ctx.fillText('CAPE', L - 4, T + 18);
-
-    /* precip rate bars */
-    const maxPr = Math.max(...mh.map(({ i }) => msnap.pr[i] || 0));
-    if (maxPr > 0) {
-      const yp = (v) => B - v / maxPr * (B - T) * 0.6;
-      ctx.fillStyle = 'rgba(34,197,94,0.5)';
-      for (const { i, ts } of mh) {
-        if (msnap.pr[i]) ctx.fillRect(x(ts) - 2, yp(msnap.pr[i]), 4, B - yp(msnap.pr[i]));
-      }
-      ctx.fillStyle = '#4a9e6e'; ctx.textAlign = 'left';
-      ctx.fillText(`precip ≤${maxPr} mm/h`, L + 4, B - 6);
-    }
-  }
-
-  /* PoP line, right axis */
-  if (gsnap && gh.length) {
-    const yp = (v) => B - v / 100 * (B - T);
-    ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    let started = false;
-    for (const { i, ts } of gh) {
-      if (gsnap.pop[i] == null) continue;
-      const px = x(ts), py = yp(gsnap.pop[i]);
-      started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-      started = true;
-    }
-    ctx.stroke(); ctx.lineWidth = 1;
-    ctx.fillStyle = '#4a9eff'; ctx.textAlign = 'left';
-    ctx.fillText('precip %', W - R + 4, yp(100) + 8);
-    ctx.fillText('0', W - R + 4, B);
-
-    /* thunder marks from the grid's own weather strings */
-    ctx.textAlign = 'center'; ctx.fillStyle = '#fbbf24';
-    for (const { i, ts } of gh) {
-      if (gsnap.wx[i] && gsnap.wx[i].includes('thunder')) ctx.fillText('⚡', x(ts), T + 10);
-    }
   }
 }
 
@@ -2404,23 +2262,6 @@ function tafBodyHtml(taf) {
   return lines + raw;
 }
 
-function renderTafs(date, doc) {
-  const card = $('taf-card');
-  const tafs = doc && doc.tafs;
-  if (!tafs || !tafs.length) { card.hidden = true; return; }
-  card.hidden = false;
-
-  const order = (SITE.weather.tafStations || []).map((s) => s.id);
-  const sorted = tafs.slice().sort((a, b) =>
-    (order.indexOf(a.station) - order.indexOf(b.station)) || (a.t - b.t));
-
-  $('taf-list').innerHTML = sorted.map((taf) =>
-    `<details class="iss"><summary><span class="who">${esc(taf.station)}</span>` +
-    `issued ${hhmm(taf.t)}` +
-    `<span class="meta">${(() => { const ps = tafPeriods(taf); return (ps ? `${ps.length} periods` : 'raw text') + (taf.bf ? ' · healed' : ''); })()}</span>` +
-    `</summary><div class="body">${tafBodyHtml(taf)}</div></details>`).join('');
-}
-
 /* ---------------------------------------------------------------------------
    Station explorer — every archived METAR and TAF for the day, per station.
    ---------------------------------------------------------------------------
@@ -2630,7 +2471,7 @@ function radarDots(ids) {
     const c = coords[id];
     if (!c) return '';
     const left = (c[1] - x0) / (x1 - x0) * 100, top = (y1 - c[0]) / (y1 - y0) * 100;
-    return `<i class="dot${cls ? ' ' + cls : ''}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" title="${esc(id)}"></i>`;
+    return `<i class="dot${cls ? ' ' + cls : ''}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" title="${esc(id)}"><b>${esc(id)}</b></i>`;
   };
   return ids.map((id) => dot(id)).join('') + dot(SITE.airport.id, 'field');
 }
@@ -2701,24 +2542,11 @@ function fromField(lat, lon) {
   const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
   return { nm: 2 * R * Math.asin(Math.sqrt(a)), brg: (Math.atan2(y, x) * 180 / Math.PI + 360) % 360 };
 }
-const hundredsFt = (v) => (v == null ? null : v >= 180 ? `FL${String(v).padStart(3, '0')}` : (v * 100).toLocaleString());
-const flText = (fl) => (fl == null ? null : fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
-
-// PIREP /SK as the archiver stores it: a list of {cover, base, top} (feet;
-// top 0 = not reported) or a plain string
-function skyText(sky) {
-  if (!sky) return null;
-  if (typeof sky === 'string') return sky;
-  if (!Array.isArray(sky)) return JSON.stringify(sky);
-  return sky.map((c) => `${c.cover || '?'}${c.base ? ' ' + Number(c.base).toLocaleString() : ''}${c.top ? '–' + Number(c.top).toLocaleString() : ''}`).join(', ');
-}
-
-function bandText(b) {
-  const alt = (b[2] != null || b[3] != null)
-    ? ` ${b[2] != null ? hundredsFt(b[2]) : 'sfc'}–${b[3] != null ? hundredsFt(b[3]) : '?'}` : '';
-  return ([b[0], b[1]].filter(Boolean).join(' ') || '?') + alt;
-}
-
+/* Raw text only. The /TB /IC /SK decode came out 2026-09-02: pilots,
+   controllers and the relaying systems drop the format often enough that a
+   decoded line was wrong or empty as often as it was right, and the raw
+   report is what a pilot reads anyway. Time and distance/bearing come from
+   the report's own stamped position, not from parsing the text. */
 function renderPireps(date, doc) {
   const card = $('pirep-card');
   const list = ((doc && doc.pireps) || []).slice();
@@ -2726,25 +2554,16 @@ function renderPireps(date, doc) {
   card.hidden = false;
   const urgent = (p) => /urgent|UUA/i.test(p.type || '');
   list.sort((a, b) => (urgent(b) - urgent(a)) || (b.t - a.t));
-  $('pirep-sub').textContent = `${list.length} report${list.length === 1 ? '' : 's'} within ~150 nm · time · from KANP · altitude · type`;
+  const nUrgent = list.filter(urgent).length;
+  $('pirep-sub').textContent = 'within ~150 nm · time · nm / °true from KANP · raw text';
+  $('pirep-summary').textContent = `${list.length} report${list.length === 1 ? '' : 's'}` +
+    (nUrgent ? ` · ${nUrgent} urgent` : '');
   $('pirep-list').innerHTML = list.map((p) => {
     const loc = (p.lat != null && p.lon != null) ? fromField(p.lat, p.lon) : null;
-    const bits = [];
-    if (p.tb) bits.push(`<span class="pr-k">TB</span> ${esc(p.tb.map(bandText).join('; '))}`);
-    if (p.ic) bits.push(`<span class="pr-k">IC</span> ${esc(p.ic.map(bandText).join('; '))}`);
-    if (p.sky) bits.push(`<span class="pr-k">SK</span> ${esc(skyText(p.sky))}`);
-    if (p.wx) bits.push(`<span class="pr-k">WX</span> ${esc(p.wx)}`);
-    if (p.temp != null) bits.push(`<span class="pr-k">TA</span> ${p.temp}°C`);
-    if (p.wind && (p.wind[0] != null || p.wind[1] != null)) {
-      bits.push(`<span class="pr-k">WV</span> ${p.wind[0] != null ? String(p.wind[0]).padStart(3, '0') : '—'}/${p.wind[1] != null ? p.wind[1] : '—'} kt`);
-    }
-    return `<details class="pr-row${urgent(p) ? ' urgent' : ''}"><summary>` +
+    return `<div class="pr-row${urgent(p) ? ' urgent' : ''}">` +
       `<span class="pr-age">${hhmm(p.t)}</span>` +
       `<span class="pr-loc">${loc ? `${Math.round(loc.nm)} nm ${String(Math.round(loc.brg)).padStart(3, '0')}°` : '—'}</span>` +
-      `<span class="pr-alt">${esc(flText(p.fl) || '—')}</span>` +
-      `<span class="pr-ac">${esc(p.ac || '')}</span>` +
-      `<span class="pr-txt">${urgent(p) ? '<b class="pr-uua">URGENT</b> ' : ''}${bits.join(' · ') || '<span class="d">no remarks decoded</span>'}</span>` +
-      `</summary><pre class="product">${esc(p.raw)}</pre></details>`;
+      `<code>${esc((p.raw || '').trim())}</code></div>`;
   }).join('');
 }
 

@@ -395,8 +395,15 @@ concepts; to relink, add the tools.html card back.
   load every METAR-driven card (compass, conditions, sun, sky wash, nearby fields, radar markers)
   is drawn from the archived obs, labelled "via site archive", and replaced when the live jobs
   finish (`state.gen`/`state.liveGen` keep a slow archive from overwriting a faster live render).
-  TAFs and the flight windows stay live — `latest.json` holds no decoded TAF periods and the
-  windows need the model. `archiveLatest()` bypasses `WXA`'s per-tab cache on refreshes so the
+  The flight windows stay live (they need the model). **TAFs read the archive too**
+  (`archiveTaf()`, 2026-09-02): `latest.json`'s `tafs` carries each station's newest issuance,
+  decoded (`periods`) when the live archiver caught it and raw text (`raw`, `bf`) when
+  `heal_tafs()` filled it from IEM — the page loads `js/taf-tac.js` and decodes the raw form.
+  The newer of the archive's and NWS's issuance wins and says which it was ("via site
+  archive"); the stale flag now means neither source has anything under 6 h old. The NWS TAF
+  collection froze on 2026-08-30 22:57Z and was still frozen on 09-02, so for those days every
+  TAF on the hub was the archive's. **The status line names what is partial** ("Partial data ·
+  no ob: KFME") — a bare "Partial data" read as a page fault when it was one dark AWOS. `archiveLatest()` bypasses `WXA`'s per-tab cache on refreshes so the
   archive fallback is never older than the archiver's last run.
   `renderSkyWash()` paints a gentle fixed gradient behind the page from the sun phase at the field
   plus the latest KNAK ob (blue day / indigo night / amber twilight, greyed by an overcast, steel
@@ -636,8 +643,21 @@ concepts; to relink, add the tools.html card back.
   there no TS symbol". Same `ceilingHeight` −30.48 m sentinel rule as weather.html.
 - `almanac.html` + `js/almanac.js` — Weather Almanac: the `data/wx/` archive as a reading room.
   A GitHub-style calendar (each day its worst *daytime* 8 am–8 pm category), then per-day cards —
-  the day meteogram, forecast drift + verification, the morning grid, alerts, TAFs, every AFD
-  issuance — and a whole-archive temperature/category strip. Reads **only** `WXA`: no live weather
+  the day meteogram, the forecast lead-up table, the morning grid table, alerts, the station
+  explorer, TAF vs METAR, radar, PIREPs, AIRMETs/SIGMETs/TFRs, the sounding, every AFD
+  issuance — and a whole-archive temperature/category strip.
+  **Cut 2026-09-02 at Jesse's request ("justify or remove"):** the forecast-drift *chart*
+  (42 near-identical points over a six-day lead-up, no readable axis) is now a table — one row
+  per morning the call was archived, high / low / precip % / wording, then what verified; the
+  morning-grid *chart* (CAPE, precip rate and PoP on three scales in one plot — the meteogram's
+  own one-scale rule, broken one card down; and the meteogram already draws the morning grid
+  dashed and the GFS lanes) is gone, the hour-by-hour table stays, folded; the **TAFs card is
+  gone** — the station explorer holds every issuance under its station, and now sits in the
+  TAFs card's old slot; **PIREPs are raw text only, folded by default** — the /TB /IC /SK decode
+  was removed on both this page and the hub because the reports drop the format too often
+  ("pilots/controllers/systems abandon the customs often") for a decoded line to be trusted;
+  time and nm/°true come from the report's stamped position. Radar dots carry their station id
+  on the big frame. Don't bring the charts or the decoder back without being asked. Reads **only** `WXA`: no live weather
   API anywhere on the page, and a card whose stream isn't archived hides itself.
   The meteogram is the page's centrepiece and has rules worth keeping:
   - **Stacked lanes, one scale each — never a second y-axis on one plot.** Two measures on two

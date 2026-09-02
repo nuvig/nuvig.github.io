@@ -146,16 +146,15 @@
     canvas.chart { display: block; width: 100%; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     /* PIREP / AIRMET cards */
-    .pr-row { display: grid; grid-template-columns: 34px 78px 64px 44px minmax(0, 1fr); gap: 8px;
+    .pr-row { display: grid; grid-template-columns: 34px 78px minmax(0, 1fr); gap: 8px; align-items: baseline;
+      padding: 4px 0; border-top: 1px solid #222; font-size: 12.5px; }
+    .pr-row code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: #c8c8c8;
+      white-space: pre-wrap; word-break: break-word; }
       font-size: 12px; padding: 3px 4px; border-radius: 4px; cursor: pointer; line-height: 1.5;
       align-items: baseline; }
     .pr-row:hover { background: #1f1f1f; }
     .pr-row.urgent { border-left: 2px solid #ef4444; padding-left: 6px; }
-    .pr-age { color: #666; } .pr-loc, .pr-alt { color: #9aa3ad; white-space: nowrap; }
-    .pr-ac { color: #777; }
-    .pr-txt { color: #c8c8c8; }
-    .pr-k { color: #4a9eff; font-size: 10.5px; font-weight: 600; }
-    .pr-uua { color: #ef4444; }
+    .pr-age { color: #666; } .pr-loc { color: #9aa3ad; white-space: nowrap; }
     .pr-raw { grid-column: 1 / -1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 11px; color: #9aa3ad; white-space: pre-wrap; word-break: break-word; padding: 2px 0 4px; }
     .as-grp { margin: 0 0 8px; font-size: 12px; line-height: 1.55; }
@@ -165,7 +164,7 @@
     .as-row a { color: #4a9eff; }
     .as-sig { cursor: pointer; }
     @media (max-width: 760px) { .pr-row { grid-template-columns: 34px 78px minmax(0, 1fr); }
-      .pr-alt, .pr-ac { display: none; } }
+ }
     /* station labels on the radar map */
     .leaflet-tooltip.ring-lbl { background: rgba(17,17,17,0.75); border: 0; color: #ddd; box-shadow: none;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; padding: 1px 4px; }
@@ -391,22 +390,23 @@
   </div>
 
   <footer class="sources">
-    Not for operational use — always get an official briefing.
-    Observations &amp; TAFs: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a> ·
-    model forecasts: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ·
-    radar: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> /
-    <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">IEM NEXRAD</a> ·
-    charts: FAA VFR sectional tiles.
-    KANP has no on-field weather sensor; surface obs come from KNAK (USNA, ~3 NM NE).
-    Wind directions are °true. Runway alignments from FAA data.
-    Density altitude is the NWS method, humidity included.
-    The page tint follows the sun at the field and the latest KNAK observation.
+    Not for operational use.
+    Obs, TAFs → <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">NWS API</a> ·
+    model → <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ·
+    radar → <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> /
+    <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">IEM</a> ·
+    charts → FAA sectional ·
+    field obs → KNAK (USNA, ~3 NM NE; KANP has no sensor) ·
+    directions → °true ·
+    density altitude → NWS method, humidity included ·
+    page tint → sun at the field + latest KNAK ob
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
+  <script src="js/taf-tac.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=4"></script>
+  <script src="js/weather.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>
