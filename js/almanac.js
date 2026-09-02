@@ -268,7 +268,9 @@ async function boot() {
 
   for (const [stream, key] of [['obs', 'obs_days'], ['fieldobs', 'fieldobs_days'],
     ['forecast', 'forecast_days'], ['grid', 'grid_days'], ['taf', 'taf_days'],
-    ['alerts', 'alert_days'], ['model', 'model_days']]) {
+    ['alerts', 'alert_days'], ['model', 'model_days'], ['pirep', 'pirep_days'],
+    ['airsig', 'airsig_days'], ['tfr', 'tfr_days'], ['raob', 'raob_days'],
+    ['aloft', 'aloft_days']]) {
     S.have[stream] = new Set(ix[key] || []);
   }
   /* the local METAR ring: which nearby fields the archive actually holds,
@@ -480,40 +482,53 @@ async function selectDay(date) {
   const chips = [
     ['METARs', S.have.obs.has(date)],
     [`${S.index.field_station || 'field'} obs`, S.have.fieldobs.has(date)],
-    [`ring ×${ringToday.length}`, ringToday.length > 0],
+    [`nearby ×${ringToday.length}`, ringToday.length > 0],
     ['forecast', S.have.forecast.has(date)],
     ['grid', S.have.grid.has(date)],
     ['TAFs', S.have.taf.has(date)],
     ['AFD ×' + (S.afdByDate.get(date) || []).length, S.afdByDate.has(date)],
     ['alerts', S.have.alerts.has(date)],
     ['model', S.have.model.has(date)],
+    ['PIREPs', S.have.pirep.has(date)],
+    ['AIRMETs', S.have.airsig.has(date)],
+    ['TFRs', S.have.tfr.has(date)],
+    ['sounding', S.have.raob.has(date)],
+    ['aloft', S.have.aloft.has(date)],
   ];
   $('day-chips').innerHTML = chips
     .map(([label, on]) => `<span class="${on ? '' : 'off'}">${esc(label)}</span>`).join('');
 
-  /* fetch everything the day has in parallel; WXA caches repeats */
-  const [obs, fobs, ringPairs, nextObs, grid, model, taf, alerts] = await Promise.all([
-    S.have.obs.has(date) ? WXA.day('obs', date) : null,
-    S.have.fieldobs.has(date) ? WXA.day('fieldobs', date) : null,
-    Promise.all(ringToday.map(async (id) => [id, await WXA.station(id, date)])),
-    S.have.obs.has(addDays(date, 1)) ? WXA.day('obs', addDays(date, 1)) : null,
-    S.have.grid.has(date) ? WXA.day('grid', date) : null,
-    S.have.model.has(date) ? WXA.day('model', date) : null,
-    S.have.taf.has(date) ? WXA.day('taf', date) : null,
-    S.have.alerts.has(date) ? WXA.day('alerts', date) : null,
-  ]);
+  /* fetch everything the day has in parallel; WXA caches repeats. A stream
+     that never held the day is null, never a request. */
+  const get = (stream, d = date) => (S.have[stream].has(d) ? WXA.day(stream, d) : null);
+  const [obs, fobs, ringPairs, nextObs, grid, model, taf, alerts, pirep, airsig, tfr, raob, aloft] =
+    await Promise.all([
+      get('obs'), get('fieldobs'),
+      Promise.all(ringToday.map(async (id) => [id, await WXA.station(id, date)])),
+      get('obs', addDays(date, 1)), get('grid'), get('model'), get('taf'), get('alerts'),
+      get('pirep'), get('airsig'), get('tfr'), get('raob'), get('aloft'),
+    ]);
   const drift = await loadDrift(date);
   if (seq !== daySeq) return;   // user moved on mid-fetch
 
+  const ringDocs = new Map(ringPairs);
+  S.extra = { ringDocs, aloft, raob };
   renderObs(date, obs, fobs, grid, model);
   renderDrift(date, drift, obs, nextObs);
   renderGrid(date, grid, model);
+  renderModelVsObs(date, model, obs);
   renderAlerts(date, alerts);
   renderTafs(date, taf);
+  renderTafVerify(date, taf, obs, ringDocs);
+  renderRadar(date, ringDocs, obs, fobs);
+  renderPireps(date, pirep);
+  renderAirsig(date, airsig, tfr);
+  renderRaob(date, raob, model);
   renderAfds(date);
-  renderStations(date, new Map(ringPairs), obs, fobs, taf);
+  renderStations(date, ringDocs, obs, fobs, taf);
 
-  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'taf-card', 'afd-card', 'stn-card']
+  $('day-empty').hidden = ['obs-card', 'drift-card', 'grid-card', 'alert-card', 'taf-card', 'tafv-card',
+    'radar-card', 'pirep-card', 'airsig-card', 'raob-card', 'afd-card', 'stn-card']
     .some((id) => !$(id).hidden);
 
   const trend = S.charts.get('trend-chart');   // move the selected-day marker
@@ -735,12 +750,74 @@ function buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
     }
   }
 
+  /* every station archived that day, for the area-ceiling lane; the GFS
+     column for the winds-aloft lane */
+  const ex = S.extra || {};
+  const all = [];
+  if (obsDoc && obsDoc.metars) all.push({ id: station, metars: obsDoc.metars });
+  if (fieldDoc && fieldDoc.metars) all.push({ id: fieldStation, metars: fieldDoc.metars });
+  for (const [id, d] of (ex.ringDocs || new Map())) if (d && d.metars) all.push({ id, metars: d.metars });
+
   return {
     date, t0, t1, station, fieldStation, elev: stationElev(station), fieldElev, obs, fobs, gpts, mpts,
     gridAt: gs ? (gs.t || gs.t0) : null, modelAt: ms ? ms.t : null,
     sun: solarTimes(date, SITE.airport.lat, SITE.airport.lon),
+    ring: ringSeries(t0, all), aloft: aloftSeries(t0, ex.aloft),
   };
 }
+
+/* Per hour, the lowest ceiling any station reported, and which stations
+   held a ceiling at or under 3,000 ft. An hour nobody reported is n = 0 and
+   is not drawn. */
+function ringSeries(t0, docs) {
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    const lo = t0 + h * 3600, hi = lo + 3600;
+    let min = null, n = 0;
+    const low = [];
+    for (const d of docs) {
+      const obs = d.metars.filter((m) => m[0] >= lo && m[0] < hi);
+      if (!obs.length) continue;
+      n++;
+      let c = null;
+      for (const m of obs) {
+        const o = parseMetar(m[1]);
+        if (o.ceilFt != null && (c == null || o.ceilFt < c)) c = o.ceilFt;
+      }
+      if (c != null) {
+        if (min == null || c < min) min = c;
+        if (c <= 3000) low.push(`${d.id} ${c.toLocaleString()}`);
+      }
+    }
+    out.push({ t: lo + 1800, min, n, low });
+  }
+  return out;
+}
+
+/* The GFS column at each hour of the day, from the snap with the shortest
+   lead that covers it (the newest snap taken at or before the hour). */
+function aloftSeries(t0, doc) {
+  const snaps = (doc && doc.snaps) || [];
+  if (!snaps.length) return null;
+  const pts = [];
+  for (let h = 0; h < 24; h++) {
+    const ts = t0 + h * 3600;
+    let best = null;
+    for (const s of snaps) {
+      if (s.t0 == null || ts < s.t0 || ts >= s.t0 + s.n * 3600) continue;
+      if (s.t <= ts + 3599 && (!best || s.t > best.t)) best = s;
+    }
+    if (!best) for (const s of snaps) if (s.t0 != null && ts >= s.t0 && ts < s.t0 + s.n * 3600) { best = s; break; }
+    if (!best) continue;
+    const i = Math.round((ts - best.t0) / 3600);
+    pts.push({ t: ts, lead: (ts - best.t) / 3600,
+      spd: best.lev.map((_, L) => (best.spd[L] || [])[i]),
+      dir: best.lev.map((_, L) => (best.dir[L] || [])[i]),
+      tmp: best.lev.map((_, L) => (best.tmp[L] || [])[i]) });
+  }
+  return pts.length ? { lev: snaps[0].lev, pts } : null;
+}
+const ALOFT_FT = { 925: '~2,500 ft', 850: '~5,000 ft', 700: '~10,000 ft', 500: '~18,000 ft' };
 
 /* ---- lanes -------------------------------------------------------------- */
 
@@ -922,6 +999,36 @@ const LANES = [
     },
   },
 ];
+
+LANES.push({
+  key: 'ring', label: 'Area ceiling', unit: 'ft', hue: C.ceil,
+  avail: (D) => !!(D.ring && D.ring.some((h) => h.n > 0)),
+  fmt: ftShort,
+  build(D) {
+    const hrs = D.ring.filter((h) => h.n > 0);
+    return {
+      series: [{ name: 'lowest ceiling at any station', color: C.ceil, kind: 'step', fill: 0.16,
+        pts: hrs.map((h) => [h.t, h.min]) }],
+      log: [150, 30000], ticks: [500, 1000, 3000, 10000, 25000], bands: CEIL_BANDS,
+      rail: hrs.filter((h) => h.min == null).map((h) => h.t), headroom: 28,
+    };
+  },
+}, {
+  key: 'aloft', label: 'Winds aloft', unit: 'kt', hue: C.wind,
+  avail: (D) => !!(D.aloft && D.aloft.pts.length),
+  fmt: (v) => String(Math.round(v)),
+  build(D) {
+    const A = D.aloft;
+    const dash = [null, [6, 3], [2, 3], [8, 3, 2, 3]];
+    const series = A.lev.map((lv, i) => ({
+      name: `GFS ${lv} hPa ${ALOFT_FT[lv] || ''}`.trim(), color: lighten(C.wind, i * 0.18),
+      kind: 'line', dash: dash[i] || undefined, pts: A.pts.map((p) => [p.t, p.spd[i]]),
+    }));
+    const k = A.lev.length > 1 ? 1 : 0;   // arrows follow the 850 hPa wind
+    const arrows = A.pts.map((p) => ({ t: p.t, dir: p.dir[k], spd: p.spd[k] }));
+    return { series, zero: true, minSpan: 20, headroom: 32, arrows };
+  },
+});
 
 const SOURCES = [
   { key: 'obs', label: () => S.index.station, note: 'the archive’s verification station' },
@@ -1697,6 +1804,27 @@ function showReadout(e, t) {
     }
   }
 
+  for (const lane of (S.meteo.lanes || [])) {
+    const k = lane.spec.key;
+    if (k === 'ring' && D.ring) {
+      const h = D.ring[Math.max(0, Math.min(23, Math.floor((t - D.t0) / 3600)))];
+      if (h && h.n) {
+        row(C.ceil, 'area ceiling', h.min != null
+          ? `${h.min.toLocaleString()} ft <span class="d">${esc(h.low.join(', '))}</span>`
+          : `<span class="d">none · ${h.n} station${h.n === 1 ? '' : 's'}</span>`);
+      }
+    }
+    if (k === 'aloft' && D.aloft) {
+      const hit = nearest(D.aloft.pts.map((q) => [q.t, q]), t, 1800);
+      const p = hit && hit[1];
+      if (p) {
+        row(C.wind, 'GFS aloft', D.aloft.lev.map((lv, i) =>
+          `${lv} ${p.dir[i] != null ? String(p.dir[i]).padStart(3, '0') : '—'}/${p.spd[i] != null ? p.spd[i] : '—'}`).join(' · ') +
+          ` <span class="d">lead ${Math.round(p.lead)} h</span>`);
+      }
+    }
+  }
+
   const ob = stations.length ? stations[0].ob : null;
   const head = ob
     ? `${hhmm(ob.t)} <span class="cat" style="background:${CAT[ob.cat].color}">${CAT[ob.cat].name}</span>`
@@ -2248,16 +2376,32 @@ function tafPeriodLine(p) {
   return bits.join(' · ') || '—';
 }
 
-/* One issuance's body — decoded periods when the live archiver stored them,
-   raw text for backfilled entries. Shared with the station explorer. */
-function tafBodyHtml(taf) {
-  if (taf.periods) {
-    return taf.periods.map((p) =>
-      `<div class="taf-line"><span class="ind">${esc(tafInd(p.ind))}</span>` +
-      `<span class="when">${hhmm(p.b)}–${hhmm(p.e)}</span>` +
-      `<span class="what">${esc(tafPeriodLine(p))}</span></div>`).join('');
+/* The periods of an issuance: the archiver's decoded ones, or the raw TAC
+   text decoded by js/taf-tac.js into the same shape (cached on the record). */
+function tafPeriods(taf) {
+  if (taf.periods) return taf.periods;
+  if (taf.raw && typeof TafTac !== 'undefined') {
+    if (taf._p === undefined) {
+      try { taf._p = TafTac.parse(taf.raw, taf.t).periods; } catch (e) { taf._p = null; }
+    }
+    return taf._p && taf._p.length ? taf._p : null;
   }
-  return `<pre class="product">${esc((taf.raw || '').trim())}</pre>`;
+  return null;
+}
+
+/* One issuance's body — decoded periods, with the raw text folded under
+   them when the archive holds it. Shared with the station explorer. */
+function tafBodyHtml(taf) {
+  const periods = tafPeriods(taf);
+  const lines = periods ? periods.map((p) =>
+    `<div class="taf-line"><span class="ind">${esc(tafInd(p.ind))}</span>` +
+    `<span class="when">${hhmm(p.b)}–${hhmm(p.e)}</span>` +
+    `<span class="what">${esc(tafPeriodLine(p))}</span></div>`).join('') : '';
+  const raw = taf.raw
+    ? (periods ? `<details class="fold"><summary>raw text</summary>` : '') +
+      `<pre class="product">${esc(taf.raw.trim())}</pre>` + (periods ? '</details>' : '')
+    : '';
+  return lines + raw;
 }
 
 function renderTafs(date, doc) {
@@ -2273,7 +2417,7 @@ function renderTafs(date, doc) {
   $('taf-list').innerHTML = sorted.map((taf) =>
     `<details class="iss"><summary><span class="who">${esc(taf.station)}</span>` +
     `issued ${hhmm(taf.t)}` +
-    `<span class="meta">${taf.periods ? `${taf.periods.length} periods` : 'raw text (backfilled)'}</span>` +
+    `<span class="meta">${(() => { const ps = tafPeriods(taf); return (ps ? `${ps.length} periods` : 'raw text') + (taf.bf ? ' · healed' : ''); })()}</span>` +
     `</summary><div class="body">${tafBodyHtml(taf)}</div></details>`).join('');
 }
 
@@ -2376,6 +2520,497 @@ function renderAfds(date) {
     });
     wrap.appendChild(d);
   }
+}
+
+/* ---------------------------------------------------------------------------
+   TAF vs METAR — the hour-by-hour category the TAF in force called for,
+   against the category observed. Base conditions only (FM, with BECMG
+   folded in once it starts); TEMPO and PROB groups are not the forecast's
+   claim about the hour. An hour with no METAR within 45 min is not judged.
+--------------------------------------------------------------------------- */
+
+function visSMfromM(m) {
+  if (m == null) return null;
+  if (m >= 9000) return 7;
+  for (const [mm, sm] of VIS_TABLE) if (Math.abs(m - mm) <= 100) return sm.includes('/') ? eval(sm.replace(' ', '+')) : +sm;
+  return m / 1609.34;
+}
+
+function tafCatAt(tafs, station, t) {
+  const iss = tafs.filter((x) => x.station === station && x.t <= t && t - x.t < 30 * 3600)
+    .sort((a, b) => b.t - a.t)[0];
+  if (!iss) return null;
+  const ps = tafPeriods(iss);
+  if (!ps) return null;
+  let base = null;
+  for (const p of ps) if (p.ind === 'FM' && p.b <= t && t < p.e) base = { visM: p.visM, cld: p.cld || [] };
+  if (!base) return null;
+  for (const p of ps) {
+    if (p.ind === 'BECMG' && p.e != null && p.e <= t) {
+      if (p.visM != null) base.visM = p.visM;
+      if (p.cld && p.cld.length) base.cld = p.cld;
+    }
+  }
+  let ceil = null;
+  for (const c of base.cld) {
+    if ((c.amt === 'BKN' || c.amt === 'OVC' || c.amt === 'VV') && c.ft != null && (ceil == null || c.ft < ceil)) ceil = c.ft;
+  }
+  const vis = visSMfromM(base.visM);
+  return { cat: catOf(vis, ceil), vis, ceil, iss };
+}
+
+function renderTafVerify(date, tafDoc, obsDoc, ringDocs) {
+  const card = $('tafv-card');
+  const tafs = (tafDoc && tafDoc.tafs) || [];
+  if (!tafs.length) { card.hidden = true; return; }
+  const t0 = midnight(date);
+  const rows = [];
+  for (const st of (SITE.weather.tafStations || []).map((s) => s.id)) {
+    if (!tafs.some((x) => x.station === st)) continue;
+    const doc = st === S.index.station ? obsDoc : ringDocs.get(st);
+    const metars = ((doc && doc.metars) || []).map((m) => ({ t: m[0], o: parseMetar(m[1]) }));
+    if (!metars.length) continue;
+    let hits = 0, judged = 0, worst = null;
+    const cells = [];
+    for (let h = 0; h < 24; h++) {
+      const ts = t0 + h * 3600;
+      const f = tafCatAt(tafs, st, ts);
+      const hit = nearest(metars.map((m) => [m.t, m]), ts + 1800, 2700);
+      const ob = hit && hit[1];
+      let title = `${String(h).padStart(2, '0')}:00`;
+      if (f) title += ` · TAF ${CAT[f.cat].name}${f.ceil != null ? ` ceil ${f.ceil.toLocaleString()}` : ''}${f.vis != null && f.vis < 7 ? ` vis ${+f.vis.toFixed(1)} SM` : ''}`;
+      else title += ' · no TAF in force';
+      if (ob) title += ` · METAR ${CAT[ob.o.cat].name}${ob.o.ceilFt != null ? ` ceil ${ob.o.ceilFt.toLocaleString()}` : ''}`;
+      else title += ' · not judged';
+      let miss = false;
+      if (f && ob) {
+        judged++;
+        if (f.cat === ob.o.cat) hits++;
+        else {
+          miss = true;
+          const d = Math.abs(f.cat - ob.o.cat);
+          if (!worst || d > worst.d) worst = { d, h, f: f.cat, o: ob.o.cat };
+        }
+      }
+      cells.push(`<span class="tv-cell${miss ? ' miss' : ''}" title="${esc(title)}">` +
+        `<i style="background:${f ? CAT[f.cat].color : 'transparent'}"></i>` +
+        `<i style="background:${ob ? CAT[ob.o.cat].color : 'transparent'}"></i></span>`);
+    }
+    if (!judged) continue;
+    rows.push(`<div class="tv-row"><span class="who">${esc(st)}</span><div class="tv-cells">${cells.join('')}</div>` +
+      `<span class="tv-score">${hits}/${judged}${worst ? ` · worst ${String(worst.h).padStart(2, '0')}:00 called ${CAT[worst.f].name}, saw ${CAT[worst.o].name}` : ''}</span></div>`);
+  }
+  if (!rows.length) { card.hidden = true; return; }
+  card.hidden = false;
+  $('tafv-sub').textContent = 'top: TAF in force · bottom: METAR · hits/judged';
+  $('tafv-body').innerHTML = rows.join('') +
+    `<div class="tv-hours">${Array.from({ length: 24 }, (_, h) => `<span>${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}</div>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Radar — the day's NEXRAD composite from IEM's time-enabled WMS (any
+   5-minute step since 1995), so no radar is archived here at all. Frames
+   are plain <img>s over a dark ground with the field and every station
+   placed by lat/lon; EPSG:4326 makes that a linear map.
+--------------------------------------------------------------------------- */
+
+const RADAR = { bbox: [-78.5, 37.5, -74.5, 40.5], w: 256, h: 192 };
+
+function radarUrl(t, w, h) {
+  const iso = new Date(Math.round(t / 300) * 300 * 1000).toISOString().slice(0, 16) + ':00Z';
+  return 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi?SERVICE=WMS&VERSION=1.1.1' +
+    `&REQUEST=GetMap&LAYERS=nexrad-n0q-wmst&STYLES=&SRS=EPSG:4326&BBOX=${RADAR.bbox.join(',')}` +
+    `&WIDTH=${w}&HEIGHT=${h}&FORMAT=image/png&TRANSPARENT=true&TIME=${iso}`;
+}
+
+function radarDots(ids) {
+  const [x0, y0, x1, y1] = RADAR.bbox;
+  const coords = SITE.weather.stationCoords || {};
+  const dot = (id, cls) => {
+    const c = coords[id];
+    if (!c) return '';
+    const left = (c[1] - x0) / (x1 - x0) * 100, top = (y1 - c[0]) / (y1 - y0) * 100;
+    return `<i class="dot${cls ? ' ' + cls : ''}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" title="${esc(id)}"></i>`;
+  };
+  return ids.map((id) => dot(id)).join('') + dot(SITE.airport.id, 'field');
+}
+
+function radarFrame(t, label, ids, w, h, big) {
+  const now = Date.now() / 1000;
+  const future = t > now - 300;
+  return `<div class="rf${big ? ' big' : ''}" data-t="${t}">` +
+    (future ? '' : `<img alt="" data-src="${esc(radarUrl(t, w, h))}" width="${w}" height="${h}">`) +
+    radarDots(ids) + `<span class="lbl">${esc(label)}</span>` +
+    (future ? '<span class="none">not yet</span>' : '') + '</div>';
+}
+
+function radarLoad(root) {
+  for (const img of root.querySelectorAll('img[data-src]')) {
+    img.onerror = () => { img.replaceWith(el('span', 'none', 'no radar')); };
+    img.src = img.dataset.src;
+    img.removeAttribute('data-src');
+  }
+}
+
+function renderRadar(date, ringDocs, obsDoc, fieldDoc) {
+  const card = $('radar-card');
+  const t0 = midnight(date);
+  if (t0 > Date.now() / 1000) { card.hidden = true; return; }
+  card.hidden = false;
+  const ids = [...ringDocs.keys()];
+  if (obsDoc && obsDoc.station) ids.push(obsDoc.station);
+  if (fieldDoc && fieldDoc.station) ids.push(fieldDoc.station);
+  $('radar-sub').textContent = 'IEM NEXRAD composite · every 2 h · slider steps 30 min';
+  const strip = $('radar-strip');
+  strip.innerHTML = Array.from({ length: 12 }, (_, i) => radarFrame(t0 + i * 7200, hhmm(t0 + i * 7200), ids, RADAR.w, RADAR.h)).join('');
+  const scrub = $('radar-scrub');
+  const big = $('radar-big');
+  const draw = () => {
+    const t = t0 + (+scrub.value) * 1800;
+    big.innerHTML = radarFrame(t, hhmm(t), ids, RADAR.w * 2, RADAR.h * 2, true);
+    if (!card.hidden && (card._seen || isNear(card))) radarLoad(big);
+  };
+  const isNear = (c) => { const r = c.getBoundingClientRect(); return r.top < innerHeight + 400 && r.bottom > -400; };
+  const now = Date.now() / 1000;
+  scrub.value = String(Math.max(0, Math.min(47, Math.floor((Math.min(now, t0 + 86399) - t0) / 1800) - (now < t0 + 86400 ? 1 : 24))));
+  if (now >= t0 + 86400) scrub.value = '24';
+  scrub.oninput = draw;
+  draw();
+  /* frames load when the card scrolls into view, not on day select */
+  if (card._io) card._io.disconnect();
+  card._seen = false;
+  const show = () => {
+    card._seen = true;
+    radarLoad(strip); radarLoad(big);
+    if (card._io) { card._io.disconnect(); card._io = null; }
+  };
+  if (isNear(card) || !window.IntersectionObserver) { show(); return; }
+  card._io = new IntersectionObserver((ents) => { if (ents.some((e) => e.isIntersecting)) show(); }, { rootMargin: '400px' });
+  card._io.observe(card);
+}
+
+/* ---------------------------------------------------------------------------
+   PIREPs — the day's reports, from the pirep stream.
+--------------------------------------------------------------------------- */
+
+function fromField(lat, lon) {
+  const R = 3440.065, rad = (d) => d * Math.PI / 180;
+  const p1 = rad(SITE.airport.lat), p2 = rad(lat), dl = rad(lon - SITE.airport.lon);
+  const a = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return { nm: 2 * R * Math.asin(Math.sqrt(a)), brg: (Math.atan2(y, x) * 180 / Math.PI + 360) % 360 };
+}
+const hundredsFt = (v) => (v == null ? null : v >= 180 ? `FL${String(v).padStart(3, '0')}` : (v * 100).toLocaleString());
+const flText = (fl) => (fl == null ? null : fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
+
+// PIREP /SK as the archiver stores it: a list of {cover, base, top} (feet;
+// top 0 = not reported) or a plain string
+function skyText(sky) {
+  if (!sky) return null;
+  if (typeof sky === 'string') return sky;
+  if (!Array.isArray(sky)) return JSON.stringify(sky);
+  return sky.map((c) => `${c.cover || '?'}${c.base ? ' ' + Number(c.base).toLocaleString() : ''}${c.top ? '–' + Number(c.top).toLocaleString() : ''}`).join(', ');
+}
+
+function bandText(b) {
+  const alt = (b[2] != null || b[3] != null)
+    ? ` ${b[2] != null ? hundredsFt(b[2]) : 'sfc'}–${b[3] != null ? hundredsFt(b[3]) : '?'}` : '';
+  return ([b[0], b[1]].filter(Boolean).join(' ') || '?') + alt;
+}
+
+function renderPireps(date, doc) {
+  const card = $('pirep-card');
+  const list = ((doc && doc.pireps) || []).slice();
+  if (!list.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const urgent = (p) => /urgent|UUA/i.test(p.type || '');
+  list.sort((a, b) => (urgent(b) - urgent(a)) || (b.t - a.t));
+  $('pirep-sub').textContent = `${list.length} report${list.length === 1 ? '' : 's'} within ~150 nm · time · from KANP · altitude · type`;
+  $('pirep-list').innerHTML = list.map((p) => {
+    const loc = (p.lat != null && p.lon != null) ? fromField(p.lat, p.lon) : null;
+    const bits = [];
+    if (p.tb) bits.push(`<span class="pr-k">TB</span> ${esc(p.tb.map(bandText).join('; '))}`);
+    if (p.ic) bits.push(`<span class="pr-k">IC</span> ${esc(p.ic.map(bandText).join('; '))}`);
+    if (p.sky) bits.push(`<span class="pr-k">SK</span> ${esc(skyText(p.sky))}`);
+    if (p.wx) bits.push(`<span class="pr-k">WX</span> ${esc(p.wx)}`);
+    if (p.temp != null) bits.push(`<span class="pr-k">TA</span> ${p.temp}°C`);
+    if (p.wind && (p.wind[0] != null || p.wind[1] != null)) {
+      bits.push(`<span class="pr-k">WV</span> ${p.wind[0] != null ? String(p.wind[0]).padStart(3, '0') : '—'}/${p.wind[1] != null ? p.wind[1] : '—'} kt`);
+    }
+    return `<details class="pr-row${urgent(p) ? ' urgent' : ''}"><summary>` +
+      `<span class="pr-age">${hhmm(p.t)}</span>` +
+      `<span class="pr-loc">${loc ? `${Math.round(loc.nm)} nm ${String(Math.round(loc.brg)).padStart(3, '0')}°` : '—'}</span>` +
+      `<span class="pr-alt">${esc(flText(p.fl) || '—')}</span>` +
+      `<span class="pr-ac">${esc(p.ac || '')}</span>` +
+      `<span class="pr-txt">${urgent(p) ? '<b class="pr-uua">URGENT</b> ' : ''}${bits.join(' · ') || '<span class="d">no remarks decoded</span>'}</span>` +
+      `</summary><pre class="product">${esc(p.raw)}</pre></details>`;
+  }).join('');
+}
+
+/* ---------------------------------------------------------------------------
+   AIRMETs · SIGMETs · TFRs — what was in effect that day (first/last seen).
+--------------------------------------------------------------------------- */
+
+function renderAirsig(date, airsigDoc, tfrDoc) {
+  const card = $('airsig-card');
+  const items = (airsigDoc && airsigDoc.items) || [];
+  const tfrs = (tfrDoc && tfrDoc.tfrs) || [];
+  if (!items.length && !tfrs.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const win = (it) => (it.from && it.to && it.to > it.from ? `${hhmm(it.from)}–${hhmm(it.to)}` : it.from ? `valid ${hhmm(it.from)}` : '');
+  const seen = (it) => (it.first && it.last ? `seen ${hhmm(it.first)}–${hhmm(it.last)}` : '');
+  const galt = (it) => [it.base != null ? `base ${it.base}` : null, it.top != null ? `top ${it.top}` : null,
+    it.fzl ? `FZL ${it.fzl[0] != null ? it.fzl[0] : '?'}–${it.fzl[1] != null ? it.fzl[1] : '?'}` : null].filter(Boolean).join(' · ');
+  const salt = (it) => [it.lo != null ? `${it.lo.toLocaleString()} ft` : null, it.hi != null ? `to ${it.hi.toLocaleString()} ft` : null].filter(Boolean).join(' ');
+  const groups = [];
+  for (const prod of ['SIERRA', 'TANGO', 'ZULU']) {
+    const rows = items.filter((it) => it.kind === 'G-AIRMET' && it.product === prod);
+    if (!rows.length) continue;
+    groups.push(`<div class="as-grp"><span class="as-h">${prod}</span>` +
+      rows.map((it) => `<div class="as-row"><b>${esc(it.hazard || '')}</b> ${esc(win(it))}` +
+        `${galt(it) ? ` · ${esc(galt(it))}` : ''}${it.due ? ` <span class="d">${esc(it.due)}</span>` : ''}` +
+        ` <span class="d">${esc(seen(it))}</span></div>`).join('') + '</div>');
+  }
+  const sigs = items.filter((it) => it.kind !== 'G-AIRMET');
+  if (sigs.length) {
+    groups.push(`<div class="as-grp"><span class="as-h">SIGMET · AIRMET</span>` +
+      sigs.map((it) => `<details class="as-row"><summary><b>${esc(it.kind)} ${esc(it.hazard || '')}</b> ${esc(win(it))}` +
+        `${salt(it) ? ` · ${esc(salt(it))}` : ''} <span class="d">${esc(seen(it))}</span></summary>` +
+        `<pre class="product">${esc(it.raw || '')}</pre></details>`).join('') + '</div>');
+  }
+  if (tfrs.length) {
+    const standing = (r) => r.state === 'USA';
+    const tf = tfrs.slice().sort((a, b) => (standing(a) - standing(b)) || String(a.id).localeCompare(String(b.id)));
+    groups.push(`<div class="as-grp"><span class="as-h">TFR</span>` +
+      tf.map((r) => `<div class="as-row"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.id)}</a> ` +
+        `<b>${esc(r.type || 'TFR')}</b> · ${esc(r.desc || '')}${standing(r) ? ' <span class="d">· standing</span>' : ''}</div>`).join('') + '</div>');
+  }
+  $('airsig-sub').textContent = `${items.length} AIRMET/SIGMET item${items.length === 1 ? '' : 's'} · ${tfrs.length} TFR${tfrs.length === 1 ? '' : 's'} · as seen by the hourly archiver`;
+  $('airsig-list').innerHTML = groups.join('');
+}
+
+/* ---------------------------------------------------------------------------
+   Sounding — the nearest radiosonde (KIAD), 12Z and 00Z, with the numbers a
+   pilot reads off it. Parcel math is the textbook approximation (Bolton
+   LCL, pseudo-adiabat integrated in 2 hPa steps, no virtual-temperature
+   correction) and is labelled approx.
+--------------------------------------------------------------------------- */
+
+const RD = 287.05, CPD = 1005.7, LV = 2.501e6, EPS = 0.622, G0 = 9.80665;
+const esatHpa = (TK) => 6.112 * Math.exp(17.67 * (TK - 273.15) / (TK - 29.65));
+const mixRatio = (p, TK) => EPS * esatHpa(TK) / Math.max(1, p - esatHpa(TK));
+const lclK = (TK, TdK) => 1 / (1 / (TdK - 56) + Math.log(TK / TdK) / 800) + 56;
+
+/* parcel temperature (K) at any pressure, lifted from (p0, T0, Td0) */
+function parcelFn(p0, T0, Td0) {
+  const Tl = lclK(T0, Td0), pl = p0 * Math.pow(Tl / T0, CPD / RD);
+  const path = [[pl, Tl]];
+  let T = Tl, p = pl;
+  while (p > 100) {
+    const rs = mixRatio(p, T);
+    const dTdp = (RD * T + LV * rs) / (CPD + LV * LV * rs * EPS / (RD * T * T)) / p;
+    const dp = Math.min(2, p - 100);
+    T -= dTdp * dp; p -= dp;
+    path.push([p, T]);
+  }
+  return {
+    pl, Tl,
+    at(pp) {
+      if (pp >= pl) return T0 * Math.pow(pp / p0, RD / CPD);
+      for (let i = 1; i < path.length; i++) {
+        if (path[i][0] <= pp) {
+          const [pa, Ta] = path[i - 1], [pb, Tb] = path[i];
+          return Ta + (Tb - Ta) * (pa - pp) / (pa - pb || 1);
+        }
+      }
+      return path[path.length - 1][1];
+    },
+  };
+}
+
+function soundingStats(levels) {
+  const L = levels.filter((l) => l[0] != null && l[1] != null && l[2] != null);
+  if (L.length < 5) return null;
+  const sfc = L[0];
+  const out = { sfc };
+  /* freezing level: first crossing below 0 °C */
+  for (let i = 1; i < L.length; i++) {
+    if (L[i - 1][2] > 0 && L[i][2] <= 0) {
+      const f = L[i - 1][2] / (L[i - 1][2] - L[i][2]);
+      out.frzFt = Math.round((L[i - 1][1] + f * (L[i][1] - L[i - 1][1])) * 3.28084);
+      break;
+    }
+  }
+  /* inversion in the lowest 5,000 ft */
+  out.inversion = false;
+  for (let i = 1; i < L.length && (L[i][1] - sfc[1]) < 1524; i++) if (L[i][2] > L[i - 1][2] + 0.3) out.inversion = true;
+  /* parcel from the surface */
+  if (sfc[3] != null) {
+    const parcel = parcelFn(sfc[0], sfc[2] + 273.15, sfc[3] + 273.15);
+    out.lclFt = null;
+    for (let i = 1; i < L.length; i++) {
+      if (L[i][0] <= parcel.pl) {
+        const f = (L[i - 1][0] - parcel.pl) / (L[i - 1][0] - L[i][0] || 1);
+        out.lclFt = Math.round((L[i - 1][1] + f * (L[i][1] - L[i - 1][1])) * 3.28084);
+        break;
+      }
+    }
+    let cape = 0, cin = 0, lfc = false;
+    for (let i = 1; i < L.length; i++) {
+      const p = (L[i - 1][0] + L[i][0]) / 2;
+      if (p > parcel.pl || p < 100) continue;
+      const Te = (L[i - 1][2] + L[i][2]) / 2 + 273.15;
+      const Tp = parcel.at(p);
+      const dz = L[i][1] - L[i - 1][1];
+      const b = G0 * (Tp - Te) / Te * dz;
+      if (b > 0) { cape += b; lfc = true; } else if (!lfc) cin += b;
+    }
+    out.cape = Math.round(cape); out.cin = Math.round(cin);
+    const e500 = L.find((l) => l[0] <= 500);
+    if (e500) out.li = +((e500[2] + 273.15 - parcel.at(500)).toFixed(1));
+  }
+  /* winds at the altitudes a pilot files, by u/v interpolation in height */
+  out.winds = {};
+  const W = L.filter((l) => l[4] != null && l[5] != null);
+  for (const ft of [3000, 6000, 9000, 12000]) {
+    const m = ft / 3.28084;
+    for (let i = 1; i < W.length; i++) {
+      if (W[i][1] >= m && W[i - 1][1] <= m) {
+        const f = (m - W[i - 1][1]) / (W[i][1] - W[i - 1][1] || 1);
+        const uv = (l) => [-l[5] * Math.sin(l[4] * Math.PI / 180), -l[5] * Math.cos(l[4] * Math.PI / 180)];
+        const [ua, va] = uv(W[i - 1]), [ub, vb] = uv(W[i]);
+        const u = ua + f * (ub - ua), v = va + f * (vb - va);
+        const spd = Math.round(Math.hypot(u, v));
+        const dir = Math.round((Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360);
+        out.winds[ft] = spd ? `${String(dir).padStart(3, '0')}/${spd}` : 'calm';
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function drawSounding(ctx, W, H, levels) {
+  const L = levels.filter((l) => l[1] != null && l[2] != null);
+  const padL = 34, padR = 64, padT = 8, padB = 22;
+  const topFt = 30000, tLo = -50, tHi = 40;
+  const x = (tC) => padL + (tC - tLo) / (tHi - tLo) * (W - padL - padR);
+  const y = (m) => padT + (1 - Math.min(topFt, m * 3.28084) / topFt) * (H - padT - padB);
+  ctx.fillStyle = C.lane; ctx.fillRect(padL, padT, W - padL - padR, H - padT - padB);
+  ctx.font = '10px system-ui, sans-serif'; ctx.fillStyle = C.dim; ctx.strokeStyle = C.grid;
+  for (let ft = 0; ft <= topFt; ft += 5000) {
+    ctx.beginPath(); ctx.moveTo(padL, y(ft / 3.28084)); ctx.lineTo(W - padR, y(ft / 3.28084)); ctx.stroke();
+    ctx.textAlign = 'right'; ctx.fillText(ft ? `${ft / 1000}k` : 'sfc', padL - 4, y(ft / 3.28084) + 3);
+  }
+  for (let t = -40; t <= 40; t += 20) {
+    ctx.beginPath(); ctx.moveTo(x(t), padT); ctx.lineTo(x(t), H - padB); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.fillText(`${t}°`, x(t), H - 8);
+  }
+  ctx.strokeStyle = rgba(C.vis, 0.5); ctx.beginPath(); ctx.moveTo(x(0), padT); ctx.lineTo(x(0), H - padB); ctx.stroke();
+  const trace = (idx, color, width) => {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+    let first = true;
+    for (const l of L) {
+      if (l[idx] == null || l[1] * 3.28084 > topFt) continue;
+      const px = x(l[idx]), py = y(l[1]);
+      if (first) { ctx.moveTo(px, py); first = false; } else ctx.lineTo(px, py);
+    }
+    ctx.stroke(); ctx.lineWidth = 1;
+  };
+  trace(3, C.dew, 1.5);
+  trace(2, C.temp, 2);
+  /* winds at the mandatory levels, on the right */
+  ctx.fillStyle = C.muted; ctx.textAlign = 'left';
+  for (const p of [925, 850, 700, 500, 400, 300]) {
+    const l = L.find((z) => z[0] <= p + 0.5);
+    if (!l || l[4] == null || l[1] * 3.28084 > topFt) continue;
+    ctx.fillText(`${p} ${String(Math.round(l[4])).padStart(3, '0')}/${Math.round(l[5])}`, W - padR + 6, y(l[1]) + 3);
+  }
+  ctx.fillStyle = C.temp; ctx.textAlign = 'left'; ctx.fillText('temp', padL + 6, padT + 12);
+  ctx.fillStyle = C.dew; ctx.fillText('dewpoint', padL + 40, padT + 12);
+}
+
+function renderRaob(date, raobDoc, modelDoc) {
+  const card = $('raob-card');
+  const snd = ((raobDoc && raobDoc.soundings) || []).slice();
+  if (!snd.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const station = raobDoc.station || S.index.raob_station || 'KIAD';
+  const zHour = (t) => new Date(t * 1000).getUTCHours();
+  snd.sort((a, b) => (zHour(a.t) === 12 ? -1 : 1) - (zHour(b.t) === 12 ? -1 : 1) || a.t - b.t);
+  $('raob-sub').textContent = `${station} · ${snd.map((s) => `${String(zHour(s.t)).padStart(2, '0')}Z (${hhmm(s.t)})`).join(' · ')} · parcel numbers approx`;
+  const wrap = $('raob-list');
+  wrap.innerHTML = '';
+  for (const s of snd) {
+    const st = soundingStats(s.levels || []);
+    const id = `raob-cv-${s.t}`;
+    const head = st ? [`sfc ${st.sfc[2]}/${st.sfc[3] != null ? st.sfc[3] : '—'} °C`,
+      st.frzFt != null ? `frz lvl ${st.frzFt.toLocaleString()} ft` : 'no freezing level below the top',
+      st.cape != null ? `CAPE ≈ ${st.cape}` : null, st.li != null ? `LI ≈ ${st.li}` : null].filter(Boolean).join(' · ') : '';
+    const d = el('details', 'iss',
+      `<summary><span class="who">${String(zHour(s.t)).padStart(2, '0')}Z</span>launched ${hhmm(s.t)}` +
+      `<span class="meta">${esc(head)}${s.bf ? ' · healed' : ''}</span></summary>` +
+      `<div class="body"><canvas class="chart" id="${id}" height="260"></canvas><div class="snd-table"></div></div>`);
+    const rows = [];
+    if (st) {
+      rows.push(['surface', `${st.sfc[2]} / ${st.sfc[3] != null ? st.sfc[3] : '—'} °C · ${st.sfc[4] != null ? `${String(Math.round(st.sfc[4])).padStart(3, '0')}/${Math.round(st.sfc[5])} kt` : ''}`]);
+      rows.push(['freezing level', st.frzFt != null ? `${st.frzFt.toLocaleString()} ft` : 'above the top']);
+      if (st.lclFt != null) rows.push(['LCL (approx)', `${st.lclFt.toLocaleString()} ft`]);
+      if (st.cape != null) rows.push(['CAPE (approx, no Tv)', `${st.cape} J/kg · CIN ${st.cin}`]);
+      if (st.li != null) rows.push(['lifted index (approx)', String(st.li)]);
+      rows.push(['inversion, lowest 5,000 ft', st.inversion ? 'yes' : 'no']);
+      for (const ft of [3000, 6000, 9000, 12000]) if (st.winds[ft]) rows.push([`wind ${(ft / 1000)}k ft`, st.winds[ft]]);
+      /* the site's first observed check on the model stream */
+      const snap = ((modelDoc && modelDoc.snaps) || []).find((m) => m.t0 <= s.t && s.t < m.t0 + m.n * 3600);
+      if (snap && st.cape != null) {
+        const i = Math.round((s.t - snap.t0) / 3600);
+        const mc = (snap.cape || [])[i];
+        if (mc != null) rows.push(['GFS CAPE at launch', `${mc} J/kg · sounding ≈ ${st.cape} · snap ${hhmm(snap.t)}`]);
+      }
+    }
+    d.querySelector('.snd-table').innerHTML = rows.map(([k, v]) => `<span class="k">${esc(k)}</span><span>${esc(v)}</span>`).join('');
+    d.addEventListener('toggle', () => {
+      if (!d.open || d.dataset.drawn) return;
+      d.dataset.drawn = '1';
+      chart(id, (ctx, W, H) => drawSounding(ctx, W, H, s.levels || []), 260);
+    });
+    wrap.appendChild(d);
+  }
+  if (wrap.firstChild) { wrap.firstChild.open = true; }
+}
+
+/* ---------------------------------------------------------------------------
+   Model vs observed — one line under the morning grid: what the GFS point
+   said would fall and fire, against what KDCA measured and reported.
+--------------------------------------------------------------------------- */
+
+function renderModelVsObs(date, modelDoc, obsDoc) {
+  const line = $('mvo-line');
+  const ms = modelDoc && modelDoc.snaps && modelDoc.snaps[0];
+  const metars = (obsDoc && obsDoc.metars) || [];
+  if (!ms || !metars.length) { line.hidden = true; return; }
+  const t0 = midnight(date), t1 = t0 + 86400;
+  let pr = 0, peak = null;
+  for (let i = 0; i < ms.n; i++) {
+    const t = ms.t0 + i * 3600;
+    if (t < t0 || t >= t1) continue;
+    pr += ms.pr[i] || 0;
+    if (ms.cape[i] != null && (peak == null || ms.cape[i] > peak)) peak = ms.cape[i];
+  }
+  let mm = 0, rainObs = 0, ts = false;
+  for (const [t, raw] of metars) {
+    if (t < t0 || t >= t1) continue;
+    const o = parseMetar(raw);
+    if (o.precIn) mm += o.precIn * 25.4;
+    if (o.rain) rainObs++;
+    if (o.ts) ts = true;
+  }
+  const station = obsDoc.station || S.index.station;
+  line.hidden = false;
+  line.textContent = `Model vs ${station} · GFS ${pr.toFixed(1)} mm, ${station} measured ${mm.toFixed(1)} mm` +
+    `, rain in ${rainObs} ob${rainObs === 1 ? '' : 's'} · GFS peak CAPE ${peak == null ? '—' : peak} J/kg` +
+    `, thunder ${ts ? 'reported' : 'not reported'} at ${station}`;
 }
 
 /* ---------------------------------------------------------------------------

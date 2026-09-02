@@ -402,6 +402,15 @@ concepts; to relink, add the tools.html card back.
   plus the latest KNAK ob (blue day / indigo night / amber twilight, greyed by an overcast, steel
   for rain, violet for thunder, pale for fog) — alphas are low on purpose and it crossfades between
   two layers so the 5-minute refresh never flashes; cards are opaque so it lives in the margins.
+  **PIREPs · AIRMETs/SIGMETs · TFRs cards + the ring on the radar map** (2026-09-01): read
+  from `latest.json` only (aviationweather.gov / tfr.faa.gov have no CORS), stamped `as of
+  HH:MM` and flagged over 3 h old — hourly, never live. PIREP rows: age, nm/°true from the
+  field, altitude, type, then only the decoded bits present (/TB /IC bands, sky, wx, temp,
+  wind); click for the raw report. G-AIRMET snapshots are valid *at* a time (expire == valid),
+  so they print `valid HH:MM`, not a zero-length range. Every archived METAR station is drawn
+  on the radar map (`updateRingMarkers()`, coords from `SITE.weather.stationCoords`) colored
+  by category with a permanent `ID ceiling-in-hundreds` label, grey-ringed when > 3 h old,
+  the raw METAR in a popup — the map reads as a ceiling picture.
 - `sky.html` + `js/sky.js` — METAR Sky: the current observation painted as an animated canvas
   scene — sky color from the real sun position (NOAA solar math anchored to the airport's TZ,
   same rule as `solarTimes()`), cloud decks at their reported bases, precip/fog/lightning from
@@ -686,6 +695,32 @@ concepts; to relink, add the tools.html card back.
   the hourly archiver noticed; rows that had to fall back are marked `~`. Bars are colored by
   Warning/Watch/Advisory/Statement, not by CAP `severity` — on a convective day every record here
   comes back "Severe".
+  **Cards added 2026-09-01, all reading the new streams** (`selectDay()` fetches each only
+  when `index.json` lists the day): **TAF vs METAR** (`renderTafVerify()` — per TAF station
+  with METARs archived, 24 split cells: top the category the TAF in force called for at the
+  hour (`tafCatAt()`: newest issuance ≤ the hour, FM base with BECMG folded in once it ends;
+  TEMPO/PROB are not the forecast's claim), bottom the METAR nearest the hour within 45 min,
+  else unjudged; hits/judged and the worst miss per station). Raw TAC TAFs (backfilled/
+  healed) are decoded by **`js/taf-tac.js`** (`TafTac.parse(raw, refEpoch)` → the archiver's
+  period shape; day/hour groups resolved against the issuance stamp; visibility via the SM
+  table, never ÷1609) so `tafBodyHtml()` renders every issuance decoded with the raw text
+  folded under. **Radar** — no radar is archived: IEM's time-enabled WMS
+  (`cgi-bin/wms/nexrad/n0q-t.cgi?…&LAYERS=nexrad-n0q-wmst&TIME=<ISO Z>`, any 5-minute step)
+  serves the composite as an `<img>`; 12 frames at 2 h plus a 30-min slider frame, field and
+  station dots placed by lat/lon (EPSG:4326 is linear), lazy-loaded when the card scrolls
+  into view, failed frames say `no radar`. **PIREPs**, **AIRMETs · SIGMETs · TFRs** (what was
+  in effect that day, first/last seen), **Sounding** (`renderRaob()`: KIAD 12Z then 00Z;
+  T/Td-vs-height canvas with mandatory-level winds; surface, freezing level, LCL, CAPE/CIN,
+  LI, low-level inversion, winds at 3/6/9/12 k ft — parcel math is Bolton LCL + a
+  pseudo-adiabat integrated in 2 hPa steps, **no virtual-temperature correction, labelled
+  approx**; plus "GFS CAPE at launch" from the model snap covering the hour, the site's first
+  observed check on the model stream). **Model vs observed** line under the morning grid
+  (`renderModelVsObs()`: GFS day precip and peak CAPE vs KDCA's measured P-group total, obs
+  with rain, and whether TS was reported). Two lanes: **Area ceiling** (`ringSeries()`: per
+  hour the lowest ceiling any archived station reported, hover lists the stations ≤ 3,000 ft;
+  an hour nobody reported is not drawn) and **Winds aloft** (`aloftSeries()`: the GFS column
+  from the shortest-lead snap covering each hour, one line per level, arrows on 850 hPa —
+  model only, named GFS; RAOB winds live in the sounding card). Both lanes off by default.
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history

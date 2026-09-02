@@ -145,6 +145,31 @@
     /* ---- charts ---- */
     canvas.chart { display: block; width: 100%; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    /* PIREP / AIRMET cards */
+    .pr-row { display: grid; grid-template-columns: 34px 78px 64px 44px minmax(0, 1fr); gap: 8px;
+      font-size: 12px; padding: 3px 4px; border-radius: 4px; cursor: pointer; line-height: 1.5;
+      align-items: baseline; }
+    .pr-row:hover { background: #1f1f1f; }
+    .pr-row.urgent { border-left: 2px solid #ef4444; padding-left: 6px; }
+    .pr-age { color: #666; } .pr-loc, .pr-alt { color: #9aa3ad; white-space: nowrap; }
+    .pr-ac { color: #777; }
+    .pr-txt { color: #c8c8c8; }
+    .pr-k { color: #4a9eff; font-size: 10.5px; font-weight: 600; }
+    .pr-uua { color: #ef4444; }
+    .pr-raw { grid-column: 1 / -1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; color: #9aa3ad; white-space: pre-wrap; word-break: break-word; padding: 2px 0 4px; }
+    .as-grp { margin: 0 0 8px; font-size: 12px; line-height: 1.55; }
+    .as-h { display: block; color: #555; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 1px; }
+    .as-row { color: #c8c8c8; padding: 1px 0; }
+    .as-row b { color: #ddd; font-weight: 600; }
+    .as-row a { color: #4a9eff; }
+    .as-sig { cursor: pointer; }
+    @media (max-width: 760px) { .pr-row { grid-template-columns: 34px 78px minmax(0, 1fr); }
+      .pr-alt, .pr-ac { display: none; } }
+    /* station labels on the radar map */
+    .leaflet-tooltip.ring-lbl { background: rgba(17,17,17,0.75); border: 0; color: #ddd; box-shadow: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; padding: 1px 4px; }
+    .leaflet-tooltip.ring-lbl::before { display: none; }
     @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
 
     /* ---- winds aloft / outlook ---- */
@@ -333,9 +358,24 @@
   </div>
   <div class="taf-grid" id="tafs"></div>
 
+  <!-- ============ PIREPS · AIRMETS · TFRS (site archive, hourly) ============ -->
+  <div class="section-title">PIREPs · AIRMETs · SIGMETs · TFRs
+    <span class="sub">site archive, hourly · ~150 nm · <span id="pirep-sub"></span></span>
+  </div>
+  <div class="two-col">
+    <div class="card">
+      <h3>PIREPs <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#555">age · from KANP · altitude · type</span></h3>
+      <div id="pirep-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+    </div>
+    <div class="card">
+      <h3>AIRMETs · SIGMETs · TFRs</h3>
+      <div id="airsig-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+    </div>
+  </div>
+
   <!-- ============ RADAR ============ -->
   <div class="section-title">Radar
-    <span class="sub">airport dots colored by current flight category · rings at 10 &amp; 25 NM from KANP</span>
+    <span class="sub">every station colored by flight category, labelled with its ceiling in hundreds of feet · rings at 10 &amp; 25 NM from KANP</span>
   </div>
   <div id="radar-map"></div>
   <div class="radar-controls">
@@ -366,7 +406,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=3"></script>
+  <script src="js/weather.js?v=4"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

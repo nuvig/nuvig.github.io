@@ -278,6 +278,48 @@
     .grid-tab td.wx { color: #8a959f; white-space: normal; }
 
     .note { font-size: 12px; color: #667; margin-top: 8px; line-height: 1.5; }
+    /* TAF vs METAR */
+    .tv-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 6px 0; font-size: 12.5px; }
+    .tv-row .who { color: #bbb; font-weight: 600; }
+    .tv-cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+    .tv-cell { display: flex; flex-direction: column; height: 22px; border-radius: 2px; overflow: hidden; background: #202020; }
+    .tv-cell i { flex: 1; display: block; }
+    .tv-cell.miss { outline: 1px solid rgba(239, 68, 68, 0.6); }
+    .tv-score { color: #999; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+    .tv-hours { display: grid; grid-template-columns: repeat(24, 1fr); font-size: 10px; color: #555; margin-left: 56px; }
+    @media (max-width: 600px) { .tv-row { grid-template-columns: 48px minmax(0, 1fr); } .tv-score { grid-column: 2; } }
+    /* radar */
+    .radar-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+    .rf { position: relative; background: #0f1218; border-radius: 4px; overflow: hidden; aspect-ratio: 4 / 3; }
+    .rf img { width: 100%; height: 100%; display: block; }
+    .rf .lbl { position: absolute; left: 4px; top: 2px; font-size: 11px; color: #ccc; text-shadow: 0 0 3px #000; }
+    .rf .dot { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: #c8c8c8; }
+    .rf .dot.field { background: #facc15; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
+    .rf .none { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #555; font-size: 12px; }
+    #radar-big { max-width: 512px; margin-bottom: 4px; }
+    #radar-scrub { width: 100%; max-width: 512px; display: block; }
+    /* PIREPs · AIRMETs */
+    .pr-row summary { display: grid; grid-template-columns: 44px 84px 64px 44px minmax(0, 1fr); gap: 8px; font-size: 12.5px;
+      padding: 3px 4px; border-radius: 4px; cursor: pointer; line-height: 1.5; align-items: baseline; list-style: none; }
+    .pr-row summary::-webkit-details-marker { display: none; }
+    .pr-row summary:hover { background: #1f1f1f; }
+    .pr-row.urgent summary { border-left: 2px solid #ef4444; padding-left: 6px; }
+    .pr-age { color: #666; font-variant-numeric: tabular-nums; } .pr-loc, .pr-alt { color: #9aa3ad; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .pr-ac { color: #777; } .pr-txt { color: #c8c8c8; }
+    .pr-k { color: #4a9eff; font-size: 10.5px; font-weight: 600; }
+    .pr-uua { color: #ef4444; }
+    .pr-row .product { margin: 2px 0 6px 8px; }
+    @media (max-width: 700px) { .pr-row summary { grid-template-columns: 44px 84px minmax(0, 1fr); } .pr-alt, .pr-ac { display: none; } }
+    .as-grp { margin: 0 0 8px; font-size: 12.5px; line-height: 1.55; }
+    .as-h { display: block; color: #555; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 1px; }
+    .as-row { color: #c8c8c8; padding: 1px 0; }
+    .as-row b { color: #ddd; font-weight: 600; }
+    .as-row a { color: #4a9eff; }
+    .as-row summary { cursor: pointer; }
+    .as-row .d, .pr-row .d { color: #6a6a65; }
+    /* sounding */
+    .snd-table { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12.5px; margin: 6px 0 2px; }
+    .snd-table .k { color: #777; }
     .stn-none {
       font-size: 12.5px; color: #667; padding: 6px 8px; margin: 6px 0;
       border: 1px dashed #2a2a2a; border-radius: 6px;
@@ -356,6 +398,7 @@
       <summary>Hour-by-hour grid table</summary>
       <div id="grid-table"></div>
     </details>
+    <p class="stat-line" id="mvo-line" hidden></p>
     <p class="note">The NWS hourly grid at the field as it stood that morning — the table every
       weather app renders — beside the GFS's CAPE and precipitation rate. Forecast, not observation.</p>
   </section>
@@ -374,6 +417,35 @@
   <section class="card" id="taf-card" hidden>
     <h2>TAFs <span class="sub">as issued that day — KANP has no TAF; these are the neighbors</span></h2>
     <div id="taf-list"></div>
+  </section>
+
+  <section class="card" id="tafv-card" hidden>
+    <h2>TAF vs METAR <span class="sub" id="tafv-sub"></span></h2>
+    <div id="tafv-body"></div>
+    <p class="note">Top: the category the TAF in force called for (FM base, BECMG folded in; TEMPO and PROB not counted). Bottom: the METAR nearest the hour, within 45 min. No bottom = not judged.</p>
+  </section>
+
+  <section class="card" id="radar-card" hidden>
+    <h2>Radar <span class="sub" id="radar-sub"></span></h2>
+    <div id="radar-big"></div>
+    <input type="range" id="radar-scrub" min="0" max="47" value="24" aria-label="Radar time">
+    <div class="radar-strip" id="radar-strip"></div>
+    <p class="note">NEXRAD composite via IEM's time-enabled WMS · yellow dot = KANP, grey = archived stations.</p>
+  </section>
+
+  <section class="card" id="pirep-card" hidden>
+    <h2>PIREPs <span class="sub" id="pirep-sub"></span></h2>
+    <div id="pirep-list"></div>
+  </section>
+
+  <section class="card" id="airsig-card" hidden>
+    <h2>AIRMETs · SIGMETs · TFRs <span class="sub" id="airsig-sub"></span></h2>
+    <div id="airsig-list"></div>
+  </section>
+
+  <section class="card" id="raob-card" hidden>
+    <h2>Sounding <span class="sub" id="raob-sub"></span></h2>
+    <div id="raob-list"></div>
   </section>
 
   <section class="card" id="afd-card" hidden>
@@ -413,7 +485,8 @@
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/almanac.js?v=6"></script>
+  <script src="js/taf-tac.js?v=1"></script>
+  <script src="js/almanac.js?v=7"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

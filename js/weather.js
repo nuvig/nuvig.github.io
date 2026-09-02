@@ -592,6 +592,7 @@ async function paintFromArchive(gen) {
     state.metars[id].src = 'site archive';
     any = true;
   }
+  renderArchiveCards(arc);
   if (!any || state.liveGen >= gen) return;
   renderSun();
   renderHero();
@@ -948,6 +949,167 @@ async function loadAlerts() {
   } catch { /* alerts are non-critical */ }
 }
 
+/* -------- PIREPs · AIRMETs / SIGMETs · TFRs, from the site archive --------
+   aviationweather.gov and tfr.faa.gov send no CORS headers, so the browser
+   cannot read them; the hourly archiver can, and latest.json is where these
+   live. Every card prints the archive stamp: this is hourly, never live. */
+
+const hmLocal = (t) => new Date(t * 1000).toLocaleTimeString('en-US',
+  { hour: 'numeric', minute: '2-digit', timeZone: TZ });
+const ageShort = (sec) => (sec < 3600 ? `${round(sec / 60)}m` : sec < 86400 ? `${round(sec / 3600)}h` : `${round(sec / 86400)}d`);
+
+// great-circle distance (nm) and true bearing from the field
+function fromField(lat, lon) {
+  const R = 3440.065;
+  const p1 = rad(KANP.lat), p2 = rad(lat), dl = rad(lon - KANP.lon);
+  const a = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  const nm = 2 * R * Math.asin(Math.sqrt(a));
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  const brg = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return { nm, brg };
+}
+
+const flText = (fl) => (fl == null ? null : fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
+
+// PIREP /SK as the archiver stores it: a list of {cover, base, top} (feet;
+// top 0 = not reported) or a plain string
+function skyText(sky) {
+  if (!sky) return null;
+  if (typeof sky === 'string') return sky;
+  if (!Array.isArray(sky)) return JSON.stringify(sky);
+  return sky.map((c) => `${c.cover || '?'}${c.base ? ' ' + Number(c.base).toLocaleString() : ''}${c.top ? '–' + Number(c.top).toLocaleString() : ''}`).join(', ');
+}
+
+const hundreds = (v) => (v == null ? null : v >= 180 ? `FL${String(v).padStart(3, '0')}` : (v * 100).toLocaleString());
+
+// [intensity, type, baseFL, topFL] -> "MOD CHOP 3,000–6,000"
+function bandText(b) {
+  const alt = (b[2] != null || b[3] != null)
+    ? ` ${b[2] != null ? hundreds(b[2]) : 'sfc'}–${b[3] != null ? hundreds(b[3]) : '?'}` : '';
+  return ([b[0], b[1]].filter(Boolean).join(' ') || '?') + alt;
+}
+
+function archiveStamp(arc) {
+  const age = Date.now() / 1000 - arc.t;
+  return `as of ${hmLocal(arc.t)}${age > 3 * 3600 ? ` · ${ageShort(age)} old` : ''}`;
+}
+
+function renderPireps(arc) {
+  const box = $('pirep-body');
+  if (!box) return;
+  const list = (arc.pireps || []).slice();
+  $('pirep-sub').textContent = archiveStamp(arc);
+  if (!list.length) { box.innerHTML = '<span class="faint">no PIREPs in the last 12 h</span>'; return; }
+  const urgent = (p) => /urgent|UUA/i.test(p.type || '');
+  list.sort((a, b) => (urgent(b) - urgent(a)) || (b.t - a.t));
+  const now = Date.now() / 1000;
+  box.innerHTML = list.map((p, i) => {
+    const loc = (p.lat != null && p.lon != null) ? fromField(p.lat, p.lon) : null;
+    const bits = [];
+    if (p.tb) bits.push(`<span class="pr-k">TB</span> ${esc(p.tb.map(bandText).join('; '))}`);
+    if (p.ic) bits.push(`<span class="pr-k">IC</span> ${esc(p.ic.map(bandText).join('; '))}`);
+    if (p.sky) bits.push(`<span class="pr-k">SK</span> ${esc(skyText(p.sky))}`);
+    if (p.wx) bits.push(`<span class="pr-k">WX</span> ${esc(p.wx)}`);
+    if (p.temp != null) bits.push(`<span class="pr-k">TA</span> ${p.temp}°C`);
+    if (p.wind && (p.wind[0] != null || p.wind[1] != null)) {
+      bits.push(`<span class="pr-k">WV</span> ${p.wind[0] != null ? String(p.wind[0]).padStart(3, '0') : '—'}/${p.wind[1] != null ? p.wind[1] : '—'} kt`);
+    }
+    return `<div class="pr-row${urgent(p) ? ' urgent' : ''}" data-i="${i}">
+      <span class="pr-age num-mono" title="${esc(hmLocal(p.t))}">${ageShort(now - p.t)}</span>
+      <span class="pr-loc num-mono">${loc ? `${round(loc.nm)} nm ${String(round(loc.brg)).padStart(3, '0')}°` : '—'}</span>
+      <span class="pr-alt num-mono">${esc(flText(p.fl) || '—')}</span>
+      <span class="pr-ac">${esc(p.ac || '')}</span>
+      <span class="pr-txt">${urgent(p) ? '<b class="pr-uua">URGENT</b> ' : ''}${bits.join(' · ') || '<span class="faint">no remarks decoded</span>'}</span>
+      <div class="pr-raw" hidden>${esc(p.raw)}</div>
+    </div>`;
+  }).join('');
+  box.onclick = (e) => {
+    const row = e.target.closest('.pr-row');
+    if (!row) return;
+    const raw = row.querySelector('.pr-raw');
+    raw.hidden = !raw.hidden;
+  };
+}
+
+function renderAirsig(arc) {
+  const box = $('airsig-body');
+  if (!box) return;
+  const items = arc.airsig || [], tfrs = arc.tfrs || [];
+  const win = (it) => (it.from && it.to && it.to > it.from ? `${hmLocal(it.from)}–${hmLocal(it.to)}` : it.from ? `valid ${hmLocal(it.from)}` : '');
+  const galt = (it) => [it.base != null ? `base ${it.base}` : null, it.top != null ? `top ${it.top}` : null,
+    it.fzl ? `FZL ${it.fzl[0] != null ? it.fzl[0] : '?'}–${it.fzl[1] != null ? it.fzl[1] : '?'}` : null].filter(Boolean).join(' · ');
+  const salt = (it) => [it.lo != null ? `${it.lo.toLocaleString()} ft` : null, it.hi != null ? `to ${it.hi.toLocaleString()} ft` : null].filter(Boolean).join(' ');
+  const groups = [];
+  for (const prod of ['SIERRA', 'TANGO', 'ZULU']) {
+    const rows = items.filter((it) => it.kind === 'G-AIRMET' && it.product === prod);
+    groups.push(`<div class="as-grp"><span class="as-h">${prod}</span>` + (rows.length
+      ? rows.map((it) => `<div class="as-row"><b>${esc(it.hazard || '')}</b> <span class="num-mono">${esc(win(it))}</span>` +
+          `${galt(it) ? ` · ${esc(galt(it))}` : ''}${it.due ? ` <span class="faint">${esc(it.due)}</span>` : ''}</div>`).join('')
+      : '<span class="faint">none in effect</span>') + '</div>');
+  }
+  const sigs = items.filter((it) => it.kind !== 'G-AIRMET');
+  groups.push(`<div class="as-grp"><span class="as-h">SIGMET · AIRMET</span>` + (sigs.length
+    ? sigs.map((it, i) => `<div class="as-row as-sig" data-i="${i}"><b>${esc(it.kind)} ${esc(it.hazard || '')}</b> <span class="num-mono">${esc(win(it))}</span>` +
+        `${salt(it) ? ` · ${esc(salt(it))}` : ''}${it.mov && it.mov[0] != null ? ` · mov ${String(it.mov[0]).padStart(3, '0')}/${it.mov[1] || '?'}` : ''}` +
+        `<div class="pr-raw" hidden>${esc(it.raw || '')}</div></div>`).join('')
+    : '<span class="faint">none in effect</span>') + '</div>');
+  const standing = (r) => r.state === 'USA';
+  const tf = tfrs.slice().sort((a, b) => (standing(a) - standing(b)) || String(a.id).localeCompare(String(b.id)));
+  groups.push(`<div class="as-grp"><span class="as-h">TFR</span>` + (tf.length
+    ? tf.map((r) => `<div class="as-row"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.id)}</a> ` +
+        `<b>${esc(r.type || 'TFR')}</b> · ${esc(r.desc || '')}${standing(r) ? ' <span class="faint">· standing</span>' : ''}</div>`).join('')
+    : '<span class="faint">none listed</span>') + '</div>');
+  box.innerHTML = groups.join('');
+  box.onclick = (e) => {
+    const row = e.target.closest('.as-sig');
+    if (!row) return;
+    const raw = row.querySelector('.pr-raw');
+    raw.hidden = !raw.hidden;
+  };
+}
+
+// The ring on the radar map: every archived METAR station not already drawn
+// as an airport card, colored by flight category with the ceiling (hundreds
+// of feet) as a permanent label, so the map reads as a ceiling picture.
+function updateRingMarkers(arc) {
+  if (!radar.map || !arc) return;
+  const drawn = new Set(AIRPORTS.map((a) => a.metarStation).concat(AIRPORTS.map((a) => a.id)));
+  const coords = SITE.weather.stationCoords || {};
+  const obs = {};
+  for (const [id, pair] of Object.entries(arc.stations || {})) if (pair && pair.length === 2) obs[id] = pair;
+  const lastOf = (list) => (list && list.length ? list[list.length - 1] : null);
+  if (arc.station && lastOf(arc.obs)) obs[arc.station] = lastOf(arc.obs);
+  if (arc.field_station && lastOf(arc.fieldobs)) obs[arc.field_station] = lastOf(arc.fieldobs);
+  const now = Date.now() / 1000;
+  radar.ring = radar.ring || {};
+  for (const [id, [ts, raw]] of Object.entries(obs)) {
+    if (drawn.has(id) || !coords[id]) continue;
+    const m = parseMetar(raw, new Date(ts * 1000).toISOString());
+    const ceil = ceilingFt(m);
+    const cat = flightCat(m.visSM, ceil);
+    const stale = now - ts > 3 * 3600;
+    const label = `${id} ${ceil != null ? String(round(ceil / 100)).padStart(3, '0') : m.clear ? 'CLR' : '—'}`;
+    const style = { radius: 5, color: stale ? '#888' : '#111', weight: 1.5, fillColor: CAT_COLORS[cat], fillOpacity: 0.95 };
+    let mk = radar.ring[id];
+    if (!mk) {
+      mk = radar.ring[id] = L.circleMarker(coords[id], style).addTo(radar.map)
+        .bindTooltip(label, { permanent: true, direction: 'right', offset: [6, 0], className: 'ring-lbl' });
+    } else {
+      mk.setStyle(style);
+      mk.setTooltipContent(label);
+    }
+    mk.bindPopup(`<b>${id}</b> ${cat} · ${ceil != null ? `${ceil.toLocaleString()} ft` : 'no ceiling'} · ${ageShort(now - ts)} ago<br><span style="font-family:monospace;font-size:11px">${esc(raw.split(' RMK')[0])}</span>`);
+  }
+}
+
+function renderArchiveCards(arc) {
+  if (!arc) return;
+  renderPireps(arc);
+  renderAirsig(arc);
+  updateRingMarkers(arc);
+}
+
 /* -------- runway analysis cards -------- */
 
 function renderAirports() {
@@ -1166,7 +1328,7 @@ function initRadar() {
   for (const apt of AIRPORTS) {
     radar.markers[apt.id] = L.circleMarker([apt.lat, apt.lon], {
       radius: 7, color: '#111', weight: 1.5, fillColor: '#666', fillOpacity: 0.95,
-    }).addTo(radar.map).bindTooltip(apt.id, { direction: 'top' });
+    }).addTo(radar.map).bindTooltip(apt.id, { permanent: true, direction: 'right', offset: [7, 0], className: 'ring-lbl' });
   }
   loadRadarFrames();
   $('radar-play').addEventListener('click', () => {
@@ -1181,9 +1343,11 @@ function updateRadarMarkers() {
     const mk = radar.markers[apt.id];
     if (!mk) continue;
     if (m && !m.error) {
-      const cat = flightCat(m.visSM, ceilingFt(m));
+      const ceil = ceilingFt(m);
+      const cat = flightCat(m.visSM, ceil);
       mk.setStyle({ fillColor: CAT_COLORS[cat] });
-      mk.setTooltipContent(`<b>${apt.id}</b> ${cat}${apt.metarStation !== apt.id ? ` (obs ${apt.metarStation})` : ''}<br>${esc(m.raw.slice(0, 60))}…`);
+      mk.setTooltipContent(`${apt.id} ${ceil != null ? String(round(ceil / 100)).padStart(3, '0') : m.clear ? 'CLR' : '—'}`);
+      mk.bindPopup(`<b>${apt.id}</b> ${cat}${apt.metarStation !== apt.id ? ` (obs ${apt.metarStation})` : ''} · ${ceil != null ? `${ceil.toLocaleString()} ft` : 'no ceiling'}<br><span style="font-family:monospace;font-size:11px">${esc(m.raw.split(' RMK')[0])}</span>`);
     }
   }
 }
@@ -1315,6 +1479,7 @@ async function loadAll() {
   ];
   await Promise.all(jobs);
   state.liveGen = gen;   // from here on the archive paint may not overwrite
+  archiveLatest().then(renderArchiveCards).catch(() => {});
 
   renderSun();
   renderHero();
