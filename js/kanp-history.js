@@ -309,6 +309,11 @@ const KANPHistory = (() => {
     let tracks = fullData.tracks;
     if (mil) tracks = tracks.filter(t => t.military);
     if (ga) tracks = tracks.filter(t => KANP.isGA(t));
+    // KANP-only is decided on the FULL track, before the altitude band trims
+    // it: a field contact is a fix at or below the ops gate near the runway,
+    // and any floor above that gate would otherwise delete every such fix
+    // first and leave nothing to qualify (floor 2,000 + KANP only → 0 tracks).
+    tracks = applyArrDep({ tracks }).tracks;
     if (floor != null || ceil != null) {
       // Ground fixes ignore the floor so a low band still shows traffic on the
       // field — but only while the band actually reaches down to the surface.
@@ -341,12 +346,11 @@ const KANPHistory = (() => {
       }).filter(t => t.points.length);
     }
 
-    let shown = {
+    const shown = {
       ...fullData, tracks,
       aircraft_count: tracks.length,
       returned_points: tracks.reduce((n, t) => n + t.points.length, 0),
     };
-    shown = applyArrDep(shown);
 
     // The tracks are already shape-simplified; only if what's actually on the
     // map is still huge do we coarsen further (shape-preserving) to keep it
