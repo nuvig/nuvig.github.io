@@ -1,28 +1,24 @@
 /* Data Feed — the site's intake log.
    ---------------------------------------------------------------------------
    Every record this site takes in, newest first, as one merged stream: each
-   METAR from the verification station, the field sensor and the whole local
-   ring; each TAF and AFD issuance; each forecast, grid and model snapshot;
-   each alert; and each tracker snapshot push.
+   METAR from KDCA, KNAK and the other nearby stations; each TAF and AFD
+   issuance; each forecast, grid and model snapshot; each alert; and each
+   tracker snapshot push.
 
    Read from data/wx/ via WXA (js/wx-archive.js) plus the tracker's
    summary.json, so the page has no weather API of its own — it is a view of
    what the archive holds, not a second collector.
 
-   TWO CLOCKS, and the page never conflates them. Some records carry the
-   moment the site captured them (grid/forecast/model snapshots stamp `t` when
-   the archiver wrote them; alerts stamp `seen`; the tracker stamps
-   `generated`) — for those, the feed time IS the arrival time. The rest carry
-   only their own moment (a METAR's observation time, a TAF's or AFD's
-   issuance time) and were picked up later by the hourly run. Those are drawn
-   with a dotted underline and say so on hover. Sorting a mixed feed by one
-   column and calling the result "arrivals" would be a small lie told four
-   hundred times a day.
+   Two kinds of timestamp, kept apart. Grid/forecast/model snapshots stamp
+   `t` when the archiver wrote them, alerts stamp `seen`, the tracker stamps
+   `generated`: for those the row time is when the site captured the record.
+   METARs, TAFs and AFDs carry only their observation or issuance time and
+   were picked up later by the hourly run; those times get a dotted underline
+   and a hover note. The page never labels the second kind as an arrival.
 
-   Truncation is explicit, never silent: every row shows the size of the
-   record behind it, one-liners cut the field that carries the least (a
-   METAR's RMK group, a TAF's WMO header), and an expansion too large to print
-   says where it stopped and links the file it came from.
+   Every row shows the size of the record behind it. One-liners cut the part
+   that matters least (a METAR's RMK group, a TAF's WMO header), and an
+   expansion too large to print says where it stopped and links the file.
 
    Needs js/site-config.js and js/wx-archive.js loaded first. */
 
@@ -78,18 +74,21 @@ function size(n) {
    The streams, and what each one is. `clock:'in'` means the record's stamp is
    the moment the site took it in; `clock:'own'` means it is the record's own
    moment and capture happened later, on the next hourly run.
+
+   All METARs are one stream. The archive keeps KDCA (obs/), KNAK (fieldobs/)
+   and the nearby fields (stations/<ID>/) apart, and the day header's
+   coverage line still reports them apart, but a reader of the feed wants the
+   record type in the badge and the station in the next column.
 --------------------------------------------------------------------------- */
 
 const STREAMS = {
-  obs:      { name: 'obs',      color: '#4a9eff', what: 'METAR from KDCA — the station the DC forecast is verified against' },
-  field:    { name: 'field',    color: '#22c55e', what: 'METAR from KNAK — the airfield sensor standing in for KANP' },
-  ring:     { name: 'ring',     color: '#8fa7c4', what: 'METAR from the local ring — every other reporting field around KANP' },
-  taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF issuance for KMTN / KBWI / KDCA' },
-  afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion issued by NWS Baltimore/Washington' },
+  metar:    { name: 'metar',    color: '#4a9eff', what: 'METAR. KDCA verifies the DC forecast, KNAK stands in for KANP, the rest are the nearby fields' },
+  taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF for KMTN, KBWI or KDCA' },
+  afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion from NWS Baltimore/Washington' },
   forecast: { name: 'forecast', color: '#f0883e', what: 'NWS daily forecast digest at the DC point' },
-  grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field — 48 h of ceiling, vis, wind, PoP' },
-  model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field — CAPE, CIN, precip' },
-  alert:    { name: 'alert',    color: '#ef4444', what: 'Active NWS alert, stamped when the archiver first saw it' },
+  grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field: 48 h of ceiling, vis, wind, PoP' },
+  model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field: CAPE, CIN, precip' },
+  alert:    { name: 'alert',    color: '#ef4444', what: 'NWS alert, stamped when the archiver first saw it' },
   tracker:  { name: 'tracker',  color: '#94a3b8', what: 'ADS-B snapshot pushed by the Pi exporter to the traffic-data branch' },
 };
 
@@ -179,11 +178,11 @@ function add(r) {
   return true;
 }
 
-function metarRows(doc, stream, path) {
+function metarRows(doc, path) {
   if (!doc || !doc.metars) return;
   for (const pair of doc.metars) {
     const t = pair[0], raw = pair[1];
-    add({ t, clock: 'own', stream, src: doc.station || '?', one: metarOne(raw),
+    add({ t, clock: 'own', stream: 'metar', src: doc.station || '?', one: metarOne(raw),
           text: raw, bytes: raw.length, path });
   }
 }
@@ -214,12 +213,22 @@ function alertRows(doc, path) {
   }
 }
 
+/* The archiver files each AFD as afd/YYYY/afd-YYYYMMDD-HHMM.json on its UTC
+   issuance stamp, so a row from latest.json can cite that file. */
+function afdPath(doc) {
+  const d = new Date(doc.issuanceTime);
+  if (isNaN(d)) return 'latest.json';
+  const u = d.toISOString().replace(/\D/g, '');       // YYYYMMDDHHMMSSmmm
+  return `afd/${u.slice(0, 4)}/afd-${u.slice(0, 8)}-${u.slice(8, 12)}.json`;
+}
+
 function afdRow(doc, path) {
   if (!doc || !doc.productText) return;
   const t = Math.round(Date.parse(doc.issuanceTime) / 1000);
   if (!isFinite(t)) return;
   add({ t, clock: 'own', stream: 'afd', src: doc.office || 'LWX', one: afdOne(doc.productText),
-        text: doc.productText, bytes: doc.productText.length, path });
+        text: doc.productText, bytes: doc.productText.length, path,
+        tag: doc.bf ? 'healed' : null });
 }
 
 /* ---------------------------------------------------------------------------
@@ -260,8 +269,12 @@ function hoursNote(idx, stream, id, date) {
   const i = days.indexOf(date);
   if (i < 0) return null;
   const h = hrs.h[i], nh = (hrs.nh || [])[i] || 0;
-  const now = Date.now() / 1000;
-  const expect = date === dayOf(now) ? lp(now).h + 1 : 24;
+  /* Hours after the last archive run are not missing, they are not archived
+     yet. index.json's `updated` is that run; the hour it ran in is still
+     open (the routine ob comes at :5x), so only the hours before it count. */
+  const upd = idx.updated || Date.now() / 1000;
+  const runDay = dayOf(upd);
+  const expect = date < runDay ? 24 : date === runDay ? lp(upd).h : 0;
   return { h, nh, missing: Math.max(0, expect - h - nh) };
 }
 
@@ -275,9 +288,9 @@ async function loadDay(date) {
   const obs = all[0], fobs = all[1], taf = all[2], grid = all[3],
         fc = all[4], model = all[5], alerts = all[6], st = all.slice(7);
 
-  metarRows(obs, 'obs', `obs/${date}.json`);
-  metarRows(fobs, 'field', `fieldobs/${date}.json`);
-  ids.forEach((id, i) => metarRows(st[i], 'ring', `stations/${id}/${date}.json`));
+  metarRows(obs, `obs/${date}.json`);
+  metarRows(fobs, `fieldobs/${date}.json`);
+  ids.forEach((id, i) => metarRows(st[i], `stations/${id}/${date}.json`));
   tafRows(taf, `taf/${date}.json`);
   snapRows(grid, 'grid', `grid/${date}.json`, gridOne);
   snapRows(fc, 'forecast', `forecast/${date}.json`, forecastOne);
@@ -288,8 +301,8 @@ async function loadDay(date) {
   await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));
 
   /* What the day's own files say about their completeness and provenance,
-     printed in the day header: a count of rows cannot tell you what never
-     arrived, and a healed record is not a record that arrived on time. */
+     printed in the day header. A count of rows cannot show what never
+     arrived, and a healed record did not arrive on time. */
   const cover = [], heal = [];
   const push = (label, n) => {
     if (n) cover.push(`${label} ${n.h} h${n.missing ? ` · ${n.missing} h missing` : ''}${n.nh ? ` · ${n.nh} h not reported` : ''}`);
@@ -304,7 +317,7 @@ async function loadDay(date) {
     if (n) { ringH += n.h; ringMiss += n.missing; ringNh += n.nh; }
   });
   if (ringN) {
-    cover.push(`ring ${ringN} station${ringN === 1 ? '' : 's'}, ${ringH} h`
+    cover.push(`${ringN} other station${ringN === 1 ? '' : 's'} ${ringH} h`
       + (ringMiss ? ` · ${ringMiss} h missing` : '')
       + (ringNh ? ` · ${ringNh} h not reported` : ''));
   }
@@ -326,19 +339,19 @@ function mergeLatest(doc) {
   if (!doc) return 0;
   const before = rows.length;
   for (const pair of doc.obs || []) {
-    add({ t: pair[0], clock: 'own', stream: 'obs', src: doc.station || 'KDCA',
+    add({ t: pair[0], clock: 'own', stream: 'metar', src: doc.station || 'KDCA',
           one: metarOne(pair[1]), text: pair[1], bytes: pair[1].length,
           path: `obs/${dayOf(pair[0])}.json` });
   }
   for (const pair of doc.fieldobs || []) {
-    add({ t: pair[0], clock: 'own', stream: 'field', src: doc.field_station || 'KNAK',
+    add({ t: pair[0], clock: 'own', stream: 'metar', src: doc.field_station || 'KNAK',
           one: metarOne(pair[1]), text: pair[1], bytes: pair[1].length,
           path: `fieldobs/${dayOf(pair[0])}.json` });
   }
   for (const ent of Object.entries(doc.stations || {})) {
     const id = ent[0], pair = ent[1];
     if (!pair) continue;
-    add({ t: pair[0], clock: 'own', stream: 'ring', src: id, one: metarOne(pair[1]),
+    add({ t: pair[0], clock: 'own', stream: 'metar', src: id, one: metarOne(pair[1]),
           text: pair[1], bytes: pair[1].length, path: `stations/${id}/${dayOf(pair[0])}.json` });
   }
   for (const rec of Object.values(doc.tafs || {})) {
@@ -348,7 +361,7 @@ function mergeLatest(doc) {
             path: `taf/${dayOf(rec.t)}.json`, tag: rec.bf ? 'healed' : null });
     }
   }
-  if (doc.afd) afdRow(doc.afd, 'latest.json');
+  if (doc.afd) afdRow(doc.afd, afdPath(doc.afd));
   if (doc.forecast && doc.forecast.t) {
     add({ t: doc.forecast.t, clock: 'in', stream: 'forecast', src: 'DC point',
           one: forecastOne(doc.forecast), rec: doc.forecast,
@@ -431,12 +444,12 @@ function rowHTML(r, i) {
   const own = r.clock === 'own';
   return `<div class="row" data-i="${i}">`
     + `<time class="${own ? 'own' : ''}" title="${own
-        ? 'the record&#39;s own timestamp — the site picked it up on a later hourly run'
-        : 'when this arrived in the archive'}">${clock(r.t)}</time>`
+        ? 'Observation or issuance time. The archiver picked this record up on a later run.'
+        : 'When the site captured this record.'}">${clock(r.t)}</time>`
     + `<span class="badge" style="color:${st.color};border-color:${st.color}55;background:${st.color}14">${st.name}</span>`
     + `<span class="src">${esc(r.src)}</span>`
     + `<span class="one">${esc(r.one)}</span>`
-    + (r.tag ? `<span class="tag" title="filled in later from IEM, not captured live">${esc(r.tag)}</span>` : '')
+    + (r.tag ? `<span class="tag" title="Filled in later from IEM, not captured live.">${esc(r.tag)}</span>` : '')
     + `<span class="bytes">${size(r.bytes)}</span>`
     + `</div>`;
 }
@@ -463,14 +476,14 @@ function render() {
     if (!meta) {
       /* A record's day is its own local day, so a TAF issued at 8 PM lands
          here even though this day's files were never opened. Say so rather
-         than let an unloaded day borrow the look of a measured one. */
-      html += `<div class="day-cover partial">day not loaded — these arrived`
-        + ` through another day's file or the current-state document, so there is`
-        + ` no coverage to report yet</div>`;
+         than let an unloaded day look like a measured one. */
+      html += `<div class="day-cover partial">This day's files are not loaded.`
+        + ` These records came from another day's file or from latest.json, so`
+        + ` there is no coverage line yet.</div>`;
     } else if (meta.cover.length || meta.heal.length) {
       html += `<div class="day-cover">${esc(meta.cover.join(' · '))}`
         + (meta.heal.length
-            ? `<span class="heal">${meta.cover.length ? ' · ' : ''}healed from IEM afterwards: ${esc(meta.heal.join(', '))}</span>`
+            ? `<span class="heal">${meta.cover.length ? ' · ' : ''}filled in later from IEM (records): ${esc(meta.heal.join(', '))}</span>`
             : '')
         + `</div>`;
     }
@@ -481,7 +494,7 @@ function render() {
   $('count').textContent = `${list.length.toLocaleString()} of ${rows.length.toLocaleString()} records`;
 }
 
-/* Expansion is built on demand — four hundred <pre> blocks a day would cost
+/* Expansion is built on demand. Four hundred <pre> blocks a day would cost
    more than the records they hold. */
 function onClick(e) {
   const row = e.target.closest('.row');

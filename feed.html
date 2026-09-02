@@ -148,13 +148,13 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>Data Feed</h1>
-  <p class="subtitle">Every record this site takes in, newest first — each METAR from
-    the verification station, the field sensor and the local ring; each TAF and forecast
-    discussion; each grid, forecast and model snapshot; each alert; and each ADS-B
-    snapshot push. Click any line for the whole record and the file it came from.
-    Read from the <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">weather archive</a>
+  <p class="subtitle">Every record this site takes in, newest first: METARs from KDCA,
+    KNAK and the nearby fields, TAFs, forecast discussions, grid, forecast and model
+    snapshots, alerts, and tracker snapshot pushes. Times are Eastern. Click a line for
+    the whole record and the file it came from. Everything here is read from the
+    <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">weather archive</a>
     and the <a href="https://github.com/nuvig/nuvig.github.io/tree/traffic-data">traffic-data</a>
-    branch — this page collects nothing of its own.</p>
+    branch; this page collects nothing itself.</p>
 
   <div class="bar">
     <div id="chips"></div>
@@ -170,31 +170,28 @@
   <button class="btn" id="more" style="display:none" disabled></button>
 
   <footer class="sources">
-    <p><b>Two clocks, kept apart.</b> A <i>grid</i>, <i>forecast</i>, <i>model</i>,
-    <i>alert</i> or <i>tracker</i> row is stamped when the site captured it, so its time
-    is the arrival. An <i>obs</i>, <i>field</i>, <i>ring</i>, <i>taf</i> or <i>afd</i> row
-    carries only the record's own moment — the observation or issuance time — and was
-    picked up afterwards by the hourly archiver. Those times are drawn with a dotted
-    underline; hover one to see which it is. Sorting the two together and calling the
-    result "arrivals" would be a small lie told a few hundred times a day.</p>
-    <p><b>Truncation is stated, never silent.</b> Each line shows the size of the record
-    behind it. One-liners drop the part that carries the least — a METAR's RMK group, a
-    TAF's transmission header, a snapshot's 48 hourly values — and the expansion shows
-    the record whole, or says where it was cut and links the file.</p>
-    <p><b>A missing hour is not a quiet one.</b> Each day header prints the hours each
-    METAR stream actually holds, the hours missing, and the hours the station never
-    reported — and marks records healed from IEM after the fact, since a record filled in
-    later is not a record that arrived on time.</p>
+    <p><b>Times.</b> A <i>grid</i>, <i>forecast</i>, <i>model</i>, <i>alert</i> or
+    <i>tracker</i> row is stamped when the site captured it. A <i>metar</i>, <i>taf</i> or
+    <i>afd</i> row shows the observation or issuance time instead; the hourly archiver
+    picked it up later. Those times have a dotted underline.</p>
+    <p><b>Sizes.</b> Each line shows the size of the record behind it. One-liners leave
+    part of it out: a METAR's remarks, a TAF's transmission header, a snapshot's hourly
+    values. The expansion shows the whole record, or says where it was cut and links the
+    file.</p>
+    <p><b>Coverage.</b> Each day header shows how many hours of the day each METAR
+    station has an observation for, how many hours are missing, and how many the station
+    did not report. It also counts records filled in later from IEM rather than captured
+    live.</p>
     <p>The archive is written hourly by the
     <a href="https://github.com/nuvig/nuvig.github.io/blob/main/.github/workflows/wxarchive.yml">wxarchive</a>
-    Action; tracker snapshots are pushed by the Pi exporter. Pipeline health lives on the
-    <a href="/changelog.html">changelog</a>; the same days read as weather on the
+    Action. Tracker snapshots are pushed by the Pi exporter. Pipeline health is on the
+    <a href="/changelog.html">changelog</a>; the same days are on the
     <a href="/almanac.html">almanac</a>.</p>
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/feed.js?v=1"></script>
+  <script src="js/feed.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

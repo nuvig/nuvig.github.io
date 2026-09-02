@@ -90,28 +90,37 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
   heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
 - `feed.html` + `js/feed.js` — Data Feed: the site's intake log — every record it takes in,
-  newest first, as one merged stream. Ten streams: `obs` (KDCA) - `field` (KNAK) - `ring` (the
-  archived station ring) - `taf` - `afd` - `forecast` - `grid` - `model` - `alert` - `tracker`
+  newest first, as one merged stream. Eight streams as the page labels them: `metar` (KDCA
+  from `obs/`, KNAK from `fieldobs/`, and the `stations/<ID>/` ring, one stream with the
+  station in the source column — the badge names the record type, never an archive-internal
+  name like "ring") - `taf` - `afd` - `forecast` - `grid` - `model` - `alert` - `tracker`
   (the Pi exporter's `summary.json`). Reads **only** `WXA` plus that one tracker document — no
   weather API of its own, same rule as the almanac. Rules worth keeping:
-  **Two clocks, never merged.** `grid`/`forecast`/`model` snapshots stamp `t` when the archiver
-  wrote them, `alerts` stamp `seen`, the tracker stamps `generated` — for those the row time *is*
-  the arrival. METARs, TAFs and AFDs carry only their own moment (observation / issuance) and were
-  picked up later by the hourly run; those times get a dotted underline and say which they are on
-  hover. Sorting the two together and labelling the column "arrivals" would be a small lie told a
-  few hundred times a day.
-  **Truncation is stated, never silent.** Every row prints its record's byte size; one-liners cut
-  the field carrying the least (a METAR's RMK group, a TAF's WMO transmission header, a snapshot's
-  48 hourly values); an expansion over 20,000 chars says where it stopped and links the file. Each
-  expansion cites the archive path it came from, so every datum on the page is traceable to a file.
-  **A day header reports the archive, not the filter** — hours held, hours missing and hours the
-  station never reported per METAR stream (out of `index.json`'s `hours`), plus what each day
-  file's `bf` says was healed from IEM afterwards, since a record filled in later is not a record
-  that arrived on time. A day whose files were never opened says so rather than borrowing the look
-  of a measured one.
-  Day files load newest-first **before** `latest.json` — both hold the same newest AFD and METARs
-  and the first added wins the dedupe, so the archived record wins and cites its own path instead
-  of the current-state document. Live tail re-reads `latest.json` + `summary.json` every 60 s.
+  **Two kinds of timestamp, never merged.** `grid`/`forecast`/`model` snapshots stamp `t`
+  when the archiver wrote them, `alerts` stamp `seen`, the tracker stamps `generated` — for
+  those the row time is the capture time. METARs, TAFs and AFDs carry only their own moment
+  (observation / issuance) and were picked up later by the hourly run; those times get a
+  dotted underline and say which they are on hover. The page never labels the second kind as
+  an arrival.
+  **Truncation is stated.** Every row prints its record's size; one-liners cut the field
+  carrying the least (a METAR's RMK group, a TAF's WMO transmission header, a snapshot's
+  48 hourly values); an expansion over 20,000 chars says where it stopped and links the file.
+  Each expansion cites the archive path it came from (an AFD from `latest.json` cites its
+  `afd/YYYY/afd-…` file, derived from `issuanceTime`).
+  **A day header reports the archive, not the filter** — hours held, hours missing and hours
+  the station never reported per METAR stream (out of `index.json`'s `hours`), plus what each
+  day file's `bf` says was filled in from IEM afterwards. Today's expected hours run only up
+  to `index.json`'s `updated` stamp (the last archive run), so hours the archiver hasn't
+  reached yet are never counted as missing. A day whose files were never opened says so
+  rather than borrowing the look of a measured one. Backfilled AFDs and TAFs (`bf`) carry
+  the `healed` tag on their row; METAR provenance is per file, so it appears in the header
+  only.
+  Day files load newest-first **before** `latest.json` — both hold the same newest AFD and
+  METARs and the first added wins the dedupe, so the archived record wins and cites its own
+  path instead of the current-state document. Live tail re-reads `latest.json` +
+  `summary.json` every 60 s.
+  **Page copy is plain** (Jesse, 2026-09-01: "get rid of this AI speak") — labels, facts,
+  no slogans; keep it that way.
   Site-meta page like `changelog.html`: sitemap entry + footer links on `index.html`/`tools.html`,
   and **no tools.html card**.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
