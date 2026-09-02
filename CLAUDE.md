@@ -89,6 +89,31 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   (`forecast`/`grid`). Today is never counted a gap — a day-forward stream fills it as the day runs)
   and the tracker snapshots (`summary.json` — exporter push age vs `newest_position` "last aircraft
   heard", which fail independently, plus aircraft/day bars). Needs `site-config.js` + `wx-archive.js`.
+- `feed.html` + `js/feed.js` — Data Feed: the site's intake log — every record it takes in,
+  newest first, as one merged stream. Ten streams: `obs` (KDCA) - `field` (KNAK) - `ring` (the
+  archived station ring) - `taf` - `afd` - `forecast` - `grid` - `model` - `alert` - `tracker`
+  (the Pi exporter's `summary.json`). Reads **only** `WXA` plus that one tracker document — no
+  weather API of its own, same rule as the almanac. Rules worth keeping:
+  **Two clocks, never merged.** `grid`/`forecast`/`model` snapshots stamp `t` when the archiver
+  wrote them, `alerts` stamp `seen`, the tracker stamps `generated` — for those the row time *is*
+  the arrival. METARs, TAFs and AFDs carry only their own moment (observation / issuance) and were
+  picked up later by the hourly run; those times get a dotted underline and say which they are on
+  hover. Sorting the two together and labelling the column "arrivals" would be a small lie told a
+  few hundred times a day.
+  **Truncation is stated, never silent.** Every row prints its record's byte size; one-liners cut
+  the field carrying the least (a METAR's RMK group, a TAF's WMO transmission header, a snapshot's
+  48 hourly values); an expansion over 20,000 chars says where it stopped and links the file. Each
+  expansion cites the archive path it came from, so every datum on the page is traceable to a file.
+  **A day header reports the archive, not the filter** — hours held, hours missing and hours the
+  station never reported per METAR stream (out of `index.json`'s `hours`), plus what each day
+  file's `bf` says was healed from IEM afterwards, since a record filled in later is not a record
+  that arrived on time. A day whose files were never opened says so rather than borrowing the look
+  of a measured one.
+  Day files load newest-first **before** `latest.json` — both hold the same newest AFD and METARs
+  and the first added wins the dedupe, so the archived record wins and cites its own path instead
+  of the current-state document. Live tail re-reads `latest.json` + `summary.json` every 60 s.
+  Site-meta page like `changelog.html`: sitemap entry + footer links on `index.html`/`tools.html`,
+  and **no tools.html card**.
 - `404.html`, `robots.txt`, `assets/og.png`, favicons.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `slime.html` — Slime Simulator: a full-screen slime slab (wobbly rim inset a few px from the

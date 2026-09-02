@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Feed — jesselevine.net</title>
+  <meta name="description" content="Every piece of data this site takes in, newest first — each METAR, TAF, forecast discussion, model and grid snapshot, weather alert and ADS-B snapshot, with the file it came from.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/feed.html">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    /* A log wants width — the one-liners are raw METARs and TAF lines that
+       should not wrap. Wider than the 760px site default, capped so the text
+       column stays readable. */
+    body { max-width: 1180px; }
+
+    #back-link {
+      display: inline-block; margin-top: 16px; font-size: 14px;
+      text-decoration: none; color: #666;
+    }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 18px; font-size: 14px; max-width: 76ch; line-height: 1.6; }
+    .subtitle a { color: #777; }
+
+    /* ---- controls ---- */
+    .bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid #2a2a2a;
+      position: sticky; top: 0; background: #111; z-index: 5;
+    }
+    #chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #161616; color: #555; border: 1px solid #2c2c2c;
+      font-family: inherit; font-size: 12px; padding: 3px 9px;
+      border-radius: 999px; cursor: pointer;
+    }
+    .chip i { width: 7px; height: 7px; border-radius: 50%; background: #333; }
+    .chip.on { color: #ccc; border-color: #3a3a3a; background: #1c1c1c; }
+    .chip.on i { background: var(--c); }
+    .chip:hover { border-color: #555; }
+
+    #q {
+      background: #161616; border: 1px solid #2c2c2c; border-radius: 5px;
+      color: #ddd; font-family: inherit; font-size: 13px; padding: 4px 9px;
+      width: 190px;
+    }
+    #q:focus { outline: none; border-color: #4a9eff; }
+    .spacer { flex: 1 1 auto; }
+    #count { color: #555; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #live {
+      background: #1c1c1c; color: #666; border: 1px solid #2c2c2c;
+      font-family: inherit; font-size: 12px; padding: 3px 10px;
+      border-radius: 5px; cursor: pointer;
+    }
+    #live.on { color: #22c55e; border-color: #22c55e44; background: #22c55e14; }
+    #live-note { color: #555; font-size: 12px; white-space: nowrap; }
+
+    /* ---- day sections ---- */
+    .day { margin: 18px 0 0; }
+    .day-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+      margin: 0 0 2px; padding-top: 8px; border-top: 1px solid #262626; }
+    .day-head h2 { font-size: 14px; color: #bbb; margin: 0; font-weight: 600; }
+    .day-n { color: #555; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .day-link { color: #4a5b6e; font-size: 12px; text-decoration: none; margin-left: auto; }
+    .day-link:hover { color: #4a9eff; }
+    .day-cover { color: #5b5b5b; font-size: 11.5px; margin: 0 0 8px; line-height: 1.5; }
+    .day-cover .heal { color: #7a5a1e; }
+    .day-cover.partial { color: #4a4a4a; font-style: italic; }
+
+    /* ---- rows ---- */
+    .row {
+      display: grid; grid-template-columns: 62px 64px 58px minmax(0, 1fr) auto auto;
+      gap: 10px; align-items: baseline; padding: 2px 6px; border-radius: 4px;
+      font-size: 12.5px; cursor: pointer; line-height: 1.55;
+    }
+    .row:hover { background: #191919; }
+    .row.open { background: #1a1a1a; }
+    .row time {
+      color: #666; font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    }
+    /* a stamp that is the record's own moment, not the moment it arrived */
+    .row time.own { border-bottom: 1px dotted #444; cursor: help; }
+    .badge {
+      font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em;
+      border: 1px solid; border-radius: 999px; padding: 1px 0;
+      text-align: center; white-space: nowrap;
+    }
+    .src { color: #7a7a7a; font-size: 11.5px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; }
+    .one {
+      color: #c8c8c8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .row:hover .one { color: #e8e8e8; }
+    .tag {
+      font-size: 10px; color: #7a5a1e; border: 1px solid #7a5a1e55;
+      background: #7a5a1e14; border-radius: 3px; padding: 0 5px; cursor: help;
+    }
+    .bytes { color: #4a4a4a; font-size: 11px; font-variant-numeric: tabular-nums;
+      white-space: nowrap; text-align: right; }
+
+    /* ---- expansion ---- */
+    .full { margin: 2px 0 10px; padding: 0 6px; }
+    .full pre {
+      background: #141414; border: 1px solid #2a2a2a; border-radius: 6px;
+      padding: 10px 12px; margin: 0; overflow-x: auto; max-height: 460px;
+      color: #b8b8b8; font-size: 11.5px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .prov { color: #555; font-size: 11px; margin-top: 4px; }
+    .prov a { color: #6a7f95; }
+    .prov a:hover { color: #4a9eff; }
+
+    .empty { color: #666; font-size: 14px; }
+    .empty code { color: #888; }
+    .btn {
+      background: #1d3a5f; color: #cfe6ff; border: 1px solid #4a9eff;
+      font-size: 13px; padding: 6px 16px; border-radius: 5px;
+      cursor: pointer; font-family: inherit; margin: 22px 0 0;
+    }
+    .btn:hover { background: #26497a; }
+    .btn:disabled { background: #1a1a1a; color: #555; border-color: #2c2c2c; cursor: default; }
+
+    footer.sources { margin-top: 30px; padding-top: 14px; border-top: 1px solid #262626;
+      font-size: 12px; color: #555; line-height: 1.65; max-width: 84ch; }
+    footer.sources a { color: #777; }
+    footer.sources b { color: #888; font-weight: 600; }
+
+    /* Narrow: the one-liner takes its own full-width line under a header row
+       of time / stream / source / tag / size, rather than being squeezed to
+       nothing — a truncated raw METAR is the whole point of the row. */
+    @media (max-width: 760px) {
+      .row { grid-template-columns: 56px 58px minmax(0, 1fr) auto auto; row-gap: 1px;
+        padding: 4px 6px; margin-bottom: 2px; }
+      .row time, .badge { grid-row: 1; }
+      .src { grid-row: 1; grid-column: 3; color: #666; }
+      .tag { grid-row: 1; grid-column: 4; }
+      .bytes { grid-row: 1; grid-column: 5; }
+      .one { grid-row: 2; grid-column: 1 / -1; padding-left: 2px; }
+      #q { width: 130px; }
+    }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">← jesselevine.net</a>
+  <h1>Data Feed</h1>
+  <p class="subtitle">Every record this site takes in, newest first — each METAR from
+    the verification station, the field sensor and the local ring; each TAF and forecast
+    discussion; each grid, forecast and model snapshot; each alert; and each ADS-B
+    snapshot push. Click any line for the whole record and the file it came from.
+    Read from the <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">weather archive</a>
+    and the <a href="https://github.com/nuvig/nuvig.github.io/tree/traffic-data">traffic-data</a>
+    branch — this page collects nothing of its own.</p>
+
+  <div class="bar">
+    <div id="chips"></div>
+    <input id="q" type="search" placeholder="filter…" autocomplete="off" aria-label="Filter records">
+    <span class="spacer"></span>
+    <span id="count"></span>
+    <button id="live" class="on">⏸ pause</button>
+    <span id="live-note"></span>
+  </div>
+
+  <div id="feed"><p class="empty">reading the archive…</p></div>
+
+  <button class="btn" id="more" style="display:none" disabled></button>
+
+  <footer class="sources">
+    <p><b>Two clocks, kept apart.</b> A <i>grid</i>, <i>forecast</i>, <i>model</i>,
+    <i>alert</i> or <i>tracker</i> row is stamped when the site captured it, so its time
+    is the arrival. An <i>obs</i>, <i>field</i>, <i>ring</i>, <i>taf</i> or <i>afd</i> row
+    carries only the record's own moment — the observation or issuance time — and was
+    picked up afterwards by the hourly archiver. Those times are drawn with a dotted
+    underline; hover one to see which it is. Sorting the two together and calling the
+    result "arrivals" would be a small lie told a few hundred times a day.</p>
+    <p><b>Truncation is stated, never silent.</b> Each line shows the size of the record
+    behind it. One-liners drop the part that carries the least — a METAR's RMK group, a
+    TAF's transmission header, a snapshot's 48 hourly values — and the expansion shows
+    the record whole, or says where it was cut and links the file.</p>
+    <p><b>A missing hour is not a quiet one.</b> Each day header prints the hours each
+    METAR stream actually holds, the hours missing, and the hours the station never
+    reported — and marks records healed from IEM after the fact, since a record filled in
+    later is not a record that arrived on time.</p>
+    <p>The archive is written hourly by the
+    <a href="https://github.com/nuvig/nuvig.github.io/blob/main/.github/workflows/wxarchive.yml">wxarchive</a>
+    Action; tracker snapshots are pushed by the Pi exporter. Pipeline health lives on the
+    <a href="/changelog.html">changelog</a>; the same days read as weather on the
+    <a href="/almanac.html">almanac</a>.</p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/wx-archive.js?v=2"></script>
+  <script src="js/feed.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

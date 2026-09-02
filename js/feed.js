@@ -1,0 +1,597 @@
+/* Data Feed — the site's intake log.
+   ---------------------------------------------------------------------------
+   Every record this site takes in, newest first, as one merged stream: each
+   METAR from the verification station, the field sensor and the whole local
+   ring; each TAF and AFD issuance; each forecast, grid and model snapshot;
+   each alert; and each tracker snapshot push.
+
+   Read from data/wx/ via WXA (js/wx-archive.js) plus the tracker's
+   summary.json, so the page has no weather API of its own — it is a view of
+   what the archive holds, not a second collector.
+
+   TWO CLOCKS, and the page never conflates them. Some records carry the
+   moment the site captured them (grid/forecast/model snapshots stamp `t` when
+   the archiver wrote them; alerts stamp `seen`; the tracker stamps
+   `generated`) — for those, the feed time IS the arrival time. The rest carry
+   only their own moment (a METAR's observation time, a TAF's or AFD's
+   issuance time) and were picked up later by the hourly run. Those are drawn
+   with a dotted underline and say so on hover. Sorting a mixed feed by one
+   column and calling the result "arrivals" would be a small lie told four
+   hundred times a day.
+
+   Truncation is explicit, never silent: every row shows the size of the
+   record behind it, one-liners cut the field that carries the least (a
+   METAR's RMK group, a TAF's WMO header), and an expansion too large to print
+   says where it stopped and links the file it came from.
+
+   Needs js/site-config.js and js/wx-archive.js loaded first. */
+
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const TZ = SITE.weather.timeZone;
+
+/* ---------------------------------------------------------------------------
+   Local time. Archive days are local days at the field, same rule as the
+   almanac and weather.js solarTimes() — all day math goes through the
+   formatter so a viewer anywhere reads the field's clock.
+--------------------------------------------------------------------------- */
+
+const FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
+const pad = (n) => String(n).padStart(2, '0');
+
+/* epoch seconds -> {date:'YYYY-MM-DD', h, m, s} at the field */
+function lp(ts) {
+  const str = FMT.format(new Date(ts * 1000));
+  const m = str.match(/(\d{4}-\d{2}-\d{2}),? (\d{2}):(\d{2}):(\d{2})/);
+  return m ? { date: m[1], h: +m[2], m: +m[3], s: +m[4] } : { date: '?', h: 0, m: 0, s: 0 };
+}
+
+const clock = (ts) => { const p = lp(ts); return `${pad(p.h)}:${pad(p.m)}:${pad(p.s)}`; };
+const dayOf = (ts) => lp(ts).date;
+const niceDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US',
+  { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+function ago(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return `${Math.round(sec)}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
+}
+
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/* Bytes, the way a log should print them. */
+function size(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+/* ---------------------------------------------------------------------------
+   The streams, and what each one is. `clock:'in'` means the record's stamp is
+   the moment the site took it in; `clock:'own'` means it is the record's own
+   moment and capture happened later, on the next hourly run.
+--------------------------------------------------------------------------- */
+
+const STREAMS = {
+  obs:      { name: 'obs',      color: '#4a9eff', what: 'METAR from KDCA — the station the DC forecast is verified against' },
+  field:    { name: 'field',    color: '#22c55e', what: 'METAR from KNAK — the airfield sensor standing in for KANP' },
+  ring:     { name: 'ring',     color: '#8fa7c4', what: 'METAR from the local ring — every other reporting field around KANP' },
+  taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF issuance for KMTN / KBWI / KDCA' },
+  afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion issued by NWS Baltimore/Washington' },
+  forecast: { name: 'forecast', color: '#f0883e', what: 'NWS daily forecast digest at the DC point' },
+  grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field — 48 h of ceiling, vis, wind, PoP' },
+  model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field — CAPE, CIN, precip' },
+  alert:    { name: 'alert',    color: '#ef4444', what: 'Active NWS alert, stamped when the archiver first saw it' },
+  tracker:  { name: 'tracker',  color: '#94a3b8', what: 'ADS-B snapshot pushed by the Pi exporter to the traffic-data branch' },
+};
+
+/* ---------------------------------------------------------------------------
+   One-liners. Each drops the part of the record that carries the least and
+   keeps the part a reader scans for; the whole record is one click away.
+--------------------------------------------------------------------------- */
+
+/* A METAR's remarks are half its length and none of its headline. */
+function metarOne(raw) {
+  const i = raw.indexOf(' RMK ');
+  return i > 0 ? raw.slice(0, i) : raw;
+}
+
+/* A backfilled TAF arrives wrapped in its WMO transmission header; the
+   forecast proper starts at the line beginning with the station id. */
+function tafOne(rec) {
+  if (rec.raw) {
+    const lines = rec.raw.split('\n').map((s) => s.trim()).filter(Boolean);
+    const i = lines.findIndex((l) => /^[A-Z]{4} \d{6}Z/.test(l));
+    const body = lines.slice(i >= 0 ? i : 0);
+    return `${body[0] || rec.station}${body.length > 1 ? ` … +${body.length - 1} lines` : ''}`;
+  }
+  const p = rec.periods || [];
+  if (!p.length) return `${rec.station} — no periods`;
+  const last = p[p.length - 1];
+  return `${rec.station} ${p.length} period${p.length === 1 ? '' : 's'}, through ${clock(last.e)} ${dayOf(last.e).slice(5)}`;
+}
+
+/* The AFD's own first section heading plus its first line of prose — which is
+   where LWX puts what changed, when anything did. */
+function afdOne(txt) {
+  const lines = String(txt || '').split('\n').map((s) => s.trim());
+  const i = lines.findIndex((l) => /^\.[A-Z]/.test(l));
+  if (i >= 0) {
+    const sec = lines[i].replace(/^\./, '').replace(/\.{2,}.*$/, '');
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j] && lines[j] !== '&&') return `${sec} — ${lines[j]}`;
+    }
+    return sec;
+  }
+  return lines.find((l) => l.length > 20) || '(empty)';
+}
+
+function forecastOne(snap) {
+  const days = Object.keys(snap.days || {});
+  if (!days.length) return 'no days';
+  const d = snap.days[days[0]];
+  return `${days.length} days · ${days[0].slice(5)} ${d.hi == null ? '—' : d.hi}/${d.lo == null ? '—' : d.lo}°F, PoP ${d.pop == null ? '—' : d.pop}% — ${d.short || ''}`;
+}
+
+function gridOne(snap) {
+  const c = snap.ceil && snap.ceil[0];
+  const parts = [
+    `${snap.n} h from ${clock(snap.t0)}`,
+    `ceil ${c == null ? 'none' : `${c} ft`}`,
+    `vis ${snap.vis ? snap.vis[0] : '—'} sm`,
+    `${snap.spd ? snap.spd[0] : '—'} kt`,
+    `PoP ${snap.pop ? snap.pop[0] : '—'}%`,
+  ];
+  const wx = (snap.wx || []).filter(Boolean).length;
+  if (wx) parts.push(`${wx} h with weather`);
+  return parts.join(' · ');
+}
+
+function modelOne(snap) {
+  const cape = snap.cape || [];
+  const peak = cape.length ? Math.max.apply(null, cape) : null;
+  const pr = (snap.pr || []).reduce((a, b) => a + (b || 0), 0);
+  return `${snap.n} h from ${clock(snap.t0)} · CAPE ${cape.length ? cape[0] : '—'} now, peak ${peak == null ? '—' : peak} J/kg · ${pr.toFixed(1)} mm total`;
+}
+
+/* ---------------------------------------------------------------------------
+   Row building. A row is one record: its own time, which clock that time is
+   on, the stream, the source, a one-liner, the file it came from, and the
+   record itself for the expansion.
+--------------------------------------------------------------------------- */
+
+const rows = [];
+const seen = new Set();               // stream|src|t — dedupes day files against latest.json
+
+function add(r) {
+  const key = `${r.stream}|${r.src}|${r.t}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  rows.push(r);
+  return true;
+}
+
+function metarRows(doc, stream, path) {
+  if (!doc || !doc.metars) return;
+  for (const pair of doc.metars) {
+    const t = pair[0], raw = pair[1];
+    add({ t, clock: 'own', stream, src: doc.station || '?', one: metarOne(raw),
+          text: raw, bytes: raw.length, path });
+  }
+}
+
+function tafRows(doc, path) {
+  if (!doc || !doc.tafs) return;
+  for (const rec of doc.tafs) {
+    add({ t: rec.t, clock: 'own', stream: 'taf', src: rec.station, one: tafOne(rec),
+          text: rec.raw || null, rec, bytes: JSON.stringify(rec).length, path,
+          tag: rec.bf ? 'healed' : null });
+  }
+}
+
+function snapRows(doc, stream, path, one) {
+  if (!doc || !doc.snaps) return;
+  for (const snap of doc.snaps) {
+    add({ t: snap.t, clock: 'in', stream, src: stream === 'forecast' ? 'DC point' : 'KANP',
+          one: one(snap), rec: snap, bytes: JSON.stringify(snap).length, path });
+  }
+}
+
+function alertRows(doc, path) {
+  if (!doc || !doc.alerts) return;
+  for (const a of doc.alerts) {
+    add({ t: a.seen, clock: 'in', stream: 'alert', src: 'LWX',
+          one: a.headline || a.event, text: a.desc, rec: a,
+          bytes: JSON.stringify(a).length, path });
+  }
+}
+
+function afdRow(doc, path) {
+  if (!doc || !doc.productText) return;
+  const t = Math.round(Date.parse(doc.issuanceTime) / 1000);
+  if (!isFinite(t)) return;
+  add({ t, clock: 'own', stream: 'afd', src: doc.office || 'LWX', one: afdOne(doc.productText),
+        text: doc.productText, bytes: doc.productText.length, path });
+}
+
+/* ---------------------------------------------------------------------------
+   Loading. index.json is the catalog: which days each stream holds. Days are
+   loaded newest first, one whole day at a time, all streams in parallel.
+--------------------------------------------------------------------------- */
+
+let IDX = null;
+let loaded = [];                      // days already pulled, newest first
+let allDays = [];                     // every day any stream holds, newest first
+const dayMeta = new Map();            // date -> coverage/provenance notes
+
+function catalogDays(idx) {
+  const set = new Set();
+  for (const k of ['obs_days', 'fieldobs_days', 'grid_days', 'taf_days',
+                   'alert_days', 'model_days', 'forecast_days']) {
+    for (const d of idx[k] || []) set.add(d);
+  }
+  for (const days of Object.values(idx.station_days || {})) for (const d of days) set.add(d);
+  for (const a of idx.afd || []) set.add(dayOf(a.t));
+  return Array.from(set).sort().reverse();
+}
+
+/* Hours held for a METAR stream on a day, out of index.json — h = hours with
+   an observation, nh = hours the station never reported (a part-time field
+   asleep overnight is not a gap). Anything else is missing. */
+function hoursNote(idx, stream, id, date) {
+  let days, hrs;
+  if (stream === 'ring') {
+    days = (idx.station_days || {})[id];
+    hrs = (idx.hours || {}).stations && idx.hours.stations[id];
+  } else {
+    const k = stream === 'field' ? 'fieldobs' : 'obs';
+    days = idx[`${k}_days`];
+    hrs = (idx.hours || {})[k];
+  }
+  if (!days || !hrs || !hrs.h) return null;
+  const i = days.indexOf(date);
+  if (i < 0) return null;
+  const h = hrs.h[i], nh = (hrs.nh || [])[i] || 0;
+  const now = Date.now() / 1000;
+  const expect = date === dayOf(now) ? lp(now).h + 1 : 24;
+  return { h, nh, missing: Math.max(0, expect - h - nh) };
+}
+
+async function loadDay(date) {
+  const ids = await WXA.stations();
+  const all = await Promise.all([
+    WXA.day('obs', date), WXA.day('fieldobs', date), WXA.day('taf', date),
+    WXA.day('grid', date), WXA.day('forecast', date), WXA.day('model', date),
+    WXA.day('alerts', date),
+  ].concat(ids.map((id) => WXA.station(id, date))));
+  const obs = all[0], fobs = all[1], taf = all[2], grid = all[3],
+        fc = all[4], model = all[5], alerts = all[6], st = all.slice(7);
+
+  metarRows(obs, 'obs', `obs/${date}.json`);
+  metarRows(fobs, 'field', `fieldobs/${date}.json`);
+  ids.forEach((id, i) => metarRows(st[i], 'ring', `stations/${id}/${date}.json`));
+  tafRows(taf, `taf/${date}.json`);
+  snapRows(grid, 'grid', `grid/${date}.json`, gridOne);
+  snapRows(fc, 'forecast', `forecast/${date}.json`, forecastOne);
+  snapRows(model, 'model', `model/${date}.json`, modelOne);
+  alertRows(alerts, `alerts/${date}.json`);
+
+  const afds = (IDX.afd || []).filter((a) => dayOf(a.t) === date);
+  await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));
+
+  /* What the day's own files say about their completeness and provenance,
+     printed in the day header: a count of rows cannot tell you what never
+     arrived, and a healed record is not a record that arrived on time. */
+  const cover = [], heal = [];
+  const push = (label, n) => {
+    if (n) cover.push(`${label} ${n.h} h${n.missing ? ` · ${n.missing} h missing` : ''}${n.nh ? ` · ${n.nh} h not reported` : ''}`);
+  };
+  push((obs && obs.station) || 'KDCA', hoursNote(IDX, 'obs', null, date));
+  push((fobs && fobs.station) || 'KNAK', hoursNote(IDX, 'field', null, date));
+  let ringH = 0, ringMiss = 0, ringNh = 0, ringN = 0;
+  ids.forEach((id, i) => {
+    if (!st[i]) return;
+    ringN++;
+    const n = hoursNote(IDX, 'ring', id, date);
+    if (n) { ringH += n.h; ringMiss += n.missing; ringNh += n.nh; }
+  });
+  if (ringN) {
+    cover.push(`ring ${ringN} station${ringN === 1 ? '' : 's'}, ${ringH} h`
+      + (ringMiss ? ` · ${ringMiss} h missing` : '')
+      + (ringNh ? ` · ${ringNh} h not reported` : ''));
+  }
+  for (const pair of [[obs, obs && obs.station], [fobs, fobs && fobs.station], [taf, 'TAF']]) {
+    const doc = pair[0];
+    if (doc && doc.bf && doc.bf.n) heal.push(`${pair[1]} ${doc.bf.n}`);
+  }
+  ids.forEach((id, i) => {
+    const d = st[i];
+    if (d && d.bf && d.bf.n) heal.push(`${id} ${d.bf.n}`);
+  });
+  dayMeta.set(date, { cover, heal });
+}
+
+/* latest.json — the current state of every stream in one document. Merged on
+   load and on every live poll, so the top of the feed is as fresh as the
+   archive is, without re-reading a day file. */
+function mergeLatest(doc) {
+  if (!doc) return 0;
+  const before = rows.length;
+  for (const pair of doc.obs || []) {
+    add({ t: pair[0], clock: 'own', stream: 'obs', src: doc.station || 'KDCA',
+          one: metarOne(pair[1]), text: pair[1], bytes: pair[1].length,
+          path: `obs/${dayOf(pair[0])}.json` });
+  }
+  for (const pair of doc.fieldobs || []) {
+    add({ t: pair[0], clock: 'own', stream: 'field', src: doc.field_station || 'KNAK',
+          one: metarOne(pair[1]), text: pair[1], bytes: pair[1].length,
+          path: `fieldobs/${dayOf(pair[0])}.json` });
+  }
+  for (const ent of Object.entries(doc.stations || {})) {
+    const id = ent[0], pair = ent[1];
+    if (!pair) continue;
+    add({ t: pair[0], clock: 'own', stream: 'ring', src: id, one: metarOne(pair[1]),
+          text: pair[1], bytes: pair[1].length, path: `stations/${id}/${dayOf(pair[0])}.json` });
+  }
+  for (const rec of Object.values(doc.tafs || {})) {
+    if (rec && rec.t) {
+      add({ t: rec.t, clock: 'own', stream: 'taf', src: rec.station, one: tafOne(rec),
+            text: rec.raw || null, rec, bytes: JSON.stringify(rec).length,
+            path: `taf/${dayOf(rec.t)}.json`, tag: rec.bf ? 'healed' : null });
+    }
+  }
+  if (doc.afd) afdRow(doc.afd, 'latest.json');
+  if (doc.forecast && doc.forecast.t) {
+    add({ t: doc.forecast.t, clock: 'in', stream: 'forecast', src: 'DC point',
+          one: forecastOne(doc.forecast), rec: doc.forecast,
+          bytes: JSON.stringify(doc.forecast).length,
+          path: `forecast/${dayOf(doc.forecast.t)}.json` });
+  }
+  if (doc.grid && doc.grid.t) {
+    add({ t: doc.grid.t, clock: 'in', stream: 'grid', src: 'KANP', one: gridOne(doc.grid),
+          rec: doc.grid, bytes: JSON.stringify(doc.grid).length,
+          path: `grid/${dayOf(doc.grid.t)}.json` });
+  }
+  if (doc.model && doc.model.t) {
+    add({ t: doc.model.t, clock: 'in', stream: 'model', src: 'KANP', one: modelOne(doc.model),
+          rec: doc.model, bytes: JSON.stringify(doc.model).length,
+          path: `model/${dayOf(doc.model.t)}.json` });
+  }
+  for (const a of doc.alerts || []) {
+    if (a && a.seen) {
+      add({ t: a.seen, clock: 'in', stream: 'alert', src: 'LWX', one: a.headline || a.event,
+            text: a.desc, rec: a, bytes: JSON.stringify(a).length,
+            path: `alerts/${dayOf(a.seen)}.json` });
+    }
+  }
+  return rows.length - before;
+}
+
+/* The tracker publishes one document; its `generated` stamp is a real arrival
+   time, and `newest_position` is a different claim — when an aircraft was last
+   heard — so the row prints both rather than averaging them into "fresh". */
+async function loadTracker() {
+  let sum = null;
+  try {
+    const r = await fetch(`${SITE.tracker.snapshotBase}/summary.json`, { cache: 'no-cache' });
+    sum = r.ok ? await r.json() : null;
+  } catch (e) { sum = null; }
+  if (!sum || !sum.generated) return 0;
+  const days = sum.days || [];
+  const today = days.length ? days[days.length - 1] : null;
+  const lag = sum.newest_position ? sum.generated - sum.newest_position : null;
+  const one = [
+    today ? `${today.aircraft.toLocaleString()} aircraft, ${today.points.toLocaleString()} points on ${today.date}` : 'snapshot pushed',
+    lag == null ? 'no position stamp' : `newest position ${lag <= 1 ? 'current at push' : `${ago(lag)} at push`}`,
+    `${days.length} days on file`,
+  ].join(' · ');
+  return add({ t: sum.generated, clock: 'in', stream: 'tracker', src: 'Pi exporter', one,
+               rec: sum, bytes: JSON.stringify(sum).length,
+               path: `${SITE.tracker.snapshotBase}/summary.json`, ext: true }) ? 1 : 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Rendering.
+--------------------------------------------------------------------------- */
+
+const off = new Set();                // streams switched off by the chips
+let query = '';
+
+function visible() {
+  const q = query.trim().toLowerCase();
+  return rows.filter((r) => !off.has(r.stream)
+    && (!q || r.one.toLowerCase().includes(q) || r.src.toLowerCase().includes(q)
+        || STREAMS[r.stream].name.includes(q)));
+}
+
+const MAXEXP = 20000;                 // an expansion longer than this is cut, and says so
+
+function fullText(r) {
+  let s, note = '';
+  if (r.text != null) s = r.text;
+  else if (r.rec != null) s = JSON.stringify(r.rec, null, 1);
+  else s = r.one;
+  if (s.length > MAXEXP) {
+    note = `\n\n… cut at ${MAXEXP.toLocaleString()} of ${s.length.toLocaleString()} characters. The whole record is in the file below.`;
+    s = s.slice(0, MAXEXP);
+  }
+  return s + note;
+}
+
+function rowHTML(r, i) {
+  const st = STREAMS[r.stream];
+  const own = r.clock === 'own';
+  return `<div class="row" data-i="${i}">`
+    + `<time class="${own ? 'own' : ''}" title="${own
+        ? 'the record&#39;s own timestamp — the site picked it up on a later hourly run'
+        : 'when this arrived in the archive'}">${clock(r.t)}</time>`
+    + `<span class="badge" style="color:${st.color};border-color:${st.color}55;background:${st.color}14">${st.name}</span>`
+    + `<span class="src">${esc(r.src)}</span>`
+    + `<span class="one">${esc(r.one)}</span>`
+    + (r.tag ? `<span class="tag" title="filled in later from IEM, not captured live">${esc(r.tag)}</span>` : '')
+    + `<span class="bytes">${size(r.bytes)}</span>`
+    + `</div>`;
+}
+
+function render() {
+  const list = visible();
+  const byDay = new Map();
+  for (const r of list) {
+    const d = dayOf(r.t);
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d).push(r);
+  }
+  const idx = new Map();
+  rows.forEach((r, i) => idx.set(r, i));
+
+  let html = '';
+  for (const date of Array.from(byDay.keys()).sort().reverse()) {
+    const day = byDay.get(date).sort((a, b) => b.t - a.t);
+    const meta = dayMeta.get(date);
+    html += `<section class="day"><div class="day-head">`
+      + `<h2>${esc(niceDate(date))}</h2>`
+      + `<span class="day-n">${day.length.toLocaleString()} record${day.length === 1 ? '' : 's'}</span>`
+      + `<a class="day-link" href="almanac.html">almanac →</a></div>`;
+    if (!meta) {
+      /* A record's day is its own local day, so a TAF issued at 8 PM lands
+         here even though this day's files were never opened. Say so rather
+         than let an unloaded day borrow the look of a measured one. */
+      html += `<div class="day-cover partial">day not loaded — these arrived`
+        + ` through another day's file or the current-state document, so there is`
+        + ` no coverage to report yet</div>`;
+    } else if (meta.cover.length || meta.heal.length) {
+      html += `<div class="day-cover">${esc(meta.cover.join(' · '))}`
+        + (meta.heal.length
+            ? `<span class="heal">${meta.cover.length ? ' · ' : ''}healed from IEM afterwards: ${esc(meta.heal.join(', '))}</span>`
+            : '')
+        + `</div>`;
+    }
+    html += day.map((r) => rowHTML(r, idx.get(r))).join('');
+    html += `</section>`;
+  }
+  $('feed').innerHTML = html || `<p class="empty">Nothing matches those filters.</p>`;
+  $('count').textContent = `${list.length.toLocaleString()} of ${rows.length.toLocaleString()} records`;
+}
+
+/* Expansion is built on demand — four hundred <pre> blocks a day would cost
+   more than the records they hold. */
+function onClick(e) {
+  const row = e.target.closest('.row');
+  if (!row) return;
+  const open = row.nextElementSibling;
+  if (open && open.classList.contains('full')) { open.remove(); row.classList.remove('open'); return; }
+  const r = rows[+row.dataset.i];
+  const href = r.ext ? r.path : `${WXA.base}/${r.path}`;
+  const el = document.createElement('div');
+  el.className = 'full';
+  el.innerHTML = `<pre>${esc(fullText(r))}</pre>`
+    + `<div class="prov"><a href="${esc(href)}">${esc(r.ext ? r.path : `${WXA.base}/${r.path}`)}</a>`
+    + ` · ${size(r.bytes)} · ${esc(STREAMS[r.stream].what)}</div>`;
+  row.after(el);
+  row.classList.add('open');
+}
+
+/* ---------------------------------------------------------------------------
+   Live tail. The archiver runs hourly and the tracker exporter every 15
+   minutes, so a poll a minute catches each arrival without asking for
+   anything that could have changed in between.
+--------------------------------------------------------------------------- */
+
+let live = true, timer = null, lastPoll = null;
+
+async function poll() {
+  WXA._cache.delete('latest.json');
+  const n = mergeLatest(await WXA.latest()) + (await loadTracker());
+  lastPoll = Date.now() / 1000;
+  if (n) render();
+  tick();
+}
+
+function tick() {
+  $('live-note').textContent = live
+    ? `live · checked ${lastPoll ? ago(Date.now() / 1000 - lastPoll) : 'just now'}`
+    : 'paused';
+}
+
+function setLive(on) {
+  live = on;
+  $('live').classList.toggle('on', on);
+  $('live').textContent = on ? '⏸ pause' : '▶ resume';
+  clearInterval(timer);
+  timer = on ? setInterval(poll, 60000) : null;
+  tick();
+}
+
+/* ---------------------------------------------------------------------------
+   Boot.
+--------------------------------------------------------------------------- */
+
+function chips() {
+  $('chips').innerHTML = Object.entries(STREAMS).map((e) =>
+    `<button class="chip on" data-s="${e[0]}" title="${esc(e[1].what)}" style="--c:${e[1].color}">`
+    + `<i></i>${e[1].name}</button>`).join('');
+  $('chips').addEventListener('click', (ev) => {
+    const b = ev.target.closest('.chip');
+    if (!b) return;
+    const k = b.dataset.s;
+    if (off.has(k)) off.delete(k); else off.add(k);
+    b.classList.toggle('on', !off.has(k));
+    render();
+  });
+}
+
+async function more() {
+  const next = allDays[loaded.length];
+  if (!next) return;
+  $('more').disabled = true;
+  $('more').textContent = `loading ${next}…`;
+  await loadDay(next);
+  loaded.push(next);
+  render();
+  const after = allDays[loaded.length];
+  $('more').textContent = after ? `Load ${after}` : 'That is the whole archive';
+  $('more').disabled = !after;
+}
+
+async function boot() {
+  IDX = await WXA.index();
+  if (!IDX) {
+    $('feed').innerHTML = `<p class="empty">The archive index is unreachable, so there is`
+      + ` nothing to show. This page reads <code>data/wx/</code> only — it has no live`
+      + ` weather source to fall back on.</p>`;
+    return;
+  }
+  allDays = catalogDays(IDX);
+
+  /* Days before latest.json: both hold the same newest AFD and METARs, and
+     the first one added wins the dedupe — so let the archived record win and
+     cite its own file rather than the current-state document. latest.json
+     still contributes anything newer than the last committed day file. */
+  for (const d of allDays.slice(0, 2)) { await loadDay(d); loaded.push(d); }
+  mergeLatest(await WXA.latest());
+  await loadTracker();
+  render();
+
+  const next = allDays[loaded.length];
+  $('more').textContent = next ? `Load ${next}` : 'That is the whole archive';
+  $('more').disabled = !next;
+  $('more').style.display = '';
+  $('more').addEventListener('click', more);
+
+  $('feed').addEventListener('click', onClick);
+  $('q').addEventListener('input', (e) => { query = e.target.value; render(); });
+  $('live').addEventListener('click', () => setLive(!live));
+  chips();
+  setLive(true);
+  setInterval(tick, 15000);
+}
+
+boot();
