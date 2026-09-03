@@ -229,6 +229,14 @@
     .apt-meta { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
     .apt-err { font-size: 12.5px; color: #b45309; }
 
+    /* ---- folded section (PIREPs · AIRMETs · TFRs): one line closed, counts in the summary ---- */
+    details.fold > summary { cursor: pointer; list-style: none; }
+    details.fold > summary::-webkit-details-marker { display: none; }
+    details.fold > summary::before { content: "▸ "; color: #5d7791; }
+    details.fold[open] > summary::before { content: "▾ "; }
+    details.fold > summary:hover { color: #fff; }
+    details.fold > .two-col { margin-top: 10px; }
+
     /* ---- TAFs ---- */
     .taf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
     .taf-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
@@ -358,19 +366,21 @@
   <div class="taf-grid" id="tafs"></div>
 
   <!-- ============ PIREPS · AIRMETS · TFRS (site archive, hourly) ============ -->
-  <div class="section-title">PIREPs · AIRMETs · SIGMETs · TFRs
-    <span class="sub">site archive, hourly · ~150 nm · <span id="pirep-sub"></span></span>
-  </div>
-  <div class="two-col">
-    <div class="card">
-      <h3>PIREPs <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#555">age · from KANP · altitude · type</span></h3>
-      <div id="pirep-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+  <details class="fold" id="arc-fold">
+    <summary class="section-title">PIREPs · AIRMETs · SIGMETs · TFRs
+      <span class="sub"><span id="arc-summary">site archive, hourly</span> · <span id="pirep-sub"></span></span>
+    </summary>
+    <div class="two-col">
+      <div class="card">
+        <h3>PIREPs <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#555">age · from KANP · raw</span></h3>
+        <div id="pirep-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+      </div>
+      <div class="card">
+        <h3>AIRMETs · SIGMETs · TFRs</h3>
+        <div id="airsig-body"><span class="muted" style="font-size:13px">Loading…</span></div>
+      </div>
     </div>
-    <div class="card">
-      <h3>AIRMETs · SIGMETs · TFRs</h3>
-      <div id="airsig-body"><span class="muted" style="font-size:13px">Loading…</span></div>
-    </div>
-  </div>
+  </details>
 
   <!-- ============ RADAR ============ -->
   <div class="section-title">Radar
@@ -406,7 +416,7 @@
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=6"></script>
+  <script src="js/weather.js?v=7"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

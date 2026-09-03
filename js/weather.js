@@ -1075,6 +1075,12 @@ function renderArchiveCards(arc) {
   renderPireps(arc);
   renderAirsig(arc);
   updateRingMarkers(arc);
+  // the section stays folded; the summary line carries the counts
+  const el = $('arc-summary');
+  if (el) {
+    const n = (arc.pireps || []).length, a = (arc.airsig || []).length, f = (arc.tfrs || []).length;
+    el.textContent = `${n} PIREP${n === 1 ? '' : 's'} · ${a} AIRMET/SIGMET${a === 1 ? '' : 's'} · ${f} TFR${f === 1 ? '' : 's'} · ~150 nm`;
+  }
 }
 
 /* -------- runway analysis cards -------- */
