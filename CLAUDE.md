@@ -756,7 +756,7 @@ concepts; to relink, add the tools.html card back.
   1,000–3,000 ft, nowhere near IFR — is exactly what a single site misses, so KNAK can report
   clear with a layer over the field while KFME/KBWI/W29 see it. Jesse's reason for wanting the
   ring; don't drop stations as duplicates. List in `WX_STATIONS`, default
-  W29 · KFME · KCGS · KADW · KBWI · KMTN · KESN · KGAI · KRJD · KAPG · KCGE · KNHK. KDCA and
+  W29 · KFME · KCGS · KADW · KBWI · KMTN · KESN · KGAI · KAPG · KCGE · KNHK. KDCA and
   KNAK are deliberately excluded — they already have dedicated streams the verification cards
   are built on, and archiving them twice would fork the record. A station nobody publishes logs
   and is skipped, never fatal) ·

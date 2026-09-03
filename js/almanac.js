@@ -2276,7 +2276,7 @@ function tafBodyHtml(taf) {
 /* Names for ring stations beyond the configured area set (display only). */
 const RING_LABELS = {
   KMTN: 'Martin State', KCGS: 'College Park', KAPG: 'Phillips AAF · Aberdeen',
-  KNHK: 'Patuxent River NAS', KRJD: 'Ridgely',
+  KNHK: 'Patuxent River NAS',
 };
 
 function stationHtml(st) {

@@ -100,7 +100,7 @@ FIELD_OBS_STATION = os.environ.get("WX_FIELD_OBS", "KNAK")
 # logs and the run continues.
 STATIONS = [s for s in os.environ.get(
     "WX_STATIONS",
-    "W29,KFME,KCGS,KADW,KBWI,KMTN,KESN,KGAI,KRJD,KAPG,KCGE,KNHK"
+    "W29,KFME,KCGS,KADW,KBWI,KMTN,KESN,KGAI,KAPG,KCGE,KNHK"
 ).split(",") if s.strip()]
 POINT = os.environ.get("WX_POINT", "38.8894,-77.0352")  # downtown DC
 TZ = "America/New_York"   # archive days are local DC days (matches the page)
