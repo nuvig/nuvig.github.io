@@ -14,7 +14,7 @@
 
   const S = {
     on: false, raf: 0, c: null, g: null, panel: null,
-    sys: [], tracers: [], N: 1400, speed: 1, gap: 2, stir: true,
+    sys: [], tracers: [], N: 1400, speed: 0.5, gap: 2, stir: false,
     ptr: { x: -1, y: -1, vx: 0, vy: 0, t: 0 }, drag: null, hover: -1, last: 0,
   };
   const rnd = (i, j) => { const n = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return n - Math.floor(n); };
@@ -151,12 +151,12 @@
 #synop-panel .x { margin-left: auto; }
 @media (max-width: 600px) { #synop-panel { left: 8px; right: 8px; bottom: 8px; } #synop-panel input[type=range] { width: 70px; } }`;
   const panelHTML = `
-<div class="r"><button data-a="addL">+ L</button><button data-a="addH">+ H</button><button data-a="reset">Reset</button><button data-a="close" class="x" aria-label="Close">✕</button></div>
-<div class="r"><label>Wind <input type="range" data-s="speed" min="0.2" max="3" step="0.1" value="1"></label>
+<div class="r"><button data-a="addL">+ L</button><button data-a="remL">− L</button><button data-a="addH">+ H</button><button data-a="remH">− H</button><button data-a="reset">Reset</button><button data-a="close" class="x" aria-label="Close">✕</button></div>
+<div class="r"><label>Wind <input type="range" data-s="speed" min="0.1" max="3" step="0.1" value="0.5"></label>
 <label>Tracers <input type="range" data-s="N" min="200" max="3000" step="100" value="1400"></label>
 <label>Spacing <select data-s="gap"><option value="1">1 mb</option><option value="2" selected>2 mb</option><option value="4">4 mb</option></select></label>
-<label><input type="checkbox" data-s="stir" checked> Stir</label></div>
-<div class="r hint">drag H/L · scroll = mb · drag off edge removes · Esc</div>`;
+<label><input type="checkbox" data-s="stir"> Stir</label></div>
+<div class="r hint">drag H/L · scroll = mb · Esc</div>`;
 
   function start() {
     if (S.on) return; S.on = true;
@@ -167,6 +167,8 @@
     S.panel.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return;
       const a = b.dataset.a;
       if (a === 'addL' || a === 'addH') S.sys.push(mkSys(a === 'addL' ? 1003 : 1023, .15 + Math.random() * .7, .15 + Math.random() * .7));
+      if (a === 'remL' || a === 'remH') { // newest of that kind goes first
+        for (let i = S.sys.length - 1; i >= 0; i--) if ((S.sys[i].p < 1013) === (a === 'remL')) { S.sys.splice(i, 1); break; } }
       if (a === 'reset') { S.sys = defaultSys(); S.tracers = []; }
       if (a === 'close') stop(); });
     S.panel.addEventListener('input', (e) => { const el = e.target, k = el.dataset.s; if (!k) return;

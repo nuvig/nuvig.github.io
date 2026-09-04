@@ -30,7 +30,7 @@
     if (loaded) { if (window.SYNOP) window.SYNOP.toggle(); return; }
     loaded = true;
     const s = document.createElement('script');
-    s.src = 'js/synop.js?v=1';
+    s.src = 'js/synop.js?v=2';
     document.body.appendChild(s);
   };
   if (loc) loc.addEventListener('click', trigger);
