@@ -118,6 +118,25 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   AFDs, PIREPs and soundings carry only their own moment (observation / issuance / report /
   launch) and were picked up later by the hourly run; those times get a dotted underline and
   say which they are on hover. The page never labels the second kind as an arrival.
+  **METARs that arrive together are one line.** The hourly routine obs land in a
+  batch (a dozen stations between :52 and :56) and one line each buries every other
+  record on the page, so a run of METARs within `MET_GAP` (300 s) folds into a set:
+  the source column counts the stations, the one-liner lists their ids, the size is
+  the total, and opening it prints every report with the file each came from. A run
+  covering only one station never folds — a SPECI after its routine ob is two
+  readings from one place, not a batch. Only METARs fold; the day header's record
+  count stays the record count, not the line count.
+  **The rail is the day's shape** (`drawRail()`, right of the log at ≥980 px): a row
+  per hour, a column per stream, each cell shaded by the bytes that arrived in it on
+  a shared log scale — bytes, not records, because an AFD outweighs a thousand
+  METARs and the weight is the point. An empty cell is an hour that held nothing,
+  which no amount of scrolling shows; hours after `index.json`'s `updated` are not
+  drawn at all, since an hour the archiver has not reached is not an empty hour. It
+  is built from every record of the day, so the stream chips do not thin it; a cell
+  click jumps the log to that hour of that stream, and the rail follows whichever
+  day section you have scrolled to (a throttled scroll read — the Browser pane
+  delivers neither IntersectionObserver callbacks nor scroll events, so this is
+  verified in headless Edge, not the pane).
   **Truncation is stated.** Every row prints its record's size; one-liners cut the field
   carrying the least (a METAR's RMK group, a TAF's WMO transmission header, a snapshot's
   48 hourly values); an expansion over 20,000 chars says where it stopped and links the file.

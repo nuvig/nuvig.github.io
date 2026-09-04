@@ -14,7 +14,14 @@
     /* A log wants width — the one-liners are raw METARs and TAF lines that
        should not wrap. Wider than the 760px site default, capped so the text
        column stays readable. */
-    body { max-width: 1180px; }
+    body { max-width: 1400px; }
+
+    /* The log and the rail. The rail is a second view of the same day, so it
+       is the first thing to go when the window cannot hold both. */
+    .cols { display: flex; align-items: flex-start; gap: 22px; }
+    #feed { flex: 1 1 auto; min-width: 0; }
+    #rail { flex: 0 0 210px; position: sticky; top: 52px; }
+    @media (max-width: 980px) { #rail { display: none; } }
 
     #back-link {
       display: inline-block; margin-top: 16px; font-size: 14px;
@@ -116,6 +123,35 @@
     .prov a { color: #6a7f95; }
     .prov a:hover { color: #4a9eff; }
 
+    /* ---- the rail ---- */
+    .rail-head {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      color: #888; font-size: 11.5px; padding: 0 0 6px; border-bottom: 1px solid #262626;
+      margin-bottom: 6px;
+    }
+    .rail-head span { color: #555; font-variant-numeric: tabular-nums; }
+    #rail .grid { display: grid; gap: 2px; align-items: center; }
+    /* Full stream names, turned on their side — two-letter stubs put "afd",
+       "aloft" and "airsig" one letter apart. */
+    #rail .gh {
+      font-size: 9.5px; letter-spacing: 0.02em; cursor: help;
+      writing-mode: vertical-rl; transform: rotate(180deg);
+      justify-self: center; padding-top: 2px; height: 46px;
+    }
+    #rail .gr {
+      color: #4a4a4a; font-size: 9.5px; font-variant-numeric: tabular-nums;
+      text-align: right; padding-right: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    #rail .gc {
+      display: block; width: 100%; height: 9px; border: 0; border-radius: 2px;
+      padding: 0; cursor: pointer;
+    }
+    #rail .gc.none { background: none; box-shadow: inset 0 0 0 1px #232323; cursor: default; }
+    #rail button.gc:hover { outline: 1px solid #ddd; outline-offset: 1px; }
+
+    .row.hit { background: #23303d; }
+
     .empty { color: #666; font-size: 14px; }
     .empty code { color: #888; }
     .btn {
@@ -156,14 +192,17 @@
     <span id="live-note"></span>
   </div>
 
-  <div id="feed"><p class="empty">reading the archive…</p></div>
+  <div class="cols">
+    <div id="feed"><p class="empty">reading the archive…</p></div>
+    <aside id="rail" aria-label="Bytes archived per hour"></aside>
+  </div>
 
   <button class="btn" id="more" style="display:none" disabled></button>
 
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/feed.js?v=4"></script>
+  <script src="js/feed.js?v=5"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

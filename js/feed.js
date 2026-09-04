@@ -584,14 +584,69 @@ function fullText(r) {
 
 const openKeys = new Set();           // expanded rows, kept open across re-renders
 
+/* ---------------------------------------------------------------------------
+   One arrival, one line. The hourly routine obs land together — a dozen
+   stations between :52 and :56 — and printed one per line they bury every
+   other record on the page. METARs whose times are within MET_GAP of each
+   other become one set: the badge still says metar, the source column says
+   how many stations, and the set opens to every report in it. A station
+   reporting alone still gets its own line.
+
+   Only METARs group. The other streams arrive one record at a time.
+--------------------------------------------------------------------------- */
+
+const MET_GAP = 300;                  // seconds between obs still counted as one arrival
+
+function metarSet(g) {
+  const ids = Array.from(new Set(g.map((r) => r.src)));
+  const span = g[g.length - 1].t === g[0].t ? '' : `${clock(g[g.length - 1].t).slice(0, 5)}–${clock(g[0].t).slice(0, 5)}`;
+  return {
+    t: g[0].t, clock: 'own', stream: 'metar', src: `${ids.length} stations`,
+    one: ids.join(' '),
+    bytes: g.reduce((a, r) => a + r.bytes, 0),
+    text: g.map((r) => `${clock(r.t)}  ${r.src.padEnd(5)}  ${r.text}`).join('\n'),
+    paths: Array.from(new Set(g.map((r) => r.path).filter(Boolean))),
+    path: g[0].path,
+    tag: g.some((r) => r.tag) ? 'healed' : null,
+    span, n: g.length,
+    key: `set|${g[0].t}|${g.length}|${ids[0]}`,
+  };
+}
+
+/* A day's visible rows, newest first, with runs of METARs folded into sets. */
+function fold(day) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    /* One station reporting twice in five minutes — a SPECI after its routine
+       ob — is two readings from one place, not an arrival of many. Only a run
+       covering more than one station folds. */
+    const stations = new Set(run.map((r) => r.src));
+    if (run.length > 1 && stations.size > 1) out.push(metarSet(run));
+    else out.push(...run);
+    run = [];
+  };
+  for (const r of day) {
+    if (r.stream !== 'metar') { flush(); out.push(r); continue; }
+    if (run.length && run[run.length - 1].t - r.t > MET_GAP) flush();
+    run.push(r);
+  }
+  flush();
+  return out;
+}
+
+let view = [];                        // what is on screen, sets included
+
 function rowHTML(r, i) {
   const st = STREAMS[r.stream];
   const own = r.clock === 'own';
   return `<div class="row${openKeys.has(r.key) ? ' open' : ''}" data-i="${i}" tabindex="0" role="button"`
     + ` aria-expanded="${openKeys.has(r.key)}">`
-    + `<time class="${own ? 'own' : ''}" title="${own
-        ? 'Observation or issuance time. The archiver picked this record up on a later run.'
-        : 'When the site captured this record.'}">${clock(r.t)}</time>`
+    + `<time class="${own ? 'own' : ''}" title="${r.n
+        ? `${r.n} observation${r.n === 1 ? '' : 's'}${r.span ? `, ${esc(r.span)}` : ''}. Each is the station's own observation time.`
+        : own
+          ? 'Observation or issuance time. The archiver picked this record up on a later run.'
+          : 'When the site captured this record.'}">${clock(r.t)}</time>`
     + `<span class="badge" style="color:${st.color};border-color:${st.color}55;background:${st.color}14">${st.name}</span>`
     + `<span class="src">${esc(r.src)}</span>`
     + `<span class="one">${esc(r.one)}</span>`
@@ -608,16 +663,15 @@ function render() {
     if (!byDay.has(d)) byDay.set(d, []);
     byDay.get(d).push(r);
   }
-  const idx = new Map();
-  rows.forEach((r, i) => idx.set(r, i));
+  view = [];
 
   let html = '';
   for (const date of Array.from(byDay.keys()).sort().reverse()) {
-    const day = byDay.get(date).sort((a, b) => b.t - a.t);
+    const day = fold(byDay.get(date).sort((a, b) => b.t - a.t));
     const meta = dayMeta.get(date);
-    html += `<section class="day"><div class="day-head">`
+    html += `<section class="day" data-date="${date}"><div class="day-head">`
       + `<h2>${esc(niceDate(date))}</h2>`
-      + `<span class="day-n">${day.length.toLocaleString()} record${day.length === 1 ? '' : 's'}</span>`
+      + `<span class="day-n">${byDay.get(date).length.toLocaleString()} record${byDay.get(date).length === 1 ? '' : 's'}</span>`
       + `<a class="day-link" href="almanac.html#d=${date}">almanac →</a></div>`;
     if (!meta) {
       /* A record's day is its own local day, so a TAF issued at 8 PM lands
@@ -633,27 +687,152 @@ function render() {
             : '')
         + `</div>`;
     }
-    html += day.map((r) => rowHTML(r, idx.get(r))).join('');
+    html += day.map((r) => { view.push(r); return rowHTML(r, view.length - 1); }).join('');
     html += `</section>`;
   }
   $('feed').innerHTML = html || `<p class="empty">Nothing matches those filters.</p>`;
   $('count').textContent = `${list.length.toLocaleString()} of ${rows.length.toLocaleString()} records`;
   if (openKeys.size) {
     for (const row of $('feed').querySelectorAll('.row')) {
-      const r = rows[+row.dataset.i];
+      const r = view[+row.dataset.i];
       if (openKeys.has(r.key)) expand(row, r);
     }
   }
+  watchDays();
+  drawRail(railDate || Array.from(byDay.keys()).sort().reverse()[0]);
+}
+
+/* ---------------------------------------------------------------------------
+   The rail — one day's intake as a grid: a row per hour, a column per stream,
+   each cell shaded by the bytes that arrived in it. The log says what came in;
+   the grid says what an hour looked like, and an empty cell says an hour held
+   nothing at all, which no amount of scrolling can show.
+
+   Bytes, not records: an AFD is a thousand METARs by weight, and the point of
+   the grid is the weight. The scale is log10 over the whole day and shared by
+   every stream, so a cell is comparable across the grid rather than against
+   its own column only.
+
+   Hours the archive has not reached yet are not empty hours, and are drawn as
+   nothing at all rather than as a hollow cell.
+--------------------------------------------------------------------------- */
+
+let railDate = null;
+let dayWatch = false;
+
+const railOrder = Object.keys(STREAMS);
+
+function drawRail(date) {
+  const el = $('rail');
+  if (!el || !date) return;
+  railDate = date;
+
+  /* Every record of that day, sets or not — the grid is a picture of the
+     archive, so the stream chips do not thin it. */
+  const cells = new Map();            // `${stream}|${hour}` -> {b, n}
+  const tot = new Map();              // stream -> {b, n}
+  let day = 0;
+  for (const r of rows) {
+    if (dayOf(r.t) !== date) continue;
+    const h = lp(r.t).h;
+    const k = `${r.stream}|${h}`;
+    const c = cells.get(k) || { b: 0, n: 0 };
+    c.b += r.bytes; c.n++;
+    cells.set(k, c);
+    const t = tot.get(r.stream) || { b: 0, n: 0 };
+    t.b += r.bytes; t.n++;
+    tot.set(r.stream, t);
+    day += r.bytes;
+  }
+  const streams = railOrder.filter((k) => tot.has(k));
+  if (!streams.length) { el.innerHTML = ''; return; }
+
+  let max = 0;
+  for (const c of cells.values()) max = Math.max(max, c.b);
+  const shade = (b) => 0.14 + 0.86 * (Math.log10(b + 1) / Math.log10(max + 1));
+
+  /* An hour the last archive run has not reached is not an empty hour. */
+  const upd = (IDX && IDX.updated) || Date.now() / 1000;
+  const last = date < dayOf(upd) ? 23 : date === dayOf(upd) ? lp(upd).h : -1;
+
+  let html = `<div class="rail-head">${esc(niceDate(date).replace(/,[^,]*$/, ''))}`
+    + `<span>${size(day)}</span></div>`
+    + `<div class="grid" style="grid-template-columns:22px repeat(${streams.length}, 1fr)">`
+    + `<span class="gh"></span>`
+    + streams.map((k) => `<span class="gh" style="color:${STREAMS[k].color}"`
+        + ` title="${esc(STREAMS[k].name)} · ${tot.get(k).n} record${tot.get(k).n === 1 ? '' : 's'} · ${size(tot.get(k).b)}">`
+        + `${esc(STREAMS[k].name)}</span>`).join('');
+  for (let h = 0; h <= last; h++) {
+    html += `<span class="gr">${pad(h)}</span>`;
+    for (const k of streams) {
+      const c = cells.get(`${k}|${h}`);
+      html += c
+        ? `<button class="gc" data-h="${h}" data-s="${k}"`
+          + ` style="background:${STREAMS[k].color};opacity:${shade(c.b).toFixed(2)}"`
+          + ` title="${pad(h)}:00 · ${esc(STREAMS[k].name)} · ${c.n} record${c.n === 1 ? '' : 's'} · ${size(c.b)}"></button>`
+        : `<span class="gc none" title="${pad(h)}:00 · ${esc(STREAMS[k].name)} · nothing"></span>`;
+    }
+  }
+  el.innerHTML = html + `</div>`;
+}
+
+/* A cell is navigation: jump the log to that hour of that stream. */
+function railClick(e) {
+  const b = e.target.closest('.gc[data-h]');
+  if (!b) return;
+  const h = +b.dataset.h, k = b.dataset.s;
+  const sec = $('feed').querySelector(`.day[data-date="${railDate}"]`);
+  if (!sec) return;
+  for (const row of sec.querySelectorAll('.row')) {
+    const r = view[+row.dataset.i];
+    if (r.stream !== k) continue;
+    /* a folded set covers a span, so match the set's newest hour or any
+       hour it reaches back into */
+    if (lp(r.t).h < h) break;
+    if (lp(r.t).h !== h) continue;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('hit');
+    setTimeout(() => row.classList.remove('hit'), 1200);
+    row.focus({ preventScroll: true });
+    return;
+  }
+}
+
+/* The rail follows the day you are reading: whichever day section the top of
+   the reading area is sitting in. A plain scroll read, throttled to a frame —
+   the day sections are a handful of elements and their rects are cheap. */
+
+const READ_Y = 120;                   // where the page is "being read", in px
+
+function railFollow() {
+  const secs = $('feed').querySelectorAll('.day');
+  let pick = null;
+  for (const sec of secs) {
+    if (sec.getBoundingClientRect().top <= READ_Y) pick = sec;
+  }
+  if (!pick && secs.length) pick = secs[0];
+  if (pick && pick.dataset.date !== railDate) drawRail(pick.dataset.date);
+}
+
+function watchDays() {
+  if (dayWatch) return;
+  dayWatch = true;
+  let queued = false;
+  addEventListener('scroll', () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; railFollow(); });
+  }, { passive: true });
 }
 
 /* Expansion is built on demand. Four hundred <pre> blocks a day would cost
    more than the records they hold. */
 function expand(row, r) {
-  const href = r.ext ? r.path : `${WXA.base}/${r.path}`;
+  const link = (p) => `<a href="${esc(r.ext ? p : `${WXA.base}/${p}`)}">${esc(r.ext ? p : `${WXA.base}/${p}`)}</a>`;
   const el = document.createElement('div');
   el.className = 'full';
   el.innerHTML = `<pre>${esc(fullText(r))}</pre>`
-    + `<div class="prov"><a href="${esc(href)}">${esc(r.ext ? r.path : `${WXA.base}/${r.path}`)}</a>`
+    + `<div class="prov">${(r.paths || [r.path]).map(link).join('<br>')}`
     + (r.rec && r.rec.url ? ` · <a href="${esc(r.rec.url)}" target="_blank" rel="noopener">FAA detail</a>` : '')
     + ` · ${size(r.bytes)} · ${esc(STREAMS[r.stream].what)}</div>`;
   row.after(el);
@@ -662,7 +841,7 @@ function expand(row, r) {
 }
 
 function toggle(row) {
-  const r = rows[+row.dataset.i];
+  const r = view[+row.dataset.i];
   const open = row.nextElementSibling;
   if (open && open.classList.contains('full')) {
     open.remove();
@@ -795,6 +974,7 @@ async function boot() {
   $('more').addEventListener('click', more);
 
   $('feed').addEventListener('click', onClick);
+  $('rail').addEventListener('click', railClick);
   $('feed').addEventListener('keydown', onKey);
   $('q').addEventListener('input', (e) => { query = e.target.value; render(); });
   $('live').addEventListener('click', () => setLive(!live));
