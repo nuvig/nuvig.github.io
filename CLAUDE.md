@@ -126,6 +126,20 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   covering only one station never folds — a SPECI after its routine ob is two
   readings from one place, not a batch. Only METARs fold; the day header's record
   count stays the record count, not the line count.
+  **An AIRMET/SIGMET expansion draws its polygon** (`drawThumb()`): the record carries
+  the vertices, and where the hazard is is what words are worst at. The coastline under
+  it is `data/wx3d/terrain-wide.json`, the elevation grid wx3d.html already ships — sea
+  level is water, which draws the Bay and the coast with no coastline data at all. The
+  frame is that grid's box, fixed, so two thumbnails are the same picture at the same
+  scale; a polygon reaching past it is clipped and the tooltip says so rather than the
+  map quietly rescaling. The dashed box is `index.json`'s `region` — what the archiver
+  keeps a polygon for. TFRs get no map: the FAA list carries no geometry.
+  **Chip tooltips name the pages that read the stream** (`chipTitle()`, `STREAMS[].on`) —
+  the feed is the intake, not the consumer, and every stream here exists for a page
+  somewhere. Keep `on` in step when a page starts or stops reading a stream.
+  **The live note prints the archive's last run next to the poll** — the poll is a
+  minute, the archive is not, and "checked just now" alone read as "these arrived just
+  now".
   **The rail is the day's shape** (`drawRail()`, right of the log at ≥980 px): a row
   per hour, a column per stream, each cell shaded by the bytes that arrived in it on
   a shared log scale — bytes, not records, because an AFD outweighs a thousand

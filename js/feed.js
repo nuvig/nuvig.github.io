@@ -82,20 +82,38 @@ function size(n) {
 --------------------------------------------------------------------------- */
 
 const STREAMS = {
-  metar:    { name: 'metar',    color: '#4a9eff', what: 'METAR. KDCA verifies the DC forecast, KNAK stands in for KANP, the rest are the nearby fields' },
-  taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF for KMTN, KBWI or KDCA' },
-  afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion from NWS Baltimore/Washington' },
-  pirep:    { name: 'pirep',    color: '#facc15', what: 'PIREP filed within ~150 nm of the field, at the report\'s own time' },
-  airsig:   { name: 'airsig',   color: '#fb7185', what: 'G-AIRMET, SIGMET or AIRMET touching the region, stamped when first seen' },
-  tfr:      { name: 'tfr',      color: '#c084fc', what: 'FAA TFR listed for MD/VA/DC/DE/PA/WV/NJ or ZDC/PCT, stamped when first seen' },
-  raob:     { name: 'raob',     color: '#38bdf8', what: 'KIAD radiosonde sounding (00Z/12Z), at its launch time' },
-  aloft:    { name: 'aloft',    color: '#a3e635', what: 'GFS winds and temps aloft at the field, 925/850/700/500 hPa' },
-  forecast: { name: 'forecast', color: '#f0883e', what: 'NWS daily forecast digest at the DC point' },
-  grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field: 48 h of ceiling, vis, wind, PoP' },
-  model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field: CAPE, CIN, precip' },
-  alert:    { name: 'alert',    color: '#ef4444', what: 'NWS alert, stamped when the archiver first saw it' },
-  tracker:  { name: 'tracker',  color: '#94a3b8', what: 'ADS-B snapshot pushed by the Pi exporter to the traffic-data branch' },
+  metar:    { name: 'metar',    color: '#4a9eff', what: 'METAR. KDCA verifies the DC forecast, KNAK stands in for KANP, the rest are the nearby fields' ,
+              on: 'weather · sky · almanac · discussion' },
+  taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF for KMTN, KBWI or KDCA' ,
+              on: 'weather · almanac · discussion' },
+  afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion from NWS Baltimore/Washington' ,
+              on: 'discussion · almanac' },
+  pirep:    { name: 'pirep',    color: '#facc15', what: 'PIREP filed within ~150 nm of the field, at the report\'s own time' ,
+              on: 'weather · almanac' },
+  airsig:   { name: 'airsig',   color: '#fb7185', what: 'G-AIRMET, SIGMET or AIRMET touching the region, stamped when first seen' ,
+              on: 'weather · almanac' },
+  tfr:      { name: 'tfr',      color: '#c084fc', what: 'FAA TFR listed for MD/VA/DC/DE/PA/WV/NJ or ZDC/PCT, stamped when first seen' ,
+              on: 'weather · almanac' },
+  raob:     { name: 'raob',     color: '#38bdf8', what: 'KIAD radiosonde sounding (00Z/12Z), at its launch time' ,
+              on: 'almanac' },
+  aloft:    { name: 'aloft',    color: '#a3e635', what: 'GFS winds and temps aloft at the field, 925/850/700/500 hPa' ,
+              on: 'almanac' },
+  forecast: { name: 'forecast', color: '#f0883e', what: 'NWS daily forecast digest at the DC point' ,
+              on: 'discussion · almanac' },
+  grid:     { name: 'grid',     color: '#2dd4bf', what: 'NWS hourly grid at the field: 48 h of ceiling, vis, wind, PoP' ,
+              on: 'discussion · almanac' },
+  model:    { name: 'model',    color: '#e879a6', what: 'GFS point read at the field: CAPE, CIN, precip' ,
+              on: 'discussion · almanac' },
+  alert:    { name: 'alert',    color: '#ef4444', what: 'NWS alert, stamped when the archiver first saw it' ,
+              on: 'discussion · almanac' },
+  tracker:  { name: 'tracker',  color: '#94a3b8', what: 'ADS-B snapshot pushed by the Pi exporter to the traffic-data branch' ,
+              on: 'kanp · changelog' },
 };
+
+/* Chip tooltip: what the record is, then the pages that read it. Every stream
+   archived here is archived for a page somewhere on the site — the feed is the
+   intake, not the consumer. */
+const chipTitle = (k) => STREAMS[k].what + '\n' + 'Used on: ' + STREAMS[k].on;
 
 /* ---------------------------------------------------------------------------
    One-liners. Each drops the part of the record that carries the least and
@@ -703,6 +721,115 @@ function render() {
 }
 
 /* ---------------------------------------------------------------------------
+   The polygon, drawn. A G-AIRMET's one-liner says SIERRA / MT_OBSC and a time
+   window; where it is is the part words are worst at, and the record carries
+   the vertices. The coastline under it is the elevation grid wx3d.html already
+   ships (data/wx3d/terrain-wide.json, ~650 nm across DC) — sea level is water,
+   which is what draws the Bay and the coast with no coastline data at all.
+
+   The frame is that grid's box, fixed, so every thumbnail is the same picture
+   at the same scale and two of them can be compared. A polygon reaching past
+   it is clipped and says so rather than being quietly redrawn to fit.
+--------------------------------------------------------------------------- */
+
+const TERRAIN = 'data/wx3d/terrain-wide.json';
+let terrainP = null;
+
+/* The land mask, rasterized once at grid resolution and scaled per thumbnail. */
+function loadTerrain() {
+  if (terrainP) return terrainP;
+  terrainP = fetch(TERRAIN, { cache: 'force-cache' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((t) => {
+      if (!t || !t.elev) return null;
+      const c = document.createElement('canvas');
+      c.width = t.nx; c.height = t.ny;
+      const g = c.getContext('2d');
+      const img = g.createImageData(t.nx, t.ny);
+      let hi = 1;
+      for (const v of t.elev) if (v > hi) hi = v;
+      for (let i = 0; i < t.elev.length; i++) {
+        const e = t.elev[i], o = i * 4;
+        if (e <= 0) {                                  // hydro-flattened: sea level is water
+          img.data[o] = 19; img.data[o + 1] = 30; img.data[o + 2] = 43;
+        } else {
+          const k = Math.sqrt(e / hi);                 // low ground still has to read as land
+          img.data[o] = 32 + 40 * k;
+          img.data[o + 1] = 32 + 36 * k;
+          img.data[o + 2] = 28 + 26 * k;
+        }
+        img.data[o + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      return { t, c };
+    })
+    .catch(() => null);
+  return terrainP;
+}
+
+const THUMB_W = 300;
+
+/* Equirectangular, scaled by cos(mid latitude) so the shapes are not stretched. */
+function thumbProj(t, w) {
+  const latSpan = (t.ny - 1) * t.dlat, lonSpan = (t.nx - 1) * t.dlon;
+  const mid = (t.lat0 + (t.lat0 - latSpan)) / 2;
+  const h = Math.round(w * latSpan / (lonSpan * Math.cos(mid * Math.PI / 180)));
+  return {
+    w, h,
+    x: (lon) => (lon - t.lon0) / lonSpan * w,
+    y: (lat) => (t.lat0 - lat) / latSpan * h,
+  };
+}
+
+async function drawThumb(cv, rec) {
+  const T = await loadTerrain();
+  if (!T) { cv.remove(); return; }
+  const P = thumbProj(T.t, THUMB_W);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = P.w * dpr; cv.height = P.h * dpr;
+  cv.style.width = `${P.w}px`; cv.style.height = `${P.h}px`;
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(T.c, 0, 0, P.w, P.h);
+
+  /* the box the archiver keeps a polygon for, so the frame's rule is visible */
+  const R = (IDX && IDX.region || '').split(',').map(Number);
+  if (R.length === 4) {
+    g.strokeStyle = '#ffffff22';
+    g.setLineDash([3, 3]);
+    g.strokeRect(P.x(R[1]), P.y(R[2]), P.x(R[3]) - P.x(R[1]), P.y(R[0]) - P.y(R[2]));
+    g.setLineDash([]);
+  }
+
+  const col = STREAMS.airsig.color;
+  const pts = rec.coords.map((c) => [P.x(c[1]), P.y(c[0])]);
+  g.beginPath();
+  pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+  g.closePath();
+  g.fillStyle = `${col}33`;
+  g.fill();
+  g.strokeStyle = col;
+  g.lineWidth = 1.5;
+  g.stroke();
+
+  /* the field, for scale and for where this sits relative to home */
+  const fx = P.x(SITE.tracker.lon), fy = P.y(SITE.tracker.lat);
+  g.fillStyle = '#e8e8e8';
+  g.beginPath(); g.arc(fx, fy, 2.5, 0, 7); g.fill();
+  g.font = '10px ui-monospace, monospace';
+  g.fillText(SITE.tracker.id || 'KANP', fx + 5, fy + 3.5);
+
+  g.strokeStyle = '#ffffff14';
+  g.strokeRect(0.5, 0.5, P.w - 1, P.h - 1);
+
+  const out = rec.coords.some((c) => c[0] > T.t.lat0 || c[0] < T.t.lat0 - (T.t.ny - 1) * T.t.dlat
+    || c[1] < T.t.lon0 || c[1] > T.t.lon0 + (T.t.nx - 1) * T.t.dlon);
+  cv.title = `${rec.coords.length} vertices${out ? ' — reaches past this frame' : ''}`
+    + '. Dashed box: the region the archive keeps.';
+}
+
+/* ---------------------------------------------------------------------------
    The rail — one day's intake as a grid: a row per hour, a column per stream,
    each cell shaded by the bytes that arrived in it. The log says what came in;
    the grid says what an hour looked like, and an empty cell says an hour held
@@ -831,11 +958,14 @@ function expand(row, r) {
   const link = (p) => `<a href="${esc(r.ext ? p : `${WXA.base}/${p}`)}">${esc(r.ext ? p : `${WXA.base}/${p}`)}</a>`;
   const el = document.createElement('div');
   el.className = 'full';
-  el.innerHTML = `<pre>${esc(fullText(r))}</pre>`
+  const poly = r.stream === 'airsig' && r.rec && (r.rec.coords || []).length > 2;
+  el.innerHTML = (poly ? `<canvas class="thumb" width="${THUMB_W}" height="${THUMB_W}"></canvas>` : '')
+    + `<pre>${esc(fullText(r))}</pre>`
     + `<div class="prov">${(r.paths || [r.path]).map(link).join('<br>')}`
     + (r.rec && r.rec.url ? ` · <a href="${esc(r.rec.url)}" target="_blank" rel="noopener">FAA detail</a>` : '')
     + ` · ${size(r.bytes)} · ${esc(STREAMS[r.stream].what)}</div>`;
   row.after(el);
+  if (poly) drawThumb(el.querySelector('.thumb'), r.rec);
   row.classList.add('open');
   row.setAttribute('aria-expanded', 'true');
 }
@@ -896,10 +1026,14 @@ async function poll() {
   tick();
 }
 
+/* The poll is a minute; the archive is not. Records land when the hourly
+   Action runs, so the note prints both — otherwise "checked just now" reads as
+   "these arrived just now". */
 function tick() {
+  const run = IDX && IDX.updated ? ` · archive ran ${ago(Date.now() / 1000 - IDX.updated)}` : '';
   $('live-note').textContent = live
-    ? `live · checked ${lastPoll ? ago(Date.now() / 1000 - lastPoll) : 'just now'}`
-    : 'paused';
+    ? `live · checked ${lastPoll ? ago(Date.now() / 1000 - lastPoll) : 'just now'}${run}`
+    : `paused${run}`;
 }
 
 function setLive(on) {
@@ -917,7 +1051,7 @@ function setLive(on) {
 
 function chips() {
   $('chips').innerHTML = Object.entries(STREAMS).map((e) =>
-    `<button class="chip on" data-s="${e[0]}" title="${esc(e[1].what)}" style="--c:${e[1].color}">`
+    `<button class="chip on" data-s="${e[0]}" title="${esc(chipTitle(e[0]))}" style="--c:${e[1].color}">`
     + `<i></i>${e[1].name}</button>`).join('');
   $('chips').addEventListener('click', (ev) => {
     const b = ev.target.closest('.chip');
