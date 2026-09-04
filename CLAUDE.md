@@ -373,6 +373,26 @@ concepts; to relink, add the tools.html card back.
   exception to the site's °true rule.
 - `airlab.html` + `js/airlab.js` — Air Lab: atmosphere column, pressure/density altitude (NWS method,
   humidity), air-parcel stability sim, IAS→TAS→GS wind triangle.
+- `pressure.html` + `js/pressure.js` — Pressure Systems (2026-09-03): a field of draggable Gaussian
+  highs/lows (1013 hPa + one Gaussian each, so ∇p, ∇²p and isobar curvature are analytic) with the
+  wind at every point as the **steady balance of pressure-gradient force, Coriolis (f = 2Ω sin φ,
+  latitude slider −90..90) and linear friction** (slider, k ≤ 1.2×10⁻⁴ s⁻¹) — k = 0 → geostrophic,
+  f = 0 → straight down the gradient, both 0 → no balance, capped at 150 kt and said so. Speed is
+  then scaled by the gradient-wind solution for the local curvature (toggle; anticyclonic
+  no-solution case caps at fR/2). Plan view: marching-squares isobars every 4 hPa, pressure tint,
+  speed-scaled tracers, WMO barbs (feathers 90° clockwise of the upwind staff in the N hemisphere,
+  CCW in the S), hover → the force vectors at the cursor (PGF amber · Coriolis blue · friction
+  grey · dashed green net = the centripetal residual when curvature is on · wind white), and
+  **parcels dropped from rest that integrate the real equation of motion** (RK2, 6 substeps) —
+  without friction they trace inertial loops and never settle; that is the point, don't damp
+  them. 3-D view: same field, orthographic orbit like wx3d (drag), vertical ×100; k falls
+  linearly to 0 across a 1.5 km friction layer, ageostrophic divergence a(k)·∇²p/ρ integrated in
+  closed form gives w (rising over the L, sinking over the H), above the layer w arches to 0 at
+  10 km and a −P outflow returns the mass — mass-consistent, but a schematic (the footer says
+  so). Cloud sheet at 3 km = where the layer pumps air up. Time runs 1 s = 3 h at ×1. Units SI
+  inside, nm / kt / hPa on screen, °true. Self-contained (no `site-config.js`, no fetches);
+  `window.PRESSURE_DEBUG` exposes `field`/`wind`/`wind3`/`wBL` for headless checks. Distinct from
+  the homepage easter egg `js/synop.js` (geostrophic-only tracers behind the landing page).
 - `skew-t.html` + `js/skewt.js` + `js/skewt-obs.js` — Skew-T Explorer: canvas skew-T log-p
   (1000→100 hPa, 21 levels) of Open-Meteo pressure-level forecast soundings, 3 days hourly, for
   any US airport (coords resolved via `api.weather.gov/stations/{id}`; model selectable), with

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pressure Systems — highs, lows and the wind between them</title>
+  <meta name="description" content="Interactive pressure-system explainer: shape a field of highs and lows, watch the wind settle between pressure gradient, Coriolis and friction, drop air parcels, and spin the circulation in 3-D.">
+  <link rel="canonical" href="https://jesselevine.net/pressure.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1050px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #777; margin: 4px 0 14px; font-size: 14px; }
+
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 14px 16px; margin: 0 0 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .mode-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
+    .mode-row .sp { flex: 1; }
+    .mode-btn {
+      background: #161d26; border: 1px solid #2a3a4d; color: #9ab; border-radius: 99px;
+      padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .mode-btn.active { border-color: #4a9eff; color: #cfe6ff; background: #182534; }
+    .mode-btn:hover { border-color: #4a9eff; }
+    .mode-btn.L.active { border-color: #ff7f7f; color: #ffc9c9; }
+    .mode-btn.H.active { border-color: #7fb0ff; color: #cfe0ff; }
+    .mode-btn:disabled { opacity: .4; cursor: default; }
+    select.mode-btn { appearance: auto; padding: 4px 10px; }
+
+    canvas.viz { width: 100%; height: auto; display: block; border-radius: 6px; background: #14181e; touch-action: none; cursor: default; }
+    canvas.viz.grab { cursor: grab; }
+    canvas.viz.drop { cursor: crosshair; }
+    canvas.viz.orbit { cursor: move; }
+    .hint { font-size: 11.5px; color: #556; margin: 6px 0 0; }
+
+    .ctl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; flex-wrap: wrap; }
+    .ctl-row label { color: #999; min-width: 118px; }
+    .ctl-row input[type="range"] { flex: 1; min-width: 120px; accent-color: #4a9eff; }
+    .ctl-row .val { color: #eee; font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; font-weight: 600; }
+    .ctl-row .val .u { color: #777; font-weight: 400; font-size: 11px; }
+    .ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+    .checks { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: #999; padding: 6px 0 2px; }
+    .checks label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+    .checks input { accent-color: #4a9eff; }
+
+    .readout-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .tile { background: #14181e; border: 1px solid #2a3040; border-radius: 6px; padding: 7px 12px; min-width: 96px; flex: 1; }
+    .tile .k { font-size: 10.5px; color: #778; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+    .tile .v { font-size: 16px; font-weight: 600; color: #e8eef6; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tile .v .u { font-size: 11px; color: #778; font-weight: 400; }
+
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: #889; margin-top: 8px; }
+    .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+
+    .notes { font-size: 12.5px; color: #888; line-height: 1.7; margin: 0; padding-left: 0; list-style: none; }
+    .notes li b { color: #bbb; font-weight: 600; }
+    .footer-note { margin-top: 26px; font-size: 12px; color: #555; line-height: 1.6; }
+    @media (max-width: 700px) { .ctl-grid { grid-template-columns: 1fr; } .ctl-row label { min-width: 96px; } .ctl-row .val { min-width: 120px; } }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+  <h1 style="font-size:1.5rem; margin:14px 0 2px;">🌀 Pressure Systems</h1>
+  <p class="subtitle">Pressure gradient · Coriolis · friction → wind, in plan and 3-D</p>
+
+  <div class="card">
+    <div class="mode-row">
+      <button class="mode-btn active" id="v-plan">Plan</button>
+      <button class="mode-btn" id="v-3d">3-D</button>
+      <span class="sp"></span>
+      <button class="mode-btn active" id="m-edit">Drag systems</button>
+      <button class="mode-btn" id="m-parcel">Drop parcels</button>
+      <button class="mode-btn" id="b-clear">Clear parcels</button>
+    </div>
+    <canvas class="viz" id="viz" width="960" height="600"></canvas>
+    <p class="hint" id="hint"></p>
+
+    <div class="readout-grid">
+      <div class="tile"><div class="k">pressure</div><div class="v" id="r-p">—</div></div>
+      <div class="tile"><div class="k">gradient</div><div class="v" id="r-grad">—</div></div>
+      <div class="tile"><div class="k">wind</div><div class="v" id="r-wind">—</div></div>
+      <div class="tile"><div class="k">across isobars</div><div class="v" id="r-cross">—</div></div>
+      <div class="tile"><div class="k">vertical motion</div><div class="v" id="r-w">—</div></div>
+      <div class="tile"><div class="k">Coriolis f</div><div class="v" id="r-f">—</div></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#ffb84d"></i>pressure gradient</span>
+      <span><i style="background:#4a9eff"></i>Coriolis</span>
+      <span><i style="background:#9aa"></i>friction</span>
+      <span><i style="background:#7fd8a2"></i>net (curvature)</span>
+      <span><i style="background:#fff"></i>wind</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Systems</h3>
+    <div class="mode-row">
+      <button class="mode-btn H" id="b-addH">+ High</button>
+      <button class="mode-btn L" id="b-addL">+ Low</button>
+      <button class="mode-btn" id="b-del" disabled>Remove selected</button>
+      <span class="sp"></span>
+      <label style="font-size:12.5px;color:#999">Preset
+        <select class="mode-btn" id="p-preset">
+          <option value="pair">High + low</option>
+          <option value="low">Low</option>
+          <option value="high">High</option>
+          <option value="squeeze">Tight gradient</option>
+          <option value="col">Col</option>
+        </select>
+      </label>
+    </div>
+    <div class="ctl-grid">
+      <div class="ctl-row">
+        <label for="s-p">Central pressure</label>
+        <input type="range" id="s-p" min="973" max="1053" step="1" value="993" disabled>
+        <span class="val" id="s-p-val">—</span>
+      </div>
+      <div class="ctl-row">
+        <label for="s-r">Radius</label>
+        <input type="range" id="s-r" min="100" max="500" step="5" value="250" disabled>
+        <span class="val" id="s-r-val">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Air</h3>
+    <div class="ctl-grid">
+      <div class="ctl-row">
+        <label for="c-lat">Latitude</label>
+        <input type="range" id="c-lat" min="-90" max="90" step="1" value="39">
+        <span class="val" id="c-lat-val"></span>
+      </div>
+      <div class="ctl-row">
+        <label for="c-fric">Friction</label>
+        <input type="range" id="c-fric" min="0" max="1" step="0.05" value="0.5">
+        <span class="val" id="c-fric-val"></span>
+      </div>
+      <div class="ctl-row">
+        <label for="c-speed">Time</label>
+        <input type="range" id="c-speed" min="0.2" max="4" step="0.1" value="1">
+        <span class="val" id="c-speed-val"></span>
+      </div>
+      <div class="ctl-row">
+        <label for="c-band">3-D tracers</label>
+        <select class="mode-btn" id="c-band">
+          <option value="all">all heights</option>
+          <option value="sfc">friction layer</option>
+          <option value="aloft">above it</option>
+        </select>
+      </div>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="o-iso" checked> isobars</label>
+      <label><input type="checkbox" id="o-tint" checked> pressure tint</label>
+      <label><input type="checkbox" id="o-tracers" checked> tracers</label>
+      <label><input type="checkbox" id="o-barbs"> wind barbs</label>
+      <label><input type="checkbox" id="o-curv" checked> gradient wind (curvature)</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Try</h3>
+    <ul class="notes">
+      <li><b>Latitude → 0°</b>: no Coriolis, air runs straight down the gradient</li>
+      <li><b>Friction → 0</b>: wind parallel to isobars, low on the left (north), right (south)</li>
+      <li><b>Friction up</b>: wind crosses the isobars into the L, out of the H</li>
+      <li><b>Tight gradient</b>: closer isobars, faster wind</li>
+      <li><b>Curvature</b>: same spacing, faster round the H than the L</li>
+      <li><b>Drop a parcel, friction 0</b>: inertial loops, never settles</li>
+      <li><b>3-D</b>: inflow → rising → outflow over the L; sinking → outflow over the H</li>
+    </ul>
+  </div>
+
+  <p class="footer-note">
+    Model: 1013 hPa + one Gaussian per system · wind = steady pressure gradient + Coriolis + linear friction, speed scaled by the gradient-wind solution for the local isobar curvature · f = 2Ω sin φ · parcels integrate the same forces from rest · 3-D: friction-layer convergence → vertical motion by continuity, outflow aloft returns it, vertical ×100 · schematic, not a forecast · no data leaves the page.
+  </p>
+
+  <script src="js/pressure.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
