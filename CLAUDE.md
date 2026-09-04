@@ -75,7 +75,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   analysis behind the page — draggable H/L pressure centres (wheel/↑↓ sets the centre in mb,
   crossing 1013 flips the sign, drag off the edge removes), isobars by marching squares every
   frame, ~1,400 geostrophic wind tracers the pointer stirs, and a small bottom-left panel
-  (±L/±H, reset, wind speed, tracer count, spacing, stir — off by default). Loaded lazily by `home.js` on a
+  (+L/+H, reset = clear all, wind speed, tracer count, spacing, stir — off by default). Loaded lazily by `home.js` on a
   click of the location line or the `P` key; also not referenced from any HTML. The canvas
   sits at `z-index:-1` behind the column (cards are opaque, so it lives in the margins) and
   it never intercepts a pointer event that started on a link/button/input.
