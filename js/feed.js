@@ -446,36 +446,23 @@ async function loadDay(date) {
   const afds = (IDX.afd || []).filter((a) => dayOf(a.t) === date);
   await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));
 
-  /* What the day's own files say about their completeness and provenance,
-     printed in the day header. A count of rows cannot show what never
-     arrived, and a healed record did not arrive on time. */
-  const cover = [], heal = [];
-  const push = (label, n) => {
-    if (n) cover.push(`${label} ${n.h} h${n.missing ? ` · ${n.missing} h missing` : ''}${n.nh ? ` · ${n.nh} h not reported` : ''}`);
+  /* One line under the date: whether anything is missing. A count of rows
+     cannot show what never arrived, so this reads index.json's hours rather
+     than the records on screen. Hours a station never reported are not
+     missing, and neither are hours the archiver has not reached yet — both
+     are already excluded by hoursNote(). The per-station breakdown lives in
+     the line's tooltip; the header itself is the verdict. */
+  let miss = 0;
+  const detail = [];
+  const count = (label, n) => {
+    if (!n) return;
+    miss += n.missing;
+    if (n.missing) detail.push(`${label} ${n.missing} h`);
   };
-  push((obs && obs.station) || 'KDCA', hoursNote(IDX, 'obs', null, date));
-  push((fobs && fobs.station) || 'KNAK', hoursNote(IDX, 'field', null, date));
-  let ringH = 0, ringMiss = 0, ringNh = 0, ringN = 0;
-  ringIds.forEach((id, i) => {
-    if (!st[i]) return;
-    ringN++;
-    const n = hoursNote(IDX, 'ring', id, date);
-    if (n) { ringH += n.h; ringMiss += n.missing; ringNh += n.nh; }
-  });
-  if (ringN) {
-    cover.push(`${ringN} other station${ringN === 1 ? '' : 's'} ${ringH} h`
-      + (ringMiss ? ` · ${ringMiss} h missing` : '')
-      + (ringNh ? ` · ${ringNh} h not reported` : ''));
-  }
-  for (const pair of [[obs, obs && obs.station], [fobs, fobs && fobs.station], [taf, 'TAF']]) {
-    const doc = pair[0];
-    if (doc && doc.bf && doc.bf.n) heal.push(`${pair[1]} ${doc.bf.n}`);
-  }
-  ringIds.forEach((id, i) => {
-    const d = st[i];
-    if (d && d.bf && d.bf.n) heal.push(`${id} ${d.bf.n}`);
-  });
-  dayMeta.set(date, { cover, heal });
+  count((obs && obs.station) || 'KDCA', hoursNote(IDX, 'obs', null, date));
+  count((fobs && fobs.station) || 'KNAK', hoursNote(IDX, 'field', null, date));
+  ringIds.forEach((id, i) => { if (st[i]) count(id, hoursNote(IDX, 'ring', id, date)); });
+  dayMeta.set(date, { miss, detail });
 }
 
 /* latest.json — the current state of every stream in one document. Merged on
@@ -691,20 +678,14 @@ function render() {
       + `<h2>${esc(niceDate(date))}</h2>`
       + `<span class="day-n">${byDay.get(date).length.toLocaleString()} record${byDay.get(date).length === 1 ? '' : 's'}</span>`
       + `<a class="day-link" href="almanac.html#d=${date}">almanac →</a></div>`;
-    if (!meta) {
-      /* A record's day is its own local day, so a TAF issued at 8 PM lands
-         here even though this day's files were never opened. Say so rather
-         than let an unloaded day look like a measured one. */
-      html += `<div class="day-cover partial">This day's files are not loaded.`
-        + ` These records came from another day's file or from latest.json, so`
-        + ` there is no coverage line yet.</div>`;
-    } else if (meta.cover.length || meta.heal.length) {
-      html += `<div class="day-cover">${esc(meta.cover.join(' · '))}`
-        + (meta.heal.length
-            ? `<span class="heal">${meta.cover.length ? ' · ' : ''}filled in later from IEM (records): ${esc(meta.heal.join(', '))}</span>`
-            : '')
-        + `</div>`;
-    }
+    /* A record's day is its own local day, so a TAF issued at 8 PM lands here
+       even though this day's files were never opened — an unloaded day says so
+       rather than claiming to be complete. */
+    html += !meta
+      ? `<div class="day-cover partial">not loaded</div>`
+      : meta.miss
+        ? `<div class="day-cover gap" title="${esc(meta.detail.join(' · '))}">${meta.miss} h missing</div>`
+        : `<div class="day-cover">complete</div>`;
     html += day.map((r) => { view.push(r); return rowHTML(r, view.length - 1); }).join('');
     html += `</section>`;
   }

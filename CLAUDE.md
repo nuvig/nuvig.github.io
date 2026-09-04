@@ -156,14 +156,16 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   48 hourly values); an expansion over 20,000 chars says where it stopped and links the file.
   Each expansion cites the archive path it came from (an AFD from `latest.json` cites its
   `afd/YYYY/afd-…` file, derived from `issuanceTime`; a TFR row also links the FAA detail page).
-  **A day header reports the archive, not the filter** — hours held, hours missing and hours
-  the station never reported per METAR stream (out of `index.json`'s `hours`), plus what each
-  day file's `bf` says was filled in from IEM afterwards. Today's expected hours run only up
-  to `index.json`'s `updated` stamp (the last archive run), so hours the archiver hasn't
-  reached yet are never counted as missing. A day whose files were never opened says so
-  rather than borrowing the look of a measured one. Backfilled AFDs, TAFs and soundings
-  (`bf`) carry the `healed` tag on their row; METAR provenance is per file, so it appears in
-  the header only.
+  **A day header says one thing: `complete` or `N h missing`** (Jesse, 2026-09-04:
+  "just say if there is data missing or not. remove all the junk" — it used to print
+  per-stream hours held, hours never reported and a station-by-station list of what IEM
+  healed). The verdict reads `index.json`'s `hours`, not the rows on screen — a count of
+  records cannot show what never arrived. Hours a station never reported (`nh`) are not
+  missing, and neither are hours after `index.json`'s `updated` stamp, so the archiver's
+  unreached hours never read as gaps. The per-station breakdown is the line's tooltip;
+  a day whose files were never opened says `not loaded` rather than claiming completeness.
+  Backfilled AFDs, TAFs and soundings (`bf`) still carry the `healed` tag on their row.
+  Don't put the breakdown back in the header.
   **Only files `index.json` lists are fetched** (`DAY_STREAMS` + `station_days`), so a stream
   that never held a day is not a 404. METARs dedupe within 90 s per station, the archiver's
   own tolerance, so a live copy and an IEM-healed copy of one ob are one row. Day files load
