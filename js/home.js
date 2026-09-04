@@ -19,6 +19,31 @@
   });
 })();
 
+// --- Surface-analysis easter egg ------------------------------------------
+// Click the location line (or press P) to load js/synop.js: draggable highs
+// and lows behind the page, isobars and wind tracers. Loaded once; the script
+// toggles itself on later triggers.
+(() => {
+  const loc = document.querySelector('header .location');
+  let loaded = false;
+  const trigger = () => {
+    if (loaded) { if (window.SYNOP) window.SYNOP.toggle(); return; }
+    loaded = true;
+    const s = document.createElement('script');
+    s.src = 'js/synop.js?v=1';
+    document.body.appendChild(s);
+  };
+  if (loc) loc.addEventListener('click', trigger);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'p' && e.key !== 'P') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (document.body.classList.contains('sim-open')) return;
+    trigger();
+  });
+})();
+
 // --- Reveal + copy email ----------------------------------------------------
 // The address stays out of the initial view; "Email me" swaps itself for the
 // mailto link and copy button.

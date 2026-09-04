@@ -71,7 +71,14 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   with `tools.html`.
   `js/home.js` lazy-loads `js/sim.js` (neon ball-physics easter egg) on first click of the ▶ toggle
   so its ~13 KB never costs a normal visit. `js/sim.js` is loaded *only* this way — it is not
-  referenced from any HTML.
+  referenced from any HTML. **Second easter egg (2026-09-03): `js/synop.js`**, a surface
+  analysis behind the page — draggable H/L pressure centres (wheel/↑↓ sets the centre in mb,
+  crossing 1013 flips the sign, drag off the edge removes), isobars by marching squares every
+  frame, ~1,400 geostrophic wind tracers the pointer stirs, and a small bottom-left panel
+  (+L/+H, reset, wind speed, tracer count, spacing, stir). Loaded lazily by `home.js` on a
+  click of the location line or the `P` key; also not referenced from any HTML. The canvas
+  sits at `z-index:-1` behind the column (cards are opaque, so it lives in the margins) and
+  it never intercepts a pointer event that started on a link/button/input.
 - `tools.html` — the Aviation Tools hub; the categorized index of the explainers below. The homepage
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**
   (and a `<url>` in `sitemap.xml`).
