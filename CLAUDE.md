@@ -393,6 +393,38 @@ concepts; to relink, add the tools.html card back.
   inside, nm / kt / hPa on screen, °true. Self-contained (no `site-config.js`, no fetches);
   `window.PRESSURE_DEBUG` exposes `field`/`wind`/`wind3`/`wBL` for headless checks. Distinct from
   the homepage easter egg `js/synop.js` (geostrophic-only tracers behind the landing page).
+- `storm.html` + `js/storm.js` + `js/storm-model.js` — Thunderstorm Lab (2026-09-04): a 2-D
+  cloud model run live in the browser, from a warm bubble to anvil debris. `storm-model.js` is
+  the physics and has no DOM — `node js/storm-model.js <preset> <minutes>` steps it headless
+  and prints stage/updraft/rain/charge/flash diagnostics, which is how it was tuned; keep it
+  that way. Grid 128 × 64 (312 × 250 m, 40 × 16 km), 5 s steps, ~4 ms each. Dynamics:
+  anelastic, MAC-staggered, semi-Lagrangian, **exact** pressure solve (FFT in x, tridiagonal
+  in z) — a Gauss-Seidel projection left the flow compressible and the updraft hit 99 m/s;
+  **θ is advected as a total, never as the perturbation** (advecting θ′ hands a rising parcel
+  the environment's own dθ̄/dz as free heating: +45 K aloft). Storm-relative frame (mean 0–6 km
+  wind subtracted; the ground and the field scroll under it). Microphysics: Kessler warm rain
+  plus a mixed-phase branch (freezing by temperature, Bergeron, riming → graupel, rain
+  freezing, hail growth, melting, deposition/sublimation), every latent heat fed back;
+  graupel accretion is deliberately slow (0.8·qc·qg^0.875) — faster starved the mixed-phase
+  region and no charge separated. Electrification: non-inductive graupel–ice charging in
+  supercooled water, sign flipping at −15 °C with the warm-side rate 0.6× (the lower positive
+  centre must stay weaker than the main negative or nothing reaches the ground); E from 3-D
+  point charges of an 8 km slab + image charges; initiation 130 kV/m·ρ/ρ₀ **halved in heavy
+  precipitation** (hydrometeor corona) — without that every flash fires in the upper dipole
+  and CGs never happen; bidirectional leaders (negative end follows −E), ground contact = CG,
+  channel neutralises charge within 1.1 km. Typical mature cell: 25 m/s, 2–3 flashes/min,
+  ~15 % CG, 5–20 C per flash. Thunder is synthesised from the channel geometry (each segment
+  arrives at d/343 s, 1/d, low-passed with distance) in **real time**, not model time. The
+  microscope panel is a molecule-scale view of the probe cell driven by the model's own
+  tendencies there (condensation/evaporation, Bergeron transfer droplet → crystal, riming,
+  melting, freezing, charging collisions with e⁻ transfer), crystal habit by temperature.
+  Sounding panel: skewed T–z of the environment, parcel, CAPE/CIN fills, live model column at
+  the probe; sliders rebuild the environment and restart. Presets in `StormModel.PRESETS`
+  (pulse · multicell · strong shear · capped · high-based dry · stable). Known limits, said in
+  the help: 2-D has no rotation so no supercells, no corona screening (ground E runs high),
+  the "strong shear" preset is weaker than reality for that reason. Self-contained (no
+  `site-config.js`, no shared CSS, no fetches); carries GoatCounter + pagever like the other
+  explainers. `window.STORM_DEBUG` exposes the model and UI state for headless checks.
 - `skew-t.html` + `js/skewt.js` + `js/skewt-obs.js` — Skew-T Explorer: canvas skew-T log-p
   (1000→100 hPa, 21 levels) of Open-Meteo pressure-level forecast soundings, 3 days hourly, for
   any US airport (coords resolved via `api.weather.gov/stations/{id}`; model selectable), with

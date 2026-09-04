@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thunderstorm Lab — a cloud model, molecule to lightning bolt</title>
+<meta name="description" content="A live 2-D thunderstorm simulation: cloud model dynamics, warm-rain and ice microphysics, charge separation, lightning leaders, thunder — with a molecule-scale microscope and an editable sounding.">
+<link rel="canonical" href="https://jesselevine.net/storm.html">
+<meta property="og:title" content="Thunderstorm Lab">
+<meta property="og:description" content="A live thunderstorm simulation: updraft, hail, charge separation, lightning, thunder — down to the molecules.">
+<meta property="og:image" content="https://jesselevine.net/assets/og.png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛈️</text></svg>">
+<style>
+:root{
+  --glass:rgba(8,12,22,.78);
+  --brd:rgba(255,255,255,.13);
+  --ink:#e8ecf3;
+  --dim:#8d97a8;
+  --amber:#f0b560;
+  --mono:"Cascadia Code",Consolas,ui-monospace,monospace;
+  --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#0a1020;color:var(--ink);font-family:var(--sans);font-size:13px}
+canvas#sky{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:crosshair;touch-action:none}
+a{color:inherit}
+.panel{position:fixed;background:var(--glass);border:1px solid var(--brd);border-radius:10px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 28px rgba(0,0,0,.4);z-index:5}
+.panel h2{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);font-weight:600;padding:8px 12px 6px;border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center}
+.panel h2 span{color:var(--dim);letter-spacing:0;text-transform:none;font-weight:400;font-size:11px}
+
+/* top bar */
+#bar{top:10px;left:10px;right:10px;display:flex;align-items:center;gap:8px;padding:6px 10px;flex-wrap:wrap}
+#bar .title{font-weight:600;letter-spacing:.02em;margin-right:6px;white-space:nowrap}
+#bar .title a{text-decoration:none;color:var(--dim);margin-right:8px}
+#bar .title a:hover{color:var(--ink)}
+.btn,select,.chip{background:rgba(255,255,255,.06);border:1px solid var(--brd);color:var(--ink);border-radius:6px;padding:4px 9px;font:inherit;font-size:12px;cursor:pointer;line-height:1.3}
+.btn:hover,.chip:hover{background:rgba(255,255,255,.12)}
+.chip.on{background:rgba(240,181,96,.22);border-color:rgba(240,181,96,.6);color:#ffe0b0}
+.btn.on{background:rgba(240,181,96,.22);border-color:rgba(240,181,96,.6)}
+select{padding:4px 6px}
+.grp{display:flex;gap:4px;align-items:center}
+.grp .lbl{color:var(--dim);font-size:11px;margin:0 2px 0 6px}
+#bar .sp{flex:1}
+
+/* readouts */
+#read{top:60px;left:10px;width:236px;padding:8px 12px 10px;font-family:var(--mono);font-size:12px}
+#read .row{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px dotted rgba(255,255,255,.07)}
+#read .row:last-child{border-bottom:0}
+#read .row span:first-child{color:var(--dim)}
+#read .row b{font-weight:500;text-align:right;white-space:nowrap}
+#read .stage{font-family:var(--sans);font-size:15px;font-weight:600;padding:2px 0 6px;color:#fff}
+#read .stage small{color:var(--dim);font-weight:400;font-size:12px;margin-left:8px;font-family:var(--mono)}
+#hz{display:flex;flex-wrap:wrap;gap:4px;padding-top:7px}
+#hz i{font-style:normal;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:2px 6px;border-radius:4px;border:1px solid rgba(255,255,255,.1);color:#5b6475}
+#hz i.on{color:#ffd6a0;border-color:rgba(255,160,60,.55);background:rgba(255,140,40,.14)}
+#hz i.on.red{color:#ffb0b0;border-color:rgba(255,80,80,.6);background:rgba(255,60,60,.16)}
+#bang{color:var(--amber);font-family:var(--mono);font-size:12px;padding-top:6px;min-height:0}
+
+/* sounding */
+#snd{top:60px;right:10px;width:262px}
+#snd canvas{display:block;width:260px;height:300px}
+#snd .sl{padding:6px 10px 8px;display:grid;grid-template-columns:82px 1fr 52px;gap:3px 6px;align-items:center;font-size:11.5px}
+#snd .sl label{color:var(--dim)}
+#snd .sl output{font-family:var(--mono);text-align:right;color:var(--ink)}
+#snd input[type=range]{width:100%;height:14px;accent-color:var(--amber);cursor:pointer}
+#snd .cape{padding:4px 10px 6px;font-family:var(--mono);font-size:11.5px;color:var(--dim);border-top:1px solid var(--brd)}
+#snd .cape b{color:var(--ink);font-weight:500}
+
+/* microscope */
+#lens{bottom:10px;left:10px;width:262px}
+#lens canvas{display:block;width:260px;height:260px}
+#lens .mr{padding:6px 10px 8px;font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--dim)}
+#lens .mr b{color:var(--ink);font-weight:500}
+#lens .mr .proc{color:var(--amber);padding-top:3px;border-top:1px dotted rgba(255,255,255,.1);margin-top:3px;min-height:1.5em}
+
+/* help */
+#help{top:60px;left:50%;transform:translateX(-50%);width:min(560px,92vw);max-height:80vh;overflow:auto;padding-bottom:8px;display:none}
+#help.on{display:block}
+#help dl{display:grid;grid-template-columns:130px 1fr;gap:3px 12px;padding:8px 12px;font-size:12px}
+#help dt{color:var(--dim)}
+#help dd{font-family:var(--mono);font-size:11.5px}
+#help h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);padding:8px 12px 0}
+
+#hint{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);font-size:12px;color:var(--dim);background:var(--glass);border:1px solid var(--brd);border-radius:20px;padding:5px 14px;z-index:4;pointer-events:none;transition:opacity .6s}
+.hide{display:none!important}
+.fold{cursor:pointer;user-select:none}
+@media (max-height:840px){
+  #lens canvas{width:200px;height:200px}
+  #lens{width:202px}
+  #lens .mr{font-size:10.5px;line-height:1.4}
+}
+@media (max-width:900px){
+  #snd,#lens{width:220px}
+  #snd canvas{width:218px;height:250px}
+  #lens canvas{width:218px;height:218px}
+  #read{width:210px;font-size:11px}
+}
+@media (max-width:640px){
+  #snd{display:none}
+  #lens{bottom:6px;left:6px;width:180px}
+  #lens canvas{width:178px;height:178px}
+  #lens .mr{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div id="bar" class="panel">
+  <span class="title"><a href="/" id="back-link" title="home">←</a>Thunderstorm Lab</span>
+  <select id="preset" title="environment preset"></select>
+  <button class="btn" id="play" title="space">❚❚</button>
+  <div class="grp" id="speeds" title="model seconds per real second">
+    <button class="chip" data-s="30">30×</button><button class="chip on" data-s="60">60×</button><button class="chip" data-s="120">120×</button><button class="chip" data-s="240">240×</button><button class="chip" data-s="480">480×</button>
+  </div>
+  <button class="btn" id="reset" title="R">reset</button>
+  <button class="btn" id="bubble" title="B · warm bubble under the field">bubble</button>
+  <span class="sp"></span>
+  <div class="grp" id="layers">
+    <span class="lbl">show</span>
+    <button class="chip" data-l="temp" title="θ′ · K">temp</button>
+    <button class="chip" data-l="w" title="vertical velocity">w</button>
+    <button class="chip" data-l="charge" title="net charge density">charge</button>
+    <button class="chip" data-l="efield" title="|E| / initiation threshold">E</button>
+    <button class="chip" data-l="wind" title="wind arrows">wind</button>
+    <button class="chip" data-l="tracers" title="air tracers, colored by w">tracers</button>
+  </div>
+  <button class="btn" id="sound" title="S · thunder, rain, wind">🔇</button>
+  <button class="btn" id="helpbtn" title="what this is">?</button>
+</div>
+
+<div id="read" class="panel">
+  <div class="stage"><span id="stage">—</span><small id="clock">t+00:00</small></div>
+  <div id="rows"></div>
+  <div id="hz">
+    <i data-h="updraft" title="max updraft > 15 m/s">updraft</i>
+    <i data-h="downdraft" title="max downdraft < −8 m/s">downdraft</i>
+    <i data-h="hail" title="graupel > 2 g/kg aloft or hail at the ground">hail</i>
+    <i data-h="microburst" title="surface divergence under a downdraft">microburst</i>
+    <i data-h="gust" title="cold-pool edge: θ′ < −1.5 K">gust front</i>
+    <i data-h="lightning" title="flash in the last 3 min">lightning</i>
+    <i data-h="icing" title="supercooled cloud water, 0 to −20 °C">icing</i>
+  </div>
+  <div id="bang"></div>
+</div>
+
+<div id="snd" class="panel">
+  <h2>Sounding <span id="snd-src">environment · parcel</span></h2>
+  <canvas id="sndc" width="520" height="600"></canvas>
+  <div class="sl" id="sliders"></div>
+  <div class="cape" id="capeline"></div>
+</div>
+
+<div id="lens" class="panel">
+  <h2>Microscope <span>drag the ring on the sky</span></h2>
+  <canvas id="lensc" width="520" height="520"></canvas>
+  <div class="mr" id="micro"></div>
+</div>
+
+<div id="help" class="panel">
+  <h2>Thunderstorm Lab <span class="fold" id="helpclose">close</span></h2>
+  <h3>Model</h3>
+  <dl>
+    <dt>domain</dt><dd>40 km × 16 km · 128 × 64 cells · 312 × 250 m · 5 s steps</dd>
+    <dt>dynamics</dt><dd>2-D anelastic · semi-Lagrangian · exact pressure solve (FFT) · frame moves with the 0–6 km mean wind</dd>
+    <dt>warm rain</dt><dd>Kessler: saturation adjustment · autoconversion · accretion · evaporation</dd>
+    <dt>ice</dt><dd>freezing by temperature · Bergeron growth · riming → graupel · rain freezing · hail growth · melting · deposition / sublimation</dd>
+    <dt>latent heat</dt><dd>vaporisation 2.50 MJ/kg · fusion 0.33 · sublimation 2.83 — all fed back to θ</dd>
+    <dt>charging</dt><dd>non-inductive graupel–ice collisions in supercooled water · graupel − below −15 °C, + above</dd>
+    <dt>E field</dt><dd>3-D point charges of an 8 km-deep slab + image charges under a conducting ground</dd>
+    <dt>initiation</dt><dd>130 kV/m × ρ/ρ₀ · halved in heavy precipitation (hydrometeor corona)</dd>
+    <dt>leaders</dt><dd>bidirectional · negative end follows −E, positive end +E · ground contact = CG</dd>
+    <dt>thunder</dt><dd>every channel segment arrives at d ÷ 343 m/s · 1/d amplitude · far segments low-passed · real-time, not model time</dd>
+    <dt>not modelled</dt><dd>rotation (no supercells in 2-D) · corona screening · size spectra · radiation</dd>
+  </dl>
+  <h3>Controls</h3>
+  <dl>
+    <dt>click sky</dt><dd>warm bubble +2 K</dd>
+    <dt>drag ring</dt><dd>move the microscope probe</dd>
+    <dt>space · R · B</dt><dd>pause · reset · bubble at the field</dd>
+    <dt>1–5</dt><dd>speed</dd>
+    <dt>S · T</dt><dd>sound · tracers</dd>
+    <dt>sliders</dt><dd>rebuild the environment and restart</dd>
+  </dl>
+  <h3>Reading it</h3>
+  <dl>
+    <dt>dashed lines</dt><dd>0 · −15 · −40 °C in the environment</dd>
+    <dt>field</dt><dd>runway + windsock · ground scrolls under the storm-relative frame</dd>
+    <dt>altitudes</dt><dd>ft MSL · directions none (2-D)</dd>
+  </dl>
+</div>
+
+<div id="hint">click the sky → warm bubble · drag the ring → microscope</div>
+
+<script src="js/storm-model.js?v=1"></script>
+<script src="js/storm.js?v=1"></script>
+<script data-goatcounter="https://jesselevine.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
+<script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
