@@ -597,6 +597,7 @@ def near_loop(stop):
     feeds = make_feeds("near")
     nxt = time.time()
     last_warn = 0.0
+    errors = 0
     while not stop.is_set():
         started = time.time()
         now = int(started)
@@ -606,12 +607,20 @@ def near_loop(stop):
                                                  empty_ok=True, kind="near")
                 n = store(db, aircraft, now, wide=False)
                 STATS.poll("near", len(aircraft), n)
+                errors = 0
             except Exception as e:  # noqa: BLE001 — the thread must never die
+                errors += 1
                 STATS.failed("near")
                 if started - last_warn > 60:
                     last_warn = started
-                    log.warning("near fetch failed on every feed: %s", e)
-        nxt = max(nxt + NEAR_POLL_SECONDS, started + 0.2)
+                    log.warning("near fetch failed on every feed (%d in a row): %s", errors, e)
+        # Same gentle backoff as the wide poll. Only a 429 puts a feed in
+        # cooldown, so without this a connection-level outage (DNS, refused,
+        # 500s) had the ring retrying at 1 Hz for as long as it lasted —
+        # measured 20 requests in 21 s while the wide poll had backed off to
+        # 3, which is how a feed that is merely down earns a rate limit.
+        backoff = min(8, 1 + errors)
+        nxt = max(nxt + NEAR_POLL_SECONDS * backoff, started + 0.2)
         stop.wait(max(0.05, nxt - time.time()))
     db.close()
 
