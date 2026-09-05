@@ -266,7 +266,11 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 (`site-config` → leaflet → `kanp-static` → `kanp` → the rest).
 
 - `js/kanp.js` — shared utils + Live tab (trails, heatmap, localStorage), plus `KANP.apiBase()` /
-  `getTracks()` / `getStats()` data routing. Live polls every 3 s against the Pi (`PI_POLL_MS`,
+  `getTracks()` / `getStats()` data routing. Also the shared filter-bar widget
+  (`initFilterBar(barId, onChange)` — range chips + ‹ › stepper; `readFilters()` re-applies a
+  chip against now, never a stepped window), the classifiers `isGA` / `isHelicopter`
+  (`AIRLINER_TYPES` / `HELI_TYPES`), the tri-state button helpers `triState` / `triFilter`, and
+  `simplifyTrack(pts, eps, near)` (ring-aware — see `kanp-history.js`). Live polls every 3 s against the Pi (`PI_POLL_MS`,
   matching the collector) and every 60 s against snapshots (`POLL_MS`, which only change hourly).
   KANP = 38.9422, -76.5684, 60 nm radius (from `SITE.tracker`).
 - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD
@@ -299,6 +303,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
   by airborne context before/after into arrival / departure / go-around, attributed to runway 12 or 30.
+  Each op carries `ts` / `ts1` (first / last at-field fix) — the History tab's clipping modes cut
+  tracks at those, so keep both.
 - `js/kanp-climb.js` — Traffic Study sub-tool: climb-out comparison. Extracts the initial climb from
   each departure and plots altitude gained vs distance from liftoff (density-altitude comparisons).
   Altitudes are ADS-B barometric — fine for day-to-day gradient comparison, not true geometric gradient.
