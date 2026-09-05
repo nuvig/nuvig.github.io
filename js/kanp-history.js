@@ -730,10 +730,14 @@ const KANPHistory = (() => {
       const vb = map.getBounds().pad(0.06);
       const s = vb.getSouth(), w = vb.getWest(), n = vb.getNorth(), e = vb.getEast();
       // zoom-0 world px → container px: scale by 2^zoom, subtract the pixel
-      // origin (what latLngToContainerPoint does, minus the per-call objects)
+      // origin, add the map pane's offset — exactly what latLngToContainerPoint
+      // does (project → layer point → container point), minus the per-call
+      // objects. The pane offset is non-zero after any pan until the next zoom
+      // resets it; without it the tracks stayed put while the basemap moved.
       const scale = map.getZoomScale(map.getZoom(), 0);
       const org = map.getPixelOrigin();
-      const ox = org.x, oy = org.y;
+      const pane = map._getMapPanePos();
+      const ox = org.x - pane.x, oy = org.y - pane.y;
       this._hit = [];
       let color = null;
       for (const r of this._runs) {
