@@ -17,7 +17,7 @@ starts two services:
 
 | service | what it does |
 |---|---|
-| `kanp-collector` | polls the public ADS-B feeds (adsb.lol → adsb.fi → airplanes.live, first non-empty answer wins) every 3 s over 60 nm, plus a 5 nm poll of the pattern area every second in between; writes `/var/lib/kanp/kanp.db` |
+| `kanp-collector` | polls the public ADS-B feeds (adsb.lol → adsb.fi → airplanes.live, first non-empty answer wins; a feed that answers 429 is skipped for 3 s) every 3 s over 60 nm on the main thread, plus a 5 nm poll of the pattern area every second on its own thread; persistent connections, cached DNS, 3 s / 10 s timeouts; logs a `poll stats` line every minute (per-feed ok/429/err, rows stored, max latency) and warns when polls answer but nothing new stores for 15 s; writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
