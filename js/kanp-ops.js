@@ -155,8 +155,10 @@ const KANPOps = (() => {
         // (KANP.RWY.pattern). The old cross-track estimator reported a few
         // percent "right traffic", which was noise from wide/straight-in
         // approaches, not aircraft flying a right-hand pattern.
+        // ts / ts1 = first / last at-field fix of the contact — the History
+        // tab's KANP modes clip tracks at these.
         ops.push({
-          ts: t0, hex: t.hex, reg: t.reg, type: t.type,
+          ts: t0, ts1: t1, hex: t.hex, reg: t.reg, type: t.type,
           military: t.military, kind, rwy,
         });
       }
