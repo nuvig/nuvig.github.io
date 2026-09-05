@@ -24,6 +24,11 @@ const KANPHistory = (() => {
   const DRAW_LIMIT = 250_000;
   // Coarsening never touches the collector's 1 s ring: the Pi kept every fix
   // there (simplify_near_nm 0) and the pattern is where the detail matters.
+  // Inside the ring eps is 0 even when coarsening: the ops detector and the
+  // KANP clip modes read these fixes, and thinning them changed the answer
+  // (pattern mode found 10 aircraft on a day where the full data holds 5).
+  // The screen cost is handled in _redraw instead, which skips sub-pixel
+  // segments — zoom-adaptive, so the 1 Hz detail is still there up close.
   const NEAR = { lat: KANP.LAT, lon: KANP.LON, nm: KANP.NEAR_NM, eps: 0 };
 
   function init() {
@@ -267,10 +272,6 @@ const KANPHistory = (() => {
     KANP.addOpacitySliders(layersCtl, overlays);
 
     KANP.addAirport(map);
-    const nearNote = document.getElementById('near-note');
-    if (nearNote && KANP.NEAR_NM > 0) {
-      nearNote.textContent = ` · dashed ring ${KANP.NEAR_NM} nm: sampled every second`;
-    }
     initExpand();
 
     // keep NEXRAD current while the page sits open
@@ -292,6 +293,7 @@ const KANPHistory = (() => {
     try {
       const params = KANP.readFilters('hist-filters');
       fullData = await KANP.getTracks(params);
+      coarsen(fullData);
       render();
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
@@ -355,38 +357,7 @@ const KANPHistory = (() => {
       returned_points: tracks.reduce((n, t) => n + t.points.length, 0),
     };
 
-    // The tracks are already shape-simplified; only if what's actually on the
-    // map is still huge do we coarsen further (shape-preserving) to keep it
-    // responsive. This is decided on the *drawn* set, so filtering down to a
-    // few tracks never limits or warns.
-    let coarsened = false;
-    if (shown.returned_points > DRAW_LIMIT) {
-      // Simplify each break-free run on its own, so a break point can never be
-      // thinned away and re-join two runs across excluded altitudes.
-      shown.tracks = shown.tracks.map(t => {
-        if (!t.breaks || !t.breaks.size) {
-          return { ...t, points: KANP.simplifyTrack(t.points, 0.08, NEAR) };
-        }
-        const points = [];
-        const breaks = new Set();
-        let run = [];
-        const flush = () => {
-          if (!run.length) return;
-          const s = KANP.simplifyTrack(run, 0.08, NEAR);
-          if (points.length) breaks.add(s[0][0]);
-          points.push(...s);
-          run = [];
-        };
-        for (const p of t.points) {
-          if (t.breaks.has(p[0]) && run.length) flush();
-          run.push(p);
-        }
-        flush();
-        return { ...t, points, breaks };
-      });
-      shown.returned_points = shown.tracks.reduce((n, t) => n + t.points.length, 0);
-      coarsened = true;
-    }
+    const coarsened = !!fullData.coarsened;
 
     draw(shown);
     lastShown = shown;
@@ -397,10 +368,26 @@ const KANPHistory = (() => {
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
     if (coarsened) {
-      msg += ` <span class="warn">— large range coarsened to stay responsive; ` +
-        `narrow the dates or add a filter for full detail.</span>`;
+      msg += ` <span class="warn" title="Range over ${DRAW_LIMIT.toLocaleString()} points: tracks simplified at load, outside the ${KANP.NEAR_NM} nm ring only">· coarsened</span>`;
     }
     out.innerHTML = msg;
+  }
+
+  // Coarsen ONCE, at load, when the fetched set is over DRAW_LIMIT. This used
+  // to run inside render() on the filtered set — so every altitude-band tick
+  // and every toggle re-simplified the whole range (≈0.3 s per archived day,
+  // seconds on a month), which was most of the lag on long ranges. Doing it
+  // to the dataset once means render() only filters. The tracks arrive
+  // shape-simplified already (Pi at 0.03 nm), so this only bites on ranges
+  // that are genuinely huge; the result line says when it did.
+  function coarsen(data) {
+    data.coarsened = false;
+    if (!data || !data.tracks) return;
+    const n = data.tracks.reduce((k, t) => k + t.points.length, 0);
+    if (n <= DRAW_LIMIT) return;
+    data.tracks = data.tracks.map(t => ({ ...t, points: KANP.simplifyTrack(t.points, 0.08, NEAR) }));
+    data.returned_points = data.tracks.reduce((k, t) => k + t.points.length, 0);
+    data.coarsened = true;
   }
 
   // Collapsed per-aircraft summary of Lee Airport activity for whatever is
@@ -658,18 +645,30 @@ const KANPHistory = (() => {
         }
         if (run && run.pts.length > 1) runs.push(run);
       }
-      // color + latlng bbox per run; sort by color so strokeStyle rarely changes
+      // color + latlng bbox per run, and the run projected ONCE to zoom-0
+      // world pixels: _redraw() then scales and offsets plain numbers instead
+      // of calling latLngToContainerPoint per point per pan (the redraw was
+      // the other half of the lag on a month of tracks). Sort by color so
+      // strokeStyle rarely changes.
+      // zoom-0 Web Mercator, inline: 256 px world, no per-point objects
+      const D2R = Math.PI / 180;
       for (const r of runs) {
         const mid = r.pts[Math.floor(r.pts.length / 2)];
         r.color = KANP.altColor(mid[3], mid[5]);
         let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
-        for (const p of r.pts) {
+        const wx = new Float64Array(r.pts.length), wy = new Float64Array(r.pts.length);
+        for (let i = 0; i < r.pts.length; i++) {
+          const p = r.pts[i];
           if (p[1] < a) a = p[1];
           if (p[2] < b) b = p[2];
           if (p[1] > c) c = p[1];
           if (p[2] > d) d = p[2];
+          const lat = Math.max(-85.0511, Math.min(85.0511, p[1])) * D2R;
+          wx[i] = (p[2] + 180) / 360 * 256;
+          wy[i] = (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * 256;
         }
         r.bbox = [a, b, c, d];
+        r.wx = wx; r.wy = wy;
       }
       runs.sort((x, y) => (x.color < y.color ? -1 : x.color > y.color ? 1 : 0));
       this._runs = runs;
@@ -730,21 +729,31 @@ const KANPHistory = (() => {
 
       const vb = map.getBounds().pad(0.06);
       const s = vb.getSouth(), w = vb.getWest(), n = vb.getNorth(), e = vb.getEast();
+      // zoom-0 world px → container px: scale by 2^zoom, subtract the pixel
+      // origin (what latLngToContainerPoint does, minus the per-call objects)
+      const scale = map.getZoomScale(map.getZoom(), 0);
+      const org = map.getPixelOrigin();
+      const ox = org.x, oy = org.y;
       this._hit = [];
       let color = null;
       for (const r of this._runs) {
         const [a, b, c, d] = r.bbox;                 // cull off-screen runs
         if (c < s || a > n || d < w || b > e) continue;
         if (r.color !== color) { ctx.strokeStyle = color = r.color; }
-        const pts = r.pts;
-        const xs = new Float32Array(pts.length);
-        const ys = new Float32Array(pts.length);
+        const { wx, wy } = r;
+        const len = wx.length;
+        const xs = new Float32Array(len);
+        const ys = new Float32Array(len);
         ctx.beginPath();
-        for (let i = 0; i < pts.length; i++) {
-          const cp = map.latLngToContainerPoint([pts[i][1], pts[i][2]]);
-          xs[i] = cp.x; ys[i] = cp.y;
-          if (i === 0) ctx.moveTo(cp.x, cp.y);
-          else ctx.lineTo(cp.x, cp.y);
+        let lx = 0, ly = 0;
+        for (let i = 0; i < len; i++) {
+          const x = wx[i] * scale - ox, y = wy[i] * scale - oy;
+          xs[i] = x; ys[i] = y;
+          if (i === 0) { ctx.moveTo(x, y); lx = x; ly = y; continue; }
+          // a 1 Hz fix half a pixel from the last one adds nothing at this
+          // zoom — skip it; zoom in and it comes back. Never skip the last.
+          if (i < len - 1 && Math.abs(x - lx) + Math.abs(y - ly) < 0.7) continue;
+          ctx.lineTo(x, y); lx = x; ly = y;
         }
         ctx.stroke();                                // per-run stroke keeps the heat look
         this._hit.push({ xs, ys, run: r });

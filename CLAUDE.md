@@ -277,15 +277,24 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   overlays, and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
   left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
   Live grid and Study grid don't set it).
-  **Filter bar (reworked 2026-09-05):** the range is a chip row (`.qr-chip`, length anchored on
-  now or a calendar day) plus ‹ › (`.qr-step`, slides the window by its own span; a day window
-  steps by calendar days; › is disabled at now). Stepping deselects the chip so Load no longer
-  slides the range back to now — From/To are then the range. A chip or step reloads the History
-  tab (`initFilterBar(barId, onChange)`); the Study bar shares the widget but keeps its Run
-  button. Helicopters / GA / military are **tri-state** buttons (`KANP.triState`: all → hidden →
-  only, text `"<label> hidden"` / `"<label> only"`, state in `data-state`), client-side like the
-  altitude band; rotorcraft = `KANP.isHelicopter` (ICAO type set `KANP.HELI_TYPES`, description
-  fallback only for untyped, and an untyped track is *not* a helicopter — the tooltip says so).
+  **Filter bar (reworked 2026-09-05):** the range is a chip row on its own full-width row
+  (`.qr-field`; From/To wrap under it) — chip width grows with the range (`flex-grow` =
+  1 + log₂ hours, set in `initFilterBar`, so 1 h is a stub and 30 d / 1 y stretch) — plus ‹ ›
+  (`.qr-step`, slides the window by its own span; a day window steps by calendar days; › is
+  disabled at now). Stepping deselects the chip so Load no longer slides the range back to
+  now — From/To are then the range. A chip or step reloads the History tab
+  (`initFilterBar(barId, onChange)`); the Study bar shares the widget but keeps its Run button.
+  GA / Military / Helicopters (that order, Helicopters last) are **tri-state** buttons
+  (`KANP.triState`: all → hidden → only, text `"<label> hidden"` / `"<label> only"`, state in
+  `data-state`; the cycle is explained in each button's `title`, not on the page), client-side
+  like the altitude band; rotorcraft = `KANP.isHelicopter` (ICAO type set `KANP.HELI_TYPES`,
+  description fallback only for untyped, and an untyped track is *not* a helicopter — the
+  tooltip says so). "KANP only" sits in its own `KANP` field beside its ops dropdown. **Button and
+  option labels on this page are sentence case** (Today, Yesterday, Helicopters, Include, Pattern
+  work, All traffic…) — Jesse asked 2026-09-05. **The History tab carries no explanatory copy**:
+  the result line is empty until data loads, and the legend under the map is just the colour bar
+  with `ground` / `40,000 ft` — Jesse cut the "layers ▛ top-right: VFR sectional… dashed ring 5 nm:
+  sampled every second" line the same day ("get this shit off my page"). Don't put a how-to back.
   **KANP ops modes clip, they don't filter** (`applyKanpMode`): `lee` keeps whole tracks that
   touched the field; `pattern` keeps only laps — consecutive field contacts ≤ 8 min apart whose
   fixes stay inside 3 nm and ≤ 1,800 ft MSL (measured: real KANP laps run 1–5 min, all inside
@@ -295,11 +304,22 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   = first/last at-field fix). Clipped stretches become `breaks` the canvas honours, and the
   altitude band merges its own breaks into them rather than replacing them. The old whole-track
   "pattern" mode drew a one-lap-then-Easton flight in full — don't bring it back.
-  **Coarsening honours the 1 s ring**: over `DRAW_LIMIT` points the client re-simplifies at
-  0.08 nm, which used to throw away ~90 % of the fixes inside `KANP.NEAR_NM` that the Pi had
+  **Coarsening honours the 1 s ring and runs once, at load** (`coarsen()`): over `DRAW_LIMIT`
+  points the fetched set is re-simplified at 0.08 nm *outside* `KANP.NEAR_NM` and left whole
+  inside it. It used to (a) thin the ring too, throwing away ~90 % of the fixes the Pi had
   deliberately kept (`simplify_near_nm 0`) — the reason the pattern "didn't look better" on any
-  range past ~24 h. `KANP.simplifyTrack(pts, eps, near)` now mirrors `pi/trackutil.py`: tolerance
-  `near.eps` (0) inside the ring, run broken at each crossing.
+  range past ~24 h — and (b) run inside `render()` on every altitude-band tick and toggle
+  (≈0.3 s per archived day, seconds on a month), which was most of the lag. The ring must stay
+  at eps 0 even when coarsening: the ops detector and the clip modes read those fixes, and 0.01 nm
+  there turned 5 pattern aircraft into 10 on the test day. `KANP.simplifyTrack(pts, eps, near)`
+  mirrors `pi/trackutil.py` (tolerance `near.eps` inside the ring, run broken at each crossing).
+  Coarsening barely shrinks the count anyway (361k → 330k on a day: the Pi already simplified at
+  0.03 nm and the colour-bucket rule keeps every 500 ft crossing), so the screen cost lives in
+  `TrackCanvas`: `setData()` projects every run **once** to zoom-0 Web Mercator (inline math, no
+  per-point objects) and `_redraw()` scales/offsets plain numbers and **skips sub-pixel segments**
+  (< 0.7 px from the last drawn point, never the run's last) — zoom-adaptive, so the 1 Hz detail
+  is all there up close and free at 60 nm. The result line says `· coarsened` (tooltip explains)
+  when the load-time pass ran.
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
   by airborne context before/after into arrival / departure / go-around, attributed to runway 12 or 30.
