@@ -200,7 +200,9 @@
     .dual-range input[type=range]::-moz-range-track { background: transparent; }
 
     /* ---- quick range chips + window stepper ---- */
+    .filter-field.qr-field { flex-basis: 100%; }      /* own row: From / To wrap under it */
     .qr-row { display: flex; gap: 3px; }
+    .qr-chip { flex: 0 0 auto; }   /* flex-grow set per chip from its length, see initFilterBar */
     .qr-chip, .qr-step {
       height: 26px; padding: 0 8px;
       background: #111; border: 1px solid #3a3a3a; color: #777;
@@ -211,7 +213,6 @@
     .qr-chip:hover, .qr-step:hover { color: #ccc; border-color: #555; }
     .qr-chip.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
     .qr-step:disabled { opacity: .3; cursor: default; }
-    .filter-field label .hint { color: #444; margin-left: 6px; }
 
     /* ---- toggle buttons (KANP-only) + tri-state (helicopters / GA / military) ---- */
     .tgl-row { display: flex; gap: 6px; }
@@ -476,7 +477,7 @@
     <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="live-grid-title">All collected traffic — hour of day × day of week</span>
       <span class="grid-toggle" data-heat-toggle>
-        <button class="mini-btn on" data-metric="all">all traffic</button><button class="mini-btn" data-metric="ga">all GA ops</button><button class="mini-btn" data-metric="kanp">KANP only traffic</button>
+        <button class="mini-btn on" data-metric="all">All traffic</button><button class="mini-btn" data-metric="ga">All GA ops</button><button class="mini-btn" data-metric="kanp">KANP only traffic</button>
       </span>
       <span style="font-weight:400;color:#555;font-size:12px">· hover a block for detail</span>
     </div>
@@ -497,15 +498,15 @@
   <!-- ======================= HISTORY MAP TAB ======================= -->
   <div id="tab-history" class="tab-panel active">
     <div class="filter-bar" id="hist-filters">
-      <div class="filter-field">
+      <div class="filter-field qr-field">
         <label>Range</label>
         <div class="qr-row" data-f="quick" data-quick="21600">
           <button type="button" class="qr-step" data-step="-1" title="Previous window">‹</button>
           <button type="button" class="qr-chip" data-q="3600">1 h</button>
           <button type="button" class="qr-chip on" data-q="21600">6 h</button>
           <button type="button" class="qr-chip" data-q="86400">24 h</button>
-          <button type="button" class="qr-chip" data-q="today">today</button>
-          <button type="button" class="qr-chip" data-q="yesterday">yesterday</button>
+          <button type="button" class="qr-chip" data-q="today">Today</button>
+          <button type="button" class="qr-chip" data-q="yesterday">Yesterday</button>
           <button type="button" class="qr-chip" data-q="604800">7 d</button>
           <button type="button" class="qr-chip" data-q="2592000">30 d</button>
           <button type="button" class="qr-step" data-step="1" title="Next window">›</button>
@@ -516,9 +517,9 @@
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
-          <option value="include">include</option>
-          <option value="exclude">exclude</option>
-          <option value="only">only</option>
+          <option value="include">Include</option>
+          <option value="exclude">Exclude</option>
+          <option value="only">Only</option>
         </select>
       </div>
       <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign" placeholder="e.g. N123"></div>
@@ -533,28 +534,33 @@
         </div>
       </div>
       <div class="filter-field">
-        <label>Show <span class="hint">click cycles: all → hidden → only</span></label>
+        <label>Show</label>
         <div class="tgl-row">
-          <button type="button" class="tri-btn" id="hist-heli" data-state="0" data-label="helicopters"
-                  title="Rotorcraft by ICAO type designator; untyped aircraft count as not helicopters">helicopters</button>
           <button type="button" class="tri-btn" id="hist-ga" data-state="0" data-label="GA"
-                  title="General aviation: not an airliner, regional or military type">GA</button>
-          <button type="button" class="tri-btn" id="hist-mil" data-state="0" data-label="military">military</button>
-          <button type="button" class="tgl-btn" id="hist-kanp">KANP only</button>
+                  title="Click cycles all → hidden → only · GA = not an airliner, regional or military type">GA</button>
+          <button type="button" class="tri-btn" id="hist-mil" data-state="0" data-label="Military"
+                  title="Click cycles all → hidden → only">Military</button>
+          <button type="button" class="tri-btn" id="hist-heli" data-state="0" data-label="Helicopters"
+                  title="Click cycles all → hidden → only · by ICAO type designator; untyped aircraft are not helicopters">Helicopters</button>
         </div>
       </div>
-      <div class="filter-field" id="hist-kanp-mode-wrap" style="opacity:.4">
-        <label>KANP ops</label>
-        <select data-f="arrdep" id="hist-arrdep" disabled>
-          <option value="lee">all KANP traffic</option>
-          <option value="pattern" title="Laps between two field contacts ≤ 8 min apart, inside 3 nm and ≤ 1,800 ft; the rest of each track is cut">pattern work</option>
-          <option value="dep" title="Liftoff to 10 nm or 10 min, whichever first; cut where the aircraft comes back to the field">departures</option>
-          <option value="arr" title="The last 10 nm or 10 min before the field; cut where the aircraft last left it">arrivals</option>
-        </select>
+      <div class="filter-field">
+        <label>KANP</label>
+        <div class="tgl-row">
+          <button type="button" class="tgl-btn" id="hist-kanp">KANP only</button>
+          <span id="hist-kanp-mode-wrap" style="opacity:.4">
+            <select data-f="arrdep" id="hist-arrdep" disabled>
+              <option value="lee">All KANP traffic</option>
+              <option value="pattern" title="Laps between two field contacts ≤ 8 min apart, inside 3 nm and ≤ 1,800 ft; the rest of each track is cut">Pattern work</option>
+              <option value="dep" title="Liftoff to 10 nm or 10 min, whichever first; cut where the aircraft comes back to the field">Departures</option>
+              <option value="arr" title="The last 10 nm or 10 min before the field; cut where the aircraft last left it">Arrivals</option>
+            </select>
+          </span>
+        </div>
       </div>
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
-    <div class="result-line" id="hist-result">Range chip → loads · ‹ › → same window, earlier / later · helicopters / GA / military → all, hidden, only · KANP only → whole tracks, or clipped to the pattern, the departure, the arrival · source → Pi on the home network, else hourly GitHub snapshots</div>
+    <div class="result-line" id="hist-result"></div>
 
     <div class="hist-map-row">
       <div id="hist-map"></div>
@@ -577,7 +583,7 @@
       <span>ground</span>
       <canvas id="alt-legend-bar" width="340" height="10"></canvas>
       <span>40,000 ft</span>
-      <span style="margin-left:12px">· altitude-colored tracks, tar1090 scale · layers ▛ top-right: VFR sectional, TAC, IFR low/high, weather<span id="near-note"></span></span>
+
     </div>
 
     <details id="lee-list" style="display:none">
@@ -597,7 +603,7 @@
     <div class="section-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="hist-grid-title">Past 7 days — hour of day × day of week</span>
       <span class="grid-toggle" data-heat-toggle>
-        <button class="mini-btn on" data-metric="all">all traffic</button><button class="mini-btn" data-metric="ga">all GA ops</button><button class="mini-btn" data-metric="kanp">KANP only traffic</button>
+        <button class="mini-btn on" data-metric="all">All traffic</button><button class="mini-btn" data-metric="ga">All GA ops</button><button class="mini-btn" data-metric="kanp">KANP only traffic</button>
       </span>
       <span style="font-weight:400;color:#555;font-size:12px">· hover a block for detail</span>
     </div>
@@ -614,13 +620,13 @@
   <!-- ======================= TRAFFIC STUDY TAB ======================= -->
   <div id="tab-study" class="tab-panel">
     <div class="filter-bar" id="study-filters">
-      <div class="filter-field">
+      <div class="filter-field qr-field">
         <label>Range</label>
         <div class="qr-row" data-f="quick" data-quick="604800">
           <button type="button" class="qr-step" data-step="-1" title="Previous window">‹</button>
           <button type="button" class="qr-chip" data-q="86400">24 h</button>
-          <button type="button" class="qr-chip" data-q="today">today</button>
-          <button type="button" class="qr-chip" data-q="yesterday">yesterday</button>
+          <button type="button" class="qr-chip" data-q="today">Today</button>
+          <button type="button" class="qr-chip" data-q="yesterday">Yesterday</button>
           <button type="button" class="qr-chip on" data-q="604800">7 d</button>
           <button type="button" class="qr-chip" data-q="2592000">30 d</button>
           <button type="button" class="qr-chip" data-q="7776000">90 d</button>
@@ -643,9 +649,9 @@
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
-          <option value="include">include</option>
-          <option value="exclude" selected>exclude</option>
-          <option value="only">only</option>
+          <option value="include">Include</option>
+          <option value="exclude" selected>Exclude</option>
+          <option value="only">Only</option>
         </select>
       </div>
       <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign"></div>
@@ -961,7 +967,7 @@
       <div class="section-title" style="display:flex;align-items:center;gap:12px">
         <span id="study-grid-title">Unique aircraft — hour of day × day of week</span>
         <span class="grid-toggle" id="grid-toggle" style="display:none">
-          <button class="mini-btn on" data-metric="ac">aircraft</button><button class="mini-btn" data-metric="samples">reports</button>
+          <button class="mini-btn on" data-metric="ac">Aircraft</button><button class="mini-btn" data-metric="samples">Reports</button>
         </span>
       </div>
       <div class="card">
@@ -1008,8 +1014,8 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js?v=2"></script>
-  <script src="js/kanp.js?v=7"></script>
-  <script src="js/kanp-history.js?v=4"></script>
+  <script src="js/kanp.js?v=8"></script>
+  <script src="js/kanp-history.js?v=5"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js?v=1"></script>
   <script src="js/kanp-climb.js"></script>

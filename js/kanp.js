@@ -227,11 +227,17 @@ KANP.initFilterBar = function (barId, onChange) {
     syncStep();
     if (onChange) onChange();
   };
-  chips.forEach(c => c.addEventListener('click', () => {
-    setChip(c.dataset.q);
-    applyQuick();
-    if (onChange) onChange();
-  }));
+  chips.forEach(c => {
+    // width grows with the range: 1 h stays a stub, 30 d / 1 y stretch (log2 of hours)
+    const q = c.dataset.q;
+    const hours = q === 'today' || q === 'yesterday' ? 24 : Number(q) / 3600;
+    c.style.flexGrow = String(1 + Math.log2(Math.max(1, hours)));
+    c.addEventListener('click', () => {
+      setChip(q);
+      applyQuick();
+      if (onChange) onChange();
+    });
+  });
   row.querySelectorAll('.qr-step').forEach(b =>
     b.addEventListener('click', () => step(Number(b.dataset.step))));
   [start, end].forEach(el => el.addEventListener('input', () => { setChip(''); syncStep(); }));
