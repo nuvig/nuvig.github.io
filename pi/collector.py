@@ -54,11 +54,20 @@ DEFAULTS = {
     "KANP_NEAR_TIMEOUT_S": "3",
     "KANP_WIDE_TIMEOUT_S": "10",
     # A feed that answered 429 is left alone for this long (its fallbacks take
-    # the polls meanwhile).
+    # the polls meanwhile); the wait doubles on each further 429 up to
+    # KANP_FEED_COOLDOWN_MAX_S and resets after a success.
     "KANP_FEED_COOLDOWN_S": "3",
+    "KANP_FEED_COOLDOWN_MAX_S": "20",
     # Comma-separated feed URL templates ({lat} {lon} {r}) for the "airplanes"
-    # source, tried in order. Default = adsb.lol → adsb.fi → airplanes.live.
-    "KANP_FEEDS": "",
+    # source, tried in order — one list per poll. adsb.lol allows us well under
+    # 1 req/s (2026-09-05: 15 of 27 requests in a minute came back 429), so the
+    # two polls split the budget: the 1 Hz near poll gets adsb.lol first, whose
+    # low-level coverage at Lee is the one that holds the pattern (its trace of
+    # a lap was complete where adsb.fi's answer stored nothing new a third of
+    # the time); the 3 s wide poll goes to adsb.fi first, which carries the 60 nm
+    # picture fine (94 rows/poll, no zero-row polls). Blank = these defaults.
+    "KANP_FEEDS_NEAR": "",
+    "KANP_FEEDS_WIDE": "",
     "KANP_DB": "/var/lib/kanp/kanp.db",
     "KANP_RETENTION_DAYS": "365",
     # Safety cap so the DB can never fill the SD card. Oldest data is pruned
@@ -90,6 +99,7 @@ NEAR_ENABLED = (SOURCE == "airplanes" and NEAR_RADIUS_NM > 0
 NEAR_TIMEOUT_S = float(cfg("KANP_NEAR_TIMEOUT_S"))
 WIDE_TIMEOUT_S = float(cfg("KANP_WIDE_TIMEOUT_S"))
 FEED_COOLDOWN_S = float(cfg("KANP_FEED_COOLDOWN_S"))
+FEED_COOLDOWN_MAX_S = float(cfg("KANP_FEED_COOLDOWN_MAX_S"))
 # A position older than this (feed `seen_pos`) is a stale entry the aggregator
 # hasn't dropped yet — an earlier poll already stored it, or the aircraft is
 # gone. Never worth a row.
@@ -98,12 +108,20 @@ MAX_POS_AGE_S = 300
 # Public readsb "re-api" feeds for the "airplanes" source, tried in order until
 # one answers with an {ac:[…]} / {aircraft:[…]} body. All share the same schema.
 # Mirrors KANP.LIVE_SOURCES in js/kanp.js.
-DEFAULT_FEEDS = [
-    "https://api.adsb.lol/v2/point/{lat}/{lon}/{r}",
-    "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{r}",
-    "https://api.airplanes.live/v2/point/{lat}/{lon}/{r}",
-]
-FEED_TEMPLATES = [u.strip() for u in cfg("KANP_FEEDS").split(",") if u.strip()] or DEFAULT_FEEDS
+ADSB_LOL = "https://api.adsb.lol/v2/point/{lat}/{lon}/{r}"
+ADSB_FI = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{r}"
+AIRPLANES_LIVE = "https://api.airplanes.live/v2/point/{lat}/{lon}/{r}"
+DEFAULT_FEEDS_NEAR = [ADSB_LOL, AIRPLANES_LIVE, ADSB_FI]
+DEFAULT_FEEDS_WIDE = [ADSB_FI, AIRPLANES_LIVE, ADSB_LOL]
+
+
+def _feed_list(key, default):
+    return [u.strip() for u in cfg(key).split(",") if u.strip()] or default
+
+
+FEED_TEMPLATES_NEAR = _feed_list("KANP_FEEDS_NEAR", DEFAULT_FEEDS_NEAR)
+FEED_TEMPLATES_WIDE = _feed_list("KANP_FEEDS_WIDE", DEFAULT_FEEDS_WIDE)
+FEED_TEMPLATES = FEED_TEMPLATES_WIDE     # the wide poll's order is "the" feed order
 
 
 def feed_urls(radius_nm):
@@ -304,6 +322,7 @@ class Feed:
         self.port = u.port
         self.conn = None
         self.cooldown_until = 0.0
+        self.cooldown_s = FEED_COOLDOWN_S    # doubles per consecutive 429, resets on success
 
     def url_path(self, radius_nm):
         u = urllib.parse.urlsplit(self.template.format(lat=LAT, lon=LON, r=f"{radius_nm:g}"))
@@ -350,18 +369,20 @@ class Feed:
                 self.close()
                 raise
         if resp.status == 429:
-            self.cooldown_until = time.time() + FEED_COOLDOWN_S
-            raise RateLimited(f"{self.name}: 429")
+            self.cooldown_until = time.time() + self.cooldown_s
+            self.cooldown_s = min(FEED_COOLDOWN_MAX_S, self.cooldown_s * 2)
+            raise RateLimited(f"{self.name}: 429 (cooling {self.cooldown_until - time.time():.0f} s)")
         if resp.status != 200:
             self.close()
             raise urllib.error.HTTPError(self.name, resp.status, resp.reason, resp.headers, None)
+        self.cooldown_s = FEED_COOLDOWN_S
         return json.loads(body)
 
 
-def make_feeds():
+def make_feeds(kind="wide"):
     if SOURCE != "airplanes":
         return [Feed(SOURCE.replace("{", "{{").replace("}", "}}"))]
-    feeds = [Feed(t) for t in FEED_TEMPLATES]
+    feeds = [Feed(t) for t in (FEED_TEMPLATES_NEAR if kind == "near" else FEED_TEMPLATES_WIDE)]
     # stats are keyed by name — two feeds on one host (test stubs) get their path
     names = [f.name for f in feeds]
     for f in feeds:
@@ -562,20 +583,23 @@ def prune(db, now):
 # The near poll runs on its own thread with its own DB connection: the old
 # single loop ran it between wide polls, so a slow wide fetch (300 aircraft,
 # up to 20 s of timeout) silently delayed or skipped the 1 Hz fixes the ring
-# exists for. It pauses while a wide fetch is in flight so the request budget
-# stays where it was (~2 near + 1 wide per 3 s ≈ the feeds' 1 req/s).
-WIDE_BUSY = threading.Event()
+# exists for. It yields only the tick on which a wide poll *starts* — never
+# waits for it to finish — so the request budget stays ~2 near + 1 wide per
+# 3 s (≈ the feeds' 1 req/s) and a slow wide poll can't starve the ring
+# (pausing for the whole fetch did: 1 near poll in 66 s on a 4 s wide poll).
+WIDE_STARTED_AT = [0.0]
+NEAR_YIELD_S = 0.8
 
 
 def near_loop(stop):
     db = open_db()
-    feeds = make_feeds()
+    feeds = make_feeds("near")
     nxt = time.time()
     last_warn = 0.0
     while not stop.is_set():
         started = time.time()
         now = int(started)
-        if not WIDE_BUSY.is_set():
+        if started - WIDE_STARTED_AT[0] >= NEAR_YIELD_S:
             try:
                 aircraft, _feed = fetch_aircraft(feeds, NEAR_RADIUS_NM, NEAR_TIMEOUT_S,
                                                  empty_ok=True, kind="near")
@@ -601,7 +625,8 @@ def main():
     log.info("collector starting: %s, %g nm around %.4f,%.4f every %ds (timeout %gs) -> %s",
              src, RADIUS_NM, LAT, LON, POLL_SECONDS, WIDE_TIMEOUT_S, DB_PATH)
     if SOURCE == "airplanes":
-        log.info("feeds in order: %s", ", ".join(Feed(t).name for t in FEED_TEMPLATES))
+        log.info("wide feeds in order: %s", ", ".join(Feed(t).name for t in FEED_TEMPLATES_WIDE))
+        log.info("near feeds in order: %s", ", ".join(Feed(t).name for t in FEED_TEMPLATES_NEAR))
     if NEAR_ENABLED:
         log.info("near poll: %g nm every %ds between wide polls (timeout %gs)",
                  NEAR_RADIUS_NM, NEAR_POLL_SECONDS, NEAR_TIMEOUT_S)
@@ -609,7 +634,7 @@ def main():
         log.info("near poll skipped: local receiver source, lower KANP_POLL_SECONDS instead")
 
     db = open_db()
-    feeds = make_feeds()
+    feeds = make_feeds("wide")
     set_meta(db, "started", int(time.time()))
     db.commit()
 
@@ -636,11 +661,8 @@ def main():
         started = time.time()
         now = int(started)
         try:
-            WIDE_BUSY.set()
-            try:
-                aircraft, feed = fetch_aircraft(feeds, RADIUS_NM, WIDE_TIMEOUT_S, kind="wide")
-            finally:
-                WIDE_BUSY.clear()
+            WIDE_STARTED_AT[0] = started
+            aircraft, feed = fetch_aircraft(feeds, RADIUS_NM, WIDE_TIMEOUT_S, kind="wide")
             n = store(db, aircraft, now, wide=True)
             STATS.poll("wide", len(aircraft), n)
             errors = 0
