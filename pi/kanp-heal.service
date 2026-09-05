@@ -1,0 +1,19 @@
+[Unit]
+Description=KANP trace heal (fill collector holes from adsb.lol stored traces)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=kanp
+Group=kanp
+ExecStart=/usr/bin/python3 /opt/kanp/pi/heal.py
+
+# Site config — see pi/site.env.example (KANP_HEAL_*)
+EnvironmentFile=-/etc/kanp/site.env
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kanp
+PrivateTmp=true
