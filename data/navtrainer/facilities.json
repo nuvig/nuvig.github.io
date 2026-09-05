@@ -1,0 +1,59 @@
+{
+  "_note": "Training data for the GPS/NAV/COM Trainer. The FAA CIFP build in data/procedures/ carries no navaid frequencies, so these are kept by hand. Navaid IDENTIFIERS are real -- they come from the recommended-navaid field on the coded approach legs. FREQUENCIES with \"verified\": false are PLACEHOLDERS and are almost certainly wrong; set them from the current plate and flip the flag. The page shows an 'unverified frequency' marker for any entry still false.",
+  "_shape": "airports.<ICAO>.com[] = {label, freq, verified}; airports.<ICAO>.nav[] = {ident, freq, type, rwy, crs, verified}. type is ILS | LOC | LDA | SDF | VOR. 'proc' maps a CIFP approach id to the nav entry that serves it.",
+  "airports": {
+    "KESN": {
+      "name": "Easton/Newnam Field",
+      "com": [
+        { "label": "CTAF", "freq": 122.7, "verified": false },
+        { "label": "AWOS", "freq": 120.15, "verified": false },
+        { "label": "Potomac App", "freq": 118.35, "verified": false }
+      ],
+      "nav": [
+        { "ident": "IFGH", "freq": 109.1, "type": "ILS", "rwy": "04", "crs": 41.0, "verified": false }
+      ],
+      "proc": { "I04": "IFGH", "L04": "IFGH" }
+    },
+    "KANP": {
+      "name": "Lee",
+      "com": [
+        { "label": "CTAF", "freq": 122.9, "verified": false },
+        { "label": "AWOS", "freq": 119.325, "verified": false },
+        { "label": "Potomac App", "freq": 119.7, "verified": false }
+      ],
+      "nav": [],
+      "proc": {}
+    },
+    "KFME": {
+      "name": "Tipton",
+      "com": [
+        { "label": "CTAF", "freq": 123.0, "verified": false },
+        { "label": "ATIS", "freq": 120.6, "verified": false }
+      ],
+      "nav": [],
+      "proc": {}
+    },
+    "KMTN": {
+      "name": "Martin State",
+      "com": [
+        { "label": "Tower", "freq": 119.0, "verified": false },
+        { "label": "ATIS", "freq": 124.5, "verified": false }
+      ],
+      "nav": [
+        { "ident": "IMTN", "freq": 109.9, "type": "ILS", "rwy": "33", "crs": 328.0, "verified": false }
+      ],
+      "proc": { "I33": "IMTN", "L33": "IMTN" }
+    },
+    "KBWI": {
+      "name": "Baltimore/Washington Intl",
+      "com": [
+        { "label": "ATIS", "freq": 127.8, "verified": false },
+        { "label": "Tower", "freq": 119.4, "verified": false }
+      ],
+      "nav": [
+        { "ident": "IBWI", "freq": 110.1, "type": "ILS", "rwy": "10", "crs": 96.0, "verified": false }
+      ],
+      "proc": { "I10": "IBWI", "L10": "IBWI" }
+    }
+  }
+}
