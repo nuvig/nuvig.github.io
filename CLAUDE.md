@@ -1053,10 +1053,18 @@ concepts; to relink, add the tools.html card back.
   feed answering at 1 Hz, stale in the ring a quarter to a third of the time** (near zero-row
   21/54, 13/32, 7/28) — that is the ceiling for live collection at Lee. So both polls run
   adsb.fi → adsb.lol (`KANP_FEEDS_NEAR` / `KANP_FEEDS_WIDE`, per-poll lists kept so they can
-  diverge again), airplanes.live is out, and the fix for complete patterns is a **heal from
-  adsb.lol's trace history** (one trace per field-contact aircraft per day, inside 5/min; URL to
-  confirm from the Pi: `adsb.lol/globe_history/YYYY/MM/DD/traces/<last2>/trace_full_<hex>.json`)
-  — not built yet. A feed's 429
+  diverge again), airplanes.live is out, and the fix for complete patterns is **`pi/heal.py`
+  (`kanp-heal.timer`, every 30 min)**: for every hex with a fix inside the pattern box (3 nm /
+  1,800 ft, `KANP_HEAL_BOX_*`) in the last 30 h it fetches adsb.lol's stored readsb trace —
+  `adsb.lol/data/traces/<last2>/trace_full_<hex>.json` for the current UTC day,
+  `adsb.lol/globe_history/YYYY/MM/DD/traces/<last2>/…` for completed days (both confirmed 200 from
+  the Pi 2026-09-05; gzip) — drops stale-flagged points (flags bit 1) and anything outside 60 nm,
+  and inserts what has no fix of ours within 1 s, `src='lol'` (column added by the heal on first
+  run; the collector's rows are NULL). One request per 12 s, 40 per run, a completed day fetched
+  once per hex (`meta heal:<hex>:<yyyymmdd>`, 404 remembered too), today's refetched after 25 min.
+  The exporter's next run carries healed rows into the day files (it re-exports today and
+  yesterday, so the 30 h window matches). `--selftest` runs offline fixture checks. Healed fixes
+  are not distinguished on the site yet. A feed's 429
   cooldown doubles per repeat (3 → 20 s, `KANP_FEED_COOLDOWN_MAX_S`) and resets on a success. The
   near thread yields only the tick on which a wide poll *starts* (`WIDE_STARTED_AT`,
   `NEAR_YIELD_S`), never waits for it — pausing for the whole fetch starved it to 1 poll in 66 s on

@@ -18,6 +18,7 @@ starts two services:
 | service | what it does |
 |---|---|
 | `kanp-collector` | polls the public ADS-B feeds (first non-empty answer wins; a feed that answers 429 is skipped for 3 s, doubling per repeat up to 20 s) every 3 s over 60 nm on the main thread and a 5 nm poll of the pattern area every second on its own thread, both adsb.fi → adsb.lol (adsb.lol accepts ~5 requests/min at steady state; airplanes.live's point endpoint 404s and is out); persistent connections, cached DNS, 3 s / 10 s timeouts; logs a `poll stats` line every minute (per-feed ok/429/err, rows stored, max latency) and warns when polls answer but nothing new stores for 15 s; writes `/var/lib/kanp/kanp.db` |
+| `kanp-heal` (timer, every 30 min) | `heal.py`: for every aircraft that touched the pattern box (3 nm / 1,800 ft) in the last 30 h, fetches adsb.lol's stored trace (`/data/traces/…` today, `/globe_history/…` for completed UTC days) and inserts the fixes the collector never received — rows carry `src='lol'`, one request per 12 s, 40 per run, each completed day fetched once per aircraft. Live collection at Lee is incomplete by nature (adsb.lol ~5 req/min, adsb.fi stale a quarter of the time in the ring); this is what makes the patterns whole. `--dry-run` counts, `--selftest` checks offline |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 

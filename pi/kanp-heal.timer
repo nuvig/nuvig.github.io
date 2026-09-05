@@ -1,0 +1,11 @@
+[Unit]
+Description=KANP trace heal every 30 min
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target
