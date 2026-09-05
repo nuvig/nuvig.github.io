@@ -30,8 +30,8 @@
     DPR = Math.min(2, window.devicePixelRatio || 1);
     W = window.innerWidth; H = window.innerHeight;
     sky.width = W * DPR; sky.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    const availH = H - state.ground - 4;
-    scale = W / LX; if (LZ * scale > availH) scale = availH / LZ;
+    const availH = Math.max(60, H - state.ground - 4);
+    scale = Math.max(1e-4, W / LX); if (LZ * scale > availH) scale = availH / LZ;
     offX = (W - LX * scale) / 2;
     skyTop = Math.max(0, (availH - LZ * scale) * 0.6);
     groundY = skyTop + LZ * scale;
@@ -258,9 +258,12 @@
   function draw(now) {
     ctx.clearRect(0, 0, W, H);
     // sky
-    const sg = ctx.createLinearGradient(0, skyTop, 0, groundY);
-    sg.addColorStop(0, '#0b1230'); sg.addColorStop(0.45, '#22437a'); sg.addColorStop(1, '#7fa6cf');
-    ctx.fillStyle = sg; ctx.fillRect(0, 0, W, groundY);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    // technical grid: 5 km in x (frame), 5,000 ft in z
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 5000; x < LX; x += 5000) { ctx.moveTo(sx(x), skyTop); ctx.lineTo(sx(x), groundY); }
+    for (let ft = 5000; ft <= 50000; ft += 5000) { const z = ft / FT; if (z > LZ) break; ctx.moveTo(offX, sy(z)); ctx.lineTo(offX + LX * scale, sy(z)); }
+    ctx.stroke(); ctx.restore();
     // clouds & precip image
     const flashGlow = state.visFlashes.reduce((m, v) => { const a = (now - v.t0) / 1000; return a < 0.6 && a > 0.2 ? Math.max(m, 0.35 * Math.exp(-(a - 0.2) / 0.15)) : m; }, 0);
     buildCloudImage(flashGlow);
@@ -322,13 +325,12 @@
   }
   function drawGround() {
     const t = model.t, us = model.us, xf = model.xField();
-    const g = ctx.createLinearGradient(0, groundY, 0, H);
-    g.addColorStop(0, '#2a3b2c'); g.addColorStop(0.15, '#1d2a20'); g.addColorStop(1, '#0a1020');
-    ctx.fillStyle = g; ctx.fillRect(0, groundY, W, H - groundY);
-    ctx.fillStyle = '#3a5a3c'; ctx.fillRect(0, groundY, W, 3);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, groundY, W, H - groundY);
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(offX, groundY, LX * scale, 1);
+    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(offX, groundY + 1, LX * scale, 2);
     // wet ground under rain, cold-pool shade
     for (let i = 0; i < NX; i++) {
-      const rr = model.rainRate[i]; if (rr > 0.5) { ctx.fillStyle = `rgba(120,160,220,${Math.min(0.45, rr / 80)})`; ctx.fillRect(sx(i * DX), groundY, DX * scale + 0.5, 3); }
+      const rr = model.rainRate[i]; if (rr > 0.5) { ctx.fillStyle = `rgba(120,170,255,${Math.min(0.9, 0.2 + rr / 80)})`; ctx.fillRect(sx(i * DX), groundY, DX * scale + 0.5, 3); }
     }
     ctx.save(); ctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono'); ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.strokeStyle = 'rgba(255,255,255,.25)';
     // ground-fixed km ticks scrolling under the storm-relative frame
@@ -340,7 +342,7 @@
     ctx.fillText('5 km ticks · ground', offX + 6, groundY + 20);
     // the field
     const X = sx(xf);
-    ctx.fillStyle = '#9aa3ad'; ctx.fillRect(X - 14, groundY - 1, 28, 3);
+    ctx.fillStyle = '#e8ecf3'; ctx.fillRect(X - 14, groundY - 2, 28, 3);
     ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText('field', X - 12, groundY + 20);
     // windsock: ground-relative surface wind
     const u = fieldWind(), kt = Math.abs(u) * KT, dir = u >= 0 ? 1 : -1;
@@ -700,6 +702,7 @@
   // ---------------------------------------------------------------- main loop
   let sndTick = 0, readTick = 0;
   function frame(now) {
+    if (window.innerWidth !== W || window.innerHeight !== H) { resize(); placePanels(); }
     const dtWall = Math.min(0.1, (now - state.lastT) / 1000); state.lastT = now;
     if (state.running) {
       state.acc += dtWall * state.speed;
