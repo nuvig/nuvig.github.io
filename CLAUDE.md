@@ -726,10 +726,15 @@ concepts; to relink, add the tools.html card back.
   second decoder here only crowded Act II; they exist here as the evidence behind the change
   block. KANP has no TAF, so the terminals watched are KMTN/KBWI/KDCA. IWXXM XML via DOMParser
   exactly as `weather.js` does it (visibility decoded from the fixed SM table, never by dividing
-  by 1609). The change comparison needs no
-  archive: `/stations/{id}/tafs` returns a *collection*, so `loadTafPair()` diffs the newest
-  issuance against the oldest one still on the wire from today. Both issuances are flattened to
-  one entry per hour before diffing — change groups never line up otherwise. The "why" (
+  by 1609). **The change comparison reads the archive first** (2026-09-04): `loadTafPair()`
+  takes every issuance from today's and yesterday's `taf/` day files (`WXA.day`, decoded
+  `periods` or raw text through `js/taf-tac.js`, which the page now loads), adds whatever the
+  NWS `/stations/{id}/tafs` collection lists that the archive lacks within 90 s, and diffs the
+  newest against the oldest from today. Rows and the no-change line say `via site archive`
+  when that is where the issuance came from. It used to read NWS alone, and the collection's
+  freeze from 08-30 left the block reporting "newest TAF 5 d old" while IEM-healed issuances
+  sat in the archive. Both issuances are flattened to one entry per hour before diffing —
+  change groups never line up otherwise. The "why" (
   `whyThunder()`) is read off the GFS grid `discussion.js` already loaded, sampled at the field:
   CAPE, CIN (from the DC point call, ~20 nm west and labelled as such), precip and spread. The
   grid table prints the NWS `weather` array verbatim — **that array is what drives the

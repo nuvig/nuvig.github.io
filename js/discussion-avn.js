@@ -7,9 +7,12 @@
    The TAFs are fetched but deliberately NOT displayed: weather.html already
    decodes them, and a second decoder here only crowded the discussion. They
    are here as evidence, to detect the change. KANP has no TAF of its own, so
-   the terminals watched are KMTN/KBWI/KDCA. Loaded after discussion.js, uses its
-   globals: fetchJSON, esc, fmtTime, $, NWS, TZ, SITE, plus syn/gridXY/
-   baseField/pointAt for the model read. All directions °true. */
+   the terminals watched are KMTN/KBWI/KDCA. Issuances come from the site
+   archive's taf/ day files first (every issuance, healed from IEM when the NWS
+   collection freezes — it did for days from 2026-08-30) and from the NWS
+   collection on top, newest wins. Loaded after discussion.js and taf-tac.js,
+   uses their globals: fetchJSON, esc, fmtTime, $, NWS, TZ, SITE, WXA, TafTac,
+   plus syn/gridXY/baseField/pointAt for the model read. All directions °true. */
 
 'use strict';
 
@@ -68,26 +71,80 @@ async function parseTaf(item) {
     }
     periods.push(p);
   }
-  return { issued: new Date(item.issueTime).getTime(), periods };
+  return { issued: new Date(item.issueTime).getTime(), periods, src: 'nws' };
 }
 
-/* Newest TAF, plus the oldest issuance still on the wire from today — the one
-   a morning go/no-go would have been briefed from. The collection endpoint
-   keeps recent issuances, so this needs no archive. Falls back to simply the
-   previous issuance when today's earlier ones have aged off. */
+/* ------------------------------ archive TAFs ------------------------------ */
+
+/* The archiver's decoded shape (IWXXM indicator strings, epoch seconds,
+   visibility in meters) and TafTac's (plain FM/TEMPO/BECMG/PROB30 indicators,
+   same units) mapped onto parseTaf()'s output. */
+const AVN_IND = { FM: 'FM', TEMPO: 'TEMPORARY_FLUCTUATIONS', BECMG: 'BECOMING',
+  PROB30: 'PROBABILITY_30', PROB40: 'PROBABILITY_40' };
+function archivePeriods(rec) {
+  let ps = rec.periods;
+  if (!ps && rec.raw && typeof TafTac !== 'undefined') {
+    try { ps = TafTac.parse(rec.raw, rec.t).periods; } catch (e) { ps = null; }
+  }
+  if (!ps || !ps.length) return null;
+  return ps.filter((p) => p.b != null && p.e != null).map((p) => {
+    const q = {
+      indicator: AVN_IND[p.ind] || String(p.ind || 'FM').replace(/ /g, '_'),
+      begin: p.b * 1000, end: p.e * 1000,
+      wx: p.wx || [],
+      clouds: (p.cld || []).map((c) => ({ amt: c.amt, baseFt: c.ft != null ? c.ft : null })),
+    };
+    if (typeof p.dir === 'number') q.windDir = p.dir;
+    if (p.kt != null) q.windKt = p.kt;
+    if (p.gust != null) q.gustKt = p.gust;
+    if (p.visM != null) q.visSM = visSMfromM(p.visM);
+    return q;
+  });
+}
+
+/* Every archived issuance for a station from today's and yesterday's day
+   files, already decoded — no fetch per issuance. */
+async function archiveTafs(id) {
+  if (typeof WXA === 'undefined') return [];
+  const now = Date.now();
+  const out = [];
+  for (const date of [localDay(now), localDay(now - 86400e3)]) {
+    const doc = await WXA.day('taf', date);
+    for (const rec of (doc && doc.tafs) || []) {
+      if (rec.station !== id || !rec.t) continue;
+      const periods = archivePeriods(rec);
+      if (periods && periods.length) out.push({ issued: rec.t * 1000, periods, src: 'archive' });
+    }
+  }
+  return out;
+}
+
+/* Newest TAF, plus the oldest issuance from today — the one a morning go/no-go
+   would have been briefed from; else simply the previous issuance. Candidates
+   are the archive's issuances (free, already decoded) plus whatever the NWS
+   collection lists that the archive doesn't hold within 90 s (the archiver's
+   own dedupe tolerance); NWS items are parsed only if picked. */
 async function loadTafPair(id) {
-  const list = await fetchJSON(`${NWS}/stations/${id}/tafs`);
-  const items = (list['@graph'] || []).filter((i) => i && i.id && i.issueTime);
-  items.sort((a, b) => new Date(b.issueTime) - new Date(a.issueTime));
-  if (!items.length) throw new Error('no TAF published');
-  const cur = await parseTaf(items[0]);
+  const cands = (await archiveTafs(id)).map((a) => ({ issued: a.issued, get: async () => a }));
+  try {
+    const list = await fetchJSON(`${NWS}/stations/${id}/tafs`);
+    for (const i of list['@graph'] || []) {
+      if (!i || !i.id || !i.issueTime) continue;
+      const issued = new Date(i.issueTime).getTime();
+      if (!Number.isFinite(issued) || cands.some((c) => Math.abs(c.issued - issued) < 90e3)) continue;
+      cands.push({ issued, get: () => parseTaf(i) });
+    }
+  } catch (e) {
+    if (!cands.length) throw e;
+  }
+  cands.sort((a, b) => b.issued - a.issued);
+  if (!cands.length) throw new Error('no TAF published');
+  const cur = await cands[0].get();
   const today = localDay(Date.now());
-  const older = items.slice(1).filter((i) =>
-    cur.issued - new Date(i.issueTime).getTime() >= 3 * 3600000);
-  const pick = older.filter((i) => localDay(new Date(i.issueTime).getTime()) === today).pop()
-    || older[0] || items[1];
+  const older = cands.slice(1).filter((c) => cur.issued - c.issued >= 3 * 3600000);
+  const pick = older.filter((c) => localDay(c.issued) === today).pop() || older[0] || cands[1];
   let prev = null;
-  if (pick) { try { prev = await parseTaf(pick); } catch (e) { /* one is enough */ } }
+  if (pick) { try { prev = await pick.get(); } catch (e) { /* one is enough */ } }
   return { cur, prev };
 }
 
@@ -434,27 +491,28 @@ function renderTafChanges() {
           c.t - last.t1 === 3600000) { last.t1 = c.t; continue; }
       runs.push({ ...c, t0: c.t, t1: c.t });
     }
-    blocks.push({ st, runs, issued: rec.cur.issued, prevIssued: rec.prev.issued });
+    blocks.push({ st, runs, issued: rec.cur.issued, prevIssued: rec.prev.issued,
+      archived: rec.cur.src === 'archive' || rec.prev.src === 'archive' });
   }
 
   /* Staleness first. api.weather.gov served one frozen TAF collection for
      days in Aug 2026, and "no change between the last two issuances" is the
      wrong reading of a feed that stopped — say how old the newest is. */
-  const newest = Math.max(0, ...AVN.stations.map((st) =>
-    (AVN.tafs[st.id] && AVN.tafs[st.id].cur && AVN.tafs[st.id].cur.issued) || 0));
+  const curs = AVN.stations.map((st) => AVN.tafs[st.id] && AVN.tafs[st.id].cur).filter(Boolean);
+  const newest = Math.max(0, ...curs.map((c) => c.issued || 0));
   const ageH = newest ? (now - newest) / 3600e3 : null;
   const stamp = (opts) => esc(fmtTime(new Date(newest), opts));
+  const src = curs.some((c) => c.src === 'archive') ? ' · via site archive' : '';
   const staleNote = ageH != null && ageH > 6
-    ? `<div class="chg-stale">⚠ Newest TAF on the wire is ${ageH < 48 ? `${Math.round(ageH)} h` : `${Math.round(ageH / 24)} d`} old ` +
-      `(issued ${stamp({ weekday: 'short', hour: 'numeric', minute: '2-digit' })}) — ` +
-      'NWS is not serving a newer issuance, so nothing here is current.</div>'
+    ? `<div class="chg-stale">⚠ Newest TAF ${ageH < 48 ? `${Math.round(ageH)} h` : `${Math.round(ageH / 24)} d`} old, ` +
+      `issued ${stamp({ weekday: 'short', hour: 'numeric', minute: '2-digit' })}.</div>`
     : '';
   const ids = AVN.stations.map((st) => st.id);
   const idList = ids.length > 1 ? `${ids.slice(0, -1).join(', ')} or ${ids[ids.length - 1]}` : ids.join('');
   if (!blocks.length) {
     host.innerHTML = staleNote + '<div class="faint" style="font-size:13px">' +
-      `No category or thunder change between the last two TAF issuances at ${esc(idList)}` +
-      `${newest ? ` (newest ${stamp({ hour: 'numeric', minute: '2-digit' })})` : ''}.</div>`;
+      `No category or thunder change, last two TAF issuances at ${esc(idList)}` +
+      `${newest ? ` (newest ${stamp({ hour: 'numeric', minute: '2-digit' })})` : ''}${src}.</div>`;
     return;
   }
 
@@ -477,7 +535,8 @@ function renderTafChanges() {
     }).join('');
     return `<div class="chg-block"><div class="chg-head"><b>${esc(bl.st.id)}</b> ` +
       `<span class="faint">${esc(fmtTime(new Date(bl.prevIssued), { hour: 'numeric', minute: '2-digit' }))} → ` +
-      `${esc(fmtTime(new Date(bl.issued), { hour: 'numeric', minute: '2-digit' }))}</span></div>${rows}</div>`;
+      `${esc(fmtTime(new Date(bl.issued), { hour: 'numeric', minute: '2-digit' }))}` +
+      `${bl.archived ? ' · via site archive' : ''}</span></div>${rows}</div>`;
   }).join('');
 }
 
