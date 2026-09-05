@@ -266,16 +266,45 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 (`site-config` → leaflet → `kanp-static` → `kanp` → the rest).
 
 - `js/kanp.js` — shared utils + Live tab (trails, heatmap, localStorage), plus `KANP.apiBase()` /
-  `getTracks()` / `getStats()` data routing. Live polls every 3 s against the Pi (`PI_POLL_MS`,
+  `getTracks()` / `getStats()` data routing. Also the shared filter-bar widget
+  (`initFilterBar(barId, onChange)` — range chips + ‹ › stepper; `readFilters()` re-applies a
+  chip against now, never a stepped window), the classifiers `isGA` / `isHelicopter`
+  (`AIRLINER_TYPES` / `HELI_TYPES`), the tri-state button helpers `triState` / `triFilter`, and
+  `simplifyTrack(pts, eps, near)` (ring-aware — see `kanp-history.js`). Live polls every 3 s against the Pi (`PI_POLL_MS`,
   matching the collector) and every 60 s against snapshots (`POLL_MS`, which only change hourly).
   KANP = 38.9422, -76.5684, 60 nm radius (from `SITE.tracker`).
 - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD
   overlays, and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
   left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
   Live grid and Study grid don't set it).
+  **Filter bar (reworked 2026-09-05):** the range is a chip row (`.qr-chip`, length anchored on
+  now or a calendar day) plus ‹ › (`.qr-step`, slides the window by its own span; a day window
+  steps by calendar days; › is disabled at now). Stepping deselects the chip so Load no longer
+  slides the range back to now — From/To are then the range. A chip or step reloads the History
+  tab (`initFilterBar(barId, onChange)`); the Study bar shares the widget but keeps its Run
+  button. Helicopters / GA / military are **tri-state** buttons (`KANP.triState`: all → hidden →
+  only, text `"<label> hidden"` / `"<label> only"`, state in `data-state`), client-side like the
+  altitude band; rotorcraft = `KANP.isHelicopter` (ICAO type set `KANP.HELI_TYPES`, description
+  fallback only for untyped, and an untyped track is *not* a helicopter — the tooltip says so).
+  **KANP ops modes clip, they don't filter** (`applyKanpMode`): `lee` keeps whole tracks that
+  touched the field; `pattern` keeps only laps — consecutive field contacts ≤ 8 min apart whose
+  fixes stay inside 3 nm and ≤ 1,800 ft MSL (measured: real KANP laps run 1–5 min, all inside
+  3 nm / 1,200 ft); `dep`/`arr` keep liftoff → 10 nm or 10 min (or the mirror), cut where the
+  aircraft comes back to (or last left) the field, and a `tng` contact a lap away from its
+  neighbour belongs to `pattern`, not to these. Contacts come from `KANPOps.analyze` (`ts`/`ts1`
+  = first/last at-field fix). Clipped stretches become `breaks` the canvas honours, and the
+  altitude band merges its own breaks into them rather than replacing them. The old whole-track
+  "pattern" mode drew a one-lap-then-Easton flight in full — don't bring it back.
+  **Coarsening honours the 1 s ring**: over `DRAW_LIMIT` points the client re-simplifies at
+  0.08 nm, which used to throw away ~90 % of the fixes inside `KANP.NEAR_NM` that the Pi had
+  deliberately kept (`simplify_near_nm 0`) — the reason the pattern "didn't look better" on any
+  range past ~24 h. `KANP.simplifyTrack(pts, eps, near)` now mirrors `pi/trackutil.py`: tolerance
+  `near.eps` (0) inside the ring, run broken at each crossing.
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
   by airborne context before/after into arrival / departure / go-around, attributed to runway 12 or 30.
+  Each op carries `ts` / `ts1` (first / last at-field fix) — the History tab's clipping modes cut
+  tracks at those, so keep both.
 - `js/kanp-climb.js` — Traffic Study sub-tool: climb-out comparison. Extracts the initial climb from
   each departure and plots altitude gained vs distance from liftoff (density-altitude comparisons).
   Altitudes are ADS-B barometric — fine for day-to-day gradient comparison, not true geometric gradient.

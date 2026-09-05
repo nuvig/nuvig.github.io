@@ -22,9 +22,12 @@ const KANPHistory = (() => {
   // Only when the *drawn* set (after every filter) exceeds this many points do
   // we coarsen it to stay responsive — so a handful of tracks never triggers it.
   const DRAW_LIMIT = 250_000;
+  // Coarsening never touches the collector's 1 s ring: the Pi kept every fix
+  // there (simplify_near_nm 0) and the pattern is where the detail matters.
+  const NEAR = { lat: KANP.LAT, lon: KANP.LON, nm: KANP.NEAR_NM, eps: 0 };
 
   function init() {
-    KANP.initFilterBar('hist-filters');
+    KANP.initFilterBar('hist-filters', load);   // a chip or ‹ › reloads
     document.getElementById('hist-load').addEventListener('click', load);
     initAltPanel();
     initInstantControls();
@@ -153,14 +156,12 @@ const KANPHistory = (() => {
     layout();
   }
 
-  // GA / Military / KANP-only toggle buttons — all filter client-side, so a
-  // click redraws instantly. KANP-only reveals the arr/dep sub-mode dropdown.
+  // Helicopters / GA / military tri-states and the KANP-only toggle — all
+  // filter client-side, so a click redraws instantly. KANP-only reveals the
+  // ops sub-mode dropdown.
   function initInstantControls() {
-    ['hist-ga', 'hist-mil'].forEach(id =>
-      document.getElementById(id).addEventListener('click', e => {
-        e.currentTarget.classList.toggle('on');
-        render();
-      }));
+    ['hist-heli', 'hist-ga', 'hist-mil'].forEach(id =>
+      KANP.triState(document.getElementById(id), render));
 
     const kanp = document.getElementById('hist-kanp');
     const modeWrap = document.getElementById('hist-kanp-mode-wrap');
@@ -307,17 +308,15 @@ const KANPHistory = (() => {
 
     const floor = altState.floor === 0 ? null : altState.floor;   // 0 = no floor
     const ceil = altState.ceil >= ALT_MAX ? null : altState.ceil; // top = no ceiling
-    const ga = document.getElementById('hist-ga').classList.contains('on');
-    const mil = document.getElementById('hist-mil').classList.contains('on');
-
     let tracks = fullData.tracks;
-    if (mil) tracks = tracks.filter(t => t.military);
-    if (ga) tracks = tracks.filter(t => KANP.isGA(t));
+    tracks = KANP.triFilter(document.getElementById('hist-heli'), tracks, KANP.isHelicopter);
+    tracks = KANP.triFilter(document.getElementById('hist-ga'), tracks, KANP.isGA);
+    tracks = KANP.triFilter(document.getElementById('hist-mil'), tracks, t => !!t.military);
     // KANP-only is decided on the FULL track, before the altitude band trims
     // it: a field contact is a fix at or below the ops gate near the runway,
     // and any floor above that gate would otherwise delete every such fix
     // first and leave nothing to qualify (floor 2,000 + KANP only → 0 tracks).
-    tracks = applyArrDep({ tracks }).tracks;
+    tracks = applyKanpMode({ tracks }).tracks;
     if (floor != null || ceil != null) {
       // Ground fixes ignore the floor so a low band still shows traffic on the
       // field — but only while the band actually reaches down to the surface.
@@ -338,7 +337,7 @@ const KANPHistory = (() => {
         // straight chord across the excluded altitudes (e.g. an aircraft that
         // descends through the band and back out inside GAP_SECONDS).
         const points = [];
-        const breaks = new Set();
+        const breaks = new Set(t.breaks || []);   // keep the KANP clip's breaks
         let dropped = false;
         for (const p of t.points) {
           if (!inBand(p)) { dropped = true; continue; }
@@ -366,14 +365,14 @@ const KANPHistory = (() => {
       // thinned away and re-join two runs across excluded altitudes.
       shown.tracks = shown.tracks.map(t => {
         if (!t.breaks || !t.breaks.size) {
-          return { ...t, points: KANP.simplifyTrack(t.points, 0.08) };
+          return { ...t, points: KANP.simplifyTrack(t.points, 0.08, NEAR) };
         }
         const points = [];
         const breaks = new Set();
         let run = [];
         const flush = () => {
           if (!run.length) return;
-          const s = KANP.simplifyTrack(run, 0.08);
+          const s = KANP.simplifyTrack(run, 0.08, NEAR);
           if (points.length) breaks.add(s[0][0]);
           points.push(...s);
           run = [];
@@ -393,8 +392,8 @@ const KANPHistory = (() => {
     lastShown = shown;
     scheduleLee();               // heavy ops analysis + table, off the redraw path
 
-    const opsLabel = { lee: ' · all KANP traffic',
-                       pattern: ' · pattern work' }[arrDepMode()] || '';
+    const opsLabel = { lee: ' · all KANP traffic', pattern: ' · pattern work',
+                       dep: ' · departures', arr: ' · arrivals' }[kanpMode()] || '';
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
     if (coarsened) {
@@ -459,58 +458,58 @@ const KANPHistory = (() => {
 
   // 'all' unless the KANP-only toggle is on, in which case the sub-mode
   // dropdown decides which field operations to keep.
-  function arrDepMode() {
+  function kanpMode() {
     const kanp = document.getElementById('hist-kanp');
     if (!kanp || !kanp.classList.contains('on')) return 'all';
     const sel = document.getElementById('hist-arrdep');
     return sel ? sel.value : 'lee';
   }
 
-  // Longest a full-stop taxi-back may take: land, exit, taxi back, depart.
-  // Beyond this the aircraft parked and the next departure is a new flight.
-  const TAXI_BACK_S = 25 * 60;
+  // A lap: field contact → airborne → next field contact, no more than
+  // LAP_MAX_S apart, never further out than LAP_NM nor higher than LAP_FT.
+  // Measured over two archived days every real KANP lap ran 1–5 min between
+  // contacts, all inside 3 nm and under 1,200 ft MSL; the box is the real
+  // discriminator, the time cap just stops a departure-and-return counting.
+  const LAP_MAX_S = 8 * 60;
+  const LAP_NM = 3.0;
+  const LAP_FT = 1800;
+  // Departure / arrival leg: liftoff (or touchdown) to this far out or this
+  // long, whichever comes first.
+  const LEG_MAX_S = 10 * 60;
+  const LEG_NM = 10;
 
-  // Restrict the drawn tracks to KANP traffic. 'lee' keeps anything that
-  // touched the field. 'pattern' keeps only aircraft working the pattern —
-  // flying a circuit and coming back rather than arriving or departing once.
+  // Restrict the drawn tracks to KANP traffic. 'lee' keeps every track that
+  // touched the field, whole. The other three CLIP: only the fixes that belong
+  // to the operation survive, so an aircraft that flew three laps and left for
+  // Easton draws three laps (pattern), its climb-out (departures), or nothing
+  // (arrivals) — never its route to Easton. Contacts come from the ops
+  // detector (kanp-ops.js), which finds each contiguous run of at-field fixes
+  // (ts = first fix, ts1 = last).
   //
-  // A full-stop taxi-back normally shows up as a *single* field contact: the
-  // landing, taxi and takeoff are one unbroken run of at-field fixes, so the
-  // detector sees airborne flight both before and after it and labels it
-  // 'tng'. (T&Gs aren't permitted here, so a 'tng' contact is a taxi-back, or
-  // a go-around when the aircraft never touched down.) The arrival→departure
-  // pairing below is the fallback for when an ADS-B coverage gap splits that
-  // one contact into a separate arrival and departure.
-  //
-  // Returns a shallow copy with filtered tracks and recomputed counts so the
-  // count message and heat-map opacity both reflect what's on the map.
-  function applyArrDep(data) {
-    const mode = arrDepMode();
+  // Returns a shallow copy with clipped tracks (breaks marked wherever a
+  // dropped stretch sat between two kept fixes) and recomputed counts.
+  function applyKanpMode(data) {
+    const mode = kanpMode();
     if (mode === 'all') return data;
     const contacts = data.tracks.filter(t => KANP.fieldContact(t.points));
     let tracks = contacts;
-    if (mode === 'pattern') {
+    if (mode !== 'lee') {
       const { ops } = KANPOps.analyze({ tracks: contacts });
-      const byAc = new Map();
+      const byHex = new Map();
       ops.forEach(o => {
-        if (!byAc.has(o.hex)) byAc.set(o.hex, []);
-        byAc.get(o.hex).push(o);
+        if (!byHex.has(o.hex)) byHex.set(o.hex, []);
+        byHex.get(o.hex).push(o);
       });
-      const pattern = new Set();
-      byAc.forEach((list, hex) => {
-        list.sort((a, b) => a.ts - b.ts);
-        for (let i = 0; i < list.length; i++) {
-          if (list[i].kind === 'tng') { pattern.add(hex); return; }   // go-around
-          // arrival, then a departure soon after → full-stop taxi-back
-          if (list[i].kind === 'arr') {
-            for (let j = i + 1; j < list.length; j++) {
-              if (list[j].ts - list[i].ts > TAXI_BACK_S) break;
-              if (list[j].kind === 'dep') { pattern.add(hex); return; }
-            }
-          }
-        }
-      });
-      tracks = contacts.filter(t => pattern.has(t.hex));
+      tracks = [];
+      for (const t of contacts) {
+        const list = (byHex.get(t.hex) || []).sort((a, b) => a.ts - b.ts);
+        if (!list.length) continue;
+        const windows = mode === 'pattern' ? lapWindows(t, list)
+          : mode === 'dep' ? legWindows(t, list, +1)
+          : legWindows(t, list, -1);
+        if (!windows.length) continue;
+        tracks.push(clipTrack(t, windows));
+      }
     }
     return {
       ...data,
@@ -518,6 +517,84 @@ const KANPHistory = (() => {
       aircraft_count: tracks.length,
       returned_points: tracks.reduce((n, t) => n + t.points.length, 0),
     };
+  }
+
+  // [t0, t1] spans of the laps in one track: consecutive contacts close in
+  // time whose intermediate fixes stay inside the pattern box.
+  function lapWindows(t, list) {
+    const out = [];
+    for (let i = 1; i < list.length; i++) {
+      const a = list[i - 1], b = list[i];
+      if (b.ts - a.ts1 > LAP_MAX_S) continue;
+      let inside = true;
+      for (const p of t.points) {
+        if (p[0] <= a.ts1) continue;
+        if (p[0] >= b.ts) break;
+        if (p[5] === 1) continue;
+        if ((p[3] != null && p[3] > LAP_FT) || KANP.distNm(p[1], p[2]) > LAP_NM) {
+          inside = false; break;
+        }
+      }
+      if (inside) out.push([a.ts, b.ts1]);
+    }
+    return out;
+  }
+
+  // Departure (dir +1) or arrival (dir −1) legs of one track. A 'tng'
+  // contact holds both a landing and a liftoff, so it is a candidate for
+  // either — unless the neighbouring contact is a lap away, in which case the
+  // leg is pattern work and belongs to that mode, not this one.
+  function legWindows(t, list, dir) {
+    const out = [];
+    const pts = t.points;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (dir > 0) {
+        if (c.kind !== 'dep' && c.kind !== 'tng') continue;
+        const next = list[i + 1];
+        if (next && next.ts - c.ts1 <= LAP_MAX_S) continue;        // a lap, not a departure
+        let end = c.ts1;
+        for (const p of pts) {
+          if (p[0] <= c.ts1) continue;
+          if (next && p[0] >= next.ts) break;                       // back at the field
+          if (p[0] - c.ts1 > LEG_MAX_S || KANP.distNm(p[1], p[2]) > LEG_NM) break;
+          end = p[0];
+        }
+        if (end > c.ts1) out.push([c.ts, end]);
+      } else {
+        if (c.kind !== 'arr' && c.kind !== 'tng') continue;
+        const prev = list[i - 1];
+        if (prev && c.ts - prev.ts1 <= LAP_MAX_S) continue;        // a lap, not an arrival
+        let begin = c.ts;
+        for (let k = pts.length - 1; k >= 0; k--) {
+          const p = pts[k];
+          if (p[0] >= c.ts) continue;
+          if (prev && p[0] <= prev.ts1) break;                      // still at the field before
+          if (c.ts - p[0] > LEG_MAX_S || KANP.distNm(p[1], p[2]) > LEG_NM) break;
+          begin = p[0];
+        }
+        if (begin < c.ts) out.push([begin, c.ts1]);
+      }
+    }
+    return out;
+  }
+
+  // Keep only the fixes inside any window; mark a break where a dropped
+  // stretch sat between two survivors so the canvas never bridges it.
+  function clipTrack(t, windows) {
+    windows.sort((a, b) => a[0] - b[0]);
+    const points = [];
+    const breaks = new Set();
+    let w = 0, dropped = false;
+    for (const p of t.points) {
+      while (w < windows.length && p[0] > windows[w][1]) w++;
+      if (w >= windows.length) break;
+      if (p[0] < windows[w][0]) { dropped = true; continue; }
+      if (dropped && points.length) breaks.add(p[0]);
+      points.push(p);
+      dropped = false;
+    }
+    return { ...t, points, breaks };
   }
 
   function draw(data) {

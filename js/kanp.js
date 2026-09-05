@@ -162,18 +162,35 @@ function updateCollectorBadge(s) {
 // ---------------------------------------------------------------------------
 // Shared: filter bar → API params
 // ---------------------------------------------------------------------------
-KANP.initFilterBar = function (barId) {
+// onChange (optional) fires when a chip or ‹ › changes the range — the
+// History tab reloads on it; the Study tab keeps its Run button.
+KANP.initFilterBar = function (barId, onChange) {
   const bar = document.getElementById(barId);
 
   bar.querySelectorAll('.dow-btn').forEach(b =>
     b.addEventListener('click', () => b.classList.toggle('on')));
 
-  const quick = bar.querySelector('[data-f=quick]');
   const start = bar.querySelector('[data-f=start]');
   const end = bar.querySelector('[data-f=end]');
+  const row = bar.querySelector('[data-f=quick]');
+  const chips = [...row.querySelectorAll('.qr-chip')];
+  const stepFwd = row.querySelector('.qr-step[data-step="1"]');
 
+  // Two things, kept apart: the chip picks the window's length (anchored on
+  // now, or on a calendar day), ‹ › slide whatever window is set by its own
+  // span. Stepping leaves the chips — the From/To fields are then the range,
+  // and Load no longer slides it back to now.
+  const setChip = v => {
+    row.dataset.quick = v || '';
+    chips.forEach(c => c.classList.toggle('on', !!v && c.dataset.q === v));
+  };
+  const syncStep = () => {
+    if (!stepFwd) return;
+    const e = end.value ? new Date(end.value).getTime() : 0;
+    stepFwd.disabled = !e || e >= Date.now() - 60_000;   // nothing ahead of now
+  };
   const applyQuick = () => {
-    const v = quick.value;
+    const v = row.dataset.quick;
     if (!v) return;
     const now = new Date();
     let s, e = now;
@@ -187,9 +204,38 @@ KANP.initFilterBar = function (barId) {
     }
     start.value = toLocalInput(s);
     end.value = toLocalInput(e);
+    syncStep();
   };
-  quick.addEventListener('change', applyQuick);
-  [start, end].forEach(el => el.addEventListener('input', () => { quick.value = ''; }));
+  const step = dir => {
+    if (!start.value || !end.value) return;
+    const s = new Date(start.value), e = new Date(end.value);
+    const span = e.getTime() - s.getTime();
+    if (span <= 0) return;
+    const v = row.dataset.quick;
+    if (v === 'today' || v === 'yesterday' || span === 86_400_000) {
+      // a calendar-day window steps by calendar days (DST-safe)
+      s.setDate(s.getDate() + dir); e.setDate(e.getDate() + dir);
+    } else {
+      s.setTime(s.getTime() + dir * span); e.setTime(e.getTime() + dir * span);
+    }
+    if (dir > 0 && e.getTime() > Date.now()) {
+      e.setTime(Date.now()); s.setTime(e.getTime() - span);   // clamp at now, keep the span
+    }
+    setChip('');
+    start.value = toLocalInput(s);
+    end.value = toLocalInput(e);
+    syncStep();
+    if (onChange) onChange();
+  };
+  chips.forEach(c => c.addEventListener('click', () => {
+    setChip(c.dataset.q);
+    applyQuick();
+    if (onChange) onChange();
+  }));
+  row.querySelectorAll('.qr-step').forEach(b =>
+    b.addEventListener('click', () => step(Number(b.dataset.step))));
+  [start, end].forEach(el => el.addEventListener('input', () => { setChip(''); syncStep(); }));
+  row._applyQuick = applyQuick;     // readFilters re-applies "last N" against now
   applyQuick();
 
   KANP.initAltSlider(bar);
@@ -267,9 +313,7 @@ KANP.readFilters = function (barId) {
 
   // re-apply quick range so "last 24 h" means 24 h before *now*, not page load
   const quick = get('quick');
-  if (quick.value) {
-    quick.dispatchEvent(new Event('change'));
-  }
+  if (quick && quick.dataset.quick && quick._applyQuick) quick._applyQuick();
 
   const p = {};
   // Controls are read defensively: the History bar omits some of these
@@ -327,6 +371,59 @@ KANP.isGA = function (t) {
   if (!type) return true;                              // untyped → assume light GA
   if (/^A3..$/.test(type) || /^B7..$/.test(type)) return false;  // Airbus/Boeing airliner families
   return !KANP.AIRLINER_TYPES.has(type);
+};
+
+// ---------------------------------------------------------------------------
+// Shared: rotorcraft classifier for the helicopters tri-state. ICAO type
+// designators seen around KANP (Coast Guard, medevac, Andrews/Belvoir/Quantico
+// military, police, news, training) plus the common civil types; the feed's
+// description is the fallback for a designator not listed. An untyped track is
+// not a helicopter here — say so wherever the filter is offered.
+KANP.HELI_TYPES = new Set([
+  // Robinson / Guimbal / Schweizer / Enstrom / Hughes-MD
+  'R22', 'R44', 'R66', 'G2CA', 'H269', 'S269', 'EN28', 'EN48', 'H500', 'MD50',
+  'MD52', 'MD60', 'EXPL',
+  // Bell
+  'B06', 'B06T', 'B105', 'B212', 'B222', 'B230', 'B407', 'B412', 'B427',
+  'B429', 'B430', 'B47G', 'B505', 'UH1', 'UH1Y', 'AH1', 'AH1Z', 'V22',
+  // Airbus Helicopters / Eurocopter / Aérospatiale / Sikorsky / Boeing
+  'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75', 'AS32', 'AS3B',
+  'AS50', 'AS55', 'AS65', 'ALO2', 'ALO3', 'GAZL', 'PUMA', 'SPUM', 'TIGR',
+  'H60', 'S70', 'S76', 'S92', 'S61', 'S64', 'S58T', 'H53', 'H53S', 'H47',
+  // Leonardo / Agusta / Westland, Kaman, MBB, NH, Mil
+  'A109', 'A119', 'A139', 'A149', 'A169', 'A189', 'AW09', 'EH10', 'LYNX',
+  'WG30', 'H64', 'K126', 'K120', 'BK17', 'NH90', 'MI8', 'MI17', 'MI24',
+]);
+
+KANP.isHelicopter = function (t) {
+  if (!t) return false;
+  const type = (t.type || '').toUpperCase().trim();
+  if (type && KANP.HELI_TYPES.has(type)) return true;
+  if (type) return false;      // a known fixed-wing designator outranks the description
+  return /HELICOPTER|ROTORCRAFT/i.test(t.descr || '');
+};
+
+// Tri-state filter button: click cycles 0 → 1 → 2 → 0. Text is data-label,
+// "<label> hidden", "<label> only"; state lives in data-state so CSS colours it.
+KANP.triState = function (btn, onChange) {
+  const label = btn.dataset.label;
+  const paint = () => {
+    const st = Number(btn.dataset.state || 0);
+    btn.textContent = st === 1 ? `${label} hidden` : st === 2 ? `${label} only` : label;
+  };
+  btn.addEventListener('click', () => {
+    btn.dataset.state = String((Number(btn.dataset.state || 0) + 1) % 3);
+    paint();
+    if (onChange) onChange();
+  });
+  paint();
+};
+// Apply one tri-state button to a track list; test(track) says membership.
+KANP.triFilter = function (btn, tracks, test) {
+  const st = Number(btn.dataset.state || 0);
+  if (st === 1) return tracks.filter(t => !test(t));
+  if (st === 2) return tracks.filter(t => test(t));
+  return tracks;
 };
 
 // ---------------------------------------------------------------------------
@@ -410,15 +507,26 @@ KANP.fieldContact = function (points) {
 // points that don't change a track's shape, so turns stay crisp — used
 // client-side purely to keep very large multi-day snapshot ranges drawable
 // (the exporter/API already simplify what they serve). Point: [ts,lat,lon,alt,gs,og].
-KANP.simplifyTrack = function (pts, epsNm) {
+KANP.simplifyTrack = function (pts, epsNm, near) {
+  // near = { lat, lon, nm, eps }: inside that ring the tolerance is `eps`
+  // (0 keeps every fix — the collector samples the pattern at 1 Hz and the
+  // Pi kept them all; coarsening them away here undid that on any range big
+  // enough to trip the draw limit). The run breaks at each ring crossing so
+  // neither tolerance leaks across it — same rule as pi/trackutil.py.
+  if (near && (!(near.nm > 0) || near.eps === epsNm)) near = null;
   const n = pts.length;
-  if (n <= 2 || epsNm <= 0) return pts;
+  if (n <= 2 || (epsNm <= 0 && !near)) return pts;
   const NM_DEG = 60, GAP = 300, BUCKET = 500;
   const cosLat = Math.cos(pts[0][1] * Math.PI / 180);
   const colour = p => (p[5] ? 'g' : p[3] == null ? 'u' : Math.floor(p[3] / BUCKET));
+  const inNear = near ? (p => {
+    const dy = (p[1] - near.lat) * NM_DEG, dx = (p[2] - near.lon) * NM_DEG * cosLat;
+    return dx * dx + dy * dy <= near.nm * near.nm;
+  }) : (() => false);
   const keep = new Uint8Array(n);
   keep[0] = keep[n - 1] = 1;
-  const rdp = (lo, hi) => {
+  const rdp = (lo, hi, eps) => {
+    if (!(eps > 0)) { for (let k = lo; k <= hi; k++) keep[k] = 1; return; }
     const stack = [[lo, hi]];
     while (stack.length) {
       const [a, b] = stack.pop();
@@ -438,16 +546,21 @@ KANP.simplifyTrack = function (pts, epsNm) {
         }
         if (d > dmax) { dmax = d; idx = k; }
       }
-      if (idx >= 0 && dmax * NM_DEG > epsNm) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
+      if (idx >= 0 && dmax * NM_DEG > eps) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
     }
   };
-  let segStart = 0, prev = colour(pts[0]);
+  let segStart = 0, prev = colour(pts[0]), nearRun = inNear(pts[0]);
   for (let i = 1; i < n; i++) {
     const c = colour(pts[i]);
     if (c !== prev) { keep[i] = 1; keep[i - 1] = 1; prev = c; }
-    if (pts[i][0] - pts[i - 1][0] > GAP) { keep[i - 1] = 1; keep[i] = 1; rdp(segStart, i - 1); segStart = i; }
+    const nowNear = inNear(pts[i]);
+    if (pts[i][0] - pts[i - 1][0] > GAP || nowNear !== nearRun) {
+      keep[i - 1] = 1; keep[i] = 1;
+      rdp(segStart, i - 1, nearRun ? near.eps : epsNm);
+      segStart = i; nearRun = nowNear;
+    }
   }
-  rdp(segStart, n - 1);
+  rdp(segStart, n - 1, nearRun ? near.eps : epsNm);
   const out = [];
   for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
   return out;

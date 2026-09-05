@@ -199,8 +199,30 @@
     }
     .dual-range input[type=range]::-moz-range-track { background: transparent; }
 
-    /* ---- toggle buttons (GA / Military / KANP-only) ---- */
+    /* ---- quick range chips + window stepper ---- */
+    .qr-row { display: flex; gap: 3px; }
+    .qr-chip, .qr-step {
+      height: 26px; padding: 0 8px;
+      background: #111; border: 1px solid #3a3a3a; color: #777;
+      border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit;
+      white-space: nowrap;
+    }
+    .qr-step { width: 26px; padding: 0; font-size: 15px; line-height: 1; }
+    .qr-chip:hover, .qr-step:hover { color: #ccc; border-color: #555; }
+    .qr-chip.on { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
+    .qr-step:disabled { opacity: .3; cursor: default; }
+    .filter-field label .hint { color: #444; margin-left: 6px; }
+
+    /* ---- toggle buttons (KANP-only) + tri-state (helicopters / GA / military) ---- */
     .tgl-row { display: flex; gap: 6px; }
+    .tri-btn {
+      background: #111; border: 1px solid #3a3a3a; color: #888;
+      border-radius: 5px; padding: 6px 11px; font-size: 12px;
+      cursor: pointer; font-family: inherit; white-space: nowrap;
+    }
+    .tri-btn:hover { color: #ccc; border-color: #555; }
+    .tri-btn[data-state="1"] { background: #3a1a1a; border-color: #b34b4b; color: #f0b7b7; text-decoration: line-through; }
+    .tri-btn[data-state="2"] { background: #1d3a5f; border-color: #4a9eff; color: #cfe6ff; }
     .tgl-btn {
       background: #111; border: 1px solid #3a3a3a; color: #888;
       border-radius: 5px; padding: 6px 11px; font-size: 12px;
@@ -476,17 +498,18 @@
   <div id="tab-history" class="tab-panel active">
     <div class="filter-bar" id="hist-filters">
       <div class="filter-field">
-        <label>Quick range</label>
-        <select data-f="quick">
-          <option value="">custom</option>
-          <option value="3600">last hour</option>
-          <option value="21600" selected>last 6 h</option>
-          <option value="86400">last 24 h</option>
-          <option value="today">today</option>
-          <option value="yesterday">yesterday</option>
-          <option value="604800">last 7 days</option>
-          <option value="2592000">last 30 days</option>
-        </select>
+        <label>Range</label>
+        <div class="qr-row" data-f="quick" data-quick="21600">
+          <button type="button" class="qr-step" data-step="-1" title="Previous window">‹</button>
+          <button type="button" class="qr-chip" data-q="3600">1 h</button>
+          <button type="button" class="qr-chip on" data-q="21600">6 h</button>
+          <button type="button" class="qr-chip" data-q="86400">24 h</button>
+          <button type="button" class="qr-chip" data-q="today">today</button>
+          <button type="button" class="qr-chip" data-q="yesterday">yesterday</button>
+          <button type="button" class="qr-chip" data-q="604800">7 d</button>
+          <button type="button" class="qr-chip" data-q="2592000">30 d</button>
+          <button type="button" class="qr-step" data-step="1" title="Next window">›</button>
+        </div>
       </div>
       <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
@@ -510,10 +533,13 @@
         </div>
       </div>
       <div class="filter-field">
-        <label>Show</label>
+        <label>Show <span class="hint">click cycles: all → hidden → only</span></label>
         <div class="tgl-row">
-          <button type="button" class="tgl-btn" id="hist-ga">GA only</button>
-          <button type="button" class="tgl-btn" id="hist-mil">Military</button>
+          <button type="button" class="tri-btn" id="hist-heli" data-state="0" data-label="helicopters"
+                  title="Rotorcraft by ICAO type designator; untyped aircraft count as not helicopters">helicopters</button>
+          <button type="button" class="tri-btn" id="hist-ga" data-state="0" data-label="GA"
+                  title="General aviation: not an airliner, regional or military type">GA</button>
+          <button type="button" class="tri-btn" id="hist-mil" data-state="0" data-label="military">military</button>
           <button type="button" class="tgl-btn" id="hist-kanp">KANP only</button>
         </div>
       </div>
@@ -521,12 +547,14 @@
         <label>KANP ops</label>
         <select data-f="arrdep" id="hist-arrdep" disabled>
           <option value="lee">all KANP traffic</option>
-          <option value="pattern">pattern work</option>
+          <option value="pattern" title="Laps between two field contacts ≤ 8 min apart, inside 3 nm and ≤ 1,800 ft; the rest of each track is cut">pattern work</option>
+          <option value="dep" title="Liftoff to 10 nm or 10 min, whichever first; cut where the aircraft comes back to the field">departures</option>
+          <option value="arr" title="The last 10 nm or 10 min before the field; cut where the aircraft last left it">arrivals</option>
         </select>
       </div>
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
-    <div class="result-line" id="hist-result">Set a range and hit <em>Load tracks</em>. Data collected 24/7 by the Raspberry Pi, read from its hourly GitHub snapshots (or the Pi directly on the home network).</div>
+    <div class="result-line" id="hist-result">Range chip → loads · ‹ › → same window, earlier / later · helicopters / GA / military → all, hidden, only · KANP only → whole tracks, or clipped to the pattern, the departure, the arrival · source → Pi on the home network, else hourly GitHub snapshots</div>
 
     <div class="hist-map-row">
       <div id="hist-map"></div>
@@ -587,15 +615,18 @@
   <div id="tab-study" class="tab-panel">
     <div class="filter-bar" id="study-filters">
       <div class="filter-field">
-        <label>Quick range</label>
-        <select data-f="quick">
-          <option value="">custom</option>
-          <option value="86400">last 24 h</option>
-          <option value="604800" selected>last 7 days</option>
-          <option value="2592000">last 30 days</option>
-          <option value="7776000">last 90 days</option>
-          <option value="31536000">last year</option>
-        </select>
+        <label>Range</label>
+        <div class="qr-row" data-f="quick" data-quick="604800">
+          <button type="button" class="qr-step" data-step="-1" title="Previous window">‹</button>
+          <button type="button" class="qr-chip" data-q="86400">24 h</button>
+          <button type="button" class="qr-chip" data-q="today">today</button>
+          <button type="button" class="qr-chip" data-q="yesterday">yesterday</button>
+          <button type="button" class="qr-chip on" data-q="604800">7 d</button>
+          <button type="button" class="qr-chip" data-q="2592000">30 d</button>
+          <button type="button" class="qr-chip" data-q="7776000">90 d</button>
+          <button type="button" class="qr-chip" data-q="31536000">1 y</button>
+          <button type="button" class="qr-step" data-step="1" title="Next window">›</button>
+        </div>
       </div>
       <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
@@ -977,10 +1008,10 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js?v=2"></script>
-  <script src="js/kanp.js?v=6"></script>
-  <script src="js/kanp-history.js?v=3"></script>
+  <script src="js/kanp.js?v=7"></script>
+  <script src="js/kanp-history.js?v=4"></script>
   <script src="js/kanp-study.js"></script>
-  <script src="js/kanp-ops.js"></script>
+  <script src="js/kanp-ops.js?v=1"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>
   <script src="js/kanp-pattern.js"></script>
