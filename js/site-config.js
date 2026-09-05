@@ -25,6 +25,11 @@ const SITE = {
     // from the charted airport reference point above.
     lat: 38.9422, lon: -76.5684,
     radiusNm: 60,             // study/display radius around the field
+    // The collector polls this tight ring around the field every second on
+    // top of the 3 s wide poll, and the exporter publishes those fixes with a
+    // finer simplification tolerance — so tracks inside it carry more detail.
+    // Pi mirror: KANP_NEAR_RADIUS_NM in site.env. Drawn on the tracker maps.
+    nearNm: 5,
 
     // Single primary runway for the ops detector (multi-runway support is
     // planned; until then pick the strip that sees the traffic).

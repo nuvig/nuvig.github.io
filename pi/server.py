@@ -63,6 +63,15 @@ WEB_ROOT = os.environ.get(
 # so tracks stay crisp at any zoom. Mirrors the exporter's KANP_SIMPLIFY_NM so
 # the home API and the public snapshots render identically.
 SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
+# The collector polls a tight ring around the field every second (see
+# KANP_NEAR_RADIUS_NM in collector.py); those fixes are the point of the near
+# poll, so inside that ring the tolerance is finer — 0 keeps every fix. Mirrors
+# the exporter, so the home API and the public snapshots render identically.
+FIELD_LAT = float(os.environ.get("KANP_LAT", "38.9422"))
+FIELD_LON = float(os.environ.get("KANP_LON", "-76.5684"))
+NEAR_RADIUS_NM = float(os.environ.get("KANP_NEAR_RADIUS_NM", "5"))
+SIMPLIFY_NEAR_NM = float(os.environ.get("KANP_SIMPLIFY_NEAR_NM", "0"))
+NEAR = (FIELD_LAT, FIELD_LON, NEAR_RADIUS_NM, SIMPLIFY_NEAR_NM)
 # If a query returns more than this many *simplified* points it's flagged
 # "dense" — a hint that it's a heavy draw. The page decides what to warn about
 # from the on-screen (post-filter) set, so this is just an upper-bound signal.
@@ -223,7 +232,7 @@ def q_tracks(q):
             cur["points"] = [
                 [p[0], round(p[1], 5), round(p[2], 5), p[3],
                  round(p[4], 1) if p[4] is not None else None, p[5]]
-                for p in simplify_track(buf, SIMPLIFY_NM)
+                for p in simplify_track(buf, SIMPLIFY_NM, NEAR)
             ]
             kept += len(cur["points"])
             tracks.append(cur)
@@ -247,6 +256,8 @@ def q_tracks(q):
         "total_points": total,
         "returned_points": kept,
         "simplify_nm": SIMPLIFY_NM,
+        "simplify_near_nm": SIMPLIFY_NEAR_NM,
+        "near_nm": NEAR_RADIUS_NM,
         "dense": kept > DENSE_POINTS,
         "aircraft_count": len(tracks),
         "tracks": tracks,

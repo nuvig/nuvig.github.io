@@ -8,6 +8,7 @@ const KANP = {
   LAT: SITE.tracker.lat,
   LON: SITE.tracker.lon,
   SEARCH_NM: SITE.tracker.radiusNm,   // study/display radius around the field, nm
+  NEAR_NM: SITE.tracker.nearNm,       // 1 s poll ring — finer track detail inside it
   POLL_MS: 60_000,        // snapshot mode: the GitHub data only changes hourly
   PI_POLL_MS: 3_000,      // Pi API mode: the collector samples every 3 s
   MAX_AGE_MS: 7 * 86_400_000,
@@ -906,6 +907,16 @@ KANP.addAirport = function (map) {
   [15, 30, 60].forEach(nm => L.circle([KANP.LAT, KANP.LON], {
     radius: nm * 1852, color: '#444', weight: 1, fill: false, interactive: false,
   }).addTo(map));
+
+  // The 1 s poll ring: tracks inside it are sampled every second and exported
+  // with a finer simplification tolerance, so they carry more shape and time
+  // detail than the 3 s wide poll gives everywhere else.
+  if (KANP.NEAR_NM > 0) {
+    L.circle([KANP.LAT, KANP.LON], {
+      radius: KANP.NEAR_NM * 1852, color: '#8a8f98', weight: 1,
+      dashArray: '4 4', fill: false, interactive: false,
+    }).addTo(map);
+  }
 };
 
 // ===========================================================================

@@ -266,6 +266,10 @@ const KANPHistory = (() => {
     KANP.addOpacitySliders(layersCtl, overlays);
 
     KANP.addAirport(map);
+    const nearNote = document.getElementById('near-note');
+    if (nearNote && KANP.NEAR_NM > 0) {
+      nearNote.textContent = ` · dashed ring ${KANP.NEAR_NM} nm: sampled every second`;
+    }
     initExpand();
 
     // keep NEXRAD current while the page sits open

@@ -995,7 +995,14 @@ Pi is the sole pipeline: `collector.py` polls the public ADS-B feeds every 3 s â
 local `override.conf` drop-in) pushes simplified per-day JSON snapshots to the **`traffic-data` branch** (single amended commit;
 `tracks/index.json` lists days). Track simplification is Douglas-Peucker in a local tangent plane
 (`pi/trackutil.py`), shared by the exporter and the API; point tuples are
-`[ts, lat, lon, alt, gs, on_ground]` everywhere.
+`[ts, lat, lon, alt, gs, on_ground]` everywhere. **Inside the collector's 1 s
+near-poll ring (`KANP_NEAR_RADIUS_NM`, 5 nm) the tolerance is its own**
+(`KANP_SIMPLIFY_NEAR_NM`, default 0 = keep every fix): DP is a *spatial*
+filter, so at 0.03 nm a straight downwind collapsed to its endpoints however
+fast it was sampled, and the near poll's extra fixes never reached the map.
+The run breaks at each ring crossing so neither tolerance leaks across it.
+The ring is drawn on both tracker maps as a dashed grey circle
+(`KANP.addAirport`, `SITE.tracker.nearNm` â€” mirror of the Pi env).
 
 Frontend tries the Pi API first; off-LAN (or HTTPS mixed-content block) it falls back to the GitHub raw
 snapshots via `kanp-static.js`, mirroring the API's filter semantics client-side. Data there is up to

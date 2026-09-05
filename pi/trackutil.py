@@ -2,7 +2,9 @@
 
 Douglas-Peucker simplification in a local tangent plane (nm), run per gap-free
 segment, with altitude colour-bucket and on-ground transitions force-kept so the
-tar1090-style colouring stays put. This preserves a track's *shape* — turns,
+tar1090-style colouring stays put. An optional near-field ring carries its own
+(finer) tolerance, so the 1 Hz fixes the collector takes around the pattern
+survive export instead of collapsing onto a straight downwind. This preserves a track's *shape* — turns,
 pattern work, climbs/descents — while dropping only the redundant points along
 straight legs. Unlike a uniform stride (keep every Nth fix), it never cuts a
 corner, so a decimated track still reads as the real flight path.
@@ -54,31 +56,55 @@ def _rdp(pts, lo, hi, cos_lat, eps_nm, keep):
             stack.append((idx, b))
 
 
-def simplify_track(pts, eps_nm):
-    """pts: list of [ts,lat,lon,alt,gs,on_ground] sorted by ts → simplified list.
+def in_near(p, near):
+    """Is fix p inside the near ring? near = (lat, lon, radius_nm, eps_nm)."""
+    dy = (p[1] - near[0]) * NM_PER_DEG
+    dx = (p[2] - near[1]) * NM_PER_DEG * math.cos(math.radians(near[0]))
+    return dx * dx + dy * dy <= near[2] * near[2]
+
+
+def simplify_track(pts, eps_nm, near=None):
+    """pts: list of [ts,lat,lon,alt,gs,on_ground] sorted by ts -> simplified list.
 
     eps_nm is the perpendicular tolerance: a point is dropped only if it sits
     within eps_nm of the straight line between its kept neighbours. 0 disables.
+
+    near = (lat, lon, radius_nm, eps_nm) applies its own tolerance inside a
+    ring around that centre (0 keeps every fix there). The run breaks at each
+    crossing, so neither tolerance leaks across the boundary.
     """
     n = len(pts)
-    if n <= 2 or eps_nm <= 0:
+    if near and (near[2] <= 0 or near[3] == eps_nm):
+        near = None
+    if n <= 2 or (eps_nm <= 0 and near is None):
         return pts
     cos_lat = math.cos(math.radians(pts[0][1]))
     keep = [False] * n
     keep[0] = keep[n - 1] = True
 
+    def run(lo, hi, eps):
+        if eps > 0:
+            _rdp(pts, lo, hi, cos_lat, eps, keep)
+        else:                          # keep every fix in this run
+            for k in range(lo, hi + 1):
+                keep[k] = True
+
     seg_start = 0
     prev_bucket = _colour_bucket(pts[0])
+    near_run = in_near(pts[0], near) if near else False
     for i in range(1, n):
         b = _colour_bucket(pts[i])
         if b != prev_bucket:          # keep colour transitions on both sides
             keep[i] = True
             keep[i - 1] = True
             prev_bucket = b
-        if pts[i][0] - pts[i - 1][0] > GAP_S:   # coverage gap → break the run
+        now_near = in_near(pts[i], near) if near else False
+        # break the run on a coverage gap or a crossing of the near ring
+        if pts[i][0] - pts[i - 1][0] > GAP_S or now_near != near_run:
             keep[i - 1] = True
             keep[i] = True
-            _rdp(pts, seg_start, i - 1, cos_lat, eps_nm, keep)
+            run(seg_start, i - 1, near[3] if near_run else eps_nm)
             seg_start = i
-    _rdp(pts, seg_start, n - 1, cos_lat, eps_nm, keep)
+            near_run = now_near
+    run(seg_start, n - 1, near[3] if near_run else eps_nm)
     return [pts[i] for i in range(n) if keep[i]]

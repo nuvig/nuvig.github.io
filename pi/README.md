@@ -55,6 +55,8 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 | `KANP_NEAR_POLL_SECONDS` | `1` | cadence of that near poll; must be under `KANP_POLL_SECONDS` |
 | `KANP_RETENTION_DAYS` | `365` | positions older than this are pruned hourly |
 | `KANP_MAX_DB_MB` | `8000` | hard cap; oldest 30-day chunks dropped if exceeded |
+| `KANP_SIMPLIFY_NM` | `0.03` | Douglas-Peucker tolerance (nm) for exported/served tracks |
+| `KANP_SIMPLIFY_NEAR_NM` | `0` | tolerance inside `KANP_NEAR_RADIUS_NM`; `0` keeps every fix. Set it to `KANP_SIMPLIFY_NM` to turn the near-field detail off |
 | `KANP_PORT` | `8787` | API/web port |
 
 ### Storage math (32 GB SD card)
@@ -92,6 +94,9 @@ automatically falls back to them whenever the Pi API isn't reachable. Data is
 up to an hour stale. Tracks are shape-simplified (Douglas-Peucker, tolerance
 `KANP_SIMPLIFY_NM`, default 0.03 nm) — straight legs collapse to a few points
 while turns stay crisp, so the snapshots render the same as the live API.
+Inside the near-poll ring (`KANP_NEAR_RADIUS_NM`) the tolerance is
+`KANP_SIMPLIFY_NEAR_NM`, default 0 — every fix is published, so the 1 s
+sampling around the pattern survives to the map.
 One-time setup:
 
 1. Create a **fine-grained personal access token** at

@@ -73,6 +73,12 @@ SITE_TRAFFIC_PATH = os.environ.get(
 # couple of points. ~0.03 nm (~180 ft) is finer than ADS-B noise → visually
 # lossless; raise it to shrink files further, lower it for even more fidelity.
 SIMPLIFY_NM = float(os.environ.get("KANP_SIMPLIFY_NM", "0.03"))
+# Inside the collector's near-poll ring (KANP_NEAR_RADIUS_NM) the tolerance is
+# finer — 0 publishes every fix. Those 1 Hz fixes are why the near poll exists,
+# and at 0.03 nm a straight downwind collapses to its endpoints no matter how
+# fast it was sampled. Costs a few percent on the day file. Mirrors server.py.
+NEAR_RADIUS_NM = float(os.environ.get("KANP_NEAR_RADIUS_NM", "5"))
+SIMPLIFY_NEAR_NM = float(os.environ.get("KANP_SIMPLIFY_NEAR_NM", "0"))
 PUSH = os.environ.get("KANP_EXPORT_PUSH", "1") == "1"
 # How often to prune/repack the export clone (see gitutil.maintain). Lower it
 # if the clone still grows between runs; 0 disables collection entirely.
@@ -86,6 +92,7 @@ STATS_DIR = os.path.join(V2_DIR, "stats")
 # Field center, as the collector uses (env mirror of SITE.tracker.lat/lon).
 FIELD_LAT = float(os.environ.get("KANP_LAT", "38.9422"))
 FIELD_LON = float(os.environ.get("KANP_LON", "-76.5684"))
+NEAR = (FIELD_LAT, FIELD_LON, NEAR_RADIUS_NM, SIMPLIFY_NEAR_NM)
 # "At the field" ops gates — mirrors SITE.tracker.opsGates (js/site-config.js).
 OPS_NEAR_NM = 0.8
 OPS_LOW_FT = 600
@@ -262,7 +269,7 @@ def export_day(db, day_str):
         cur["points"] = [
             [p[0], round(p[1], 5), round(p[2], 5), p[3],
              round(p[4], 1) if p[4] is not None else None, p[5]]
-            for p in simplify_track(buf, SIMPLIFY_NM)
+            for p in simplify_track(buf, SIMPLIFY_NM, NEAR)
         ]
         kept += len(cur["points"])
         tracks.append(cur)
@@ -284,6 +291,8 @@ def export_day(db, day_str):
         "date": day_str,
         "generated": int(datetime.datetime.now().timestamp()),
         "simplify_nm": SIMPLIFY_NM,
+        "simplify_near_nm": SIMPLIFY_NEAR_NM,
+        "near_nm": NEAR_RADIUS_NM,
         "total_points": total,
         "points": kept,
         "tracks": tracks,
