@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 38;
+const DISC_VER = 39;
 
 const $ = (id) => document.getElementById(id);
 
@@ -2883,9 +2883,17 @@ function moistureClause(s, i) {
   if (!s || !Number.isFinite(s.td[i])) return '';
   const td = Math.round(degF(s.td[i]));
   const d = ((s.dir[i] % 360) + 360) % 360;
-  if (d >= 140 && d <= 250) return ` Dewpoints near ${td}°, fed from the south — Gulf and western-Atlantic moisture.`;
-  if (d >= 50 && d < 140) return ` Dewpoints near ${td}° on onshore flow off the Atlantic.`;
-  return ` Dewpoints near ${td}° in ${td >= 63 ? 'a humid' : 'a drier'} air mass.`;
+  if (d >= 140 && d <= 250) return ` Dewpoint ${td}°, southerly flow.`;
+  if (d >= 50 && d < 140) return ` Dewpoint ${td}°, onshore flow.`;
+  return ` Dewpoint ${td}°.`;
+}
+
+/* NWS wording: slight chance < 25 %, chance < 55 %, likely above. The headline
+   follows the office's own confidence rather than calling every 17 % night
+   "Thunderstorms". */
+function stormHead(pop, when) {
+  return pop == null || pop >= 55 ? `Thunderstorms ${when}`
+    : pop >= 25 ? `Chance of storms ${when}` : `Slight chance of storms ${when}`;
 }
 
 function idxAt(s, ms) {
@@ -2974,9 +2982,9 @@ function buildStories(s) {
         score: 64 + (e.cape >= 2000 ? 16 : e.cape >= 1400 ? 9 : 0) + (inches >= 0.4 ? 5 : 0) - pen,
         headline: `Thunderstorms ${whenPhrase(e.t0)}`,
         anchors: mAnchors,
-        deck: `${fmtJ(e.cape)} J/kg of storm fuel in the GFS, rain breaking out ${span}` +
-          `${mech ? ` with ${mech.text}` : ''} — about ${inches.toFixed(2)}″ if a cell tracks over ` +
-          `the district.${moistureClause(s, e.i0)}${lwx}${capNote}`,
+        deck: `GFS: ${fmtJ(e.cape)} J/kg CAPE, rain ${span}` +
+          `${mech ? ` with ${mech.text}` : ''}, about ${inches.toFixed(2)}″ at DC.` +
+          `${moistureClause(s, e.i0)}${lwx}${capNote}`,
       });
     } else if (CONVECTIVE.test(wtxt)) {
       /* LWX says thunder over these hours; the GFS has the rain but not the
@@ -2986,11 +2994,9 @@ function buildStories(s) {
         key,
         day: eDay,
         score: 54 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - pen,
-        headline: `Thunderstorms ${whenPhrase(e.t0)}`,
-        deck: `LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}. The GFS has the ` +
-          `rain ${span} but only ${fmtJ(e.cape)} J/kg of storm fuel at DC.` +
-          `${moistureClause(s, e.i0)} With fuel that thin, storms hang on local triggers — ` +
-          'the bay breeze and leftover outflow boundaries.',
+        headline: stormHead(pop, whenPhrase(e.t0)),
+        deck: `LWX: “${quote(CONVECTIVE)}”${pop != null ? `, ${pop}%` : ''}. GFS: rain ` +
+          `${span}, ${fmtJ(e.cape)} J/kg CAPE at DC.${moistureClause(s, e.i0)}`,
       });
     } else {
       const heavy = inches >= 0.75, trace = inches < 0.15;
@@ -3040,13 +3046,11 @@ function buildStories(s) {
         key: 'fcstorm:' + day,
         day,
         score: 52 + (pop >= 60 ? 8 : pop >= 40 ? 4 : 0) - leadTimePenalty(at),
-        headline: `Thunderstorms in the forecast ${perName(p.name)}`,
+        headline: stormHead(pop, perName(p.name)),
         deck: `LWX: “${short}” ${perName(p.name)}${pop != null ? `, ${pop}%` : ''}.` +
           (!s ? ''
             : inGrid
-              ? `${moistureClause(s, idxAt(s, at))} Nothing convective in the GFS hourly ` +
-                'numbers at DC — storms in this pattern start on the bay breeze and outflow ' +
-                'boundaries, smaller features than the model grid.'
+              ? `${moistureClause(s, idxAt(s, at))} GFS: no convection at DC.`
               : ' Past the ~2-day GFS window this page reads.'),
       });
     }
@@ -3321,7 +3325,7 @@ function headlineStats(s) {
     if (cp && cp.v >= 400) {
       const cap = capStrength(s, cp.i - 2, cp.i + 2);
       tiles.push({
-        lab: 'Storm fuel',
+        lab: 'CAPE',
         val: `${fmtJ(cp.v)} J/kg`,
         sub: !cap.have ? `peak ${clockPhrase(cp.at)}`
           : cap.mag >= 50 ? `cap −${Math.round(cap.mag / 10) * 10} J/kg`
@@ -3677,12 +3681,9 @@ function renderSplit(s) {
   const modelWet = !!ep;
   let msg = null;
   if (officeStorm && !modelStorm) {
-    msg = 'Thunder in the LWX forecast; nothing convective in the GFS at DC. Storms in ' +
-      'this pattern start on the bay breeze and outflow boundaries — smaller features ' +
-      'than the model grid, so the hourly numbers stay quiet until they fire.';
+    msg = 'Thunder in the LWX forecast; nothing convective in the GFS at DC.';
   } else if (modelStorm && !officeStorm) {
-    msg = 'Storm fuel in the GFS with no thunder in the LWX forecast — fuel without a ' +
-      'trigger often goes unused.';
+    msg = 'CAPE in the GFS, no thunder in the LWX forecast.';
   } else if (officeWet && !modelWet) {
     msg = 'Precip in the LWX forecast; the GFS at DC is dry. Rain areas at this range ' +
       'wander tens of miles, so a dry point doesn\'t mean a dry day.';
@@ -4004,9 +4005,9 @@ function renderAtmos(s) {
   const cape = peakIn(s, 'cape', 24);
   if (cape) {
     add('Instability', `${fmtJ(cape.v)} J/kg`,
-      cape.v >= 2000 ? `big fuel, peaks ${clockPhrase(cape.at)}`
-        : cape.v >= 1000 ? `storm fuel, peaks ${clockPhrase(cape.at)}`
-        : cape.v >= 400 ? 'enough for showers' : 'nothing to work with',
+      cape.v >= 2000 ? `strong, peaks ${clockPhrase(cape.at)}`
+        : cape.v >= 1000 ? `storms possible, peaks ${clockPhrase(cape.at)}`
+        : cape.v >= 400 ? 'showers at most' : 'negligible',
       cape.v >= 1500);
   }
   const cap = capStrength(s, s.now, Math.min(s.t.length - 1, s.now + 24));
@@ -4074,7 +4075,7 @@ function buildHeadline() {
       const lastWet = phases[0].days[phases[0].days.length - 1];
       const nextDry = phases[1] ? phases[1].days[0] : null;
       if (lastWet.date !== lead.day) {
-        lead.deck += ` Not a one-day event — chances stay up through ${dayWord(lastWet.date)}` +
+        lead.deck += ` Chances stay up through ${dayWord(lastWet.date)}` +
           `${nextDry ? `, drier ${dayWord(nextDry.date)}` : ''}.`;
       }
     }
@@ -4492,7 +4493,7 @@ async function loadHistory() {
     `<div class="hist-ev"><span class="when">${esc(e.when)}</span><span class="what">${e.what}</span></div>`).join('');
   $('hist-note').textContent =
     `${OBS_STATION} METARs, ${dates.length} days · warnings from the LWX alert stream` +
-    (HIST.cape.length ? ` · storm fuel: GFS CAPE at the field, archived since ${HIST_D(HIST.cape[0].t)}` : '') +
+    (HIST.cape.length ? ` · CAPE: GFS at the field, archived since ${HIST_D(HIST.cape[0].t)}` : '') +
     ' · from the site\'s hourly archive, not climatology';
   let rt = 0;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawHist, 150); });
