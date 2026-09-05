@@ -1023,7 +1023,27 @@ concepts; to relink, add the tools.html card back.
   **Fixes are stamped `now − seen_pos`** (the feed's position age), not the poll time, so both
   polls give the same fix the same row and pattern turns aren't smeared by up to a poll
   interval; anything over 5 min old is skipped as stale. Health meta keys describe the wide
-  poll only. **The exporter must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
+  poll only. **Collector I/O rebuilt 2026-09-05** after the History tab showed pattern laps as
+  straight chords: the day files held 979 collector-wide stalls of 8–100 s (25 % of the day,
+  51 % on 08-29) while adsb.lol's own trace of the same aircraft was complete — polls were
+  answering (zero "fetch failed" in the journal, adsb.lol at 0.4–0.6 s with a 429 on the 20th
+  request while the collector also polled) yet nothing stored, and the collector logged only
+  when all three feeds failed at once, so the journal was blind. Now: every poll is counted
+  (`Stats` — per feed ok/429/err/empty and max latency, rows stored, zero-row polls, DNS
+  lookup time), summarised once a minute as a `poll stats` journal line and `meta.poll_stats`;
+  a **stall warning** fires when feeds answer but nothing new stores for 15 s; the **near poll
+  runs on its own thread** with its own DB connection (`near_loop`, paused while a wide fetch
+  is in flight so the request budget stays ~1 req/s; `store()` takes `STORE_LOCK`); feeds are
+  `Feed` objects with **persistent connections** (a fresh TLS handshake cost ~0.6 s per poll on
+  the Pi, most of the near poll's budget; a server-closed keep-alive reconnects once, timeouts
+  never retry) and a **429 cooldown** (`KANP_FEED_COOLDOWN_S`, 3 s); **timeouts are 3 s near /
+  10 s wide** (`KANP_NEAR_TIMEOUT_S` / `KANP_WIDE_TIMEOUT_S`; the old 20 s let one slow feed
+  stall every poll); **DNS is cached** ten minutes via a `socket.getaddrinfo` wrapper (a socket
+  timeout never covered the lookup) and slow lookups are counted; feed URL templates come from
+  `KANP_FEEDS`; both loops catch everything and log a traceback rather than crash-looping under
+  systemd's `Restart=always`. Tested against a three-feed stub (fast keep-alive · 429-every-3rd
+  that closes connections · 6 s sleeper). First deploy's `journalctl -u kanp-collector | grep
+  "poll stats"` is the evidence for what the stalls were. **The exporter must call `gitutil.maintain()` after pushing** — the amend + force-push pattern
   orphans the previous commit's blobs locally every run, and without pruning `.git` grows without
   bound (it hit 5.7 GB against 301 MB of data on the real Pi). Weather archiving used to live
   here (`wxarchive.py`) but moved to the wxarchive GitHub Action so the Pi stores no weather
