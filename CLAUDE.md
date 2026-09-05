@@ -1045,11 +1045,18 @@ concepts; to relink, add the tools.html card back.
   that closes connections · 6 s sleeper). **The first deploy's `poll stats` line named the cause**
   (16:31 local, 63 s): adsb.lol answered 429 to 15 of the 27 requests it got, so 28 of 33 near
   polls fell through to adsb.fi, and 11 of those stored nothing new — adsb.fi's positions for the
-  ring weren't fresh, while adsb.lol's own trace of the same laps was complete. **So the two polls
-  now use different feed orders** (`KANP_FEEDS_NEAR` = adsb.lol → airplanes.live → adsb.fi,
-  `KANP_FEEDS_WIDE` = adsb.fi → airplanes.live → adsb.lol): the 1 Hz near poll spends the adsb.lol
-  budget (its low-level coverage at Lee is what holds the pattern), the wide poll leads with
-  adsb.fi, which carried the 60 nm picture fine (94 rows/poll, no zero-row polls). A feed's 429
+  ring weren't fresh, while adsb.lol's own trace of the same laps was complete. The second deploy
+  (near on adsb.lol first) then showed the real numbers: **adsb.lol accepts ~5 requests a minute
+  at steady state** (5–6 ok per minute every minute, old build or new; the 19-of-20 curl burst
+  rode a stored allowance), **airplanes.live's point endpoint 404s on every call** (0 of 98) and
+  each attempt cost the near poll a round trip (54 → 28 polls/min), and **adsb.fi is the only
+  feed answering at 1 Hz, stale in the ring a quarter to a third of the time** (near zero-row
+  21/54, 13/32, 7/28) — that is the ceiling for live collection at Lee. So both polls run
+  adsb.fi → adsb.lol (`KANP_FEEDS_NEAR` / `KANP_FEEDS_WIDE`, per-poll lists kept so they can
+  diverge again), airplanes.live is out, and the fix for complete patterns is a **heal from
+  adsb.lol's trace history** (one trace per field-contact aircraft per day, inside 5/min; URL to
+  confirm from the Pi: `adsb.lol/globe_history/YYYY/MM/DD/traces/<last2>/trace_full_<hex>.json`)
+  — not built yet. A feed's 429
   cooldown doubles per repeat (3 → 20 s, `KANP_FEED_COOLDOWN_MAX_S`) and resets on a success. The
   near thread yields only the tick on which a wide poll *starts* (`WIDE_STARTED_AT`,
   `NEAR_YIELD_S`), never waits for it — pausing for the whole fetch starved it to 1 poll in 66 s on

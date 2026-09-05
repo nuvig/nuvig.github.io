@@ -59,13 +59,14 @@ DEFAULTS = {
     "KANP_FEED_COOLDOWN_S": "3",
     "KANP_FEED_COOLDOWN_MAX_S": "20",
     # Comma-separated feed URL templates ({lat} {lon} {r}) for the "airplanes"
-    # source, tried in order — one list per poll. adsb.lol allows us well under
-    # 1 req/s (2026-09-05: 15 of 27 requests in a minute came back 429), so the
-    # two polls split the budget: the 1 Hz near poll gets adsb.lol first, whose
-    # low-level coverage at Lee is the one that holds the pattern (its trace of
-    # a lap was complete where adsb.fi's answer stored nothing new a third of
-    # the time); the 3 s wide poll goes to adsb.fi first, which carries the 60 nm
-    # picture fine (94 rows/poll, no zero-row polls). Blank = these defaults.
+    # source, tried in order — one list per poll. Measured 2026-09-05: adsb.lol
+    # accepts ~5 requests a minute at steady state (a burst allowance hides it
+    # in a short curl test), so it is last — one snapshot every 12 s is not a
+    # pattern; airplanes.live's point endpoint 404s on every call and each
+    # attempt cost the near poll a round trip, so it is gone; adsb.fi answers
+    # at 1 Hz and carries the 60 nm picture fine, but its ring positions are
+    # unchanged a quarter to a third of the time — the ceiling for live
+    # collection at Lee. Blank = these defaults.
     "KANP_FEEDS_NEAR": "",
     "KANP_FEEDS_WIDE": "",
     "KANP_DB": "/var/lib/kanp/kanp.db",
@@ -111,8 +112,8 @@ MAX_POS_AGE_S = 300
 ADSB_LOL = "https://api.adsb.lol/v2/point/{lat}/{lon}/{r}"
 ADSB_FI = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{r}"
 AIRPLANES_LIVE = "https://api.airplanes.live/v2/point/{lat}/{lon}/{r}"
-DEFAULT_FEEDS_NEAR = [ADSB_LOL, AIRPLANES_LIVE, ADSB_FI]
-DEFAULT_FEEDS_WIDE = [ADSB_FI, AIRPLANES_LIVE, ADSB_LOL]
+DEFAULT_FEEDS_NEAR = [ADSB_FI, ADSB_LOL]
+DEFAULT_FEEDS_WIDE = [ADSB_FI, ADSB_LOL]
 
 
 def _feed_list(key, default):

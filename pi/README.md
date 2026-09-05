@@ -17,7 +17,7 @@ starts two services:
 
 | service | what it does |
 |---|---|
-| `kanp-collector` | polls the public ADS-B feeds (first non-empty answer wins; a feed that answers 429 is skipped for 3 s, doubling per repeat up to 20 s) every 3 s over 60 nm on the main thread (adsb.fi → airplanes.live → adsb.lol), plus a 5 nm poll of the pattern area every second on its own thread (adsb.lol → airplanes.live → adsb.fi — adsb.lol rate-limits us, and its low-level coverage at Lee is the one that holds the pattern, so the near poll spends that budget); persistent connections, cached DNS, 3 s / 10 s timeouts; logs a `poll stats` line every minute (per-feed ok/429/err, rows stored, max latency) and warns when polls answer but nothing new stores for 15 s; writes `/var/lib/kanp/kanp.db` |
+| `kanp-collector` | polls the public ADS-B feeds (first non-empty answer wins; a feed that answers 429 is skipped for 3 s, doubling per repeat up to 20 s) every 3 s over 60 nm on the main thread and a 5 nm poll of the pattern area every second on its own thread, both adsb.fi → adsb.lol (adsb.lol accepts ~5 requests/min at steady state; airplanes.live's point endpoint 404s and is out); persistent connections, cached DNS, 3 s / 10 s timeouts; logs a `poll stats` line every minute (per-feed ok/429/err, rows stored, max latency) and warns when polls answer but nothing new stores for 15 s; writes `/var/lib/kanp/kanp.db` |
 | `kanp-api` | serves the API **and the tracker page** on port 8787 |
 | `kanp-export.timer` | hourly: publishes per-day snapshots to the `traffic-data` branch (needs one-time setup, below) |
 
