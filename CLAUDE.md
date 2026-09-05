@@ -522,6 +522,35 @@ concepts; to relink, add the tools.html card back.
   Tabs deep-link by hash (`#anatomy`), `?nav=`/`?cat=` preselect the interactive. **Currently an
   unlinked `noindex` draft** — on promotion: remove the noindex meta and add the tools.html card
   and sitemap.xml `<url>`.
+- `navtrainer.html` + `js/navtrainer-{nav,core,ui,scenarios}.js` — GPS/NAV/COM Trainer
+  (2026-09-05): a working replica of a touchscreen IFR navigator for instrument instruction.
+  **No Garmin branding anywhere** — name, filenames, UI strings and the footer disclaimer are
+  deliberate; keep it that way. **The bezel is four controls** (volume/squelch, HOME, Direct-To,
+  dual concentric knob) with Proc / Flight Plan / Back / CDI / OBS as *touch* keys, because that
+  is the real unit's layout. The original brief asked for GNS 430/530 hard keys (MENU/FPL/PROC/
+  CLR/ENT + softkeys) — that is a different box and would teach the wrong reach; don't add them.
+  Nav data is the existing `data/procedures/` CIFP build, no second copy. **Two properties were
+  verified across every approach in that build and the sequencing depends on them**: exactly one
+  leg per final carries flags bit0 and never the first, so the missed approach starts there and
+  the MAP is the leg before it; and the vertical angle always sits on that MAP leg, so the FAF is
+  `MAP - 1`. The FAF is what the ILS capture geometry measures from — recheck both after an AIRAC
+  rebuild. Modelled: fly-by turn anticipation vs flyover, auto-suspend at the MAP / in holds / on
+  altitude legs, OBS (and the same key becoming *unsuspend* whenever the box suspended itself),
+  hold in lieu of PT flown as a real racetrack for one circuit, and GPS→VLOC switching only with
+  the approach active, the localizer **active rather than standby**, within 1.2 nm of the final
+  course and 2.0–15.0 nm from the FAF (no auto switch inside 2 nm). **Tuning and identifying are
+  separate states on purpose** — the identifier under the standby frequency is a reverse-frequency
+  lookup from the database and proves nothing; identification is the Morse decoded off the active
+  frequency with the ident audio on, and students conflate the two. Scenarios live in
+  `navtrainer-scenarios.js` (one object each: `setup`/`steps`/`goals`/`watch`); grading is by
+  **outcome**, and `watch` entries only *log* the classic confusions Jesse named — Arrivals hunted
+  for an approach, loaded-but-not-activated, localizer left in standby, tuned but never idented,
+  inside 2 nm still on GPS — they never block. Goals latch once met.
+  **`data/navtrainer/facilities.json` frequencies are placeholders** (`"verified": false`, shown
+  as an `unverified` chip in the UI): the CIFP build carries no navaid frequencies. The navaid
+  *idents* are real, read off the coded legs' recommended-navaid field. Currently an **unlinked
+  `noindex` prototype** — on promotion: remove the noindex meta, add the tools.html card and a
+  sitemap `<url>`. `window.NAVTRAINER_DEBUG` drives it headlessly.
 
 ### Weather
 
