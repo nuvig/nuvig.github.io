@@ -8,6 +8,11 @@ Type=oneshot
 User=kanp
 Group=kanp
 ExecStart=/usr/bin/python3 /opt/kanp/pi/heal.py
+# A oneshot has no start timeout by default, and urllib's socket timeout does
+# not cover DNS — one wedged lookup would hold the unit active forever and the
+# timer (OnUnitActiveSec) would never fire again. A full run is ~8 min at the
+# request cap; 20 gives it room and still frees the timer.
+TimeoutStartSec=20min
 
 # Site config — see pi/site.env.example (KANP_HEAL_*)
 EnvironmentFile=-/etc/kanp/site.env
