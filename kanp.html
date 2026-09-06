@@ -200,12 +200,12 @@
     .dual-range input[type=range]::-moz-range-track { background: transparent; }
 
     /* ---- quick range chips + window stepper ---- */
-    .filter-field.qr-field { flex-basis: 100%; }      /* own row: From / To wrap under it */
+    .filter-field.qr-field { flex-basis: 100%; }      /* own row, under From / To */
     .qr-row { display: flex; gap: 3px; }
     .qr-chip { flex: 0 0 auto; }   /* flex-grow set per chip from its length, see initFilterBar */
     .qr-chip, .qr-step {
       height: 26px; padding: 0 8px;
-      background: #111; border: 1px solid #3a3a3a; color: #777;
+      background: #111; border: 1px solid #3a3a3a; color: #aaa;
       border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit;
       white-space: nowrap;
     }
@@ -497,7 +497,26 @@
 
   <!-- ======================= HISTORY MAP TAB ======================= -->
   <div id="tab-history" class="tab-panel active">
+    <div class="hist-map-row">
+      <div id="hist-map"></div>
+      <div class="alt-vpanel" id="hist-alt">
+        <div class="ttl">Alt ft</div>
+        <span class="alt-num" id="hist-ceil-num">5,000</span>
+        <div class="alt-band-track" id="hist-alt-track" role="slider"
+             aria-label="Altitude band: drag edges to set floor and ceiling, drag the middle to move the band"
+             title="Drag edges: floor / ceiling · drag middle: move band">
+          <canvas class="alt-scale"></canvas>
+          <div class="alt-shade top"></div>
+          <div class="alt-shade bot"></div>
+          <div class="alt-band" id="hist-alt-band"></div>
+        </div>
+        <span class="alt-num" id="hist-floor-num">0</span>
+      </div>
+    </div>
+
     <div class="filter-bar" id="hist-filters">
+      <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
+      <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field qr-field">
         <label>Range</label>
         <div class="qr-row" data-f="quick" data-quick="21600">
@@ -512,8 +531,6 @@
           <button type="button" class="qr-step" data-step="1" title="Next window">›</button>
         </div>
       </div>
-      <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
-      <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
       <div class="filter-field">
         <label>Ground traffic</label>
         <select data-f="ground">
@@ -561,23 +578,6 @@
       <button class="btn" id="hist-load">Load tracks</button>
     </div>
     <div class="result-line" id="hist-result"></div>
-
-    <div class="hist-map-row">
-      <div id="hist-map"></div>
-      <div class="alt-vpanel" id="hist-alt">
-        <div class="ttl">Alt ft</div>
-        <span class="alt-num" id="hist-ceil-num">5,000</span>
-        <div class="alt-band-track" id="hist-alt-track" role="slider"
-             aria-label="Altitude band: drag edges to set floor and ceiling, drag the middle to move the band"
-             title="Drag edges: floor / ceiling · drag middle: move band">
-          <canvas class="alt-scale"></canvas>
-          <div class="alt-shade top"></div>
-          <div class="alt-shade bot"></div>
-          <div class="alt-band" id="hist-alt-band"></div>
-        </div>
-        <span class="alt-num" id="hist-floor-num">0</span>
-      </div>
-    </div>
 
     <div class="alt-legend">
       <span>ground</span>
