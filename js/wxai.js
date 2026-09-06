@@ -47,7 +47,7 @@
         'Under 200 words.',
     },
     {
-      id: 'synoptic', label: 'Synoptic analysis', model: 'claude-opus-5', effort: 'high',
+      id: 'synoptic', label: 'Synoptic analysis', model: 'claude-sonnet-5', effort: 'high',
       note: 'the pattern, the driver, the next 48 h',
       prompt: 'Analyze the weather situation. Identify the synoptic pattern from the surface obs, winds aloft, ' +
         'sounding, model CAPE and the LWX discussion; name the mechanism driving the next 48 hours; ' +
@@ -55,7 +55,7 @@
         'state where the sources disagree and which you trust and why. Under 500 words.',
     },
     {
-      id: 'overview', label: 'Full air analysis', model: 'claude-opus-5', effort: 'xhigh',
+      id: 'overview', label: 'Full air analysis', model: 'claude-sonnet-5', effort: 'xhigh',
       note: 'every source, every layer, no word limit',
       prompt: 'Give a broad, detailed analysis of the whole air column and the whole picture, every source read against every other. ' +
         'Cover in order: (1) surface — each METAR station, what the ring says about cloud layers the field sensor may miss, ' +
@@ -69,7 +69,7 @@
         'Be thorough rather than brief; use headings and short lines; quote the specific values you reason from.',
     },
     {
-      id: 'critique', label: 'Forecast critique', model: 'claude-opus-5', effort: 'high',
+      id: 'critique', label: 'Forecast critique', model: 'claude-sonnet-5', effort: 'high',
       note: 'TAFs vs grid vs GFS vs LWX',
       prompt: 'Critique the forecast. Compare the TAFs, the NWS hourly grid at the field, the GFS point values ' +
         'and the LWX discussion against each other and against the latest observations. ' +
@@ -77,7 +77,7 @@
         'morning need to watch? Under 400 words.',
     },
     {
-      id: 'ifr', label: 'IFR training', model: 'claude-opus-5', effort: 'medium',
+      id: 'ifr', label: 'IFR training', model: 'claude-sonnet-5', effort: 'medium',
       note: 'actual IMC prospects, ice, freezing level',
       prompt: 'Assess the next 24 hours for an IFR training flight in a non-deiced piston single ' +
         '(approaches at KESN, KMTN, KBWI, return to ' + SITE.airport.id + ' VFR). Give: usable actual IMC hours if any, ' +
@@ -85,7 +85,7 @@
         'and the best window. Under 300 words.',
     },
     {
-      id: 'xc', label: 'Cross-country', model: 'claude-opus-5', effort: 'medium',
+      id: 'xc', label: 'Cross-country', model: 'claude-sonnet-5', effort: 'medium',
       note: 'a 200 nm VFR trip out and back today',
       prompt: 'A student plans a VFR cross-country of about 200 nm out and back from ' + SITE.airport.id +
         ' today, departing in the next 3 hours, about 5 hours total. From the data, which direction has the best ' +
@@ -99,7 +99,7 @@
         'and the one thing to watch today.',
     },
     {
-      id: 'ask', label: 'Ask', model: 'claude-opus-5', effort: 'medium',
+      id: 'ask', label: 'Ask', model: 'claude-sonnet-5', effort: 'medium',
       note: 'your own question against the same data',
       prompt: null,
     },
@@ -271,15 +271,30 @@
     state.abort = ctrl;
     setBusy(true);
     try {
-      const res = await fetch(API, {
-        method: 'POST', headers: headers(model), signal: ctrl.signal,
-        body: JSON.stringify(buildBody(task, model, question, state.context)),
-      });
-      if (!res.ok) {
+      let res, note = '';
+      for (let attempt = 0; ; attempt++) {
+        res = await fetch(API, {
+          method: 'POST', headers: headers(model), signal: ctrl.signal,
+          body: JSON.stringify(buildBody(task, model, question, state.context)),
+        });
+        if (res.ok) break;
         let msg = res.status + ' ' + res.statusText;
         try { const j = await res.json(); msg = (j.error && j.error.message) || msg; } catch (e) { /* not json */ }
-        throw new Error(msg);
+        const limited = res.status === 429 || res.status === 529;
+        if (!limited || attempt >= 3) throw new Error(msg);
+        // Rate-limited. Wait what the API asks (capped), then retry; after two
+        // tries on a bigger model, step down to Sonnet and say so.
+        if (attempt === 1 && model !== 'claude-sonnet-5' && model !== 'claude-haiku-4-5') {
+          note = 'rate-limited on ' + MODELS[model].name + ', ran on Sonnet 5 · ';
+          model = 'claude-sonnet-5';
+        }
+        const wait = Math.min(60, Math.max(5, parseInt(res.headers.get('retry-after') || '15', 10) || 15));
+        for (let sLeft = wait; sLeft > 0; sLeft--) {
+          meta.textContent = 'rate-limited (' + msg.slice(0, 80) + ') · retry in ' + sLeft + ' s';
+          await new Promise((r, j) => { const id = setTimeout(r, 1000); ctrl.signal.addEventListener('abort', () => { clearTimeout(id); j(new DOMException('aborted', 'AbortError')); }, { once: true }); });
+        }
       }
+      usedModel = model;
       meta.textContent = MODELS[model].name + ' · thinking…';
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
@@ -314,7 +329,7 @@
       } else if (!text) {
         out.innerHTML = '<p class="err">Empty reply.</p>';
       }
-      meta.innerHTML = summarize(usedModel, usage, stop);
+      meta.innerHTML = esc(note) + summarize(usedModel, usage, stop);
       history(task, model, text, usage, question);
     } catch (e) {
       if (e.name === 'AbortError') meta.textContent = 'stopped';
