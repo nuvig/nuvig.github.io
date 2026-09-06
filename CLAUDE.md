@@ -1099,9 +1099,9 @@ concepts; to relink, add the tools.html card back.
   the Pi 2026-09-05; gzip) — drops stale-flagged points (flags bit 1) and anything outside 60 nm,
   and inserts what has no fix of ours within 1 s, `src='lol'` (column added by the heal on first
   run; the collector's rows are NULL). One request per 12 s, 40 per run, a completed day fetched
-  once per hex (`meta heal:<hex>:<yyyymmdd>`, 404 remembered too), today's refetched after 25 min.
+  once per hex and UTC day the hex was in the box — never every day in the window, which made a month's backfill thousands of 404s (`meta heal:<hex>:<yyyymmdd>`, 404 remembered too), today's refetched after 25 min. Every DB write is one `BEGIN IMMEDIATE` per item with retries (`write_item()`): the collector's two threads commit several times a second and SQLite's busy wait polls rather than queues, so a third writer starved for its whole 30 s timeout and the run died on `database is locked` (2026-09-05 20:58). adsb.lol holds traces from 2026-08-10 on and nothing for 2025-10-11..2026-08-09, so that is the useful backfill floor.
   The exporter's next run carries healed rows into the day files (it re-exports today and
-  yesterday, so the 30 h window matches). `--selftest` runs offline fixture checks. Healed fixes
+  yesterday, so the 30 h window matches). **Only today and yesterday**, so a backfill further back is invisible on the site until one exporter run with `KANP_EXPORT_SINCE=YYYY-MM-DD` (2026-09-05) re-exports every day from that date. `--selftest` runs offline fixture checks. Healed fixes
   are not distinguished on the site yet. A feed's 429
   cooldown doubles per repeat (3 → 20 s, `KANP_FEED_COOLDOWN_MAX_S`) and resets on a success. The
   near thread yields only the tick on which a wide poll *starts* (`WIDE_STARTED_AT`,
