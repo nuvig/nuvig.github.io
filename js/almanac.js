@@ -242,7 +242,7 @@ const S = {
   day: null,                // decoded day model behind the meteogram
   lanes: null,              // Set of lane keys the reader has on
   src: null,                // {obs, grid, model} source toggles
-  continuous: false,        // meteogram spans prev/selected/next day, recentering on selection
+  winMin: null, winMax: null, // meteogram's day window (inclusive); grows as you step, resets on a direct pick
   hover: null,              // crosshair time, epoch seconds
   meteo: null,              // last meteogram layout (for hit-testing)
   alerts: null,             // the selected day's alert doc (re-rendered on resize)
@@ -447,8 +447,10 @@ async function loadAllObs() {
 --------------------------------------------------------------------------- */
 
 function wireDayNav() {
+  $('day-back3').addEventListener('click', () => step(-3));
   $('day-prev').addEventListener('click', () => step(-1));
   $('day-next').addEventListener('click', () => step(1));
+  $('day-fwd3').addEventListener('click', () => step(3));
   $('day-pick').min = S.first;
   $('day-pick').max = S.last;
   $('day-pick').addEventListener('change', (e) => {
@@ -461,17 +463,47 @@ function wireDayNav() {
   });
 }
 
+/* Stepping (the ‹/› and «/» buttons, and the arrow keys) grows the meteogram
+   rather than replacing it: the newly reached day joins whatever's already
+   shown, so the strip lengthens exactly one or three days at a time and the
+   days already on screen visibly shift over to make room. A direct pick
+   (calendar cell, the date input, the initial load) starts a fresh single
+   day instead — see updateWindow(). */
 function step(n) {
-  const d = addDays(S.selected, n);
-  if (d >= S.first && d <= S.last) selectDay(d);
+  const raw = addDays(S.selected, n);
+  const d = raw < S.first ? S.first : raw > S.last ? S.last : raw;
+  if (d === S.selected) return;   // already at the edge, nothing to grow into
+  selectDay(d, { grow: true });
+}
+
+/* How many days apart two 'YYYY-MM-DD' dates are, at the field's own local
+   midnights (not a UTC subtraction, which drifts across a DST change). */
+const daysBetween = (a, b) => Math.round((midnight(b) - midnight(a)) / 86400);
+
+/* The window is just its two ends — always the contiguous run of calendar
+   days between them, so "grow" never needs to remember which days it has
+   already visited, only how far out the ends currently reach. Capped so a
+   long paging session doesn't leave every redraw re-fetching a month of
+   days: past MAX_WINDOW the far edge (the one not being extended) gives up
+   the days it's not adding anything new by keeping. */
+const MAX_WINDOW = 13;   // days beyond the anchor; 14 days on screen at most
+function updateWindow(date, grow) {
+  if (!grow || !S.winMin) { S.winMin = S.winMax = date; return; }
+  let lo = date < S.winMin ? date : S.winMin;
+  let hi = date > S.winMax ? date : S.winMax;
+  while (daysBetween(lo, hi) > MAX_WINDOW) {
+    if (date < S.winMin) hi = addDays(hi, -1); else lo = addDays(lo, 1);
+  }
+  S.winMin = lo; S.winMax = hi;
 }
 
 let daySeq = 0;
-async function selectDay(date) {
+async function selectDay(date, opts = {}) {
   const seq = ++daySeq;
   const prev = S.cells.get(S.selected);
   if (prev) prev.classList.remove('sel');
   S.selected = date;
+  updateWindow(date, opts.grow);
   const cell = S.cells.get(date);
   if (cell) { cell.classList.add('sel'); cell.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
   history.replaceState(null, '', `#d=${date}`);
@@ -480,6 +512,8 @@ async function selectDay(date) {
   $('day-pick').value = date;
   $('day-prev').disabled = date <= S.first;
   $('day-next').disabled = date >= S.last;
+  $('day-back3').disabled = date <= S.first;
+  $('day-fwd3').disabled = date >= S.last;
 
   const ringToday = S.ringIds.filter((id) => S.ringDays[id].has(date));
   const chips = [
@@ -518,22 +552,19 @@ async function selectDay(date) {
   S.extra = { ringDocs, aloft, raob };
   const centerD = buildDay(date, obs, fobs, grid, model);
 
-  /* continuous mode: fold in whatever neighbor days the archive actually
-     holds, recentered on the selection — a day short of an edge just shows
-     fewer days rather than erroring. Ring/aloft stay center-day-only (they're
-     hourly-of-day series, not worth re-fetching for the side days). */
-  let dayModel = centerD;
-  if (S.continuous) {
-    const neighbors = [addDays(date, -1), addDays(date, 1)].filter((d) => d >= S.first && d <= S.last);
-    const built = await Promise.all(neighbors.map(async (d) => {
-      const [oD, fD, gD, mD] = await Promise.all([get('obs', d), get('fieldobs', d), get('grid', d), get('model', d)]);
-      return buildDay(d, oD, fD, gD, mD);
-    }));
-    if (seq !== daySeq) return;   // user moved on mid-fetch
-    dayModel = mergeDays(date, [...built, centerD]);
-  } else {
-    dayModel = mergeDays(date, [centerD]);
-  }
+  /* the window (S.winMin..S.winMax) is whatever stepping has grown it to —
+     just the selected day until a ‹/›/«/» press extends it. Ring/aloft stay
+     center-day-only (they're hourly-of-day series, not worth re-fetching for
+     every day on a long strip). */
+  const others = [];
+  for (let d = S.winMin; d !== S.winMax; d = addDays(d, 1)) if (d !== date) others.push(d);
+  if (S.winMax !== date) others.push(S.winMax);
+  const built = await Promise.all(others.map(async (d) => {
+    const [oD, fD, gD, mD] = await Promise.all([get('obs', d), get('fieldobs', d), get('grid', d), get('model', d)]);
+    return buildDay(d, oD, fD, gD, mD);
+  }));
+  if (seq !== daySeq) return;   // user moved on mid-fetch
+  const dayModel = mergeDays(date, [...built, centerD]);
 
   renderObs(date, obs, fobs, grid, model, dayModel);
   renderDrift(date, drift, obs, nextObs);
@@ -791,10 +822,11 @@ function buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
    timeline for the meteogram: obs/forecast points concatenate across the
    window, the axis spans every day at once, and each day keeps its own
    sunrise/sunset for the night-shading gradient. Ring/aloft (hourly-of-day
-   series keyed to one station set) stay the center day's alone — recentering
-   them for the side days isn't worth a second fetch for lanes nobody defaults
-   to. A single-day call (the normal, non-continuous case) is just the
-   identity, so the draw code only ever deals with one shape. */
+   series keyed to one station set) stay the selected day's alone —
+   recentering them for every day on a long strip isn't worth a second fetch
+   for lanes nobody defaults to. A one-day call (the normal case, before any
+   stepping has grown the window) is just the identity, so the draw code
+   only ever deals with one shape. */
 function mergeDays(centerDate, days) {
   days = days.slice().sort((a, b) => a.t0 - b.t0);
   const center = days.find((d) => d.date === centerDate) || days[0];
@@ -895,8 +927,8 @@ function obsOn(D, src) {
 const anyObs = (D, fn) => D.obs.some(fn) || D.fobs.some(fn);
 
 /* Same shape as obsOn, but the selected day alone — for the decoded table and
-   the raw-METAR list, which are about that one day even when the meteogram
-   above them is showing three. */
+   the raw-METAR list, which are about that one day even when stepping has
+   grown the meteogram above them into a longer strip. */
 function obsOnCenter(D, src) {
   const out = [];
   if (src.obs && D.centerObs.length) out.push({ p: D.centerObs, pre: `${D.station} `, tint: (c) => c, main: true, w: 2 });
@@ -1102,7 +1134,7 @@ const SOURCES = [
 
 /* ---- picker (the chart's legend, and its controls) ---------------------- */
 
-const LS_LANES = 'almanac_lanes', LS_SRC = 'almanac_src', LS_CONT = 'almanac_cont';
+const LS_LANES = 'almanac_lanes', LS_SRC = 'almanac_src';
 
 function loadPrefs() {
   let lanes = ['temp', 'wind', 'pres', 'ceil'];
@@ -1117,14 +1149,12 @@ function loadPrefs() {
   } catch { /* first visit */ }
   S.lanes = new Set(lanes);
   S.src = src;
-  S.continuous = localStorage.getItem(LS_CONT) === '1';
 }
 
 function savePrefs() {
   try {
     localStorage.setItem(LS_LANES, JSON.stringify([...S.lanes]));
     localStorage.setItem(LS_SRC, JSON.stringify(S.src));
-    localStorage.setItem(LS_CONT, S.continuous ? '1' : '0');
   } catch { /* private mode — the chart still works, it just won't remember */ }
 }
 
@@ -1147,12 +1177,6 @@ function buildPicker() {
     if (!b || b.disabled) return;
     S.lanes.has(b.dataset.lane) ? S.lanes.delete(b.dataset.lane) : S.lanes.add(b.dataset.lane);
     savePrefs(); syncPicker(); drawObsChart();
-  });
-  $('obs-continuous').checked = S.continuous;
-  $('obs-continuous').addEventListener('change', (e) => {
-    S.continuous = e.target.checked;
-    savePrefs();
-    if (S.selected) selectDay(S.selected);
   });
 }
 
@@ -1201,7 +1225,9 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc, dayModel) {
     srcBits.push(`${D.fieldStation} · ${D.centerFobs.length}` +
       (gapNote(fGap) ? ` · ${gapNote(fGap)}` : ''));
   }
-  if (D.suns.length > 1) srcBits.push(`3-day window ${D.suns[0].date} → ${D.suns[D.suns.length - 1].date}`);
+  if (D.suns.length > 1) {
+    srcBits.push(`${D.suns.length}-day window ${D.suns[0].date} → ${D.suns[D.suns.length - 1].date}`);
+  }
   if (D.gridAt) srcBits.push(`NWS grid ${hhmm(D.gridAt)}`);
   if (D.modelAt) srcBits.push(`GFS ${hhmm(D.modelAt)}`);
   $('obs-sub').textContent = srcBits.join(' · ');
@@ -1211,8 +1237,8 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc, dayModel) {
   syncPicker();
   drawObsChart();
 
-  /* headline numbers — always the selected day, even in continuous mode,
-     where D.obs itself spans the whole 3-day window */
+  /* headline numbers — always the selected day, even once stepping has
+     grown D.obs itself into a many-day window */
   const bits = [];
   const cObs = D.centerObs;
   const s = cObs.length ? summarize(obsDoc.metars) : null;

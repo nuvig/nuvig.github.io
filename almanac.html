@@ -83,6 +83,8 @@
     }
     .day-head .nav-btn:disabled { opacity: 0.35; cursor: default; }
     .day-head .nav-btn:not(:disabled):hover { background: #26497a; }
+    .day-head .nav-btn-3 { font-size: 12px; opacity: 0.75; }
+    .day-head .nav-btn-3:not(:disabled):hover { opacity: 1; }
     .day-head input[type="date"] {
       background: #1a1a1a; color: #ccc; border: 1px solid #333; border-radius: 5px;
       padding: 3px 8px; font: inherit; font-size: 13px; color-scheme: dark;
@@ -118,21 +120,18 @@
     .chip:disabled { opacity: 0.28; cursor: default; }
     .chip:not(:disabled):hover { border-color: #6e6e6e; color: #ddd; }
 
-    .switch-row { display: flex; align-items: center; gap: 8px; margin: -2px 0 2px; }
-    .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: #86867f; }
-    .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-    .switch .track {
-      width: 30px; height: 17px; border-radius: 999px; background: #232323; border: 1px solid #3a3a3a;
-      position: relative; flex: none; transition: background 0.12s, border-color 0.12s;
+    /* Break the meteogram out of this page's 1100px column into its left
+       margin — the card's right edge stays put, the left edge runs toward
+       the viewport edge. 490px is the card's own left inset from body's
+       centerline (20px body padding + 20px card padding + 1px border, minus
+       a small gutter); only kicks in once there's actual margin to eat
+       (body stops constraining below its own 1100px max-width). */
+    @media (min-width: 1160px) {
+      #obs-wrap.wide {
+        width: calc(50vw + 490px);
+        margin-left: calc(-50vw + 528px);
+      }
     }
-    .switch .track::after {
-      content: ''; position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; border-radius: 50%;
-      background: #86867f; transition: transform 0.12s, background 0.12s;
-    }
-    .switch input:checked + .track { background: #16202b; border-color: #3d5c78; }
-    .switch input:checked + .track::after { transform: translateX(13px); background: #cfe6ff; }
-    .switch input:focus-visible + .track { outline: 2px solid #6e6e6e; outline-offset: 2px; }
-    .switch:has(input:checked) { color: #cfe6ff; }
 
     /* ---- meteogram hover readout ---- */
     #obs-wrap { position: relative; }
@@ -367,9 +366,11 @@
   </section>
 
   <div class="day-head">
+    <button class="nav-btn nav-btn-3" id="day-back3" title="Back 3 days">«</button>
     <button class="nav-btn" id="day-prev" title="Previous day (←)">‹</button>
     <h2 id="day-title">—</h2>
     <button class="nav-btn" id="day-next" title="Next day (→)">›</button>
+    <button class="nav-btn nav-btn-3" id="day-fwd3" title="Forward 3 days">»</button>
     <input type="date" id="day-pick">
     <div class="stream-chips" id="day-chips"></div>
   </div>
@@ -379,11 +380,8 @@
     <div class="picker">
       <div class="chip-row"><span class="chip-label">sources</span><span class="chips" id="obs-sources"></span></div>
       <div class="chip-row"><span class="chip-label">plot</span><span class="chips" id="obs-series"></span></div>
-      <div class="switch-row">
-        <label class="switch"><input type="checkbox" id="obs-continuous"><span class="track"></span>3-day</label>
-      </div>
     </div>
-    <div id="obs-wrap">
+    <div id="obs-wrap" class="wide">
       <canvas class="chart" id="obs-chart"></canvas>
       <div class="readout" id="obs-readout" hidden></div>
     </div>
@@ -494,7 +492,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
-  <script src="js/almanac.js?v=9"></script>
+  <script src="js/almanac.js?v=10"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>
