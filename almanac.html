@@ -118,6 +118,22 @@
     .chip:disabled { opacity: 0.28; cursor: default; }
     .chip:not(:disabled):hover { border-color: #6e6e6e; color: #ddd; }
 
+    .switch-row { display: flex; align-items: center; gap: 8px; margin: -2px 0 2px; }
+    .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: #86867f; }
+    .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .switch .track {
+      width: 30px; height: 17px; border-radius: 999px; background: #232323; border: 1px solid #3a3a3a;
+      position: relative; flex: none; transition: background 0.12s, border-color 0.12s;
+    }
+    .switch .track::after {
+      content: ''; position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; border-radius: 50%;
+      background: #86867f; transition: transform 0.12s, background 0.12s;
+    }
+    .switch input:checked + .track { background: #16202b; border-color: #3d5c78; }
+    .switch input:checked + .track::after { transform: translateX(13px); background: #cfe6ff; }
+    .switch input:focus-visible + .track { outline: 2px solid #6e6e6e; outline-offset: 2px; }
+    .switch:has(input:checked) { color: #cfe6ff; }
+
     /* ---- meteogram hover readout ---- */
     #obs-wrap { position: relative; }
     .readout {
@@ -363,6 +379,9 @@
     <div class="picker">
       <div class="chip-row"><span class="chip-label">sources</span><span class="chips" id="obs-sources"></span></div>
       <div class="chip-row"><span class="chip-label">plot</span><span class="chips" id="obs-series"></span></div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" id="obs-continuous"><span class="track"></span>3-day</label>
+      </div>
     </div>
     <div id="obs-wrap">
       <canvas class="chart" id="obs-chart"></canvas>
@@ -475,7 +494,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
-  <script src="js/almanac.js?v=8"></script>
+  <script src="js/almanac.js?v=9"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

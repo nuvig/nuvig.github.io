@@ -56,6 +56,8 @@ function addDays(date, n) {
 const hhmm = (ts) => { const p = lp(ts); return `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`; };
 const niceDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US',
   { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const shortDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US',
+  { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
 const dow = (date) => new Date(`${date}T12:00:00Z`).getUTCDay();
 
 /* ---------------------------------------------------------------------------
@@ -240,6 +242,7 @@ const S = {
   day: null,                // decoded day model behind the meteogram
   lanes: null,              // Set of lane keys the reader has on
   src: null,                // {obs, grid, model} source toggles
+  continuous: false,        // meteogram spans prev/selected/next day, recentering on selection
   hover: null,              // crosshair time, epoch seconds
   meteo: null,              // last meteogram layout (for hit-testing)
   alerts: null,             // the selected day's alert doc (re-rendered on resize)
@@ -513,7 +516,26 @@ async function selectDay(date) {
 
   const ringDocs = new Map(ringPairs);
   S.extra = { ringDocs, aloft, raob };
-  renderObs(date, obs, fobs, grid, model);
+  const centerD = buildDay(date, obs, fobs, grid, model);
+
+  /* continuous mode: fold in whatever neighbor days the archive actually
+     holds, recentered on the selection — a day short of an edge just shows
+     fewer days rather than erroring. Ring/aloft stay center-day-only (they're
+     hourly-of-day series, not worth re-fetching for the side days). */
+  let dayModel = centerD;
+  if (S.continuous) {
+    const neighbors = [addDays(date, -1), addDays(date, 1)].filter((d) => d >= S.first && d <= S.last);
+    const built = await Promise.all(neighbors.map(async (d) => {
+      const [oD, fD, gD, mD] = await Promise.all([get('obs', d), get('fieldobs', d), get('grid', d), get('model', d)]);
+      return buildDay(d, oD, fD, gD, mD);
+    }));
+    if (seq !== daySeq) return;   // user moved on mid-fetch
+    dayModel = mergeDays(date, [...built, centerD]);
+  } else {
+    dayModel = mergeDays(date, [centerD]);
+  }
+
+  renderObs(date, obs, fobs, grid, model, dayModel);
   renderDrift(date, drift, obs, nextObs);
   renderGrid(date, grid, model);
   renderModelVsObs(date, model, obs);
@@ -765,6 +787,34 @@ function buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
   };
 }
 
+/* Folds one or more single-day builds (from buildDay) into one continuous
+   timeline for the meteogram: obs/forecast points concatenate across the
+   window, the axis spans every day at once, and each day keeps its own
+   sunrise/sunset for the night-shading gradient. Ring/aloft (hourly-of-day
+   series keyed to one station set) stay the center day's alone — recentering
+   them for the side days isn't worth a second fetch for lanes nobody defaults
+   to. A single-day call (the normal, non-continuous case) is just the
+   identity, so the draw code only ever deals with one shape. */
+function mergeDays(centerDate, days) {
+  days = days.slice().sort((a, b) => a.t0 - b.t0);
+  const center = days.find((d) => d.date === centerDate) || days[0];
+  const byT = (a, b) => a.t - b.t;
+  return {
+    ...center,
+    t0: days[0].t0, t1: days[days.length - 1].t1,
+    obs: days.flatMap((d) => d.obs).sort(byT),
+    fobs: days.flatMap((d) => d.fobs).sort(byT),
+    gpts: days.flatMap((d) => d.gpts).sort(byT),
+    mpts: days.flatMap((d) => d.mpts).sort(byT),
+    suns: days.map((d) => ({ date: d.date, t0: d.t0, t1: d.t1, sun: d.sun })),
+    ringT0: center.t0,
+    /* the headline numbers ("worst category", peak wind, …) are about the
+       selected day, never the whole window — kept separately so they don't
+       silently start reporting the 3-day extreme */
+    centerObs: center.obs, centerFobs: center.fobs,
+  };
+}
+
 /* Per hour, the lowest ceiling any station reported, and which stations
    held a ceiling at or under 3,000 ft. An hour nobody reported is n = 0 and
    is not drawn. */
@@ -843,6 +893,18 @@ function obsOn(D, src) {
   return out;
 }
 const anyObs = (D, fn) => D.obs.some(fn) || D.fobs.some(fn);
+
+/* Same shape as obsOn, but the selected day alone — for the decoded table and
+   the raw-METAR list, which are about that one day even when the meteogram
+   above them is showing three. */
+function obsOnCenter(D, src) {
+  const out = [];
+  if (src.obs && D.centerObs.length) out.push({ p: D.centerObs, pre: `${D.station} `, tint: (c) => c, main: true, w: 2 });
+  if (src.field && D.centerFobs.length) {
+    out.push({ p: D.centerFobs, pre: `${D.fieldStation} `, tint: (c) => lighten(c, 0.55), main: false, w: 1.5 });
+  }
+  return out;
+}
 
 const LANES = [
   {
@@ -1040,7 +1102,7 @@ const SOURCES = [
 
 /* ---- picker (the chart's legend, and its controls) ---------------------- */
 
-const LS_LANES = 'almanac_lanes', LS_SRC = 'almanac_src';
+const LS_LANES = 'almanac_lanes', LS_SRC = 'almanac_src', LS_CONT = 'almanac_cont';
 
 function loadPrefs() {
   let lanes = ['temp', 'wind', 'pres', 'ceil'];
@@ -1055,12 +1117,14 @@ function loadPrefs() {
   } catch { /* first visit */ }
   S.lanes = new Set(lanes);
   S.src = src;
+  S.continuous = localStorage.getItem(LS_CONT) === '1';
 }
 
 function savePrefs() {
   try {
     localStorage.setItem(LS_LANES, JSON.stringify([...S.lanes]));
     localStorage.setItem(LS_SRC, JSON.stringify(S.src));
+    localStorage.setItem(LS_CONT, S.continuous ? '1' : '0');
   } catch { /* private mode — the chart still works, it just won't remember */ }
 }
 
@@ -1083,6 +1147,12 @@ function buildPicker() {
     if (!b || b.disabled) return;
     S.lanes.has(b.dataset.lane) ? S.lanes.delete(b.dataset.lane) : S.lanes.add(b.dataset.lane);
     savePrefs(); syncPicker(); drawObsChart();
+  });
+  $('obs-continuous').checked = S.continuous;
+  $('obs-continuous').addEventListener('change', (e) => {
+    S.continuous = e.target.checked;
+    savePrefs();
+    if (S.selected) selectDay(S.selected);
   });
 }
 
@@ -1113,9 +1183,9 @@ function syncPicker() {
 
 /* ---- render ------------------------------------------------------------- */
 
-function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
+function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc, dayModel) {
   const card = $('obs-card');
-  const D = buildDay(date, obsDoc, fieldDoc, gridDoc, modelDoc);
+  const D = dayModel;
   S.day = D; S.hover = null;
   $('obs-readout').hidden = true;
   if (!D.obs.length && !D.fobs.length && !D.gpts.length && !D.mpts.length) { card.hidden = true; return; }
@@ -1123,14 +1193,15 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
 
   const srcBits = [];
   const oGap = hourGaps(obsDoc), fGap = hourGaps(fieldDoc);
-  if (D.obs.length) {
-    srcBits.push(`${D.station} · ${D.obs.length} observations` +
+  if (D.centerObs.length) {
+    srcBits.push(`${D.station} · ${D.centerObs.length} observations` +
       (gapNote(oGap) ? ` · ${gapNote(oGap)}` : ''));
   }
-  if (D.fobs.length) {
-    srcBits.push(`${D.fieldStation} · ${D.fobs.length}` +
+  if (D.centerFobs.length) {
+    srcBits.push(`${D.fieldStation} · ${D.centerFobs.length}` +
       (gapNote(fGap) ? ` · ${gapNote(fGap)}` : ''));
   }
+  if (D.suns.length > 1) srcBits.push(`3-day window ${D.suns[0].date} → ${D.suns[D.suns.length - 1].date}`);
   if (D.gridAt) srcBits.push(`NWS grid ${hhmm(D.gridAt)}`);
   if (D.modelAt) srcBits.push(`GFS ${hhmm(D.modelAt)}`);
   $('obs-sub').textContent = srcBits.join(' · ');
@@ -1140,23 +1211,25 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
   syncPicker();
   drawObsChart();
 
-  /* headline numbers */
+  /* headline numbers — always the selected day, even in continuous mode,
+     where D.obs itself spans the whole 3-day window */
   const bits = [];
-  const s = D.obs.length ? summarize(obsDoc.metars) : null;
+  const cObs = D.centerObs;
+  const s = cObs.length ? summarize(obsDoc.metars) : null;
   if (s) {
     if (s.hiC != null) bits.push(`<b>${cToF(s.hiC)}°</b> / <b>${cToF(s.loC)}°</b>F`);
-    const worst = D.obs.reduce((w, o) => Math.max(w, o.cat), 0);
+    const worst = cObs.reduce((w, o) => Math.max(w, o.cat), 0);
     bits.push(`worst <b class="cat-word" style="color:${CAT[worst].color}">${CAT[worst].name}</b>`);
     if (s.maxSpd) bits.push(`max wind <b>${s.maxSpd}${s.maxGst ? `G${s.maxGst}` : ''} kt</b>`);
-    const pres = D.obs.filter((o) => o.altim != null).map((o) => o.altim);
+    const pres = cObs.filter((o) => o.altim != null).map((o) => o.altim);
     if (pres.length) {
       const lo = Math.min(...pres), hi = Math.max(...pres);
       bits.push(`pressure <b>${lo.toFixed(2)}–${hi.toFixed(2)}</b> inHg` +
         (hi - lo >= 0.15 ? ` (${((hi - lo) * 33.86).toFixed(0)} mb swing)` : ''));
     }
-    const das = D.obs.filter((o) => o.daFt != null).map((o) => o.daFt);
+    const das = cObs.filter((o) => o.daFt != null).map((o) => o.daFt);
     if (das.length) bits.push(`peak density alt <b>${ftShort(Math.max(...das))} ft</b>`);
-    const tsObs = D.obs.filter((o) => o.ts);
+    const tsObs = cObs.filter((o) => o.ts);
     if (tsObs.length) bits.push(`⚡ thunder ${hhmm(tsObs[0].t)}–${hhmm(tsObs[tsObs.length - 1].t)}`);
     else if (s.rain) bits.push('rain reported');
     if (s.snow) bits.push('winter precip');
@@ -1173,7 +1246,7 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
       'highs and lows of what was recorded, not of the day</div>' : '');
 
   renderObsTable(D);
-  const raw = obsOn(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);
+  const raw = obsOnCenter(D, S.src).flatMap((o) => o.p).sort((a, b) => a.t - b.t);
   $('ob-list').innerHTML = raw.map((o) =>
     `<div class="ob-row"><span class="t">${hhmm(o.t)}</span>` +
     `<span class="cat" style="background:${CAT[o.cat].color}">${CAT[o.cat].name}</span>` +
@@ -1183,7 +1256,7 @@ function renderObs(date, obsDoc, fieldDoc, gridDoc, modelDoc) {
 /* Every plotted value, readable without a mouse — one table per observing
    station that is switched on. */
 function renderObsTable(D) {
-  const tables = obsOn(D, S.src)
+  const tables = obsOnCenter(D, S.src)
     .map((o) => (o.p.length ? obsTableHtml(D, o.p, o.main ? D.station : D.fieldStation) : ''))
     .filter(Boolean);
   $('obs-table').innerHTML = tables.length ? tables.join('')
@@ -1227,11 +1300,14 @@ function activeLanes() {
     .filter((l) => l.series.some(hasData) || l.rail && l.rail.length || l.wash && l.wash.length);
 }
 
+/* the multi-day axis needs a row for date labels the single-day one doesn't */
+const axisH = (D) => (D.suns && D.suns.length > 1 ? AXIS_H + 14 : AXIS_H);
+
 function drawObsChart() {
   if (!S.day) return;
   const lanes = activeLanes();
   const n = lanes.length;
-  const h = RIB_H + 10 + (n ? n * laneH(n) + (n - 1) * LANE_GAP : 26) + AXIS_H;
+  const h = RIB_H + 10 + (n ? n * laneH(n) + (n - 1) * LANE_GAP : 26) + axisH(S.day);
   chart('obs-chart', (ctx, W, H) => drawMeteogram(ctx, W, H, S.day, lanes), h);
   wireHover($('obs-chart'));
 }
@@ -1258,12 +1334,21 @@ function obsGaps(D, src) {
 
 const nowSec = () => Date.now() / 1000;
 
+/* 3-hourly marks across whatever span D covers — one day or several. Each
+   tick's own local hour comes from lp(), so a multi-day span still reads
+   00/03/…/24 per day rather than an hour count that keeps climbing. */
+function axisTicks(D) {
+  const out = [];
+  for (let t = D.t0; t <= D.t1 + 1; t += 10800) out.push(t);
+  return out;
+}
+
 function drawMeteogram(ctx, W, H, D, lanes) {
   ctx.clearRect(0, 0, W, H);
   ctx.font = '10px system-ui, sans-serif';
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  const x = (t) => PAD_L + (t - D.t0) / 86400 * (W - PAD_L - PAD_R);
+  const x = (t) => PAD_L + (t - D.t0) / (D.t1 - D.t0) * (W - PAD_L - PAD_R);
   const x0 = x(D.t0), x1 = x(D.t1);
   S.meteo = { W, H, x0, x1, t0: D.t0, t1: D.t1 };
 
@@ -1337,26 +1422,44 @@ function drawMeteogram(ctx, W, H, D, lanes) {
     ctx.fillText('Pick a measure above to plot it.', (x0 + x1) / 2, top + 16);
   }
 
+  const multi = D.suns.length > 1;
+
+  /* date row: only when the axis spans more than one day. The selected day
+     is lit; the neighbors are muted — that's what tells a reader which day
+     the cards below actually describe. */
+  if (multi) {
+    ctx.textAlign = 'center'; ctx.font = '10px system-ui, sans-serif';
+    for (const seg of D.suns) {
+      const a = Math.max(x(seg.t0), x0), b = Math.min(x(seg.t1), x1);
+      ctx.fillStyle = seg.date === D.date ? C.ink : C.dim;
+      ctx.fillText(shortDate(seg.date), (a + b) / 2, bot + 12);
+      if (seg.t0 > D.t0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+        ctx.beginPath(); ctx.moveTo(x(seg.t0), top); ctx.lineTo(x(seg.t0), bot); ctx.stroke();
+      }
+    }
+  }
+
   /* hour axis, shared by every lane */
   ctx.textAlign = 'center'; ctx.fillStyle = C.muted;
-  for (let hh = 0; hh <= 24; hh += 3) {
-    ctx.fillText(hh === 24 ? '24' : String(hh).padStart(2, '0'), x(D.t0 + hh * 3600), H - 13);
-  }
+  for (const t of axisTicks(D)) ctx.fillText(String(lp(t).h).padStart(2, '0'), x(t), H - 13);
   ctx.textAlign = 'left'; ctx.fillStyle = C.dim;
   ctx.fillText('local', 0, H - 13);
 
   /* sun marks: night is already shaded inside each lane, this names the edges */
   if (n) {
     ctx.textAlign = 'center';
-    for (const [t, label] of [[D.sun.sunrise, '☀ ' + (D.sun.sunrise ? hhmm(D.sun.sunrise) : '')],
-      [D.sun.sunset, '☾ ' + (D.sun.sunset ? hhmm(D.sun.sunset) : '')]]) {
-      if (t == null || t < D.t0 || t > D.t1) continue;
-      ctx.strokeStyle = 'rgba(255,214,140,0.16)';
-      ctx.beginPath(); ctx.moveTo(x(t), top); ctx.lineTo(x(t), bot); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,214,140,0.5)';
-      ctx.fillText(label, Math.min(Math.max(x(t), x0 + 26), x1 - 26), H - 2);
+    for (const seg of D.suns) {
+      for (const [t, label] of [[seg.sun.sunrise, '☀ ' + (seg.sun.sunrise ? hhmm(seg.sun.sunrise) : '')],
+        [seg.sun.sunset, '☾ ' + (seg.sun.sunset ? hhmm(seg.sun.sunset) : '')]]) {
+        if (t == null || t < D.t0 || t > D.t1) continue;
+        ctx.strokeStyle = 'rgba(255,214,140,0.16)';
+        ctx.beginPath(); ctx.moveTo(x(t), top); ctx.lineTo(x(t), bot); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,214,140,0.5)';
+        ctx.fillText(label, Math.min(Math.max(x(t), x0 + 26), x1 - 26), H - 2);
+      }
     }
-    /* "now" on today's page */
+    /* "now", wherever it falls in the window */
     const now = Date.now() / 1000;
     if (now > D.t0 && now < D.t1) {
       ctx.strokeStyle = 'rgba(255,255,255,0.28)';
@@ -1441,16 +1544,20 @@ function drawLane(ctx, D, lane, box, x) {
     }
   }
 
-  /* night */
-  const g = ctx.createLinearGradient(box.x, 0, box.x + box.w, 0);
-  const f = (t) => Math.max(0, Math.min(1, (t - D.t0) / 86400));
-  const sun = D.sun;
-  if (sun.dawn && sun.sunrise && sun.sunset && sun.dusk) {
+  /* night — one gradient stretched across the whole axis, day by day, so a
+     continuous window shades every night in it rather than just the one the
+     single-day version knew about */
+  const f = (t) => Math.max(0, Math.min(1, (t - D.t0) / (D.t1 - D.t0)));
+  const usable = D.suns.filter((seg) => seg.sun.dawn && seg.sun.sunrise && seg.sun.sunset && seg.sun.dusk);
+  if (usable.length) {
+    const g = ctx.createLinearGradient(box.x, 0, box.x + box.w, 0);
     g.addColorStop(0, C.night);
-    g.addColorStop(f(sun.dawn), C.night);
-    g.addColorStop(f(sun.sunrise), C.nightClear);
-    g.addColorStop(f(sun.sunset), C.nightClear);
-    g.addColorStop(f(sun.dusk), C.night);
+    for (const { sun } of usable) {
+      g.addColorStop(f(sun.dawn), C.night);
+      g.addColorStop(f(sun.sunrise), C.nightClear);
+      g.addColorStop(f(sun.sunset), C.nightClear);
+      g.addColorStop(f(sun.dusk), C.night);
+    }
     g.addColorStop(1, C.night);
     ctx.fillStyle = g; ctx.fillRect(box.x, box.y, box.w, box.h);
   }
@@ -1466,8 +1573,9 @@ function drawLane(ctx, D, lane, box, x) {
     ctx.fillText(lane.spec.fmt(v), box.x - 6, py + 3);
   }
   ctx.strokeStyle = C.hour;
-  for (let hh = 3; hh < 24; hh += 3) {
-    const px = Math.round(x(D.t0 + hh * 3600)) + 0.5;
+  for (const t of axisTicks(D)) {
+    if (t <= D.t0 || t >= D.t1) continue;   // the box frame already marks the edges
+    const px = Math.round(x(t)) + 0.5;
     ctx.beginPath(); ctx.moveTo(px, box.y); ctx.lineTo(px, box.y + box.h); ctx.stroke();
   }
 
@@ -1806,7 +1914,7 @@ function showReadout(e, t) {
   for (const lane of (S.meteo.lanes || [])) {
     const k = lane.spec.key;
     if (k === 'ring' && D.ring) {
-      const h = D.ring[Math.max(0, Math.min(23, Math.floor((t - D.t0) / 3600)))];
+      const h = D.ring[Math.max(0, Math.min(D.ring.length - 1, Math.floor((t - D.ringT0) / 3600)))];
       if (h && h.n) {
         row(C.ceil, 'area ceiling', h.min != null
           ? `${h.min.toLocaleString()} ft <span class="d">${esc(h.low.join(', '))}</span>`
@@ -1825,9 +1933,10 @@ function showReadout(e, t) {
   }
 
   const ob = stations.length ? stations[0].ob : null;
+  const dPrefix = D.suns.length > 1 ? `${shortDate(lp(t).date)} ` : '';
   const head = ob
-    ? `${hhmm(ob.t)} <span class="cat" style="background:${CAT[ob.cat].color}">${CAT[ob.cat].name}</span>`
-    : `${hhmm(Math.round(t))}`;
+    ? `${dPrefix}${hhmm(ob.t)} <span class="cat" style="background:${CAT[ob.cat].color}">${CAT[ob.cat].name}</span>`
+    : `${dPrefix}${hhmm(Math.round(t))}`;
   const wxBits = ob ? [ob.ts && 'thunder', ob.rain && 'rain', ob.snow && 'snow', ob.fog && 'fog/mist']
     .filter(Boolean).join(' · ') : '';
   const gwx = gp && gp.wx ? gp.wx.replace(/_/g, ' ').replace(/,/g, ', ') : '';
