@@ -22,7 +22,7 @@ flags bit 1 = stale position (skipped); the day is the trace's UTC day.
 
 Which aircraft: every hex with a fix inside the pattern box (KANP_HEAL_BOX_NM,
 KANP_HEAL_BOX_FT) in the window — pattern work, arrivals and departures, not
-the 60 nm overflight crowd. Which fixes: trace points inside KANP_RADIUS_NM,
+the 60 nm overflight crowd — and only the UTC days it was in the box. Which fixes: trace points inside KANP_RADIUS_NM,
 not stale, with no fix of ours for that hex within KANP_HEAL_DEDUPE_S. Inserted
 rows carry src='lol' (column added on first run; consumers ignore it).
 
@@ -117,16 +117,21 @@ def set_meta(db, key, value):
 
 
 def candidates(db, start, end):
-    """Hexes with a fix inside the pattern box in [start, end)."""
+    """{hex: [UTC dates]} — every hex with a fix inside the pattern box in
+    [start, end), and only the UTC days it had one. A trace is one request per
+    (hex, day), so asking for every day in the window for every hex turned a
+    month's backfill into thousands of 404s; a day we never saw the aircraft
+    near the field has nothing our box fixes can vouch for."""
     rows = db.execute(
-        "SELECT hex, lat, lon, alt, on_ground FROM positions "
+        "SELECT hex, ts, alt, on_ground FROM positions "
         "WHERE ts >= ? AND ts < ? AND dist_nm <= ?",
         (start, end, BOX_NM)).fetchall()
-    out = set()
+    out = {}
     for r in rows:
         if r["on_ground"] == 1 or (r["alt"] is not None and r["alt"] <= BOX_FT):
-            out.add(r["hex"])
-    return sorted(out)
+            d = datetime.datetime.fromtimestamp(r["ts"], datetime.timezone.utc).date()
+            out.setdefault(r["hex"], set()).add(d)
+    return {h: sorted(ds) for h, ds in sorted(out.items())}
 
 
 def existing_ts(db, hexid, start, end):
@@ -258,8 +263,8 @@ def run(dry_run=False, now=None, db=None, sleep=time.sleep):
     requests = 0
     total_ins = total_seen = 0
     fetched = skipped = failed = 0
-    for hexid in hexes:
-        for day in utc_days(start, end):
+    for hexid, days in hexes.items():
+        for day in days:
             key = f"heal:{hexid}:{day:%Y%m%d}"
             last = get_meta(db, key)
             if last is not None:
@@ -347,7 +352,8 @@ def selftest():
                (now - 1000, "ffff01", LAT + 0.02, LON, 4000, 1.2))
     db.commit(); db.close()
     db = open_db(path)
-    assert candidates(db, now - 7200, now) == ["abc123"], candidates(db, now - 7200, now)
+    cand = candidates(db, now - 7200, now)
+    assert list(cand) == ["abc123"], cand
 
     # trace: t0 = start of our data, points every 2 s across the whole stretch,
     # one stale, one 80 nm away, one on the ground
@@ -394,7 +400,7 @@ def selftest():
     try:
         run(now=now, db=db, sleep=lambda s: None)
         first = len(calls)
-        assert first == len(utc_days(now - int(HOURS * 3600), now)), (first, calls)
+        assert first == len(cand["abc123"]), (first, calls)   # one request per day the hex was in the box
         run(now=now, db=db, sleep=lambda s: None)
         # today's day refetched only after REFRESH_S; completed days never → no new calls
         assert len(calls) == first, (first, len(calls))
