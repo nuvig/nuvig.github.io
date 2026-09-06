@@ -837,7 +837,7 @@ concepts; to relink, add the tools.html card back.
   a `model` select overrides per task; the context block carries `cache_control` so runs inside 5 min
   share it. Opus 5 / Fable 5.1 requests send `fallbacks: "default"`; Fable omits `thinking`. Usage and
   an estimated cost (`MODELS[].price`) print under every answer; `refusal` / `max_tokens` stops are said
-  out loud. **Unlinked and `noindex`** (no tools.html card, no sitemap entry, not in `wxnav.js`) — reachable by URL only, Jesse's call 2026-09-05. `window.WXAI_DEBUG` for headless checks.
+  out loud. **Unlinked and `noindex`** (no tools.html card, no sitemap entry, not in `wxnav.js`) — reachable by URL only, Jesse's call 2026-09-05. Every run is saved to localStorage `wxai_history` (200 max, halved on quota) and listed in a collapsed History card at the bottom. `window.WXAI_DEBUG` for headless checks.
 - `almanac.html` + `js/almanac.js` — Weather Almanac: the `data/wx/` archive as a reading room.
   A GitHub-style calendar (each day its worst *daytime* 8 am–8 pm category), then per-day cards —
   the day meteogram, the forecast lead-up table, the morning grid table, alerts, the station

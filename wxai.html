@@ -53,6 +53,8 @@
     #out:empty::before { content: 'pick a task'; color: #444; }
 
     #ctx { white-space: pre-wrap; font-size: 11.5px; color: #888; max-height: 420px; overflow: auto; background: #141414; padding: 10px; border-radius: 5px; }
+    #history-card > summary { cursor: pointer; color: #bbb; font-size: 15px; }
+    #history-card > summary a { margin-left: 8px; color: #666; }
     #history details { border-top: 1px solid #2a2a2a; padding: 6px 0; }
     #history summary { cursor: pointer; color: #999; font-size: 13px; }
   </style>
@@ -60,7 +62,7 @@
 <body>
   <a id="back-link" href="/">← jesselevine.net</a>
   <h1>AI Weather Analysis</h1>
-  <p class="subtitle">The site's archived weather picture, analyzed by Claude on demand. Your key, your credits → <a href="https://platform.claude.com/settings/keys" rel="noopener">Claude Console</a>.</p>
+  <p class="subtitle">The site's archived weather picture, analyzed by Claude on demand.</p>
 
   <div class="card" id="key-card">
     <h2>API key</h2>
@@ -68,7 +70,7 @@
       <input id="key-in" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" aria-label="Anthropic API key">
       <button class="btn" id="key-save">Save</button>
     </div>
-    <p class="small">Stored in this browser only (localStorage). Every run is a direct request from this page to api.anthropic.com, billed to the key.</p>
+    <p class="small">Key → <a href="https://platform.claude.com/settings/keys" rel="noopener">Claude Console</a>. Stored in this browser only. Every run is a direct request from this page to api.anthropic.com, billed to the key.</p>
     <p id="key-err"></p>
   </div>
 
@@ -100,18 +102,18 @@
       <div id="out" class="answer"></div>
     </div>
 
-    <div class="card" id="history-card" hidden>
-      <h2>Earlier this session</h2>
-      <div id="history"></div>
-    </div>
-
     <p class="small"><a href="#" id="ctx-show">what the model sees</a></p>
     <pre id="ctx" hidden></pre>
   </div>
 
+  <details class="card" id="history-card" hidden>
+    <summary>History <span class="small" id="history-n"></span> <a href="#" id="history-clear" class="small">clear</a></summary>
+    <div id="history"></div>
+  </details>
+
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
-  <script src="js/wxai.js?v=2"></script>
+  <script src="js/wxai.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

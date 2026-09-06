@@ -315,7 +315,7 @@
         out.innerHTML = '<p class="err">Empty reply.</p>';
       }
       meta.innerHTML = summarize(usedModel, usage, stop);
-      history(task, model, text, usage);
+      history(task, model, text, usage, question);
     } catch (e) {
       if (e.name === 'AbortError') meta.textContent = 'stopped';
       else { out.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; meta.textContent = 'failed'; }
@@ -360,16 +360,38 @@
     return html.join('');
   }
 
-  // ---- history (this tab only) --------------------------------------------
+  // ---- history (localStorage, newest first, capped) ------------------------
 
-  function history(task, model, text, usage) {
+  const HIST_LS = 'wxai_history';
+  const HIST_MAX = 200;
+
+  function loadHist() { try { return JSON.parse(localStorage.getItem(HIST_LS) || '[]'); } catch (e) { return []; } }
+  function saveHist(h) {
+    for (;;) {
+      try { localStorage.setItem(HIST_LS, JSON.stringify(h)); return; }
+      catch (e) { if (h.length < 2) return; h.length = Math.floor(h.length / 2); }
+    }
+  }
+
+  function history(task, model, text, usage, question) {
     if (!text) return;
-    const h = $('history');
-    const d = document.createElement('details');
-    d.innerHTML = '<summary>' + esc(task.label) + ' · ' + esc(MODELS[model].name) + ' · ' + esc(fmt(Math.floor(Date.now() / 1000))) +
-      ' · ≈ $' + cost(model, usage).toFixed(3) + '</summary><div class="answer">' + md(text) + '</div>';
-    h.prepend(d);
-    $('history-card').hidden = false;
+    const h = loadHist();
+    h.unshift({ t: Math.floor(Date.now() / 1000), label: task.label, q: question || null, model, text, cost: cost(model, usage),
+      archive: state.latest ? state.latest.t : null });
+    if (h.length > HIST_MAX) h.length = HIST_MAX;
+    saveHist(h);
+    renderHist();
+  }
+
+  function renderHist() {
+    const h = loadHist(), el = $('history');
+    $('history-card').hidden = !h.length;
+    $('history-n').textContent = h.length ? h.length + ' run' + (h.length === 1 ? '' : 's') : '';
+    el.innerHTML = h.map(r =>
+      '<details><summary>' + esc(fmt(r.t)) + ' · ' + esc(r.label) + (r.q ? ' — ' + esc(r.q.slice(0, 80)) : '') +
+      ' · ' + esc((MODELS[r.model] || {}).name || r.model) + ' · ≈ $' + Number(r.cost || 0).toFixed(3) + '</summary>' +
+      (r.archive ? '<p class="small">archive run ' + esc(fmt(r.archive)) + '</p>' : '') +
+      '<div class="answer">' + md(r.text) + '</div></details>').join('');
   }
 
   // ---- UI ------------------------------------------------------------------
@@ -431,7 +453,9 @@
     });
     $('key-clear').addEventListener('click', e => { e.preventDefault(); try { localStorage.removeItem(KEY_LS); } catch (e) { /* */ } keyUI(); });
     $('ctx-show').addEventListener('click', e => { e.preventDefault(); $('ctx').hidden = !$('ctx').hidden; });
+    $('history-clear').addEventListener('click', e => { e.preventDefault(); if (confirm('Delete every saved run?')) { try { localStorage.removeItem(HIST_LS); } catch (x) { /* */ } renderHist(); } });
     keyUI();
+    renderHist();
     loadContext();
   }
 
