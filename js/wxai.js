@@ -55,6 +55,20 @@
         'state where the sources disagree and which you trust and why. Under 500 words.',
     },
     {
+      id: 'overview', label: 'Full air analysis', model: 'claude-opus-5', effort: 'xhigh',
+      note: 'every source, every layer, no word limit',
+      prompt: 'Give a broad, detailed analysis of the whole air column and the whole picture, every source read against every other. ' +
+        'Cover in order: (1) surface — each METAR station, what the ring says about cloud layers the field sensor may miss, ' +
+        'pressure tendency, temperature/dewpoint spread and fog prospects; (2) the sounding — stability, inversions, LCL, ' +
+        'freezing level, CAPE/CIN, moisture depth, what the wind profile says about the pattern; (3) winds aloft by level ' +
+        'and hour, shear, and the implications for altitude choice, turbulence and cloud motion; (4) the NWS grid and TAFs ' +
+        'hour by hour where they change; (5) the GFS point trends and where they agree or disagree with NWS and the LWX ' +
+        'discussion; (6) hazards — AIRMETs, SIGMETs, PIREPs, TFRs, alerts, convection, ice, IFR; (7) the synoptic mechanism ' +
+        'and the sequence over the next 48 h, then the outlook through the end of the forecast period; (8) what a CFI ' +
+        'should plan around today and tomorrow for VFR primary, IFR training and cross-country work. ' +
+        'Be thorough rather than brief; use headings and short lines; quote the specific values you reason from.',
+    },
+    {
       id: 'critique', label: 'Forecast critique', model: 'claude-opus-5', effort: 'high',
       note: 'TAFs vs grid vs GFS vs LWX',
       prompt: 'Critique the forecast. Compare the TAFs, the NWS hourly grid at the field, the GFS point values ' +
@@ -220,7 +234,7 @@
     const M = MODELS[model];
     const body = {
       model,
-      max_tokens: 8000,
+      max_tokens: 16000,
       stream: true,
       system: [{ type: 'text', text: SYSTEM }],
       messages: [{

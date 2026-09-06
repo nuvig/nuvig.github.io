@@ -833,7 +833,7 @@ concepts; to relink, add the tools.html card back.
   and POSTed straight from the browser to `api.anthropic.com/v1/messages` (streamed SSE, header
   `anthropic-dangerous-direct-browser-access`). **The key is the visitor's, in localStorage
   `anthropic_api_key`, never in the repo** — no backend exists to proxy it. Tasks in `TASKS` each name a
-  default model + effort (go/no-go → Sonnet 5 low, synoptic/critique → Opus 5 high, quick look → Haiku);
+  default model + effort (go/no-go → Sonnet 5 low, synoptic/critique → Opus 5 high, full air analysis → Opus 5 xhigh with no word limit, quick look → Haiku);
   a `model` select overrides per task; the context block carries `cache_control` so runs inside 5 min
   share it. Opus 5 / Fable 5.1 requests send `fallbacks: "default"`; Fable omits `thinking`. Usage and
   an estimated cost (`MODELS[].price`) print under every answer; `refusal` / `max_tokens` stops are said
