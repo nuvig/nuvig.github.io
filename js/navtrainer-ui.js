@@ -109,40 +109,121 @@
 
   // ---------------------------------------------------------------- icons
 
+  // Icons are redrawn here to match the unit's own iconography -- same subject,
+  // composition and colour, so a student reads the Home page the same way -- but they
+  // are our own SVG, not the manufacturer's artwork. No wordmark or logo anywhere.
+  // Shared planform: a top-view aircraft, nose up, in a 24x24 box.
+  var PLANE = 'M12 2.2c.7 0 1.1 1 1.15 2.3l.1 4.2 8.25 5v1.6l-8.2-2.9.1 4.6 2.7 2v1.2' +
+              'L12 19.1l-4.1 1.1v-1.2l2.7-2 .1-4.6-8.2 2.9v-1.6l8.25-5 .1-4.2' +
+              'C10.9 3.2 11.3 2.2 12 2.2z';
+  function plane(cx, cy, rot, sc, fill) {
+    return '<g transform="translate(' + cx + ' ' + cy + ') rotate(' + rot + ') scale(' + sc +
+           ') translate(-12 -12)"><path d="' + PLANE + '" fill="' + (fill || '#f2f6fa') +
+           '" stroke="#8fa4b4" stroke-width=".5"/></g>';
+  }
+
   var IC = {
-    map: '<circle cx="12" cy="12" r="9" fill="#1f7a3a" stroke="#4fd07a"/>' +
-         '<path d="M4 10c3 1 5-1 8 0s5 2 8 0M12 3c-2 3-2 15 0 18" fill="none" stroke="#9ff0bd"/>',
-    traffic: '<path d="M12 3l3 5H9z" fill="#e8e8e8"/><path d="M6 13l3 5H3z" fill="#f0c040"/>' +
-             '<path d="M17 14l2.5 4h-5z" fill="#7fd0f0"/>',
-    terrain: '<path d="M2 19l6-9 4 5 3-4 7 8z" fill="#8a5a2a" stroke="#d09a55"/>' +
-             '<path d="M8 10l2 3 2-2" fill="none" stroke="#f0d0a0"/>',
-    weather: '<path d="M6 14a4 4 0 018-1 3 3 0 011 6H7a3 3 0 01-1-5z" fill="#7f93a8"/>' +
-             '<path d="M11 17l-2 4h3l-2 3" fill="none" stroke="#ffd23a" stroke-width="1.6"/>',
-    nav: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="#5fd0e8"/>' +
-         '<path d="M12 5v14M5 12h14" stroke="#2b5f75"/><path d="M12 6l2.4 7-2.4 2.2-2.4-2.2z" fill="#e879f9"/>',
-    fpl: '<path d="M4 7h10M4 12h10M4 17h6" stroke="#8fd4ea" stroke-width="1.7"/>' +
-         '<path d="M17 15l4-4-4-4v3h-3v2h3z" fill="#e879f9"/>',
-    proc: '<path d="M3 18h7a5 5 0 000-10H7" fill="none" stroke="#8fd4ea" stroke-width="1.7"/>' +
-          '<path d="M14 4l7 4.5-7 4.5z" fill="#e0e8f0"/>',
-    nearest: '<circle cx="12" cy="13" r="7" fill="none" stroke="#8fd4ea"/>' +
-             '<circle cx="12" cy="13" r="2.4" fill="#f0c040"/><path d="M12 2v4" stroke="#8fd4ea"/>',
-    wpt: '<circle cx="12" cy="9" r="4" fill="none" stroke="#8fd4ea" stroke-width="1.7"/>' +
-         '<path d="M12 13v8" stroke="#8fd4ea" stroke-width="1.7"/>',
-    sys: '<circle cx="12" cy="12" r="4" fill="none" stroke="#8fd4ea" stroke-width="1.7"/>' +
-         '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2" stroke="#8fd4ea"/>',
-    menu: '<path d="M4 7h16M4 12h16M4 17h16" stroke="#7fc7e8" stroke-width="2.2"/>',
-    msg: '<path d="M3 5h18v11H9l-5 4v-4H3z" fill="#1d3550" stroke="#6fb8e0"/>' +
-         '<path d="M7 14V8l2.5 3L12 8v6" stroke="#cfe8ff" stroke-width="1.6" fill="none"/>',
-    back: '<path d="M10 5L3 12l7 7v-4h6a4 4 0 000-8h-6z" fill="#1f8fd0" stroke="#7fd0f0"/>',
-    cancel: '<path d="M5 5l14 14M19 5L5 19" stroke="#4aa8e0" stroke-width="3.4"/>',
-    find: '<circle cx="10" cy="10" r="6" fill="none" stroke="#7fc7e8" stroke-width="2.2"/>' +
-          '<path d="M15 15l5 5" stroke="#7fc7e8" stroke-width="2.2"/>',
-    home: '<path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1z" fill="#cfe8ff"/>',
-    xfer: '<path d="M8 4v14M8 4L5.5 7.5M8 4l2.5 3.5M16 20V6M16 20l-2.5-3.5M16 20l2.5-3.5" ' +
-          'stroke="#cfe8ff" stroke-width="1.8" fill="none"/>',
-    bksp: '<path d="M8 5h13v14H8L2 12z" fill="none" stroke="#cfe8ff" stroke-width="1.6"/>' +
-          '<path d="M11 9.5l5.5 5M16.5 9.5l-5.5 5" stroke="#cfe8ff" stroke-width="1.6"/>'
+    // Globe: cyan graticule, bright green land.
+    map: '<ellipse cx="12" cy="12" rx="10" ry="8.4" fill="#071a12" stroke="#4fd0e8" stroke-width="1"/>' +
+         '<path d="M2 12h20" stroke="#4fd0e8" stroke-width=".7"/>' +
+         '<path d="M12 3.6v16.8" stroke="#4fd0e8" stroke-width=".7"/>' +
+         '<ellipse cx="12" cy="12" rx="5" ry="8.4" fill="none" stroke="#4fd0e8" stroke-width=".7"/>' +
+         '<path d="M5.2 8.8c1.5-1 3.1-.5 3.6.7.5 1.1-.4 2 .2 2.9.7 1 .1 2.3-.9 2.6-1.4.4-2.5-.9-2.9-2.1' +
+           '-.4-1.3-.9-3.2 0-4.1z" fill="#5ee62e"/>' +
+         '<path d="M12.6 7c1.7-.6 3.7-.2 4.7.9.9 1 .1 2.2-.7 2.9-.8.7-.6 1.8-1.5 2.3-1 .5-1.6-.6-1.7-1.5' +
+           '-.1-1-.9-1.6-1.2-2.5-.3-.9-.3-1.8.4-2.1z" fill="#5ee62e"/>' +
+         '<path d="M14.6 14.2c.9-.2 1.5.6 1.4 1.5-.1 1-.9 1.9-1.7 2.3-.7.3-1.2-.4-1-1.2.2-1 .5-2.4 1.3-2.6z" fill="#5ee62e"/>' +
+         '<path d="M18.6 9.4c.8 0 1.3.8 1.1 1.5-.2.7-1 .9-1.5.5-.6-.4-.4-2 .4-2z" fill="#5ee62e"/>',
+
+    // Traffic: filled diamond climbing, hollow diamond 800 ft below.
+    traffic: '<path d="M6.6 2.6l3.1 3.1-3.1 3.1-3.1-3.1z" fill="#f2f6fa"/>' +
+             '<path d="M14.6 9.6V3.1" stroke="#f2f6fa" stroke-width="1.7"/>' +
+             '<path d="M14.6 2.4l2.3 2.8h-4.6z" fill="#f2f6fa"/>' +
+             '<text x="1.2" y="19.4" font-size="7.6" font-weight="700" fill="#f2f6fa" ' +
+               'font-family="system-ui,sans-serif">-08</text>' +
+             '<path d="M17.6 12.6l3.1 3.1-3.1 3.1-3.1-3.1z" fill="none" stroke="#f2f6fa" stroke-width="1.4"/>',
+
+    // Terrain: banded peaks, red cap over amber over yellow, dark ground.
+    terrain: '<path d="M15 3.6L22.2 18H7.8z" fill="#d8351f"/>' +
+             '<path d="M12.2 9.2h5.6l1.9 3.8H10.3z" fill="#f2a81f"/>' +
+             '<path d="M10.3 13h9.4l2.5 5H7.8z" fill="#f7dc45"/>' +
+             '<path d="M7.4 7.4L13.8 18H1z" fill="#e09a1e"/>' +
+             '<path d="M4.7 11.8h5.4L13.8 18H1z" fill="#f7dc45"/>' +
+             '<path d="M1 17.2h21.4v2.4H1z" fill="#171208"/>',
+
+    // Weather: cumulus with rain streaks and a bolt.
+    weather: '<path d="M6.4 14.6a3.3 3.3 0 01.5-6.4 4.5 4.5 0 018.5-1.3 3.7 3.7 0 013.4 4.3 3 3 0 01-1.2 3.4z" ' +
+               'fill="#c2ccd4"/>' +
+             '<path d="M6.4 14.6h11.2a3.1 3.1 0 00.9-1.5H6c.1.6.2 1.1.4 1.5z" fill="#8b98a3"/>' +
+             '<path d="M6.6 16.4l-1.3 3.2M9.2 16.4l-1.3 3.2M11.8 16.4l-1.3 3.2" stroke="#3f9fe8" ' +
+               'stroke-width="1.7" stroke-linecap="round"/>' +
+             '<path d="M16.4 15.2l-2.9 4.3h2.2l-1.5 4.1 4.7-5.4h-2.4l1.7-3z" fill="#ffc61e"/>',
+
+    // Default NAV: the compass puck, seen slightly from above.
+    nav: '<ellipse cx="12" cy="14" rx="8" ry="4.3" fill="#9fb0bd"/>' +
+         '<path d="M4 11.6v2.4a8 4.3 0 0016 0v-2.4z" fill="#b8c6d2"/>' +
+         '<ellipse cx="12" cy="11.6" rx="8" ry="4.3" fill="#eef3f7" stroke="#8fa4b4" stroke-width=".6"/>' +
+         '<path d="M12 8.3l1.5 3.1-1.5 1.2-1.5-1.2z" fill="#e838d8"/>' +
+         '<circle cx="5.4" cy="11.6" r=".7" fill="#2f8fc4"/>' +
+         '<circle cx="18.6" cy="11.6" r=".7" fill="#2f8fc4"/>' +
+         '<circle cx="12" cy="14.9" r=".7" fill="#d8a020"/>' +
+         '<circle cx="12" cy="8.4" r=".7" fill="#2fa04a"/>',
+
+    // Flight plan: magenta leg flown, cyan leg to come, aircraft on the turn.
+    fpl: '<circle cx="3.6" cy="19.8" r="1.7" fill="#e838d8"/>' +
+         '<path d="M3.6 19.8L12 11.4" stroke="#e838d8" stroke-width="1.9" stroke-linecap="round"/>' +
+         '<path d="M13.4 10.4L18 15.6" stroke="#4ff0f0" stroke-width="2.2" stroke-linecap="round"/>' +
+         '<circle cx="18.6" cy="16.4" r="1.9" fill="#4ff0f0"/>' +
+         plane(12.2, 9.4, 52, .62),
+
+    // PROC: inbound course to a holding pattern.
+    proc: '<path d="M2.4 20.4L10 12.6" stroke="#e838d8" stroke-width="1.9" stroke-linecap="round"/>' +
+          '<g transform="rotate(-10 16.8 9.4)"><rect x="11.6" y="6.1" width="10.4" height="6.6" rx="3.3" ' +
+            'fill="none" stroke="#dfe7ee" stroke-width="1.5"/></g>' +
+          plane(10.4, 11.2, 48, .6),
+
+    // Nearest: a waypoint off to one side of the aircraft.
+    nearest: '<path d="M5.4 15.2l2.7-2.7 2.7 2.7-2.7 2.7z" fill="#c840e0"/>' +
+             '<path d="M9.6 13.4L15.6 8" stroke="#e838d8" stroke-width="1.6" stroke-linecap="round"/>' +
+             plane(17.4, 6.6, 46, .58),
+
+    // Waypoint info: the waypoint symbol with its data block.
+    wpt: '<path d="M7.6 14.4l3-3 3 3-3 3z" fill="#c840e0"/>' +
+         '<path d="M13.6 11.4h7M13.6 8.4h7M13.6 14.4h4.5" stroke="#7fd8ee" stroke-width="1.4" ' +
+           'stroke-linecap="round"/>',
+
+    sys: '<circle cx="12" cy="12" r="3.6" fill="none" stroke="#7fd8ee" stroke-width="1.8"/>' +
+         '<path d="M12 3.2v3.2M12 17.6v3.2M3.2 12h3.2M17.6 12h3.2M5.8 5.8l2.3 2.3M15.9 15.9l2.3 2.3' +
+           'M18.2 5.8l-2.3 2.3M8.1 15.9l-2.3 2.3" stroke="#7fd8ee" stroke-width="1.7" stroke-linecap="round"/>',
+
+    // Rail keys.
+    menu: '<rect x="2.6" y="5" width="18.8" height="14" rx="1.6" fill="#5fd8e8"/>' +
+          '<path d="M5.6 8.6h13M5.6 12h13M5.6 15.4h9.4" stroke="#08222c" stroke-width="1.9" ' +
+            'stroke-linecap="round"/>' +
+          '<rect x="4.6" y="6.6" width="3.4" height="3.4" rx=".5" fill="#08222c" opacity=".5"/>',
+    msg: '<rect x="3.4" y="3.4" width="12.4" height="12.4" rx="1.4" fill="none" stroke="#5fd8e8" ' +
+           'stroke-width="1.8"/>' +
+         '<path d="M6.4 13.2V6.2l3.2 4.2 3.2-4.2v7" stroke="#5fd8e8" stroke-width="1.8" fill="none" ' +
+           'stroke-linejoin="round"/>' +
+         '<path d="M12.6 13.4h8.2v6.4h-8.2z" fill="#dceef7" stroke="#7fb8cc" stroke-width=".9"/>' +
+         '<path d="M12.6 13.4l4.1 3 4.1-3" fill="none" stroke="#7fb8cc" stroke-width=".9"/>',
+    back: '<path d="M9.6 5.2L2.8 11.6l6.8 6.4v-3.5c3.7-.2 6.2 1 8.1 3.5.4-5.6-2.7-8.4-8.1-8.6z" ' +
+            'fill="#5fd8e8"/>' +
+          '<path d="M11.2 17.6c2.5-.6 4.6.2 6.5 2.4.2-1.7.1-3-.2-4.1-1.8-.6-4-.4-6.3.4z" fill="#2a7fd0"/>',
+    cancel: '<path d="M4.6 4.6l14.8 14.8M19.4 4.6L4.6 19.4" stroke="#4aa8e0" stroke-width="3.6" ' +
+              'stroke-linecap="round"/>',
+    find: '<circle cx="10.2" cy="10.2" r="6.2" fill="none" stroke="#7fc7e8" stroke-width="2.2"/>' +
+          '<path d="M14.8 14.8l5.4 5.4" stroke="#7fc7e8" stroke-width="2.4" stroke-linecap="round"/>',
+    home: '<path d="M12 3.2L2.2 11.6h2.7V20h5.2v-5.4h3.8V20h5.2v-8.4h2.7z" fill="#cfe8ff"/>',
+    up: '<path d="M12 5l7 9H5z" fill="#5fd8e8"/>',
+    down: '<path d="M12 19l-7-9h14z" fill="#5fd8e8"/>',
+    xfer: '<path d="M8 4.4v13.2M8 4.4L5.4 8M8 4.4l2.6 3.6M16 19.6V6.4M16 19.6l-2.6-3.6M16 19.6l2.6-3.6" ' +
+            'stroke="#cfe8ff" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
+    bksp: '<path d="M8 4.8h12.8v14.4H8L1.8 12z" fill="none" stroke="#cfe8ff" stroke-width="1.6"/>' +
+          '<path d="M11 9.4l5.4 5.2M16.4 9.4L11 14.6" stroke="#cfe8ff" stroke-width="1.6" ' +
+            'stroke-linecap="round"/>'
   };
+
   function ico(k, sz) {
     return '<svg class="ic" viewBox="0 0 24 24" width="' + (sz || 22) + '" height="' + (sz || 22) +
            '" fill="none" stroke-linecap="round">' + (IC[k] || '') + '</svg>';
@@ -220,6 +301,10 @@
             : 'Database lookup from GPS position.') + '">' +
           esc(rflLabel(act) || '&nbsp;') + '</span>' +
       '</button>' +
+      '<div class="fqflip" title="Touch the active window, or hold the small knob, to flip/flop">' +
+        '<svg viewBox="0 0 12 16" width="9" height="12"><path d="M6 1.5v13M6 1.5L3.4 4.6M6 1.5l2.6 3.1' +
+        'M6 14.5l-2.6-3.1M6 14.5l2.6-3.1" stroke="#cfe0ee" stroke-width="1.3" fill="none" ' +
+        'stroke-linecap="round"/></svg></div>' +
       '<button class="fqbox sby" data-act="' + (navTune ? 'nav-sby' : 'com-sby') + '" ' +
         'title="Touch the standby window to enter a frequency">' +
         '<span class="fq-k">STBY</span>' +
@@ -379,9 +464,7 @@
         '<span class="fr-r"><b>' + (brg == null ? '' : fmtCrs(brg) + '°') + '</b>' +
         '<i>' + (dst == null ? '' : fmtDist(dst) + '<u>NM</u>') + '</i></span></button>';
     }).join('');
-    return '<div class="fplhdr"><span>' + esc((s.fpl.legs[0] && s.fpl.legs[0].ident) || '') +
-      ' / ' + esc(destIdent() || '') + '</span><span class="fh-r">DTK / DIS</span></div>' +
-      '<div class="frows">' + rows + '</div>';
+    return '<div class="frows">' + rows + '</div>';
   };
 
   function destIdent() {
@@ -631,10 +714,20 @@
     var def = PAGEDEF[page] || { title: '', icon: 'nav' };
     var body = (PAGES[page] || PAGES.nav)();
     var full = page === 'wptopt' || page === 'tune';   // pages with no frequency rail
+    var s0 = C.state();
+    // The plan page's title bar carries the route and the column heading rather
+    // than a page name, exactly as the unit does.
+    var title = def.title, right = '';
+    if (page === 'fpl' && s0.fpl.legs.length) {
+      title = ((s0.fpl.legs[0] && s0.fpl.legs[0].ident) || '') + ' / ' + (destIdent() || '');
+      right = 'DTK / DIS';
+    }
     scrEl.innerHTML =
       railLeft() +
       '<div class="mid' + (full ? ' full' : '') + '">' +
-        '<div class="tbar">' + ico(def.icon, 14) + '<span>' + esc(def.title) + '</span></div>' +
+        '<div class="tbar' + (right ? ' split' : '') + '">' + ico(def.icon, 14) +
+          '<span>' + esc(title) + '</span>' +
+          (right ? '<em>' + esc(right) + '</em>' : '') + '</div>' +
         '<div class="pbody pb-' + page + '">' + body + '</div>' +
       '</div>' +
       (full ? '' : railRight()) +

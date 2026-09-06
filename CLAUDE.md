@@ -541,6 +541,13 @@ concepts; to relink, add the tools.html card back.
   lookup, which is why students think they have identified something; the keypad is two rows of
   five, not a phone pad; and **Default Navigation is a separate page from Map** — CDI and OBS live
   on the former. Don't "tidy" these into a top frequency bar or a phone keypad.
+  **Icons match the unit's iconography by request (2026-09-05)** — same subject, composition and
+  colour (green globe on a cyan graticule; diamond + arrow + `-08` traffic; red-capped banded
+  terrain peaks; cloud with rain and a bolt; the compass puck; aircraft-on-a-magenta/cyan-route for
+  the flight plan; aircraft + racetrack for PROC) — but they are **our own SVG, redrawn, not the
+  manufacturer's artwork**, and there is no wordmark or logo anywhere. Jesse relaxed his original
+  "no icons" rule for training transfer; the footer disclaimer stays. Terrain's colour bands are
+  horizontal slices of the peak, not nested triangles sharing its apex, or the red cap disappears.
   Nav data is the existing `data/procedures/` CIFP build, no second copy.
   **CIFP leg courses and radials are MAGNETIC** — `decodeLeg()` converts them to true once
   (`true = coded + apt.mv`) so nothing downstream mixes flavours. Before that fix the coded 041
