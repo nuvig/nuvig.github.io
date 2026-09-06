@@ -391,8 +391,14 @@ def main():
     today = datetime.date.today().isoformat()
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     # first run backfills every day in the DB; after that only today/yesterday
-    # can gain data, so only they are re-exported
-    todo = [d for d in db_days if d not in have or d in (today, yesterday)]
+    # can gain data, so only they are re-exported. The one exception is a
+    # heal.py backfill (it inserts fixes into older days): set
+    # KANP_EXPORT_SINCE=YYYY-MM-DD for one run to re-export every day from
+    # that date, then unset it.
+    since = os.environ.get("KANP_EXPORT_SINCE", "").strip()
+    todo = [d for d in db_days if d not in have or d in (today, yesterday) or (since and d >= since)]
+    if since:
+        log(f"KANP_EXPORT_SINCE={since}: re-exporting {len(todo)} days")
 
     exported = []
     for d in todo:

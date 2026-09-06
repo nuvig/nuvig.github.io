@@ -30,7 +30,8 @@ Politeness: KANP_HEAL_SPACING_S between requests (default 12 → 5/min), at most
 KANP_HEAL_MAX_REQ per run. A completed UTC day's trace is fetched once per hex
 and remembered in meta; today's is refetched when older than KANP_HEAL_REFRESH_S.
 Runs from kanp-heal.timer every 30 min; the exporter's next run carries the
-healed rows into the day files (it re-exports today and yesterday).
+healed rows into the day files (it re-exports today and yesterday; after a
+backfill further back, run the exporter once with KANP_EXPORT_SINCE=YYYY-MM-DD).
 """
 
 import datetime
