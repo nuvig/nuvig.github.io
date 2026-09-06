@@ -529,7 +529,22 @@ concepts; to relink, add the tools.html card back.
   dual concentric knob) with Proc / Flight Plan / Back / CDI / OBS as *touch* keys, because that
   is the real unit's layout. The original brief asked for GNS 430/530 hard keys (MENU/FPL/PROC/
   CLR/ENT + softkeys) — that is a different box and would teach the wrong reach; don't add them.
-  Nav data is the existing `data/procedures/` CIFP build, no second copy. **Two properties were
+  **Screen layout is replicated from the manual's figures, not invented** (rebuilt
+  2026-09-05 after a first pass that looked nothing like the unit): the screen is authored at its
+  true 600x266 and CSS-scaled, so every dimension and type size is real. Three columns — left rail
+  (volume legend, Menu/MSG/Back), centre (centred title bar over the page), right rail (COM **or**
+  NAV active over standby, each with its database ident beneath, then XPDR) — over a bottom
+  annunciation strip (phase | source | OBS/SUSP | knob legend). Things that are behaviour, not
+  decoration: the corner legend reads `Com Vol / Psh Sq` and flips to `Nav Vol / Psh ID` when the
+  small-knob press moves the tuning cursor to NAV (that press is the **only** way to reach the NAV
+  window, as on the real unit); the small line under *both* frequencies is the reverse-frequency
+  lookup, which is why students think they have identified something; the keypad is two rows of
+  five, not a phone pad; and **Default Navigation is a separate page from Map** — CDI and OBS live
+  on the former. Don't "tidy" these into a top frequency bar or a phone keypad.
+  Nav data is the existing `data/procedures/` CIFP build, no second copy.
+  **CIFP leg courses and radials are MAGNETIC** — `decodeLeg()` converts them to true once
+  (`true = coded + apt.mv`) so nothing downstream mixes flavours. Before that fix the coded 041
+  sat on the same leg the geometry called 031. **Two properties were
   verified across every approach in that build and the sequencing depends on them**: exactly one
   leg per final carries flags bit0 and never the first, so the missed approach starts there and
   the MAP is the leg before it; and the vertical angle always sits on that MAP leg, so the FAF is

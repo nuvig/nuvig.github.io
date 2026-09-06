@@ -770,11 +770,13 @@
     if (S.cdi.source === 'VLOC') return null;
     var a = S.fpl.approach;
     var leg = activeLeg();
-    if (a && a.active && leg && (leg.seg === 'appr')) {
+    if (a && a.active && leg && leg.seg === 'appr') {
+      // Inside the FAF an RNAV approach annunciates its level of service. A
+      // localizer-based approach has none to give, but the GPS is still in
+      // approach mode -- the annunciation only disappears when VLOC is driving
+      // the CDI, which is handled above.
       var fafIdx = indexOfRole('FAF');
-      if (fafIdx >= 0 && S.fpl.active >= fafIdx) {
-        return a.kind === 'RNAV' ? 'LNAV' : null;
-      }
+      if (fafIdx >= 0 && S.fpl.active >= fafIdx) return a.kind === 'RNAV' ? 'LNAV' : 'TERM';
       return 'TERM';
     }
     var dest = S.fpl.legs[S.fpl.legs.length - 1];

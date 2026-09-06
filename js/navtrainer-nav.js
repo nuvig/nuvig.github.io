@@ -166,7 +166,13 @@
   // Terminators with no fix to fly to -- they end on a condition.
   var COND_PT = { CA: 1, VA: 1, VI: 1, VM: 1, FM: 1, VD: 1, VR: 1, CI: 1, CR: 1, CD: 1, FC: 1, FD: 1 };
 
-  function decodeLeg(L, seg) {
+  // CIFP leg courses and radials are MAGNETIC. The rest of this site is degrees
+  // true, and so is every bearing computed from the coded lat/lons -- mixing the
+  // two put an 041 on the same leg the geometry called 031. Convert once, here,
+  // using the airport's variation (true = magnetic + mv, mv negative for west), so
+  // nothing downstream has to remember which flavour it is holding.
+  function decodeLeg(L, seg, mv) {
+    mv = mv || 0;
     return {
       ident: L[LEG.FIX] || null,
       lat: L[LEG.LAT], lon: L[LEG.LON],
@@ -175,12 +181,13 @@
       altDesc: L[LEG.ALTDESC] || null,
       alt1: L[LEG.ALT1], alt2: L[LEG.ALT2],
       spd: L[LEG.SPD],
-      course: L[LEG.CRS],
+      course: L[LEG.CRS] == null ? null : norm360(L[LEG.CRS] + mv),
+      courseMag: L[LEG.CRS],
       dist: L[LEG.DIST],
       va: L[LEG.VA],
       flags: L[LEG.FLAGS] || 0,
       recNav: L[LEG.RECNAV] || null,
-      theta: L[LEG.THETA], rho: L[LEG.RHO],
+      theta: L[LEG.THETA] == null ? null : norm360(L[LEG.THETA] + mv), rho: L[LEG.RHO],
       center: L[LEG.CENTER] || null,
       seg: seg || 'enroute',
       role: null,
@@ -219,8 +226,9 @@
     var final_ = (proc.trans || []).filter(function (t) { return t.k === 'final'; })[0];
     var seg = proc.type === 'APP' ? 'appr' : (proc.type === 'SID' ? 'dep' : 'star');
 
+    var mv = apt.mv || 0;
     function push(raw, s, tName) {
-      var leg = decodeLeg(raw, s);
+      var leg = decodeLeg(raw, s, mv);
       leg.procId = proc.id;
       leg.procName = proc.name || proc.id;
       leg.transName = tName || null;
@@ -252,7 +260,7 @@
 
     // Approach.
     if (!final_) return out;
-    var fLegs = final_.legs.map(function (L) { return decodeLeg(L, seg); });
+    var fLegs = final_.legs.map(function (L) { return decodeLeg(L, seg, mv); });
     var mIdx = missedIndex(fLegs), fIdx = fafIndex(fLegs), pIdx = mapIndex(fLegs);
 
     if (opts.vtf) {

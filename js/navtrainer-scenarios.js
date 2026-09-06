@@ -80,7 +80,10 @@
           done: function (s) { return !!appr(s); } },
         { key: 'appr-activate', text: 'Load APPR & Activate -- loading alone leaves you routed to the airport.',
           done: function (s) { return !!(appr(s) && appr(s).active); } },
-        { key: 'nav-tune', text: 'Tune the localizer into the NAV standby window.',
+        { key: 'knob', text: 'Press the small knob to move the tuning cursor to the NAV window. ' +
+                'The corner legend changes to "Nav Vol / Psh ID" when it is there.',
+          done: function (s) { return s.com.tuning === 'NAV' || locInStandby(s) || locTuned(s); } },
+        { key: 'nav-tune', text: 'Touch the STBY window and enter the localizer frequency.',
           done: function (s) { return locInStandby(s) || locTuned(s); } },
         { key: 'nav-flip', text: 'Flip it to ACTIVE -- a standby frequency is not being received.',
           done: function (s) { return locTuned(s); } },
