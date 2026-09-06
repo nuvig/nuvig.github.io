@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPS Sequencing — load vs activate, SUSP, OBS and CDI switching, interactive</title>
+  <meta name="description" content="Interactive explainer for IFR GPS navigator logic: why the box sequences when it does, what load versus activate changes, when it suspends, what OBS does, and how the CDI switches from GPS to VLOC on an ILS.">
+  <link rel="canonical" href="https://jesselevine.net/sequencing.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1050px; padding-bottom: 40px; }
+    #back-link { display:inline-block; margin-top:16px; font-size:14px; text-decoration:none; color:#666; }
+    #back-link:hover { color:#ccc; }
+    .subtitle { color:#777; margin:4px 0 20px; font-size:14px; max-width:860px; line-height:1.6; }
+
+    .section-title { font-size:16px; font-weight:600; color:#ddd; margin:36px 0 4px;
+      letter-spacing:.02em; display:flex; align-items:baseline; gap:10px; }
+    .section-title .num { color:#4a9eff; font-variant-numeric:tabular-nums; font-weight:700; }
+    .section-lede { font-size:13px; color:#888; margin:0 0 12px; max-width:860px; line-height:1.65; }
+    .section-lede b { color:#bbb; }
+    .section-lede code { color:#bbb; background:#222; border-radius:3px; padding:1px 4px; font-size:12px; }
+
+    /* ---- the demo ---- */
+    .demo { background:#141414; border:1px solid #333; border-radius:10px; padding:14px;
+      margin:0 0 8px; position:sticky; top:8px; z-index:5; }
+    @media (max-width:900px){ .demo{ position:static; } }
+    .demo-grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(240px,1fr); gap:14px; }
+    @media (max-width:760px){ .demo-grid{ grid-template-columns:1fr; } }
+
+    .mapwrap { position:relative; background:#080d13; border:1px solid #263140; border-radius:8px;
+      overflow:hidden; aspect-ratio:4/3; }
+    #seq-map { width:100%; height:100%; display:block; }
+    #seq-ann { position:absolute; left:0; right:0; bottom:0; display:flex; align-items:center;
+      justify-content:center; gap:14px; padding:5px; background:linear-gradient(transparent,rgba(4,8,14,.92) 45%);
+      font-size:12px; font-weight:700; letter-spacing:.06em; }
+    .ann-ph { color:#7fd8ee; } .ann-src.gps { color:#e879f9; } .ann-src.vloc { color:#4ade80; }
+    .ann-obs, .ann-susp { color:#fbbf24; }
+
+    .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+    .pane { background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:10px 12px; }
+    .pane h3 { margin:0 0 7px; font-size:11px; font-weight:600; color:#8b98a8;
+      text-transform:uppercase; letter-spacing:.07em; }
+    .sr { display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:2.5px 0;
+      border-bottom:1px solid #242424; }
+    .sr:last-child { border-bottom:0; }
+    .sr span { color:#888; flex:0 0 auto; }
+    .sr b { font-weight:600; text-align:right; color:#ddd; }
+    .sr b.ok, .rr b.ok { color:#22c55e; } .sr b.warn, .rr b.warn { color:#fbbf24; }
+    .sr b.mag { color:#e879f9; }
+    #seq-why { font-size:12.5px; color:#fbbf24; line-height:1.45; margin-top:8px; min-height:34px; }
+    #seq-cdi { width:100%; aspect-ratio:1; max-height:170px; display:block; }
+
+    .rr { display:grid; grid-template-columns:1fr auto; gap:4px 10px; font-size:12.5px;
+      padding:2.5px 0; border-bottom:1px solid #242424; align-items:baseline; }
+    .rr:last-child { border-bottom:0; }
+    .rr span { color:#888; }
+    .rr b { font-family:ui-monospace,Menlo,Consolas,monospace; font-weight:600; color:#ddd; }
+    .rr b.grn { color:#22c55e; } .rr b.dim { color:#666; }
+    .rr i { grid-column:1/3; font-style:normal; font-size:11px; color:#6f8ba0; margin-top:-2px; }
+    .rr.big { margin-top:3px; border-top:1px solid #333; padding-top:6px; }
+    .rr.big span, .rr.big b { font-size:13.5px; }
+
+    #seq-watch { list-style:none; margin:0; padding:0; font-size:12px; line-height:1.5; }
+    #seq-watch li { color:#fca5a5; padding:3px 0 3px 14px; position:relative; }
+    #seq-watch li:before { content:"▸"; position:absolute; left:0; color:#7f3b3b; }
+    #seq-watch li.none { color:#5a5a5a; } #seq-watch li.none:before { color:#3a3a3a; }
+
+    .ctl { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin-top:12px; }
+    .ctl button, .btn { background:#242424; border:1px solid #3a3a3a; color:#ddd; border-radius:6px;
+      padding:6px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; }
+    .ctl button:hover, .btn:hover { border-color:#4a9eff; color:#fff; }
+    .ctl label { font-size:12px; color:#888; display:flex; align-items:center; gap:5px; }
+    .ctl input[type=range] { width:88px; }
+    #seq-note { font-size:12.5px; color:#9aa8b8; line-height:1.55; margin-top:10px;
+      border-left:2px solid #4a9eff; padding-left:10px; }
+
+    .demos { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 10px; }
+    .demos button { background:#1d2836; border:1px solid #2f4459;
+      color:#cfe0f0; border-radius:6px; padding:7px 12px; font-size:13px; cursor:pointer;
+      font-family:inherit; }
+    .demos button:hover { border-color:#4a9eff; color:#fff; }
+    .demos button.on { background:#16341f; border-color:#2f6b45; color:#86efac; }
+
+    .foot { margin-top:34px; padding-top:14px; border-top:1px solid #2a2a2a; font-size:12px;
+      color:#666; line-height:1.65; }
+  </style>
+</head>
+<body>
+
+<h1>GPS Sequencing</h1>
+<p class="subtitle">What an IFR navigator does with your flight plan, and why — read live off real
+coded procedures. Ground-school for the box; the thumbs go on the trainer app.</p>
+
+<div class="demo" id="seq-demo">
+  <div class="demo-grid">
+    <div class="mapwrap">
+      <canvas id="seq-map"></canvas>
+      <div id="seq-ann"></div>
+    </div>
+    <div class="side">
+      <div class="pane">
+        <h3>What the box is doing</h3>
+        <div id="seq-state"></div>
+        <div id="seq-why"></div>
+      </div>
+      <div class="pane">
+        <h3>Panel CDI</h3>
+        <canvas id="seq-cdi"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <button id="c-run">Fly</button>
+    <button id="c-reset">Reset</button>
+    <button id="c-cdi">CDI</button>
+    <button id="c-obs">OBS</button>
+    <label>Speed <input id="c-rate" type="range" min="1" max="16" step="1" value="4"><span id="c-ratev">4×</span></label>
+    <label>Range <input id="c-range" type="range" min="2" max="40" step="1" value="12"><span id="c-rangev">12 nm</span></label>
+  </div>
+  <div id="seq-note"></div>
+</div>
+
+<div class="demo-grid" style="margin-top:14px">
+  <div class="pane">
+    <h3>Nav receiver</h3>
+    <div id="seq-radio"></div>
+  </div>
+  <div class="pane">
+    <h3>Worth flagging</h3>
+    <ul id="seq-watch"></ul>
+  </div>
+</div>
+
+<!-- 1 -->
+<div class="section-title"><span class="num">1</span> Load, or activate</div>
+<p class="section-lede">Loading puts the approach at the end of the plan and changes nothing about
+where you are going. The destination airport is still ahead of you, so the box flies there first and
+then back out to the transition. <b>Activating</b> makes the transition the active leg, direct from
+present position. The plan looks identical either way — only the magenta leg differs.</p>
+<div class="demos">
+  <button data-demo="load-only">Load only</button>
+  <button data-demo="load-activate">Load and activate</button>
+</div>
+
+<!-- 2 -->
+<div class="section-title"><span class="num">2</span> Fly-by and flyover</div>
+<p class="section-lede">Most fixes are <b>fly-by</b>: the turn starts early, so the aircraft rolls out
+on the next leg without overshooting. The amber ring on the map is where that turn begins — it moves
+with groundspeed and with how sharp the turn is. A <b>flyover</b> fix gets no anticipation at all;
+the leg stays active until the aircraft is past the fix. Missed approach points are flyover.</p>
+<div class="demos">
+  <button data-demo="flyby">Approach a fly-by fix</button>
+  <button data-demo="flyover">Approach a flyover fix</button>
+</div>
+
+<!-- 3 -->
+<div class="section-title"><span class="num">3</span> SUSP</div>
+<p class="section-lede">Automatic sequencing stops at the missed approach point, in a hold, and on a
+leg that ends at an altitude rather than a fix. <code>SUSP</code> means the box is waiting for you:
+the active waypoint stays put no matter how far past it you fly. A hold coded in lieu of a procedure
+turn is the exception — one circuit, then it continues inbound by itself.</p>
+<div class="demos">
+  <button data-demo="susp-map">Fly to the missed approach point</button>
+  <button data-demo="susp-hold">Fly the hold in lieu of a procedure turn</button>
+</div>
+
+<!-- 4 -->
+<div class="section-title"><span class="num">4</span> OBS</div>
+<p class="section-lede">OBS freezes the active waypoint and hands you the course. Sequencing stops
+until you turn it off — which is what you want to hold a course to or from a fix, and is a trap left
+on by accident. On legs that cannot take a manual course the same key reads <code>SUSP</code>
+instead, and unsuspends.</p>
+<div class="demos">
+  <button data-demo="obs">Turn OBS on</button>
+</div>
+
+<!-- 5 -->
+<div class="section-title"><span class="num">5</span> GPS to VLOC</div>
+<p class="section-lede">On an ILS, localizer, LDA or SDF the navigator hands the needle to the VLOC
+receiver by itself — but only with the approach <b>activated</b>, the right frequency <b>active</b>
+rather than sitting in standby, the aircraft within <b>1.2 nm</b> of the final approach course, and
+between <b>2.0 and 15.0 nm</b> from the FAF. Join inside 2 nm and it will not switch at all. There is
+no automatic switching on a VOR or a backcourse.</p>
+<div class="demos">
+  <button data-demo="vloc-auto">Watch it switch</button>
+  <button data-demo="vloc-late">Start inside 2 nm</button>
+</div>
+
+<!-- 6 -->
+<div class="section-title"><span class="num">6</span> Tuned is not identified</div>
+<p class="section-lede">The navigator prints a facility name under the frequency from its own
+database and your GPS position. It does that whether or not anything is being received — including
+for a frequency sitting in standby. <b>Identifying</b> is the Morse the receiver decodes off the
+<b>active</b> frequency, with the ident audio up. Watch the Nav receiver panel through all three.</p>
+<div class="demos">
+  <button data-demo="ident-standby">In standby</button>
+  <button data-demo="ident-active">Made active</button>
+  <button data-demo="ident-on">Ident on</button>
+</div>
+
+<div class="foot">
+  Procedures are FAA CIFP codings, <span id="cyc"></span>, the same data the
+  <a href="procedures.html">Procedure Explorer</a> reads. Coded courses are magnetic and are converted
+  to true here; all headings are °true. Frequencies in
+  <code>data/sequencing/facilities.json</code> are placeholders until verified against the current
+  chart. Not for navigation. Unofficial training reference, not affiliated with or endorsed by any
+  avionics manufacturer.
+</div>
+
+<a id="back-link" href="/">← jesselevine.net</a>
+
+<script src="js/sequencing-nav.js?v=1"></script>
+<script src="js/sequencing-core.js?v=1"></script>
+<script src="js/sequencing-demos.js?v=1"></script>
+<script src="js/sequencing-ui.js?v=1"></script>
+<script>
+  SeqUI.boot().then(function () {
+    var c = document.getElementById('cyc');
+    if (c) c.textContent = 'cycle ' + (SeqNav.cycle() || '?') + ', effective ' + (SeqNav.effective() || '?');
+  });
+</script>
+<script data-goatcounter="https://jesselevine.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<script src="js/pagever.js?v=3"></script>
+</body>
+</html>

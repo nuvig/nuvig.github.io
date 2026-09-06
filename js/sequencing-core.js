@@ -17,7 +17,7 @@
 (function (global) {
   'use strict';
 
-  var N = global.NTNav;
+  var N = global.SeqNav;
 
   // ---------------------------------------------------------------- state
 
@@ -29,7 +29,7 @@
         altTarget: 3000, vs: 500, ap: true
       },
       fpl: {
-        legs: [],                // NTNav leg objects, in order
+        legs: [],                // SeqNav leg objects, in order
         active: -1,              // index of the leg being flown TO
         origin: null,            // FROM point for the leg named by originIdx
         originIdx: -1,
@@ -91,7 +91,8 @@
   // line away from the transition waypoint.
   function legOrigin(i) {
     if (i == null) i = S.fpl.active;
-    if (S.fpl.origin && S.fpl.originIdx === i) return S.fpl.origin;
+    if (S.fpl.origin && S.fpl.originIdx === i &&
+        S.fpl.origin.lat != null && S.fpl.origin.lon != null) return S.fpl.origin;
     if (i <= 0) return S.fpl.origin || pos();
     var prev = S.fpl.legs[i - 1];
     if (prev && prev.lat != null) return { lat: prev.lat, lon: prev.lon };
@@ -223,7 +224,8 @@
     if (i < 0 || i >= S.fpl.legs.length) return;
     S.fpl.active = i;
     S.fpl.dtoIdent = null; S.fpl.dtoCourse = null;
-    setOrigin(i > 0 ? { lat: S.fpl.legs[i - 1].lat, lon: S.fpl.legs[i - 1].lon } : pos(), i);
+    var prev = i > 0 ? S.fpl.legs[i - 1] : null;
+    setOrigin(legHasFix(prev) ? { lat: prev.lat, lon: prev.lon } : pos(), i);
     clearSusp();
     emit('fpl.activateLeg', { index: i, ident: S.fpl.legs[i].ident });
   }
@@ -455,6 +457,9 @@
     var back = N.project(fafP, N.norm360(crs + 180), 40);
     var xt = Math.abs(N.crossTrack(pos(), back, fafP));
     var dFaf = N.dist(pos(), fafP);
+
+    // The capture wedge is on the approach side of the FAF only.
+    if (N.alongTrack(pos(), back, fafP) >= N.dist(back, fafP)) return;
 
     // Within 1.2 nm of the final approach course and 2.0-15.0 nm from the FAF.
     if (xt <= 1.2 && dFaf >= 2.0 && dFaf <= 15.0) {
@@ -784,7 +789,7 @@
     return 'ENR';
   }
 
-  global.NTCore = {
+  global.SeqCore = {
     state: state, reset: reset, emit: emit, message: message,
     step: step, nav: nav, phase: phase, fullScale: fullScale,
     legs: legs, activeLeg: activeLeg, nextLeg: nextLeg, legOrigin: legOrigin,
@@ -799,6 +804,7 @@
     setCdiSource: setCdiSource, pressCdi: pressCdi,
     tuneStandby: tuneStandby, flipFlop: flipFlop, toggleNavIdent: toggleNavIdent,
     navIdentified: navIdentified, updateNavDecode: updateNavDecode,
-    desiredTrack: desiredTrack, crossTrack: crossTrack, distToActive: distToActive
+    desiredTrack: desiredTrack, crossTrack: crossTrack, distToActive: distToActive,
+    anticipation: anticipation
   };
 })(window);

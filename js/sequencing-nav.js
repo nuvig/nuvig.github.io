@@ -338,7 +338,7 @@
     return pts;
   }
 
-  global.NTNav = {
+  global.SeqNav = {
     R_NM: R_NM,
     rad: rad, deg: deg, norm360: norm360, norm180: norm180,
     dist: dist, bearing: bearing, project: project,

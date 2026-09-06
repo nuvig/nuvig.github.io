@@ -522,57 +522,44 @@ concepts; to relink, add the tools.html card back.
   Tabs deep-link by hash (`#anatomy`), `?nav=`/`?cat=` preselect the interactive. **Currently an
   unlinked `noindex` draft** — on promotion: remove the noindex meta and add the tools.html card
   and sitemap.xml `<url>`.
-- `navtrainer.html` + `js/navtrainer-{nav,core,ui,scenarios}.js` — GPS/NAV/COM Trainer
-  (2026-09-05): a working replica of a touchscreen IFR navigator for instrument instruction.
-  **No Garmin branding anywhere** — name, filenames, UI strings and the footer disclaimer are
-  deliberate; keep it that way. **The bezel is four controls** (volume/squelch, HOME, Direct-To,
-  dual concentric knob) with Proc / Flight Plan / Back / CDI / OBS as *touch* keys, because that
-  is the real unit's layout. The original brief asked for GNS 430/530 hard keys (MENU/FPL/PROC/
-  CLR/ENT + softkeys) — that is a different box and would teach the wrong reach; don't add them.
-  **Screen layout is replicated from the manual's figures, not invented** (rebuilt
-  2026-09-05 after a first pass that looked nothing like the unit): the screen is authored at its
-  true 600x266 and CSS-scaled, so every dimension and type size is real. Three columns — left rail
-  (volume legend, Menu/MSG/Back), centre (centred title bar over the page), right rail (COM **or**
-  NAV active over standby, each with its database ident beneath, then XPDR) — over a bottom
-  annunciation strip (phase | source | OBS/SUSP | knob legend). Things that are behaviour, not
-  decoration: the corner legend reads `Com Vol / Psh Sq` and flips to `Nav Vol / Psh ID` when the
-  small-knob press moves the tuning cursor to NAV (that press is the **only** way to reach the NAV
-  window, as on the real unit); the small line under *both* frequencies is the reverse-frequency
-  lookup, which is why students think they have identified something; the keypad is two rows of
-  five, not a phone pad; and **Default Navigation is a separate page from Map** — CDI and OBS live
-  on the former. Don't "tidy" these into a top frequency bar or a phone keypad.
-  **Icons match the unit's iconography by request (2026-09-05)** — same subject, composition and
-  colour (green globe on a cyan graticule; diamond + arrow + `-08` traffic; red-capped banded
-  terrain peaks; cloud with rain and a bolt; the compass puck; aircraft-on-a-magenta/cyan-route for
-  the flight plan; aircraft + racetrack for PROC) — but they are **our own SVG, redrawn, not the
-  manufacturer's artwork**, and there is no wordmark or logo anywhere. Jesse relaxed his original
-  "no icons" rule for training transfer; the footer disclaimer stays. Terrain's colour bands are
-  horizontal slices of the peak, not nested triangles sharing its apex, or the red cap disappears.
+- `sequencing.html` + `js/sequencing-{nav,core,demos,ui}.js` — GPS Sequencing (2026-09-05):
+  why an IFR navigator sequences when it does. **Started as a touchscreen replica of a panel GPS
+  and was pivoted away from that**, because students who need muscle memory should be on the
+  manufacturer's own trainer app on a tablet, and a browser mock will always lose that fight.
+  What a simulator can't show is the box's reasoning, so that is what this draws: active leg, next
+  leg, whether sequencing is armed or suspended, and **the reason in words**
+  (`nav().note` — "Fly-by WEGRO — sequences in 2.6 nm", "SUSP at the missed approach point").
+  Don't rebuild the bezel. Six sections, each with buttons that drive one shared demo: load vs
+  activate · fly-by vs flyover · SUSP · OBS · GPS→VLOC · tuned-is-not-identified. A demo is one
+  object in `sequencing-demos.js` (`id`/`label`/`note`/`run()`); helpers there load an approach and
+  place the aircraft a given range and bearing off one of its fixes.
   Nav data is the existing `data/procedures/` CIFP build, no second copy.
-  **CIFP leg courses and radials are MAGNETIC** — `decodeLeg()` converts them to true once
-  (`true = coded + apt.mv`) so nothing downstream mixes flavours. Before that fix the coded 041
-  sat on the same leg the geometry called 031. **Two properties were
-  verified across every approach in that build and the sequencing depends on them**: exactly one
-  leg per final carries flags bit0 and never the first, so the missed approach starts there and
-  the MAP is the leg before it; and the vertical angle always sits on that MAP leg, so the FAF is
-  `MAP - 1`. The FAF is what the ILS capture geometry measures from — recheck both after an AIRAC
-  rebuild. Modelled: fly-by turn anticipation vs flyover, auto-suspend at the MAP / in holds / on
-  altitude legs, OBS (and the same key becoming *unsuspend* whenever the box suspended itself),
-  hold in lieu of PT flown as a real racetrack for one circuit, and GPS→VLOC switching only with
-  the approach active, the localizer **active rather than standby**, within 1.2 nm of the final
-  course and 2.0–15.0 nm from the FAF (no auto switch inside 2 nm). **Tuning and identifying are
-  separate states on purpose** — the identifier under the standby frequency is a reverse-frequency
-  lookup from the database and proves nothing; identification is the Morse decoded off the active
-  frequency with the ident audio on, and students conflate the two. Scenarios live in
-  `navtrainer-scenarios.js` (one object each: `setup`/`steps`/`goals`/`watch`); grading is by
-  **outcome**, and `watch` entries only *log* the classic confusions Jesse named — Arrivals hunted
-  for an approach, loaded-but-not-activated, localizer left in standby, tuned but never idented,
-  inside 2 nm still on GPS — they never block. Goals latch once met.
-  **`data/navtrainer/facilities.json` frequencies are placeholders** (`"verified": false`, shown
-  as an `unverified` chip in the UI): the CIFP build carries no navaid frequencies. The navaid
-  *idents* are real, read off the coded legs' recommended-navaid field. Currently an **unlinked
-  `noindex` prototype** — on promotion: remove the noindex meta, add the tools.html card and a
-  sitemap `<url>`. `window.NAVTRAINER_DEBUG` drives it headlessly.
+  **Three properties were verified across every approach in that build and the engine depends on
+  them**: exactly one leg per final carries flags bit0 and never the first, so the missed approach
+  starts there and the MAP is the leg before it; the vertical angle always sits on that MAP leg, so
+  the FAF is `MAP - 1`; and **coded courses and radials are MAGNETIC**, converted to true once in
+  `decodeLeg()` (`true = coded + apt.mv`) — before that fix the coded 041 sat on the leg the
+  geometry called 031. Recheck all three after an AIRAC rebuild; the FAF is what the CDI capture
+  geometry measures from.
+  Modelled: fly-by turn anticipation vs flyover, auto-suspend at the MAP / in holds / on altitude
+  legs, OBS (and the same key becoming *unsuspend* whenever the box suspended itself), hold in lieu
+  of PT flown as a real racetrack for one circuit, and GPS→VLOC switching only with the approach
+  active, the localizer **active rather than standby**, within 1.2 nm of the final course, and
+  2.0–15.0 nm from the FAF **on the approach side** — measuring range alone let the window re-arm
+  past the FAF, firing exactly where the 2 nm rule exists to prevent it. **Tuning and identifying
+  are separate states on purpose**: the name under a frequency is a reverse-frequency lookup from
+  the database and appears even for a standby frequency; identification is the Morse decoded off
+  the *active* frequency with the ident audio on, and students conflate the two.
+  `SeqDemos.watches()` is the old misstep list rebuilt as a live annunciator — loaded-not-activated,
+  localizer-in-standby, tuned-but-not-identified, inside-2-nm-still-on-GPS, OBS-left-on — shown in
+  the "Worth flagging" pane rather than graded.
+  **`data/sequencing/facilities.json` frequencies are placeholders** (`"verified": false`): the CIFP
+  build carries no navaid frequencies. The navaid *idents* are real, read off the coded legs'
+  recommended-navaid field. `window.SEQUENCING_DEBUG` drives it headlessly.
+  Gotcha fixed and worth not reintroducing: activating a leg whose predecessor is a vector leg
+  (VI/CA/VM, no coded fix) must fall back to present position for the leg origin — storing the
+  previous leg's null lat/lon made the geo math read 0°N 0°E and the leg sequenced instantly, which
+  hit every missed approach.
 
 ### Weather
 
