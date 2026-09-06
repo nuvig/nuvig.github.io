@@ -96,6 +96,7 @@ def haversine_nm(lat1, lon1, lat2, lon2):
 def open_db(path=DB_PATH):
     db = sqlite3.connect(path, timeout=30)
     db.row_factory = sqlite3.Row
+    db.isolation_level = None      # explicit BEGIN IMMEDIATE / COMMIT, see write_item()
     cols = {r["name"] for r in db.execute("PRAGMA table_info(positions)")}
     if not cols:
         raise SystemExit(f"{path}: no positions table — has the collector run?")
@@ -239,6 +240,40 @@ def merge(db, hexid, doc, fixes, start, end, dry_run=False):
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
+# The collector's two threads commit several times a second, and SQLite's
+# busy handler polls rather than queues, so a third writer can spend its whole
+# 30 s timeout waking up to find the lock taken again (2026-09-05 20:58: the
+# run died on set_meta with "database is locked" after ~35 minutes of work).
+# One BEGIN IMMEDIATE per item takes the lock once for merge + bookkeeping,
+# and a lock that still can't be had is retried, then the item is skipped
+# unrecorded so the next run tries again — never a crash.
+WRITE_TRIES = 6
+WRITE_RETRY_S = 10
+
+
+def write_item(db, fn, what, sleep=time.sleep):
+    """Run fn() inside one immediate transaction, retrying on a busy lock."""
+    for attempt in range(1, WRITE_TRIES + 1):
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            out = fn()
+            db.execute("COMMIT")
+            return out
+        except sqlite3.OperationalError as e:
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            if "locked" not in str(e) and "busy" not in str(e):
+                raise
+            if attempt == WRITE_TRIES:
+                log.warning("%s: database still locked after %d tries — left for next run",
+                            what, attempt)
+                return None
+            log.info("%s: database locked, retry %d/%d in %d s", what, attempt, WRITE_TRIES, WRITE_RETRY_S)
+            sleep(WRITE_RETRY_S)
+
+
 def utc_days(start, end):
     d0 = datetime.datetime.fromtimestamp(start, datetime.timezone.utc).date()
     d1 = datetime.datetime.fromtimestamp(end - 1, datetime.timezone.utc).date()
@@ -286,8 +321,7 @@ def run(dry_run=False, now=None, db=None, sleep=time.sleep):
             except urllib.error.HTTPError as e:
                 if e.code == 404:                     # adsb.lol never saw it that day
                     if day != today and not dry_run:
-                        set_meta(db, key, "404")
-                        db.commit()
+                        write_item(db, lambda: set_meta(db, key, "404"), f"{hexid} {day} 404", sleep)
                     log.debug("%s: 404", url)
                     continue
                 failed += 1
@@ -302,12 +336,19 @@ def run(dry_run=False, now=None, db=None, sleep=time.sleep):
                 continue
             fetched += 1
             fixes = trace_fixes(doc)
-            ins, seen = merge(db, hexid, doc, fixes, start, end, dry_run)
+
+            def item():
+                res = merge(db, hexid, doc, fixes, start, end, dry_run)
+                if not dry_run:
+                    set_meta(db, key, f"{now:.0f}")
+                return res
+            res = write_item(db, item, f"{hexid} {day}", sleep)
+            if res is None:
+                failed += 1
+                continue
+            ins, seen = res
             total_ins += ins
             total_seen += seen
-            if not dry_run:
-                set_meta(db, key, f"{now:.0f}")
-                db.commit()
             log.info("%s %s %s: trace %d fixes, %d in window/radius, %d new%s",
                      hexid, doc.get("r") or "", day, len(fixes), seen, ins,
                      " (dry run)" if dry_run else "")
@@ -315,9 +356,10 @@ def run(dry_run=False, now=None, db=None, sleep=time.sleep):
             continue
         break
     if not dry_run:
-        set_meta(db, "heal_last_run", int(now))
-        set_meta(db, "heal_last_inserted", total_ins)
-        db.commit()
+        def stamp():
+            set_meta(db, "heal_last_run", int(now))
+            set_meta(db, "heal_last_inserted", total_ins)
+        write_item(db, stamp, "run stamp", sleep)
     log.info("done: %d requests, %d traces, %d skipped (already healed), %d failed · "
              "%d fixes in window, %d inserted%s",
              requests, fetched, skipped, failed, total_seen, total_ins, " (dry run)" if dry_run else "")
@@ -408,6 +450,19 @@ def selftest():
         assert len(calls) == first + 1, (first, len(calls))
     finally:
         fetch_json = real
+    # locked-db drill: another connection holds the write lock for the first
+    # two attempts; write_item must retry past it and land the write.
+    other = sqlite3.connect(path, timeout=0)
+    other.execute("BEGIN IMMEDIATE")
+    waits = []
+
+    def release(s):
+        waits.append(s)
+        if len(waits) == 2:
+            other.execute("COMMIT")
+    write_item(db, lambda: set_meta(db, "drill", "ok"), "drill", sleep=release)
+    assert get_meta(db, "drill") == "ok" and len(waits) == 2, waits
+    other.close()
     print("selftest ok")
 
 
