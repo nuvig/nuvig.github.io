@@ -120,19 +120,6 @@
     .chip:disabled { opacity: 0.28; cursor: default; }
     .chip:not(:disabled):hover { border-color: #6e6e6e; color: #ddd; }
 
-    /* Break the meteogram out of this page's 1100px column into its left
-       margin — the card's right edge stays put, the left edge runs toward
-       the viewport edge. 490px is the card's own left inset from body's
-       centerline (20px body padding + 20px card padding + 1px border, minus
-       a small gutter); only kicks in once there's actual margin to eat
-       (body stops constraining below its own 1100px max-width). */
-    @media (min-width: 1160px) {
-      #obs-wrap.wide {
-        width: calc(50vw + 490px);
-        margin-left: calc(-50vw + 528px);
-      }
-    }
-
     /* ---- meteogram hover readout ---- */
     #obs-wrap { position: relative; }
     .readout {
@@ -381,7 +368,7 @@
       <div class="chip-row"><span class="chip-label">sources</span><span class="chips" id="obs-sources"></span></div>
       <div class="chip-row"><span class="chip-label">plot</span><span class="chips" id="obs-series"></span></div>
     </div>
-    <div id="obs-wrap" class="wide">
+    <div id="obs-wrap">
       <canvas class="chart" id="obs-chart"></canvas>
       <div class="readout" id="obs-readout" hidden></div>
     </div>
