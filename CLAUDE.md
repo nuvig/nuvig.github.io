@@ -827,6 +827,17 @@ concepts; to relink, add the tools.html card back.
   grid table prints the NWS `weather` array verbatim — **that array is what drives the
   thunderstorm icon in every app rendering this data**, so it is the honest answer to "why is
   there no TS symbol". Same `ceilingHeight` −30.48 m sentinel rule as weather.html.
+- `wxai.html` + `js/wxai.js` — AI Weather Analysis (2026-09-05): `latest.json` (via `WXA`) flattened
+  into one text block (`buildContext()`: KNAK/KDCA/ring METARs, TAFs, the NWS grid, GFS CAPE/CIN/precip,
+  winds aloft, the sounding, forecast days, alerts, AIRMETs/SIGMETs, PIREPs, TFRs, the AFD; ~4k tokens)
+  and POSTed straight from the browser to `api.anthropic.com/v1/messages` (streamed SSE, header
+  `anthropic-dangerous-direct-browser-access`). **The key is the visitor's, in localStorage
+  `anthropic_api_key`, never in the repo** — no backend exists to proxy it. Tasks in `TASKS` each name a
+  default model + effort (go/no-go → Sonnet 5 low, synoptic/critique → Opus 5 high, quick look → Haiku);
+  a `model` select overrides per task; the context block carries `cache_control` so runs inside 5 min
+  share it. Opus 5 / Fable 5.1 requests send `fallbacks: "default"`; Fable omits `thinking`. Usage and
+  an estimated cost (`MODELS[].price`) print under every answer; `refusal` / `max_tokens` stops are said
+  out loud. Not in `wxnav.js` (Jesse curates that strip). `window.WXAI_DEBUG` for headless checks.
 - `almanac.html` + `js/almanac.js` — Weather Almanac: the `data/wx/` archive as a reading room.
   A GitHub-style calendar (each day its worst *daytime* 8 am–8 pm category), then per-day cards —
   the day meteogram, the forecast lead-up table, the morning grid table, alerts, the station
