@@ -517,6 +517,16 @@
     <div class="filter-bar" id="hist-filters">
       <div class="filter-field"><label>From</label><input type="datetime-local" data-f="start"></div>
       <div class="filter-field"><label>To</label><input type="datetime-local" data-f="end"></div>
+      <div class="filter-field"><label>Hours (local)</label><input type="text" data-f="hours" placeholder="e.g. 7-19" style="width:70px"></div>
+      <div class="filter-field">
+        <label>Days</label>
+        <div class="dow-row" data-f="dow">
+          <button class="dow-btn on">M</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">W</button><button class="dow-btn on">T</button>
+          <button class="dow-btn on">F</button><button class="dow-btn on">S</button>
+          <button class="dow-btn on">S</button>
+        </div>
+      </div>
       <div class="filter-field qr-field">
         <label>Range</label>
         <div class="qr-row" data-f="quick" data-quick="21600">
@@ -540,16 +550,6 @@
         </select>
       </div>
       <div class="filter-field"><label>Callsign / reg</label><input type="text" data-f="callsign" placeholder="e.g. N123"></div>
-      <div class="filter-field"><label>Hours (local)</label><input type="text" data-f="hours" placeholder="e.g. 7-19" style="width:70px"></div>
-      <div class="filter-field">
-        <label>Days</label>
-        <div class="dow-row" data-f="dow">
-          <button class="dow-btn on">M</button><button class="dow-btn on">T</button>
-          <button class="dow-btn on">W</button><button class="dow-btn on">T</button>
-          <button class="dow-btn on">F</button><button class="dow-btn on">S</button>
-          <button class="dow-btn on">S</button>
-        </div>
-      </div>
       <div class="filter-field">
         <label>Show</label>
         <div class="tgl-row">
@@ -571,6 +571,10 @@
               <option value="pattern" title="Laps between two field contacts ≤ 8 min apart, inside 3 nm and ≤ 1,800 ft; the rest of each track is cut">Pattern work</option>
               <option value="dep" title="Liftoff to 10 nm or 10 min, whichever first; cut where the aircraft comes back to the field">Departures</option>
               <option value="arr" title="The last 10 nm or 10 min before the field; cut where the aircraft last left it">Arrivals</option>
+              <option value="dep30" title="Departures the ops detector attributed to runway 30">Rwy 30 departures</option>
+              <option value="arr30" title="Arrivals the ops detector attributed to runway 30">Rwy 30 arrivals</option>
+              <option value="dep12" title="Departures the ops detector attributed to runway 12">Rwy 12 departures</option>
+              <option value="arr12" title="Arrivals the ops detector attributed to runway 12">Rwy 12 arrivals</option>
             </select>
           </span>
         </div>
@@ -1015,7 +1019,7 @@
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js?v=2"></script>
   <script src="js/kanp.js?v=8"></script>
-  <script src="js/kanp-history.js?v=5"></script>
+  <script src="js/kanp-history.js?v=6"></script>
   <script src="js/kanp-study.js"></script>
   <script src="js/kanp-ops.js?v=1"></script>
   <script src="js/kanp-climb.js"></script>

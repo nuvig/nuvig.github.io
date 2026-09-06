@@ -363,8 +363,10 @@ const KANPHistory = (() => {
     lastShown = shown;
     scheduleLee();               // heavy ops analysis + table, off the redraw path
 
-    const opsLabel = { lee: ' · all KANP traffic', pattern: ' · pattern work',
-                       dep: ' · departures', arr: ' · arrivals' }[kanpMode()] || '';
+    const { base, rwy } = kanpModeParts();
+    const opsLabel = ({ lee: ' · all KANP traffic', pattern: ' · pattern work',
+                        dep: ' · departures', arr: ' · arrivals' }[base] || '') +
+                     (rwy ? ` rwy ${rwy}` : '');
     let msg = `${shown.aircraft_count} aircraft · ` +
       `${Number(shown.returned_points).toLocaleString()} points${opsLabel} · ${KANP.sourceLabel(fullData)}`;
     if (coarsened) {
@@ -451,6 +453,12 @@ const KANPHistory = (() => {
     const sel = document.getElementById('hist-arrdep');
     return sel ? sel.value : 'lee';
   }
+  // 'dep30' → { base: 'dep', rwy: '30' }: a runway suffix narrows the leg
+  // modes to contacts the ops detector attributed to that end.
+  function kanpModeParts() {
+    const m = kanpMode().match(/^([a-z]+)(\d+)?$/) || [];
+    return { base: m[1] || 'all', rwy: m[2] || null };
+  }
 
   // A lap: field contact → airborne → next field contact, no more than
   // LAP_MAX_S apart, never further out than LAP_NM nor higher than LAP_FT.
@@ -476,7 +484,7 @@ const KANPHistory = (() => {
   // Returns a shallow copy with clipped tracks (breaks marked wherever a
   // dropped stretch sat between two kept fixes) and recomputed counts.
   function applyKanpMode(data) {
-    const mode = kanpMode();
+    const { base: mode, rwy } = kanpModeParts();
     if (mode === 'all') return data;
     const contacts = data.tracks.filter(t => KANP.fieldContact(t.points));
     let tracks = contacts;
@@ -492,8 +500,8 @@ const KANPHistory = (() => {
         const list = (byHex.get(t.hex) || []).sort((a, b) => a.ts - b.ts);
         if (!list.length) continue;
         const windows = mode === 'pattern' ? lapWindows(t, list)
-          : mode === 'dep' ? legWindows(t, list, +1)
-          : legWindows(t, list, -1);
+          : mode === 'dep' ? legWindows(t, list, +1, rwy)
+          : legWindows(t, list, -1, rwy);
         if (!windows.length) continue;
         tracks.push(clipTrack(t, windows));
       }
@@ -531,11 +539,14 @@ const KANPHistory = (() => {
   // contact holds both a landing and a liftoff, so it is a candidate for
   // either — unless the neighbouring contact is a lap away, in which case the
   // leg is pattern work and belongs to that mode, not this one.
-  function legWindows(t, list, dir) {
+  // rwy (optional, '12' / '30') keeps only contacts attributed to that end;
+  // the whole list still supplies the lap / neighbour context.
+  function legWindows(t, list, dir, rwy) {
     const out = [];
     const pts = t.points;
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
+      if (rwy && c.rwy !== rwy) continue;
       if (dir > 0) {
         if (c.kind !== 'dep' && c.kind !== 'tng') continue;
         const next = list[i + 1];

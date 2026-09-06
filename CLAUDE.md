@@ -278,7 +278,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
   Live grid and Study grid don't set it).
   **Filter bar (reworked 2026-09-05):** the range is a chip row on its own full-width row
-  (`.qr-field`; From/To wrap under it) — chip width grows with the range (`flex-grow` =
+  (`.qr-field`, under From / To / Hours / Days — Jesse's order, 2026-09-05; the whole History bar sits *below* the map, also his call) — chip width grows with the range (`flex-grow` =
   1 + log₂ hours, set in `initFilterBar`, so 1 h is a stub and 30 d / 1 y stretch) — plus ‹ ›
   (`.qr-step`, slides the window by its own span; a day window steps by calendar days; › is
   disabled at now). Stepping deselects the chip so Load no longer slides the range back to
@@ -303,7 +303,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   neighbour belongs to `pattern`, not to these. Contacts come from `KANPOps.analyze` (`ts`/`ts1`
   = first/last at-field fix). Clipped stretches become `breaks` the canvas honours, and the
   altitude band merges its own breaks into them rather than replacing them. The old whole-track
-  "pattern" mode drew a one-lap-then-Easton flight in full — don't bring it back.
+  "pattern" mode drew a one-lap-then-Easton flight in full — don't bring it back. **Per-runway leg modes** (`dep30` / `arr30` / `dep12` / `arr12`, 2026-09-05): `kanpModeParts()` splits the value into base + runway and `legWindows()` keeps only contacts whose `rwy` (the ops detector's attribution) matches, while the full contact list still supplies the lap / neighbour context — so the runway modes partition the plain one exactly.
   **Coarsening honours the 1 s ring and runs once, at load** (`coarsen()`): over `DRAW_LIMIT`
   points the fetched set is re-simplified at 0.08 nm *outside* `KANP.NEAR_NM` and left whole
   inside it. It used to (a) thin the ring too, throwing away ~90 % of the fixes the Pi had
