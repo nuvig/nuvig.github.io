@@ -485,6 +485,13 @@ def _store(db, aircraft, now, wide):
         if ts is None:
             continue
 
+        # The public feeds are bounded by the request URL; a local receiver is
+        # not — a dongle at the field hears 200 nm, and neither the DB nor the
+        # exported day files cap at KANP_RADIUS_NM.
+        d = haversine_nm(LAT, LON, lat, lon)
+        if d > RADIUS_NM:
+            continue
+
         alt_raw = a.get("alt_baro")
         on_ground = 1 if alt_raw == "ground" else 0
         alt = alt_raw if isinstance(alt_raw, (int, float)) else None
@@ -514,7 +521,7 @@ def _store(db, aircraft, now, wide):
                 int(alt) if alt is not None else None,
                 a.get("gs"), a.get("track"), a.get("baro_rate"),
                 a.get("squawk"), a.get("category"),
-                round(haversine_nm(LAT, LON, lat, lon), 2),
+                round(d, 2),
                 on_ground, military,
             ),
         )
