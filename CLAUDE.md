@@ -522,7 +522,10 @@ concepts; to relink, add the tools.html card back.
   Tabs deep-link by hash (`#anatomy`), `?nav=`/`?cat=` preselect the interactive. **Currently an
   unlinked `noindex` draft** — on promotion: remove the noindex meta and add the tools.html card
   and sitemap.xml `<url>`.
-- `sequencing.html` + `js/sequencing-{nav,core,demos,ui}.js` — GPS Sequencing (2026-09-05):
+- `sequencing.html` + `js/sequencing-{nav,core,demos,ui}.js` — GPS Sequencing (2026-09-05).
+  **Its tools.html card was removed 2026-09-06 at Jesse's request** — the page and its
+  sitemap entry stay, so it is reachable by URL and by search but unlinked from navigation
+  (the fireworks.html pattern). Don't re-add the card without being asked. What it is:
   why an IFR navigator sequences when it does. **Started as a touchscreen replica of a panel GPS
   and was pivoted away from that**, because students who need muscle memory should be on the
   manufacturer's own trainer app on a tablet, and a browser mock will always lose that fight.
