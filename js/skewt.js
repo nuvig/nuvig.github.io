@@ -201,9 +201,22 @@
   };
 
   // Surface-based parcel: path + CAPE/CIN + LCL/LFC/EL
+  //
+  // Three rules this got wrong until 2026-09-10, all of which made CIN read
+  // as 0 on days that had a cap (checked against the 254 archived KIAD RAOBs
+  // in data/wx/raob — 116 of them reported an LFC below the LCL):
+  //   · the LFC must be at or above the LCL. A superadiabatic surface layer
+  //     makes the dry-adiabat parcel buoyant at the ground, and taking that
+  //     as the LFC left CIN at 0 and put "LFC 0 ft AGL" on the card.
+  //   · CIN is the negative area from the parcel's origin to the LFC, so it
+  //     includes the sub-LCL layer — which is where most of it usually is,
+  //     and which the blue shading on the diagram already drew.
+  //   · with no LFC there is no CIN to state: integrating negative area to
+  //     100 hPa printed −17,672 J/kg on a stable morning.
   function analyzeParcel(prof) {
     const sfc = prof[0];
     const lcl = lclFrom(sfc.p, sfc.T, sfc.Td);
+    if (lcl.p > sfc.p) { lcl.p = sfc.p; lcl.T = sfc.T; }   // saturated surface
     const th = theta(sfc.p, sfc.T);
     const path = [];                       // [{p, T}]
     // dry segment
@@ -218,7 +231,7 @@
       p = pn;
     }
     // CAPE / CIN via ∫ Rd (Tp−Te) dlnp
-    let cape = 0, cin = 0, lfc = null, el = null;
+    let cape = 0, cin = 0, neg = 0, lfc = null, el = null;
     for (let i = 0; i < path.length - 1; i++) {
       const a = path[i], b = path[i + 1];
       const ea = interpEnv(prof, a.p), eb = interpEnv(prof, b.p);
@@ -226,31 +239,47 @@
       const buoy = ((a.T - ea.T) + (b.T - eb.T)) / 2;        // °C = K diff
       const dlnp = Math.log(a.p / b.p);
       const seg = Rd * buoy * dlnp;                          // J/kg
-      if (buoy > 0) {
-        if (lfc === null && a.p <= sfc.p) lfc = a.p;
-        if (lfc !== null) { cape += seg; el = b.p; }
-      } else if (lfc === null && a.p <= lcl.p) {
-        cin += seg;                                          // cap below LFC
+      if (lfc === null) {
+        // buoyant at or above the LCL = LFC; everything negative below it is the cap
+        if (buoy > 0 && b.p <= lcl.p) {
+          lfc = Math.min(a.p, lcl.p);          // the segment straddling the LCL starts at it
+          cin += neg; neg = 0; cape += seg; el = b.p;
+        }
+        else if (buoy < 0) neg += seg;
+      } else if (buoy > 0) {
+        cape += seg; el = b.p;
       }
     }
-    return { path, lcl, lfc, el, cape: Math.round(cape), cin: Math.round(cin) };
+    return { path, lcl, lfc, el,
+             cape: lfc === null ? 0 : Math.round(cape),
+             cin: lfc === null ? null : Math.round(cin) };   // no LFC → no CIN to state
   }
 
   // ---------------------------------------------------------------- indices
   const atP = (prof, p) => interpEnv(prof, p);
   const ftAtP = (prof, p) => { const e = atP(prof, p); return e ? e.z / 0.3048 : null; };
 
+  // `t` is the row's hover definition (title attribute) — no quotes in the text.
   function computeIndices(prof, pcl) {
     const out = [];
-    const push = (k, v, cls) => out.push({ k, v, cls });
+    const push = (k, v, cls, t) => out.push({ k, v, cls, t });
     const sfc = prof[0];
 
     const capeCls = pcl.cape > 1500 ? 'bad' : pcl.cape > 500 ? 'warn' : 'good';
-    push('CAPE (sfc parcel)', `${pcl.cape} J/kg`, capeCls);
-    push('CIN', `${pcl.cin} J/kg`);
-    push('LCL — est. cu base', fmtFt(ftAtP(prof, pcl.lcl.p)));
-    push('LFC', pcl.lfc ? fmtFt(ftAtP(prof, pcl.lfc)) : '—');
-    push('EL — est. storm top', pcl.el && pcl.cape > 0 ? fmtFt(ftAtP(prof, pcl.el)) : '—');
+    push('CAPE', `${pcl.cape} J/kg`, capeCls,
+         'Convective available potential energy — buoyant energy from the LFC to the EL, ' +
+         'where the lifted parcel is warmer than the air around it');
+    push('CIN', pcl.cin == null ? '—' : `${pcl.cin} J/kg`, undefined,
+         'Convective inhibition — negative energy from the surface to the LFC, the cap ' +
+         'heating or lift has to break; blank when the parcel never reaches an LFC');
+    push('LCL', fmtFt(ftAtP(prof, pcl.lcl.p)), undefined,
+         'Lifting condensation level — where the lifted surface parcel saturates: cumulus base');
+    push('LFC', pcl.lfc ? fmtFt(ftAtP(prof, pcl.lfc)) : '—', undefined,
+         'Level of free convection — at or above the LCL, where the parcel turns warmer than ' +
+         'its surroundings and climbs on its own');
+    push('EL', pcl.el && pcl.cape > 0 ? fmtFt(ftAtP(prof, pcl.el)) : '—', undefined,
+         'Equilibrium level — top of the positive area, where the parcel is back to ambient ' +
+         'temperature: anvil / storm-top height');
 
     // freezing level: first crossing of 0°C going up
     let fz = null;
@@ -263,20 +292,25 @@
       }
     }
     push('Freezing level', fz === null ? (sfc.T < 0 ? 'surface' : 'above chart')
-                                       : fmtFt(fz / 0.3048));
+                                       : fmtFt(fz / 0.3048), undefined,
+         'Lowest crossing of 0 °C in the temperature trace');
 
     const e850 = atP(prof, 850), e700 = atP(prof, 700), e500 = atP(prof, 500);
     if (e500) {
       const p500 = pcl.path.find(q => q.p <= 500);
       if (p500) {
         const li = e500.T - p500.T;
-        push('Lifted index', li.toFixed(1) + ' °C',
-             li < -4 ? 'bad' : li < 0 ? 'warn' : 'good');
+        push('LI', li.toFixed(1) + ' °C',
+             li < -4 ? 'bad' : li < 0 ? 'warn' : 'good',
+             'Lifted index — environment minus lifted parcel temperature at 500 hPa: negative ' +
+             'is unstable, below −4 °C strongly so');
       }
     }
     if (e850 && e700 && e500) {
       const K = e850.T - e500.T + e850.Td - (e700.T - e700.Td);
-      push('K index', K.toFixed(0));
+      push('K index', K.toFixed(0), undefined,
+           '850−500 hPa temperature difference plus the 850 dewpoint minus the 700 dewpoint ' +
+           'depression — over 30 favors airmass storms, under 20 is too dry aloft');
     }
 
     // precipitable water, mm
@@ -286,14 +320,18 @@
       const qa = mixRatio(a.p, a.Td), qb = mixRatio(b.p, b.Td);
       pw += 0.5 * (qa + qb) * (a.p - b.p) * 100 / G;
     }
-    push('Precipitable water', (pw / 25.4).toFixed(2) + ' in');
+    push('PW', (pw / 25.4).toFixed(2) + ' in', undefined,
+         'Precipitable water — depth of water if every bit of vapor in the column condensed ' +
+         'out: over 1.5 in is a heavy-rain sounding for the mid-Atlantic');
 
     // 0–6 km bulk shear
     const top = envAtHeight(prof, 6000);
     if (top) {
       const [u1, v1] = windUV(sfc.ws, sfc.wd), [u2, v2] = windUV(top.ws, top.wd);
       const shr = Math.hypot(u2 - u1, v2 - v1);
-      push('0–6 km shear', shr.toFixed(0) + ' kt', shr > 40 ? 'warn' : undefined);
+      push('0–6 km shear', shr.toFixed(0) + ' kt', shr > 40 ? 'warn' : undefined,
+           'Bulk wind difference between the surface and 6 km AGL, not a sum of the turning — ' +
+           '35 kt and up organizes storms');
     }
     return out;
   }
@@ -630,7 +668,10 @@
       bits.push(`${here}lifted air would be <b>${pT != null ? (pT - e.T).toFixed(1) : '?'} °C warmer</b> than its surroundings — actively buoyant. Total CAPE in this sounding: <b>${parcel.cape} J/kg</b>.`);
     } else if (el === 'cin') {
       const pT = parcelTAt(p);
-      bits.push(`${here}lifted air would be <b>${pT != null ? (e.T - pT).toFixed(1) : '?'} °C colder</b> than its surroundings — suppressed. Total CIN: <b>${parcel.cin} J/kg</b>${parcel.cin > -25 ? ' (a weak cap — easily broken)' : parcel.cin < -100 ? ' (a strong lid — storms unlikely unless it erodes)' : ''}.`);
+      const cinTxt = parcel.cin == null
+        ? 'The parcel never gets warmer than its surroundings anywhere in this column — no LFC, so there is no CIN to quote: nothing to release.'
+        : `Total CIN: <b>${parcel.cin} J/kg</b>${parcel.cin > -25 ? ' (a weak cap — easily broken)' : parcel.cin < -100 ? ' (a strong lid — storms unlikely unless it erodes)' : ''}.`;
+      bits.push(`${here}lifted air would be <b>${pT != null ? (e.T - pT).toFixed(1) : '?'} °C colder</b> than its surroundings — suppressed. ${cinTxt}`);
     } else if (el === 'barbs') {
       if (w.ws != null) {
         bits.push(`${here}wind <b>${Math.round(w.wd)}°T at ${Math.round(w.ws)} kt</b>.`);
@@ -703,7 +744,7 @@
     if (parcel) {
       const idx = computeIndices(sounding, parcel);
       $('indices').innerHTML = idx.map(r =>
-        `<div class="kv"><span class="k">${r.k}</span>` +
+        `<div class="kv"><span class="k"${r.t ? ` title="${r.t}"` : ''}>${r.k}</span>` +
         `<span class="v${r.cls ? ' ' + r.cls : ''}">${r.v}</span></div>`).join('');
       $('summary').innerHTML = summaryHTML(sounding, parcel);
     } else {
