@@ -564,6 +564,67 @@ concepts; to relink, add the tools.html card back.
   previous leg's null lat/lon made the geo math read 0°N 0°E and the leg sequenced instantly, which
   hit every missed approach.
 
+### NOTAM hub
+
+- `notam.html` + `js/notam.js` — NOTAM Hub (2026-09-10): every active NOTAM in the country,
+  archived hourly and counted. Reads **only the `notam-data` branch** (`SITE.notam.dataBase`, over
+  raw.githubusercontent like the tracker/wx3d snapshots; localStorage `notam_data_base` overrides
+  it for a local copy) plus same-origin `data/notam/locations.json`. No FAA call from the browser.
+  First paint is `summary.json` alone (stat tiles · by keyword / class / ends · age · scheduled
+  length · the dot map · trend · start-hour clock · leaders · the folded watch lists · the local
+  card · coverage line); `current/<ST>.json` files are fetched only when a visitor browses or
+  searches (a facility id resolves to its state through locations.json; a text search with no
+  state loads every state file and says so). Deep links: `#q=KANP`, `#st=MD&k=RWY`.
+  **Times are Z everywhere** — NOTAMs are written in UTC and the scope is the country, so
+  archive days are UTC days too (unlike `data/wx/`). The map is an Albers conic for the lower 48
+  with AK / HI / PR insets, one dot per facility with NOTAMs in effect sized by count — airport
+  density draws the coastline, so there is no boundary file; ARTCC and national NOTAMs (state
+  `--`) are a row in the state table, not dots. Charts are single-hue blue for magnitude; the
+  trend's two lines are `#3987e5` / `#d95926`, validated on the card surface (CVD ΔE 26.8, both
+  ≥ 3:1) — one y-scale per lane, never two on one plot. The status bar prints the run's age, the
+  locations answered, the source, and every warning the archiver wrote (`note`, a refused run,
+  a stale run > 4 h). Page copy is label → value; `window.NOTAM_DEBUG` for headless checks.
+- `scripts/notamarchive.py` + `.github/workflows/notamarchive.yml` — the archiver, hourly at :48
+  (stdlib; ~75 requests a run with the seed list, ~0.7 s apart; `NOTAM_*` env knobs at the top
+  of the script). For every id in `data/notam/locations.json`, in batches of 50, it asks
+  **DINS** (`www.notams.faa.gov/dinsQueryWeb/queryRetrievalMapAction.do`, Raw · DOMESTIC — one
+  POST per batch, every NOTAM in its own `<pre>`) and falls back to **FAA NOTAM Search** JSON
+  (`notams.aim.faa.gov/notamSearch/search`, 30 a page) when the first batches all die. Neither
+  is a documented API. **Trust rules**: a batch counts only when it parses (an empty page must
+  echo one of the ids it was asked about); a failing batch is retried in halves and again at the
+  end of the run, and its NOTAMs **carry over untouched** (absence there is a dead batch, not a
+  cancellation — never mark gone what was not asked for); a run that finds fewer than half of
+  last run's NOTAMs (`NOTAM_FLOOR`) is **refused** — status written, nothing else, so a changed
+  page layout can't mark the country gone. Records: `id` = accountability + number (`ANP 09/012`,
+  `FDC 6/1234`), `l` location, `k` keyword, `c` class (D · FDC · TFR · GPS · INTL), `s`/`e`
+  start/end (`p` PERM, `x` EST), `raw`, `f` first seen (a run stamp — GitHub's scheduler fires
+  hourly crons every ~2.4 h, so first-seen resolution is that coarse), `i` issued when the
+  source says, `q` the locations.json record, `st` (the record's state, or the `VA..` prefix of
+  an FDC airspace NOTAM), `b` on everything already in the system at the bootstrap run (those
+  are not counted as issuance). Layout: `index.json` (runs, days, states, failures) ·
+  `summary.json` (every aggregate; shape in `summarize()`) · `current/<ST>.json` (the whole
+  system now, by state) · `days/YYYY-MM-DD.json` (`new` = first seen that UTC day, `gone` =
+  `{id: [t, exp|cxl, first_day]}`; a day file is written only on its own day). The workflow
+  clones the previous `notam-data` tree, runs the script in it, and force-pushes one commit —
+  the tree is the state and nothing is deleted. `--selftest` covers the parser (D · FDC IAP ·
+  TFR · GPS · schedule · EST · PERM · ICAO-format), the DINS HTML, attribution, three runs of
+  deltas and the refused run; `--fixture f.json` runs the whole pipeline offline
+  (`{queries:{id:[raw…]}, fail:[ids]}`). **The live endpoints could not be reached from the web
+  session that built this (FAA hosts are blocked there) — the first Actions run is the proof;
+  if DINS changed its form, the run log prints the body head it got.**
+- `scripts/build_notam_locations.py` → `data/notam/locations.json` — the location universe
+  (`[q, lid, kind, name, st, lat, lon, artcc, aliases]`; `q` = the id to query, `lid` = the id
+  NOTAM text uses, `ZDC` carries alias `KZDC`). `--seed` (what ships) builds offline from
+  `data/procedures/index.json` (every US airport with a coded procedure, ~3,180) + the coded
+  legs' recommended navaids (~340 VOR/NDB not on an airport, state = nearest airport's) + the
+  24 ARTCC/CERAPs + `GPS`/`FDC`. That covers the fields that generate nearly all NOTAM
+  traffic, not the ~2,000 public-use fields without a procedure; the default (no flag) path
+  downloads the FAA NASR 28-day CSV subscription (`APT_BASE.csv` public-use or NOTAM-D-flagged
+  airports, `NAV_BASE.csv`) — written to the documented column names but **not yet run against
+  a live download**. Alaska/Pacific LIDs that are not the ICAO id less one letter (PAAQ ↔ PAQ)
+  are wrong in the seed and right in a NASR build. Rebuild → commit the JSON; the archiver reads
+  it at run time.
+
 ### Weather
 
 - `weather.html` + `js/weather.js` — wind compass, flight-window scoring, crosswind/runway analysis,

@@ -9,12 +9,12 @@
 
   <url>
     <loc>https://jesselevine.net/</loc>
-    <lastmod>2026-08-26</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
 
   <url>
     <loc>https://jesselevine.net/tools.html</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
 
   <url>
@@ -40,6 +40,11 @@
   <url>
     <loc>https://jesselevine.net/sfra.html</loc>
     <lastmod>2026-08-26</lastmod>
+  </url>
+
+  <url>
+    <loc>https://jesselevine.net/notam.html</loc>
+    <lastmod>2026-09-10</lastmod>
   </url>
 
   <!-- Maneuvers & aerodynamics -->

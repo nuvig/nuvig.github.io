@@ -165,6 +165,22 @@ const SITE = {
     ],
   },
 
+  // NOTAM hub (notam.html). The archive is the whole country — every active
+  // NOTAM, pulled hourly by .github/workflows/notamarchive.yml →
+  // scripts/notamarchive.py for every location in data/notam/locations.json
+  // and published to the notam-data branch (read over raw.githubusercontent
+  // like the tracker and wx3d snapshots). localStorage `notam_data_base`
+  // overrides dataBase for testing against a local copy.
+  notam: {
+    dataBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/notam-data',
+    locations: 'data/notam/locations.json',
+    // The "local" card lists these in full: the field, its METAR stand-in,
+    // the nearby fields and the metro-area stations. Mirror of NOTAM_LOCAL in
+    // scripts/notamarchive.py (the archiver builds the list) — keep in step.
+    local: ['KANP', 'KNAK', 'KESN', 'KFME', 'KCGE', 'KMTN', 'KBWI', 'KADW', 'KDCA', 'KGAI', 'W29', 'KCGS', 'KAPG', 'KNHK'],
+    artcc: 'ZDC',
+  },
+
   // Shared map-tile settings.
   basemap: {
     // CARTO raster basemap API key (dark_all tiles on kanp/weather/

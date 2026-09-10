@@ -46,6 +46,11 @@ output is committed to the repo.
   altitude, an air-parcel stability simulator, and IAS → TAS → GS.
 - **`knowledge.html`** — an expandable concept graph of the airplane
   knowledge domains, with the cross-links between them.
+- **`notam.html`** — NOTAM Hub: every active NOTAM in the country, archived
+  hourly by a GitHub Action (`scripts/notamarchive.py` → the `notam-data`
+  branch) and counted by keyword, class, state, facility and age — runway
+  closures, TFRs, GPS interference, permanent NOTAMs, what came in and what
+  left, and any facility's list on demand.
 
 **Weather**
 

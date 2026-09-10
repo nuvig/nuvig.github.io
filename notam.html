@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOTAM Hub — every active US NOTAM, archived and counted</title>
+  <meta name="description" content="Every active NOTAM in the US National Airspace System, archived hourly and counted — by keyword, class, state, facility and age; runway closures, TFRs, GPS interference, permanent NOTAMs, and what changed today.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/notam.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/notam.html">
+  <meta property="og:title" content="NOTAM Hub — jesselevine.net">
+  <meta property="og:description" content="Every active US NOTAM, archived hourly and counted by type, place and age.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1180px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 14px; font-size: 14px; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+    .status-bar .warn { color: #fab219; }
+    .status-bar .warn b { color: #fab219; }
+
+    /* ---- stat tiles ---- */
+    .tiles {
+      display: grid; gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+      margin: 0 0 16px;
+    }
+    .tile {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 10px 12px 9px;
+      cursor: default;
+    }
+    .tile .v { font-size: 1.55rem; font-weight: 600; color: #e8e8e8; line-height: 1.15; }
+    .tile .v small { font-size: 0.8rem; color: #777; font-weight: 400; margin-left: 4px; }
+    .tile .l { font-size: 12px; color: #888; margin-top: 2px; }
+    .tile.dim .v { color: #999; }
+
+    .card { padding: 14px 16px; }
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 1rem; margin-bottom: 8px; }
+    .card h2 .sub { font-size: 12px; font-weight: 400; color: #777; }
+    .card h2 .n { font-size: 12px; font-weight: 400; color: #999; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 14px; }
+    .grid2 .card, .grid3 .card { margin: 0; }
+    .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin: 16px 0; }
+    .grid2 + .grid2 { margin-top: 14px; }
+    .grid2 { margin: 16px 0; }
+
+    canvas.chart { display: block; width: 100%; }
+
+    /* ---- map ---- */
+    #map-wrap { position: relative; }
+    #map { display: block; width: 100%; cursor: crosshair; }
+    #map-hover {
+      position: absolute; pointer-events: none; display: none;
+      background: #111e; border: 1px solid #444; border-radius: 6px; padding: 5px 8px;
+      font-size: 12px; color: #ddd; white-space: nowrap; z-index: 3;
+    }
+    .map-row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+    .map-row #map-wrap { flex: 1 1 560px; min-width: 0; }
+    .map-row .side { flex: 0 0 260px; }
+    .legend { display: flex; gap: 10px; align-items: center; font-size: 11px; color: #777; margin-top: 6px; flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin-right: 3px; }
+
+    /* ---- tables & lists ---- */
+    table.t { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    table.t th { text-align: left; color: #777; font-weight: 500; padding: 3px 6px; border-bottom: 1px solid #2a2a2a; font-size: 11.5px; }
+    table.t td { padding: 3px 6px; border-bottom: 1px solid #222; color: #ccc; white-space: nowrap; }
+    table.t td.r, table.t th.r { text-align: right; }
+    table.t tr.pick { cursor: pointer; }
+    table.t tr.pick:hover td { background: #202020; }
+    table.t td .bar { display: inline-block; height: 8px; background: #3987e5; border-radius: 2px; vertical-align: middle; margin-right: 6px; opacity: .85; }
+
+    ol.lst { margin: 0; padding-left: 22px; font-size: 12.5px; color: #bbb; }
+    ol.lst li { margin: 3px 0; line-height: 1.4; }
+    ol.lst b { color: #ddd; font-weight: 600; }
+    ol.lst .m { color: #777; }
+    ol.lst a { color: #8ab4f8; text-decoration: none; cursor: pointer; }
+    ol.lst a:hover { text-decoration: underline; }
+
+    /* ---- one NOTAM ---- */
+    .nt { padding: 7px 0; border-bottom: 1px solid #242424; }
+    .nt:last-child { border-bottom: 0; }
+    .nt-head { display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: baseline; font-size: 12.5px; color: #999; font-variant-numeric: tabular-nums; }
+    .nt-head b { color: #e0e0e0; font-weight: 600; }
+    .nt-head .kw {
+      font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid #3a3a3a; color: #aaa;
+      letter-spacing: .03em;
+    }
+    .nt-head .kw.TFR { border-color: #d95926; color: #e77b4f; }
+    .nt-head .kw.GPS { border-color: #c98500; color: #e0a12e; }
+    .nt-head .kw.FDC { border-color: #6c63c9; color: #9c94e8; }
+    .nt-head .loc { color: #8ab4f8; cursor: pointer; }
+    .nt-head .loc:hover { text-decoration: underline; }
+    .nt-head .when { color: #777; }
+    .nt-head .tag { color: #fab219; font-size: 11px; }
+    .nt-head .why { color: #999; font-size: 11px; }
+    .nt pre.raw {
+      margin: 4px 0 0; font: 12px/1.5 ui-monospace, Consolas, Menlo, monospace; color: #c7c7c7;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .more { display: block; margin: 8px 0 0; background: none; border: 1px solid #333; color: #999; font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+    .more:hover { border-color: #555; color: #ccc; }
+
+    details.fold { padding: 0; }
+    details.fold > summary {
+      list-style: none; cursor: pointer; padding: 12px 16px; font-size: 0.98rem; color: #ccc; font-weight: 600;
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    details.fold > summary::-webkit-details-marker { display: none; }
+    details.fold > summary::before { content: '▸'; color: #666; font-size: 12px; }
+    details.fold[open] > summary::before { content: '▾'; }
+    details.fold > summary .sub { font-size: 12px; font-weight: 400; color: #777; }
+    details.fold > summary .n { font-size: 12px; font-weight: 400; color: #999; margin-left: auto; font-variant-numeric: tabular-nums; }
+    details.fold > .body { padding: 0 16px 14px; }
+
+    /* ---- browse ---- */
+    .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+    #q, #st {
+      background: #161616; border: 1px solid #2c2c2c; border-radius: 5px; color: #ddd;
+      font-family: inherit; font-size: 13px; padding: 4px 9px;
+    }
+    #q { width: 240px; }
+    #q:focus, #st:focus { outline: none; border-color: #4a9eff; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      background: #161616; color: #666; border: 1px solid #2c2c2c; font-family: inherit;
+      font-size: 11.5px; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+    }
+    .chip.on { color: #ddd; border-color: #4a9eff; background: #1c1c1c; }
+    .chip:hover { border-color: #555; }
+    #b-count { color: #666; font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+    .empty { color: #666; font-size: 13px; margin: 6px 0; }
+
+    .foot { color: #666; font-size: 12px; margin: 22px 0 0; font-variant-numeric: tabular-nums; line-height: 1.7; }
+    .foot b { color: #999; font-weight: 500; }
+    .foot a { color: #777; }
+    @media (max-width: 700px) {
+      .map-row .side { flex-basis: 100%; }
+      #q { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">← jesselevine.net</a>
+  <h1>NOTAM Hub</h1>
+  <p class="subtitle">Every active US NOTAM · archived hourly · counted by type, place and age · times Z</p>
+
+  <div class="status-bar" id="status">reading the archive…</div>
+
+  <section class="tiles" id="tiles" aria-label="Counts"></section>
+
+  <div class="grid2">
+    <div class="card"><h2>By keyword <span class="sub">in effect now</span><span class="n" id="n-kw"></span></h2><canvas class="chart" id="c-kw" height="300"></canvas></div>
+    <div class="card"><h2>By class <span class="sub">D · FDC · TFR · GPS</span></h2><canvas class="chart" id="c-cls" height="120"></canvas>
+      <h2 style="margin-top:14px">Ends <span class="sub">how each NOTAM is written to end</span></h2><canvas class="chart" id="c-end" height="110"></canvas></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>Age <span class="sub">time in effect so far</span></h2><canvas class="chart" id="c-age" height="200"></canvas></div>
+    <div class="card"><h2>Scheduled length <span class="sub">end − start as written</span></h2><canvas class="chart" id="c-dur" height="200"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Where <span class="sub">one dot per facility with NOTAMs in effect · hover a dot · click to browse it</span></h2>
+    <div class="map-row">
+      <div id="map-wrap"><canvas id="map" height="420"></canvas><div id="map-hover"></div>
+        <div class="legend" id="map-legend"></div></div>
+      <div class="side" id="states"></div>
+    </div>
+  </div>
+
+  <div class="card"><h2>Trend <span class="sub">per UTC day · first seen vs left the system</span></h2><canvas class="chart" id="c-trend" height="260"></canvas></div>
+  <div class="card"><h2>Start hour <span class="sub">Z · NOTAMs that started in the last 7 days</span></h2><canvas class="chart" id="c-hour" height="150"></canvas></div>
+
+  <div class="grid3">
+    <div class="card"><h2>Most NOTAMs <span class="sub">facility</span></h2><ol class="lst" id="top-fac"></ol></div>
+    <div class="card"><h2>Oldest in effect</h2><ol class="lst" id="oldest"></ol></div>
+    <div class="card"><h2>Longest scheduled</h2><ol class="lst" id="longest"></ol></div>
+  </div>
+
+  <details class="card fold" id="f-tfr"><summary>TFRs <span class="sub">FDC airspace · temporary flight restrictions</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-gps"><summary>GPS interference <span class="sub">NAV GPS NOTAMs</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-rwy"><summary>Runway closures <span class="sub">RWY … CLSD</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-ad"><summary>Airports closed <span class="sub">AD AP CLSD</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-exp"><summary>Ending in 24 h<span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-new"><summary>Just in <span class="sub">newest first seen</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-gone"><summary>Just gone <span class="sub">left the system today</span><span class="n"></span></summary><div class="body"></div></details>
+
+  <div class="card"><h2>Local <span class="sub" id="local-sub"></span><span class="n" id="n-local"></span></h2><div id="local"></div></div>
+
+  <div class="card">
+    <h2>Browse <span class="sub">facility id or text</span></h2>
+    <div class="bar">
+      <input id="q" type="search" placeholder="KANP · ANP · RWY 12/30 · CRANE…" autocomplete="off" aria-label="Search NOTAMs">
+      <select id="st" aria-label="State"><option value="">all states</option></select>
+      <div class="chips" id="kw-chips"></div>
+      <span id="b-count"></span>
+    </div>
+    <div id="results"><p class="empty">type a facility id, pick a state, or click a dot on the map</p></div>
+  </div>
+
+  <p class="foot" id="coverage"></p>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/notam.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
