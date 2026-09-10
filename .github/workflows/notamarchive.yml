@@ -1,0 +1,80 @@
+# US NOTAM archive — every active NOTAM in the country, once an hour, from
+# the FAA's public NOTAM query services (DINS first, NOTAM Search as the
+# fallback), for every location in data/notam/locations.json. Written by
+# scripts/notamarchive.py and read by notam.html.
+#
+# Published to the `notam-data` branch as a SINGLE force-pushed commit that
+# carries the whole tree forward: ~15 MB of current state plus a few MB of
+# new records a day would swamp main's history, but the archive itself must
+# persist — so the previous commit is checked out first, the script updates
+# it in place (nothing is ever deleted), and the result replaces the branch.
+# Same publish trick as wx3d-data / traffic-data; different in that the
+# tree is state, not a snapshot.
+#
+# The page reads it over raw.githubusercontent.com (CORS-open), like
+# js/kanp-static.js and js/wx3d.js do for their branches.
+#
+# GitHub's scheduler is best-effort (the weather archive's hourly cron
+# fires every ~2.4 h in practice); the archiver stamps every record with
+# the run it was first seen in, so irregular runs only widen the "first
+# seen" resolution, they never corrupt the record.
+
+name: NOTAM archive
+
+on:
+  schedule:
+    - cron: '48 * * * *'   # hourly, clear of wxarchive's :18 and wx3dsnap's :38
+  workflow_dispatch: {}     # manual "run now" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: notamarchive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The archive is the previous run's tree; start from it. A missing
+      # branch (first run ever) starts from an empty directory — the script
+      # calls that run the bootstrap and tags every NOTAM it finds.
+      - name: Check out the notam-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git ls-remote --exit-code --heads origin notam-data >/dev/null 2>&1; then
+            git clone -q --depth 1 --branch notam-data \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" archive
+            rm -rf archive/.git
+          else
+            echo "no notam-data branch yet — bootstrap run"
+            mkdir -p archive
+          fi
+
+      # A partial failure (a batch of locations the service would not
+      # answer, a source that died mid-run) is recorded in index.json and
+      # the NOTAMs it covers carry over untouched; the exit code becomes a
+      # warning annotation, never a skipped publish. A refused run (fewer
+      # than half of last run's NOTAMs found) writes only its status.
+      - name: Fetch every NOTAM
+        run: python3 scripts/notamarchive.py --out archive || echo "::warning::notamarchive.py reported problems (see the log); publishing what it wrote"
+
+      - name: Publish to the notam-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd archive
+          if [ ! -f index.json ]; then echo "nothing written"; exit 0; fi
+          git init -q -b notam-data
+          git config user.name  "wx-archive[bot]"
+          git config user.email "wx-archive[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "notam: archive $(date -u +'%Y-%m-%d %H:%MZ')"
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" \
+            notam-data
