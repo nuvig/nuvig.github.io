@@ -585,33 +585,44 @@ concepts; to relink, add the tools.html card back.
   locations answered, the source, and every warning the archiver wrote (`note`, a refused run,
   a stale run > 4 h). Page copy is label → value; `window.NOTAM_DEBUG` for headless checks.
 - `scripts/notamarchive.py` + `.github/workflows/notamarchive.yml` — the archiver, hourly at :48
-  (stdlib; ~75 requests a run with the seed list, ~0.7 s apart; `NOTAM_*` env knobs at the top
-  of the script). For every id in `data/notam/locations.json`, in batches of 50, it asks
-  **DINS** (`www.notams.faa.gov/dinsQueryWeb/queryRetrievalMapAction.do`, Raw · DOMESTIC — one
-  POST per batch, every NOTAM in its own `<pre>`) and falls back to **FAA NOTAM Search** JSON
-  (`notams.aim.faa.gov/notamSearch/search`, 30 a page) when the first batches all die. Neither
-  is a documented API. **Trust rules**: a batch counts only when it parses (an empty page must
-  echo one of the ids it was asked about); a failing batch is retried in halves and again at the
-  end of the run, and its NOTAMs **carry over untouched** (absence there is a dead batch, not a
-  cancellation — never mark gone what was not asked for); a run that finds fewer than half of
-  last run's NOTAMs (`NOTAM_FLOOR`) is **refused** — status written, nothing else, so a changed
-  page layout can't mark the country gone. Records: `id` = accountability + number (`ANP 09/012`,
-  `FDC 6/1234`), `l` location, `k` keyword, `c` class (D · FDC · TFR · GPS · INTL), `s`/`e`
-  start/end (`p` PERM, `x` EST), `raw`, `f` first seen (a run stamp — GitHub's scheduler fires
-  hourly crons every ~2.4 h, so first-seen resolution is that coarse), `i` issued when the
-  source says, `q` the locations.json record, `st` (the record's state, or the `VA..` prefix of
-  an FDC airspace NOTAM), `b` on everything already in the system at the bootstrap run (those
-  are not counted as issuance). Layout: `index.json` (runs, days, states, failures) ·
-  `summary.json` (every aggregate; shape in `summarize()`) · `current/<ST>.json` (the whole
-  system now, by state) · `days/YYYY-MM-DD.json` (`new` = first seen that UTC day, `gone` =
-  `{id: [t, exp|cxl, first_day]}`; a day file is written only on its own day). The workflow
-  clones the previous `notam-data` tree, runs the script in it, and force-pushes one commit —
-  the tree is the state and nothing is deleted. `--selftest` covers the parser (D · FDC IAP ·
-  TFR · GPS · schedule · EST · PERM · ICAO-format), the DINS HTML, attribution, three runs of
-  deltas and the refused run; `--fixture f.json` runs the whole pipeline offline
-  (`{queries:{id:[raw…]}, fail:[ids]}`). **The live endpoints could not be reached from the web
-  session that built this (FAA hosts are blocked there) — the first Actions run is the proof;
-  if DINS changed its form, the run log prints the body head it got.**
+  (stdlib; `NOTAM_*` env knobs at the top of the script). **Sources, in order** (`NOTAM_SOURCES`,
+  default `nms,nsearch,dins`): **(0) the FAA NMS API** (`api-nms.aim.faa.gov` — the NOTAM
+  Management Service that replaced the US NOTAM System/FNS on 2026-04-18; OAuth2 client
+  credentials → Bearer; `GET /nmsapi/v1/notams/il` is an *initial load* of every active NOTAM in
+  the NAS as one compressed GeoJSON download, `/v1/notams?classification=…` the per-class
+  fallback; contract taken from the `faa-nms-api` npm client, which is generated from the FAA's
+  OpenAPI spec). Used only when the repo secrets `NMS_CLIENT_ID` / `NMS_CLIENT_SECRET` exist —
+  **access is not self-serve: email NOTAMS@faa.gov** — and it is the source this hub is meant to
+  run on: ~3 requests a run instead of ~75, every classification (MIL/LMIL/INTL too), issue and
+  last-updated stamps. **(1) FAA NOTAM Search** (`notams.aim.faa.gov/notamSearch/search`, the
+  JSON behind the public page: `searchType=0&designatorsForLocation=A,B,C`, 30 a page, `offset`
+  to page; fields `traditionalMessage`/`icaoMessage`, `issueDate MM/DD/YYYY HHMM`,
+  `cancelledOrExpired`) — for every id in `data/notam/locations.json` in batches of 50; the
+  keyless default until NMS access exists. **(2) DINS** (`www.notams.faa.gov/dinsQueryWeb`, Raw ·
+  DOMESTIC, one POST per batch, a NOTAM per `<pre>`) — its maintenance order JO 6180.22 was
+  cancelled 2026-07-01, so it is probably dead; last on purpose. **Trust rules**: a batch counts
+  only when it parses (an empty page must echo one of the ids it was asked about); a failing
+  batch is retried in halves and again at the end of the run, and its NOTAMs **carry over
+  untouched** (absence there is a dead batch, not a cancellation — never mark gone what was not
+  asked for); a run that finds fewer than half of last run's NOTAMs (`NOTAM_FLOOR`) is
+  **refused** — status written, nothing else, so a changed page layout can't mark the country
+  gone. Records: `id` = accountability + number (`ANP 09/012`, `FDC 6/1234`), `l` location, `k`
+  keyword, `c` class (D · FDC · TFR · GPS · MIL · LMIL · INTL), `s`/`e` start/end (`p` PERM, `x`
+  EST), `raw`, `f` first seen (a run stamp — GitHub's scheduler fires hourly crons every ~2.4 h,
+  so first-seen resolution is that coarse), `i` issued and `u` last updated when the source says,
+  `q` the locations.json record, `st` (the record's state, or the `VA..` prefix of an FDC
+  airspace NOTAM), `b` on everything already in the system at the bootstrap run (those are not
+  counted as issuance). Layout: `index.json` (runs, days, states, failures) · `summary.json`
+  (every aggregate; shape in `summarize()`) · `current/<ST>.json` (the whole system now, by
+  state) · `days/YYYY-MM-DD.json` (`new` = first seen that UTC day, `gone` = `{id: [t, exp|cxl,
+  first_day]}`; a day file is written only on its own day). The workflow clones the previous
+  `notam-data` tree, runs the script in it, and force-pushes one commit — the tree is the state
+  and nothing is deleted. `--selftest` covers the parser (D · FDC IAP · TFR · GPS · schedule ·
+  EST · PERM · ICAO-format), the DINS HTML, NMS feature conversion and unpacking, attribution,
+  three runs of deltas and the refused run; `--fixture f.json` runs the whole pipeline offline
+  (`{queries:{id:[raw…]}, fail:[ids]}`). **No live endpoint could be reached from the web session
+  that built this (FAA hosts are blocked there) — the first Actions run on main is the proof; a
+  source that fails prints the body head it got, and the page's status bar prints the note.**
 - `scripts/build_notam_locations.py` → `data/notam/locations.json` — the location universe
   (`[q, lid, kind, name, st, lat, lon, artcc, aliases]`; `q` = the id to query, `lid` = the id
   NOTAM text uses, `ZDC` carries alias `KZDC`). `--seed` (what ships) builds offline from

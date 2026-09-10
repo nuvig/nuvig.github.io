@@ -1,7 +1,9 @@
-# US NOTAM archive — every active NOTAM in the country, once an hour, from
-# the FAA's public NOTAM query services (DINS first, NOTAM Search as the
-# fallback), for every location in data/notam/locations.json. Written by
-# scripts/notamarchive.py and read by notam.html.
+# US NOTAM archive — every active NOTAM in the country, once an hour. Source
+# order (scripts/notamarchive.py): the FAA's NMS API when the NMS_CLIENT_ID /
+# NMS_CLIENT_SECRET repository secrets are set (one download is the whole
+# NAS; access is granted by emailing NOTAMS@faa.gov), else the public NOTAM
+# Search JSON for every location in data/notam/locations.json, else DINS.
+# Read by notam.html.
 #
 # Published to the `notam-data` branch as a SINGLE force-pushed commit that
 # carries the whole tree forward: ~15 MB of current state plus a few MB of
@@ -62,6 +64,9 @@ jobs:
       # warning annotation, never a skipped publish. A refused run (fewer
       # than half of last run's NOTAMs found) writes only its status.
       - name: Fetch every NOTAM
+        env:
+          NMS_CLIENT_ID: ${{ secrets.NMS_CLIENT_ID }}
+          NMS_CLIENT_SECRET: ${{ secrets.NMS_CLIENT_SECRET }}
         run: python3 scripts/notamarchive.py --out archive || echo "::warning::notamarchive.py reported problems (see the log); publishing what it wrote"
 
       - name: Publish to the notam-data branch
