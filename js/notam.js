@@ -417,7 +417,7 @@ const KW_HELP = {
   STAR: 'arrival procedure', CHART: 'chart', DATA: 'data', IAP: 'instrument approach', VFP: 'visual flight procedure',
   ROUTE: 'route', SPECIAL: 'special activity', SECURITY: 'security', '(U)': 'unverified', '(O)': 'other', '?': 'no keyword parsed',
 };
-const CLASS_HELP = { D: 'domestic (D) NOTAM', FDC: 'Flight Data Center — procedures, charts, airspace', TFR: 'FDC temporary flight restriction', GPS: 'GPS interference / testing', INTL: 'ICAO-format' };
+const CLASS_HELP = { D: 'domestic (D) NOTAM', FDC: 'Flight Data Center — procedures, charts, airspace', TFR: 'FDC temporary flight restriction', GPS: 'GPS interference / testing', MIL: 'military', LMIL: 'local military', INTL: 'international, ICAO format' };
 
 function renderStatus() {
   const s = S.sum, t = now();
