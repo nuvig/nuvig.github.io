@@ -595,12 +595,33 @@ concepts; to relink, add the tools.html card back.
   **access is not self-serve: email NOTAMS@faa.gov** — and it is the source this hub is meant to
   run on: ~3 requests a run instead of ~75, every classification (MIL/LMIL/INTL too), issue and
   last-updated stamps. **(1) FAA NOTAM Search** (`notams.aim.faa.gov/notamSearch/search`, the
-  JSON behind the public page: `searchType=0&designatorsForLocation=A,B,C`, 30 a page, `offset`
-  to page; fields `traditionalMessage`/`icaoMessage`, `issueDate MM/DD/YYYY HHMM`,
-  `cancelledOrExpired`) — for every id in `data/notam/locations.json` in batches of 50; the
-  keyless default until NMS access exists. **(2) DINS** (`www.notams.faa.gov/dinsQueryWeb`, Raw ·
-  DOMESTIC, one POST per batch, a NOTAM per `<pre>`) — its maintenance order JO 6180.22 was
-  cancelled 2026-07-01, so it is probably dead; last on purpose. **Trust rules**: a batch counts
+  JSON behind the public page: `searchType=0&designatorsForLocation=A,B,C`, 30 a page (fixed —
+  no page-size parameter is honoured), `offset` to page; `{notamList, startRecordCount,
+  endRecordCount, totalNotamCount, filteredResultCount, criteriaCaption, searchDateTime,
+  linkedLocationCaption, error, countsByType, requestID}`; each item `traditionalMessage` /
+  `icaoMessage`, `issueDate`/`startDate`/`endDate` `MM/DD/YYYY HHMM` or `PERM`,
+  `facilityDesignator`, `icaoId`, `keyword`, `status`, `cancelledOrExpired`, `mapPointer`
+  `POINT(lon lat)`; shape and paging verified 2026-09-10 from a browser) — for every id in
+  `data/notam/locations.json` in batches of 50. **But it is behind Akamai Bot Manager, which
+  403s every non-browser TLS fingerprint**: Python urllib (3.10/OpenSSL 1.1.1 on Windows,
+  3.12/OpenSSL 3 on a ubuntu-24.04 Actions runner) and curl (HTTP/1.1 and /2) all get
+  `Access Denied`, with a full Chrome header set and even with a browser's own `bm_sv` cookie
+  — the block is on the TLS handshake, not headers, cookies or IP. Only a real browser gets
+  through, so this source can't run from stdlib Python anywhere; the code stays as the
+  documented stopgap and the log names the blocker. From the browser the cost would have been
+  fine: 250 sampled locations → 1,270 NOTAMs in 44 pages at 0.2–0.5 s a page, i.e. ~32,000
+  NOTAMs / ~1,100 pages / ~14 min for the whole list with `NOTAM_PAUSE_S` 0.5. **(2) DINS**
+  (`www.notams.faa.gov/dinsQueryWeb`) — **gone: the host no longer resolves** (2026-09-10; its
+  maintenance order JO 6180.22 was cancelled 2026-07-01). Kept last so a DNS failure is
+  recognised as dead in one request. A run with every source dead costs 6 requests / ~4 s
+  (`--selftest` covers it): the archiver stops asking after three refusals per source instead
+  of halving and retrying every batch. So **until NMS credentials exist the hourly run
+  publishes only a failed `index.json`** (`ok:false`, note = the Akamai 403), which the page
+  prints. The NMS token endpoint is live (401 `{"ErrorCode":"invalid_client",…}` without
+  credentials; the API base answers 401 JSON `{timestamp, status, message}`). The FAA
+  developer portal (`api.faa.gov` → `portal.apic4e.faa.gov`, `external-api.faa.gov/notamapi/
+  v1/notams`, 401 JSON without a key) is the other keyed route and may be self-serve — not
+  tried. **Trust rules**: a batch counts
   only when it parses (an empty page must echo one of the ids it was asked about); a failing
   batch is retried in halves and again at the end of the run, and its NOTAMs **carry over
   untouched** (absence there is a dead batch, not a cancellation — never mark gone what was not
@@ -620,21 +641,27 @@ concepts; to relink, add the tools.html card back.
   and nothing is deleted. `--selftest` covers the parser (D · FDC IAP · TFR · GPS · schedule ·
   EST · PERM · ICAO-format), the DINS HTML, NMS feature conversion and unpacking, attribution,
   three runs of deltas and the refused run; `--fixture f.json` runs the whole pipeline offline
-  (`{queries:{id:[raw…]}, fail:[ids]}`). **No live endpoint could be reached from the web session
-  that built this (FAA hosts are blocked there) — the first Actions run on main is the proof; a
-  source that fails prints the body head it got, and the page's status bar prints the note.**
+  (`{queries:{id:[raw…]}, fail:[ids]}`).
 - `scripts/build_notam_locations.py` → `data/notam/locations.json` — the location universe
   (`[q, lid, kind, name, st, lat, lon, artcc, aliases]`; `q` = the id to query, `lid` = the id
   NOTAM text uses, `ZDC` carries alias `KZDC`). `--seed` (what ships) builds offline from
   `data/procedures/index.json` (every US airport with a coded procedure, ~3,180) + the coded
   legs' recommended navaids (~340 VOR/NDB not on an airport, state = nearest airport's) + the
   24 ARTCC/CERAPs + `GPS`/`FDC`. That covers the fields that generate nearly all NOTAM
-  traffic, not the ~2,000 public-use fields without a procedure; the default (no flag) path
-  downloads the FAA NASR 28-day CSV subscription (`APT_BASE.csv` public-use or NOTAM-D-flagged
-  airports, `NAV_BASE.csv`) — written to the documented column names but **not yet run against
-  a live download**. Alaska/Pacific LIDs that are not the ICAO id less one letter (PAAQ ↔ PAQ)
-  are wrong in the seed and right in a NASR build. Rebuild → commit the JSON; the archiver reads
-  it at run time.
+  traffic, not the ~2,000 public-use fields without a procedure. **The default (no flag) path
+  is what ships now** (built 2026-09-10 from the 2026-09-03 cycle, 6,279 locations: 4,886
+  airports · 308 military-owned · 226 seaplane bases · 60 heliports · 773 navaids · 24 ARTCCs ·
+  GPS/FDC): it downloads the FAA NASR 28-day CSV subscription's per-subject zips
+  (`nfdc.faa.gov/webContent/28DaySub/extra/DD_Mon_YYYY_APT_CSV.zip`, ~8 MB, and `…_NAV_CSV.zip`;
+  the whole-subscription `…_CSV.zip` also exists and works via `--nasr`) — cycle dates are the
+  AIRAC dates the procedures build uses, verified against the FAA's own listing. Columns as
+  the script expects (`ARPT_ID`, `ICAO_ID`, `SITE_TYPE_CODE` A/B/C/G/H/U — C is a seaplane
+  base, `FACILITY_USE_CODE` PU/PR, `NOTAM_FLAG` Y/N/blank, `OWNERSHIP_TYPE_CODE` PU/PR/MA/MN/MR/CG,
+  `NAV_ID`, `NAV_TYPE`). Kept: public-use, or `NOTAM_FLAG` Y, or military-owned (bases are
+  private-use in NASR but file NOTAMs — that is how KADW/KNHK get in; KNAK is not an airport
+  record at all). NASR's `NOTAM_ID` is the *accountability* (ANP's is DCA), not the location —
+  `lid` is `ARPT_ID`, which is also what fixes the Alaska ids (`PAAB` ↔ `4A2`). Rebuild each
+  cycle → commit the JSON; the archiver reads it at run time.
 
 ### Weather
 
