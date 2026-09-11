@@ -1434,12 +1434,22 @@ def main():
     ap.add_argument("--fixture", help="offline source: JSON {queries:{id:[raw…]}} instead of the network")
     ap.add_argument("--locations", default=LOCATIONS)
     ap.add_argument("--now", type=int, help="run stamp (epoch), for tests")
+    ap.add_argument("--only", help="comma-separated query ids — a smoke test against the live "
+                                   "services with a handful of locations instead of the whole list")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
         selftest()
         return
     uni = load_universe(a.locations)
+    if a.only:
+        keep = {x.strip().upper() for x in a.only.split(",") if x.strip()}
+        doc = read_json(a.locations, {})
+        doc["locs"] = [r for r in doc.get("locs") or [] if r[0] in keep]
+        missing = keep - {r[0] for r in doc["locs"]}
+        for q in sorted(missing):   # an id not in the list is still asked for
+            doc["locs"].append([q, q[1:] if len(q) == 4 and q[0] == "K" else q, "apt", q, None, None, None, None])
+        uni = Universe(doc)
     log(f"{len(uni.recs)} locations, {len(uni.queries)} query ids, batches of {BATCH}")
     sources = [FixtureSource(a.fixture)] if a.fixture else list(SOURCES)
     ok = run(a.out, uni, sources, now=a.now)
