@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 39;
+const DISC_VER = 40;
 
 const $ = (id) => document.getElementById(id);
 
@@ -2534,19 +2534,6 @@ async function vfBuild(date, off) {
 
   const pct = live ? Math.max(0, Math.min(100, (hNow / 24) * 100)) : 100;
   const openH = Math.max(0, 24 - Math.round(hNow));
-  const srcNote = catPairs.length
-    ? `Field rows compare the ${esc(FIELD_ID)} hourly grid (archived this morning) against ` +
-      (atField
-        ? `${esc(fieldStation)} METARs — the field's own sensor, ~3 nm out.`
-        : `${OBS_STATION} METARs ~25 nm NW, because no ${esc(FIELD_ID)}-area obs are archived for this day.`) +
-      ` Day rows are the DC forecast against ${OBS_STATION}` +
-      (atField ? `, and thunder stays on ${OBS_STATION} — an AUTO station only reports TS if it carries lightning detection.` : '.')
-    : `Day rows are the DC point forecast against ${OBS_STATION} METARs.`;
-  const areaNote = areaSums.length
-    ? ` The area row sweeps ${areaSums.length} metro station${areaSums.length === 1 ? '' : 's'} ` +
-      `(${areaSums.map((s) => s.id).join(', ')}) for SCT+ layers at or below 3,000 ft.`
-    : '';
-
   return (
     `<div class="vf-head">` +
     `<span class="vf-front">Verified through ${esc(hourLabel(lastObMs))}</span>` +
@@ -2555,11 +2542,7 @@ async function vfBuild(date, off) {
     `</div>` +
     (settled.length ? `<div class="vf-sec">Settled</div>${settled.map(vRowHtml).join('')}` : '') +
     (open.length ? `<div class="vf-sec">Still open</div>${open.map(vRowHtml).join('')}` : '') +
-    (S.length ? `<p class="v-why">${S.join(' ')}</p>` : '') +
-    `<div class="drift-note">${srcNote}${areaNote} ` +
-    `PoPs are probabilities, not promises${exp && exp.pop != null && exp.pop > 0 && exp.pop < 100 ? ` — a ${exp.pop}% day stays dry about ${Math.round(10 - exp.pop / 10)} times in 10` : ''}. ` +
-    `Forecast baseline: ${exp ? esc(expSrc) : 'none on record yet'}. ` +
-    `Hindcast = the model’s own reconstruction (GFS).</div>`
+    (S.length ? `<p class="v-why">${S.join(' ')}</p>` : '')
   );
 }
 

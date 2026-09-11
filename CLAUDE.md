@@ -479,7 +479,19 @@ concepts; to relink, add the tools.html card back.
   any US airport (coords resolved via `api.weather.gov/stations/{id}`; model selectable), with
   parcel analysis. Thermo is Bolton (1980); CAPE/CIN are integrated from the plotted profile
   **without virtual-temperature correction** (said in the UI — keep the disclosure if you change
-  the math). `skewt.js` exposes `window.SkewTCore`, which `skewt-obs.js` reuses for observed
+  the math).
+  **Parcel rules fixed 2026-09-10 — three of them, verified against all 254 archived KIAD
+  soundings in `data/wx/raob`:** the **LFC is at or above the LCL** (a superadiabatic surface
+  layer makes the dry-adiabat parcel buoyant at the ground, and taking that as the LFC put
+  "LFC 0 ft AGL" on 116 of those soundings and left CIN at 0 on every capped day); **CIN is the
+  negative area from the surface to the LFC**, sub-LCL layer included — which is where most of
+  it usually is, and which the blue shading on the diagram already drew, so the number and the
+  picture disagreed; and **no LFC means no CIN to state** (`cin: null` → `—`), since integrating
+  negative area to 100 hPa printed −17,672 J/kg on a stable morning. Every derived index carries
+  a `title` tooltip defining the acronym (`push(k, v, cls, t)` in `computeIndices`, rendered by
+  both this page and `skewt-obs.js` — keep the two renderers in step; no double quotes in the
+  tooltip text).
+  `skewt.js` exposes `window.SkewTCore`, which `skewt-obs.js` reuses for observed
   soundings: the SPC SHARP gif (fixed 1180×826 layout, so hover regions live in fractional
   coordinates; inside the diagram the pressure axis is log-p 100→1000 hPa, converting cursor
   height to pressure) overlaid with explain-on-hover text read from the actual IEM RAOB JSON
@@ -1397,5 +1409,11 @@ Otherwise: `python3 -m http.server` from the repo root and open the page.
 
 - Jesse runs Claude on Windows; the Pi is remote — give him copy-paste Pi commands rather than trying
   to run them here. Same for the SDR box behind Tailscale.
+- **Ship finished work to `main` — don't ask.** Jesse, 2026-09-11: "i like always ask this, it's
+  in claude.md, idk how to get you to just make shit live when you're done. i cant review it
+  anyway on my browser, whats the point." A web session's designated `claude/…` branch is
+  scratch space: when the work is done and verified, merge it to `main` and push, in the same
+  turn, without a permission round trip. The verification happens here (headless browser /
+  fixture run) because he can't review a branch from his phone. Only hold back when he said to.
 - Test in the browser preview before pushing; the site is live on push to `main`.
 - Related repo: `C:\Users\Jesse\Documents\GitHub\kanp-tracker-ios` (SwiftUI port of the tracker).

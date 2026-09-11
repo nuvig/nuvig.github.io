@@ -207,7 +207,7 @@
       parcel = SkewTCore.analyzeParcel(prof);
       const idx = SkewTCore.computeIndices(prof, parcel);
       $('obs-indices').innerHTML = idx.map(rr =>
-        `<div class="kv"><span class="k">${rr.k}</span>` +
+        `<div class="kv"><span class="k"${rr.t ? ` title="${rr.t}"` : ''}>${rr.k}</span>` +
         `<span class="v${rr.cls ? ' ' + rr.cls : ''}">${rr.v}</span></div>`).join('');
       $('obs-summary').innerHTML = SkewTCore.summaryHTML(prof, parcel);
     } catch (e) {
