@@ -4,7 +4,7 @@ the FAA for NOTAMs (stdlib only).
 
     python3 scripts/build_notam_locations.py            # NASR download (current 28-day cycle)
     python3 scripts/build_notam_locations.py --seed     # offline: from data/procedures + tables
-    python3 scripts/build_notam_locations.py --nasr /path/to/NASR_CSV.zip
+    python3 scripts/build_notam_locations.py --nasr /path/to/DD_Mon_YYYY_CSV.zip   # or the APT_CSV zip
 
 Output shape:
   {v, built, src, cycle, n, locs:[[q, lid, kind, name, st, lat, lon, artcc, aliases?]]}
@@ -24,13 +24,21 @@ Two ways to build it:
           the airports that generate nearly all NOTAM traffic but not the
           ~2,000 public-use fields with no instrument procedure.
   NASR    The FAA's 28-day National Airspace System Resources subscription,
-          CSV edition (nfdc.faa.gov/webContent/28DaySub/extra/DD_Mon_YYYY_CSV.zip):
-          APT_BASE.csv (every airport, heliport and seaplane base — kept when
-          public-use or flagged for NOTAM D service) and NAV_BASE.csv (every
-          navaid). Column names are looked up tolerantly (see COLS) because
-          the FAA has renamed them before. This path has not been run against
-          a live download from this repo yet — if the URL or a column moved,
-          the error says which, and --seed still works.
+          CSV edition — the per-subject zips
+          nfdc.faa.gov/webContent/28DaySub/extra/DD_Mon_YYYY_APT_CSV.zip and
+          …_NAV_CSV.zip (the whole-subscription DD_Mon_YYYY_CSV.zip also works
+          via --nasr): APT_BASE.csv (every airport, heliport and seaplane base —
+          kept when public-use, flagged for NOTAM D service, or military-owned)
+          and NAV_BASE.csv (every navaid). Column names are looked up
+          tolerantly (see COLS) because the FAA has renamed them before.
+          Verified live 2026-09-10 against the 2026-09-03 cycle: 19,411 APT rows
+          (ARPT_ID, ICAO_ID, ARPT_NAME, CITY, STATE_CODE, LAT_DECIMAL,
+          LONG_DECIMAL, SITE_TYPE_CODE, FACILITY_USE_CODE, NOTAM_FLAG,
+          NOTAM_ID, RESP_ARTCC_ID, OWNERSHIP_TYPE_CODE) and 1,617 NAV rows
+          (NAV_ID, NAV_TYPE, NAME, STATE_CODE, LAT_DECIMAL, LONG_DECIMAL).
+          NASR's NOTAM_ID is the *accountability* (ANP's is DCA), not the
+          location id — `lid` is ARPT_ID. If a column moves, the error says
+          which, and --seed still works.
 
 Cycle dates are AIRAC (28 days from the anchor scripts/build_procedures.py
 uses); NASR effective dates coincide with them.
@@ -117,8 +125,11 @@ def current_cycle_date(today=None):
     return d
 
 
-def nasr_url(d):
-    return f"https://nfdc.faa.gov/webContent/28DaySub/extra/{d:%d_%b_%Y}_CSV.zip"
+def nasr_urls(d):
+    """The per-subject CSV zips (APT ~8 MB, NAV ~0.6 MB) rather than the whole
+    subscription (extra/DD_Mon_YYYY_CSV.zip, which also exists)."""
+    base = f"https://nfdc.faa.gov/webContent/28DaySub/extra/{d:%d_%b_%Y}"
+    return [base + "_APT_CSV.zip", base + "_NAV_CSV.zip"]
 
 
 def haversine_nm(lat1, lon1, lat2, lon2):
@@ -199,15 +210,22 @@ def seed_rows():
     return rows
 
 
-def nasr_rows(zip_bytes):
-    zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    names = {n.rsplit("/", 1)[-1].upper(): n for n in zf.namelist()}
-    apt_name = names.get("APT_BASE.CSV")
-    nav_name = names.get("NAV_BASE.CSV")
-    if not apt_name:
-        raise SystemExit(f"APT_BASE.csv not in the archive; members: {sorted(names)[:20]}…")
+def nasr_rows(zips):
+    """zips: the zip bytes to read APT_BASE.csv / NAV_BASE.csv from — the two
+    subject zips, or the one whole-subscription zip."""
+    members = {}   # basename -> (ZipFile, member name), first seen wins
+    for zb in zips:
+        zf = zipfile.ZipFile(io.BytesIO(zb))
+        for n in zf.namelist():
+            members.setdefault(n.rsplit("/", 1)[-1].upper(), (zf, n))
+    if "APT_BASE.CSV" not in members:
+        raise SystemExit(f"APT_BASE.csv not in the archive; members: {sorted(members)[:20]}…")
+    zf, apt_name = members["APT_BASE.CSV"]
+    nav = members.get("NAV_BASE.CSV")
     rows = []
-    kinds = {"A": "apt", "H": "heli", "S": "sea", "B": "apt", "G": "apt", "U": "apt", "C": "apt"}
+    # NASR SITE_TYPE_CODE: A airport, B balloonport, C seaplane base,
+    # G gliderport, H heliport, U ultralight.
+    kinds = {"A": "apt", "H": "heli", "C": "sea", "B": "apt", "G": "apt", "U": "apt"}
     n_skip = 0
     with zf.open(apt_name) as f:
         rd = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", errors="replace"))
@@ -219,7 +237,10 @@ def nasr_rows(zip_bytes):
                 continue
             use = col(row, "use").upper()
             flag = col(row, "notam_flag").upper()
-            if use != "PU" and flag != "Y":
+            owner = col(row, "owner").upper()
+            # Public-use, flagged for NOTAM D service, or military-owned (a
+            # base is private-use in NASR but files NOTAMs like any airport).
+            if use != "PU" and flag != "Y" and not owner.startswith("M"):
                 n_skip += 1
                 continue
             icao = col(row, "icao")
@@ -229,19 +250,18 @@ def nasr_rows(zip_bytes):
             except ValueError:
                 lat = lon = None
             st = col(row, "state").upper()
-            name = col(row, "name")
-            city = col(row, "city")
-            label = f"{name.title()} · {city.title()}" if city else name.title()
+            name = re.sub(r"\s+", " ", col(row, "name")).title()
+            city = re.sub(r"\s+", " ", col(row, "city")).title()
+            label = f"{name} · {city}" if city else name
             kind = kinds.get(col(row, "type").upper()[:1], "apt")
-            owner = col(row, "owner").upper()
             if owner.startswith("M"):
                 kind = "mil"
             rows.append([q, lid, kind, label, st if st in STATES else None,
                          round(lat, 4) if lat is not None else None,
                          round(lon, 4) if lon is not None else None, col(row, "artcc") or None])
     n_nav = 0
-    if nav_name:
-        with zf.open(nav_name) as f:
+    if nav:
+        with nav[0].open(nav[1]) as f:
             rd = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", errors="replace"))
             have = {r[0] for r in rows} | {r[1] for r in rows}
             seen = set()
@@ -276,13 +296,14 @@ def main():
         rows, src = seed_rows(), "seed"
     else:
         if a.nasr:
-            data = open(a.nasr, "rb").read()
+            zips = [open(a.nasr, "rb").read()]
         else:
-            url = nasr_url(cycle)
-            print("downloading", url, file=sys.stderr)
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            data = urllib.request.urlopen(req, timeout=300).read()
-        rows, src = nasr_rows(data), "nasr"
+            zips = []
+            for url in nasr_urls(cycle):
+                print("downloading", url, file=sys.stderr)
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                zips.append(urllib.request.urlopen(req, timeout=300).read())
+        rows, src = nasr_rows(zips), "nasr"
     rows.extend(fixed_rows())
     seen = set()
     uniq = []
