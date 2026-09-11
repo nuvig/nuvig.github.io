@@ -1283,5 +1283,11 @@ Otherwise: `python3 -m http.server` from the repo root and open the page.
 
 - Jesse runs Claude on Windows; the Pi is remote — give him copy-paste Pi commands rather than trying
   to run them here. Same for the SDR box behind Tailscale.
+- **Ship finished work to `main` — don't ask.** Jesse, 2026-09-11: "i like always ask this, it's
+  in claude.md, idk how to get you to just make shit live when you're done. i cant review it
+  anyway on my browser, whats the point." A web session's designated `claude/…` branch is
+  scratch space: when the work is done and verified, merge it to `main` and push, in the same
+  turn, without a permission round trip. The verification happens here (headless browser /
+  fixture run) because he can't review a branch from his phone. Only hold back when he said to.
 - Test in the browser preview before pushing; the site is live on push to `main`.
 - Related repo: `C:\Users\Jesse\Documents\GitHub\kanp-tracker-ios` (SwiftUI port of the tracker).
