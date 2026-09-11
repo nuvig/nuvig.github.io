@@ -20,13 +20,20 @@ Sources, in this order:
      hub is meant to run on; the two below are the keyless stopgaps.
   1. FAA NOTAM Search — notams.aim.faa.gov/notamSearch/search, the JSON
      behind the public search page (searchType=0, comma-separated
-     designators, 30 records a page, `offset` to page). Undocumented but
-     stable since 2019 and still the FAA's public search after the NMS
-     cutover. One request per page per batch of locations.
+     designators, 30 records a page, `offset` to page). The request and
+     response shape were verified from a browser 2026-09-10 — but the host
+     sits behind Akamai Bot Manager, which answers 403 "Access Denied" to
+     every non-browser TLS fingerprint (urllib and curl alike, on Windows
+     and on a GitHub runner, whatever the headers or cookies). It cannot
+     be reached from this script; kept as the documented stopgap, and the
+     log names the blocker.
   2. DINS — www.notams.faa.gov/dinsQueryWeb, the Defense Internet NOTAM
-     Service: one POST per batch, every NOTAM in its own <pre>. Its FAA
-     maintenance order (JO 6180.22) was cancelled 2026-07-01, so it is
-     probably gone; kept last in case it still answers.
+     Service: one POST per batch, every NOTAM in its own <pre>. Gone: the
+     host stopped resolving after its maintenance order (JO 6180.22) was
+     cancelled 2026-07-01. Kept last; a DNS failure counts as dead at once.
+A source that refuses its first three batches hands over to the next, and
+when none is left the run stops (6 requests, a few seconds), so the hourly
+run without NMS credentials publishes only a failed index.json.
 A batch or download is trusted only when it parses; a run that finds fewer
 than half of last run's NOTAMs is refused rather than written (nothing is
 marked gone on a bad day), and every failure lands in index.json where the
@@ -77,6 +84,7 @@ import http.cookiejar
 import json
 import os
 import re
+import socket
 import sys
 import time
 import urllib.error
@@ -365,6 +373,8 @@ def prime(url):
         opener().open(req, timeout=TIMEOUT_S).read()
     except Exception as e:  # not fatal — the POST may work without it
         log(f"prime {url}: {e}")
+        if dns_dead(e):
+            raise SourceError(f"host unreachable: {e}")
 
 
 def post_form(url, fields, accept="*/*", referer=None):
@@ -385,13 +395,23 @@ def post_form(url, fields, accept="*/*", referer=None):
         except urllib.error.HTTPError as e:
             last = f"HTTP {e.code}"
             if e.code < 500 and e.code != 429:
-                return e.code, ""
+                # The body names the blocker (Akamai's "Access Denied" page).
+                return e.code, e.read().decode("utf-8", "replace")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last = str(e)
+            if dns_dead(e):
+                # A host that does not resolve is gone, not busy — no backoff.
+                raise SourceError(f"host unreachable: {last}")
         if attempt < 3:
             time.sleep(delay)
             delay *= 2
     raise SourceError(last or "request failed")
+
+
+def dns_dead(e):
+    reason = getattr(e, "reason", e)
+    return isinstance(reason, socket.gaierror) or "getaddrinfo" in str(reason) \
+        or "Name or service not known" in str(reason) or "nodename nor servname" in str(reason)
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +456,10 @@ def nsearch_batch(ids, page_cap=80):
             fields["offset"] = str(offset)
         status, body = post_form(NSEARCH_URL, fields, accept="application/json,*/*", referer=NSEARCH_HOME)
         if status != 200:
-            raise SourceError(f"NOTAM Search HTTP {status}")
+            head = clean_text(body)[:120]
+            if status == 403 and "Access Denied" in head:
+                head = "Akamai bot manager: Access Denied (non-browser TLS fingerprint)"
+            raise SourceError(f"NOTAM Search HTTP {status}: {head}")
         try:
             doc = json.loads(body)
         except json.JSONDecodeError:
@@ -798,10 +821,13 @@ def collect(uni, sources, batch_size=BATCH, budget_s=BUDGET_S, pause_s=PAUSE_S, 
              "budget_hit": False, "errors": [], "next_cursor": 0}
     src_i = 0
     consecutive_fail = 0
+    dead = False  # every source refused its first batches — stop asking
     failed = []   # batches to try once more at the end of the run
 
     def run_batch(ids, depth=0):
-        nonlocal src_i, consecutive_fail
+        nonlocal src_i, consecutive_fail, dead
+        if dead:
+            return
         stats["req"] += 1
         src = sources[src_i]
         try:
@@ -813,11 +839,17 @@ def collect(uni, sources, batch_size=BATCH, budget_s=BUDGET_S, pause_s=PAUSE_S, 
             consecutive_fail += 1
             # The first batches all dying means the source is gone, not the
             # locations: move to the next source for the rest of the run.
-            if consecutive_fail >= 3 and ok_q == set() and src_i + 1 < len(sources):
-                src_i += 1
-                consecutive_fail = 0
-                log(f"switching source -> {sources[src_i]}")
-                return run_batch(ids, depth)
+            # With no source left, stop — a dead sweep must cost a handful of
+            # requests, not hours of halving and retrying every batch.
+            if consecutive_fail >= 3 and ok_q == set():
+                if src_i + 1 < len(sources):
+                    src_i += 1
+                    consecutive_fail = 0
+                    log(f"switching source -> {sources[src_i]}")
+                    return run_batch(ids, depth)
+                dead = True
+                log(f"every source refused its first batches after {stats['req']} requests; giving up this run")
+                return
             if depth == 0 and len(ids) > 8:
                 time.sleep(pause_s)
                 h = len(ids) // 2
@@ -846,6 +878,8 @@ def collect(uni, sources, batch_size=BATCH, budget_s=BUDGET_S, pause_s=PAUSE_S, 
     if starts and 0 < start_batch < len(starts):
         starts = starts[start_batch:] + starts[:start_batch]
     for i, b in enumerate(starts):
+        if dead:
+            break
         if time.time() - t0 > budget_s:
             stats["budget_hit"] = True
             stats["next_cursor"] = (start_batch + i) % len(starts)
@@ -859,6 +893,8 @@ def collect(uni, sources, batch_size=BATCH, budget_s=BUDGET_S, pause_s=PAUSE_S, 
     # Second chance for what failed — a transient error heals within the run,
     # and a batch that died before a source switch gets the new source.
     for ids in list(failed):
+        if dead:
+            break
         if time.time() - t0 > budget_s:
             stats["budget_hit"] = True
             break
@@ -1409,6 +1445,13 @@ def selftest():
         recs2, okq, stats = collect(uni, [FixtureSource(f5), FixtureSource(fpath)], batch_size=1,
                                     pause_s=0, now=t3 + 7200)
         assert stats["src"] == "fixture" and len(recs2) == 4 and stats["fail"] == 0 and stats["req"] == 8, stats
+        # Every source dead: three refusals each, then the run gives up —
+        # a handful of requests, never a halving-and-retrying sweep.
+        f6 = os.path.join(tmp, "fx6.json")
+        write_json(f6, dict(fx3, fail=uni.queries))
+        recs3, okq3, st3 = collect(uni, [FixtureSource(f6), FixtureSource(f6)], batch_size=1,
+                                   pause_s=0, now=t3 + 7200)
+        assert not recs3 and not okq3 and st3["req"] == 6 and st3["src"] is None, st3
     # Rotation: a run starting at batch 2 of 5 asks batches 2,3,4,0,1; a spent
     # budget stops before the first batch and points the next run at the same one.
     uni5 = Universe({"locs": [[f"K{c}{c}{c}", f"{c}{c}{c}", "apt", "x", "MD", 0, 0, None] for c in "ABCDE"]})
