@@ -1,0 +1,26 @@
+# Temporary: does a GitHub runner get past Akamai on notams.aim.faa.gov?
+name: NOTAM probe
+on:
+  push:
+    branches: [claude/notam-analysis-hub-fp0ta8]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          python3 - <<'PY'
+          import urllib.request, ssl, sys
+          print(sys.version, ssl.OPENSSL_VERSION)
+          for url, data in [("https://notams.aim.faa.gov/notamSearch/nsapp.html", None),
+                            ("https://notams.aim.faa.gov/notamSearch/search", b"searchType=0&designatorsForLocation=KANP")]:
+              req = urllib.request.Request(url, data=data, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9"})
+              try:
+                  r = urllib.request.urlopen(req, timeout=30); print(url, r.status, r.read()[:300])
+              except urllib.error.HTTPError as e:
+                  print(url, e.code, e.read()[:200])
+              except Exception as e:
+                  print(url, "ERR", e)
+          PY
+          curl -s -o /dev/null -w "curl h2: %{http_code} %{http_version}\n" --http2 -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" https://notams.aim.faa.gov/notamSearch/nsapp.html
+          curl -s -o /dev/null -w "curl h1: %{http_code}\n" --http1.1 -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" https://notams.aim.faa.gov/notamSearch/nsapp.html
+          curl -s -o /dev/null -w "dins: %{http_code}\n" https://www.notams.faa.gov/dinsQueryWeb/ || true
