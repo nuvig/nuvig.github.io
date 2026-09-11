@@ -586,15 +586,42 @@ concepts; to relink, add the tools.html card back.
   a stale run > 4 h). Page copy is label → value; `window.NOTAM_DEBUG` for headless checks.
 - `scripts/notamarchive.py` + `.github/workflows/notamarchive.yml` — the archiver, hourly at :48
   (stdlib; `NOTAM_*` env knobs at the top of the script). **Sources, in order** (`NOTAM_SOURCES`,
-  default `nms,nsearch,dins`): **(0) the FAA NMS API** (`api-nms.aim.faa.gov` — the NOTAM
-  Management Service that replaced the US NOTAM System/FNS on 2026-04-18; OAuth2 client
-  credentials → Bearer; `GET /nmsapi/v1/notams/il` is an *initial load* of every active NOTAM in
-  the NAS as one compressed GeoJSON download, `/v1/notams?classification=…` the per-class
-  fallback; contract taken from the `faa-nms-api` npm client, which is generated from the FAA's
-  OpenAPI spec). Used only when the repo secrets `NMS_CLIENT_ID` / `NMS_CLIENT_SECRET` exist —
-  **access is not self-serve: email NOTAMS@faa.gov** — and it is the source this hub is meant to
-  run on: ~3 requests a run instead of ~75, every classification (MIL/LMIL/INTL too), issue and
-  last-updated stamps. **(1) FAA NOTAM Search** (`notams.aim.faa.gov/notamSearch/search`, the
+  default `nms,nsearch,dins`): **(0) the FAA NMS API** — the NOTAM Management
+  Service that replaced the US NOTAM System/FNS on 2026-04-18; **live and verified against
+  pre-production 2026-09-11**. OAuth2 client credentials: `POST {host}/v1/auth/token` with
+  Basic id:secret on the *bare* host (not under `/nmsapi` — the FAQ's most common 401),
+  30-minute tokens; API at `{host}/nmsapi/v1`, `nmsResponseFormat: AIXM|GEOJSON` header
+  required. Hosts: `api-nms.aim.faa.gov` (prod) and `api-staging.cgifederal-aim.com`
+  (pre-prod, `NMS_HOST` — a repo *variable*, blank = prod). Access: email NOTAMS@faa.gov →
+  a ticket (INC0032170) and an onboarding packet with the pre-prod pair, spec YAML and cURL
+  samples (Jesse's `Downloads/nms/`); production credentials on request to
+  7-AWA-NAIMES@faa.gov once pre-prod is validated. Secrets `NMS_CLIENT_ID` /
+  `NMS_CLIENT_SECRET`. **Two pulls** (`collect_nms()`, mode in `index.json`): **full** —
+  `GET /v1/notams?classification=X&allowRedirect=false` per class (DOMESTIC · FDC · MILITARY
+  · LOCAL_MILITARY · INTERNATIONAL) returns `{data:{url:"/nmsapi/v1/content/<token>"}}`, a
+  *host-relative* path (join it to the host, not `/nmsapi`; Bearer; the token is the signed
+  storage.googleapis.com URL, good 5 min) to a gzip GeoJSON file of the class — once a day
+  (`NMS_FULL_EVERY_S`, 23 h) or when the archive is empty; staging: 74,527 features in 10
+  requests / 10 s. `/v1/notams/il` (AIXM 5.1 in a SOAP envelope, gzip; `parse_aixm()`) is the
+  last resort — **the FAA allows the initial load once per 24 h**. **delta** —
+  `GET /v1/notams?lastUpdatedDate=<ISO Z>` (24 h window max, overlapped 15 min): everything
+  created / updated / cancelled since, in the body (~400 features an hour, one request,
+  0.3 s), merged onto the archive; a failed delta falls back to a full pull. **What the data
+  looks like:** feature `properties.coreNOTAMData.notam` (`number`, `type` N/R/C, `issued`,
+  `location`, `icaoLocation`, `accountId`, `classification` DOM/FDC/MIL/INTL,
+  `effectiveStart/End` ISO or `PERM`, `lastUpdated`, `cancelationDate`, `text`) +
+  `notamTranslation[]` (`LOCAL_FORMAT` `simpleText` = the traditional `!ACCT NN/NNN LOC …`
+  NOTAM for domestic/FDC; INTL and MIL carry only the `ICAO` translation, so their `raw` is
+  synthesised from the fields and `k` is usually `?`). **A cancellation is the record itself
+  with `cancelationDate` earlier than its `effectiveEnd`** (`type` stays N); NOTAMC records
+  (type C) are messages and are dropped. **`nms_keep()` filters**: INTERNATIONAL is every
+  foreign FIR's NOTAMs too (RJJJ, RKRR, LIMM led the facility table) and MILITARY includes US
+  bases abroad (EDWW), so both classes keep only US locations (ICAO prefix K/PA/PH/PG/PW/PM/
+  PJ/PL/TJ/TI/NS or an id in locations.json); and the class files hold thousands of records
+  past their end (one 25 years old), which are not current whatever file they came in. Staging
+  result after filtering: **33,620 NOTAMs** (D 21,007 · INTL 5,779 · FDC 4,381 · MIL 1,722 ·
+  TFR 69 · GPS 8), 57 state files, 24.5 MB archive. ~3 requests a run instead of ~75, every
+  classification, issue and last-updated stamps. **(1) FAA NOTAM Search** (`notams.aim.faa.gov/notamSearch/search`, the
   JSON behind the public page: `searchType=0&designatorsForLocation=A,B,C`, 30 a page (fixed —
   no page-size parameter is honoured), `offset` to page; `{notamList, startRecordCount,
   endRecordCount, totalNotamCount, filteredResultCount, criteriaCaption, searchDateTime,
@@ -615,7 +642,7 @@ concepts; to relink, add the tools.html card back.
   maintenance order JO 6180.22 was cancelled 2026-07-01). Kept last so a DNS failure is
   recognised as dead in one request. A run with every source dead costs 6 requests / ~4 s
   (`--selftest` covers it): the archiver stops asking after three refusals per source instead
-  of halving and retrying every batch. So **until NMS credentials exist the hourly run
+  of halving and retrying every batch. So **without NMS credentials the hourly run
   publishes only a failed `index.json`** (`ok:false`, note = the Akamai 403), which the page
   prints. The NMS token endpoint is live (401 `{"ErrorCode":"invalid_client",…}` without
   credentials; the API base answers 401 JSON `{timestamp, status, message}`). The FAA

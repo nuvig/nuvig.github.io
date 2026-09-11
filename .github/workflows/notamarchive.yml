@@ -67,6 +67,10 @@ jobs:
         env:
           NMS_CLIENT_ID: ${{ secrets.NMS_CLIENT_ID }}
           NMS_CLIENT_SECRET: ${{ secrets.NMS_CLIENT_SECRET }}
+          # Repository *variable* (Settings → Variables): blank = production
+          # api-nms.aim.faa.gov; https://api-staging.cgifederal-aim.com while
+          # the credentials are the pre-production pair.
+          NMS_HOST: ${{ vars.NMS_HOST }}
         run: python3 scripts/notamarchive.py --out archive || echo "::warning::notamarchive.py reported problems (see the log); publishing what it wrote"
 
       - name: Publish to the notam-data branch

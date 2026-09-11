@@ -11,13 +11,35 @@ as one day-forward archive and reduced to the aggregates notam.html draws.
   python3 scripts/notamarchive.py --out out --fixture f.json   # offline run
 
 Sources, in this order:
-  0. NMS API — api-nms.aim.faa.gov, the FAA's NOTAM Management Service (the
-     system that replaced the US NOTAM System / FNS on 2026-04-18). Official,
-     documented (OpenAPI), OAuth2 client-credentials; ONE "initial load"
-     download is every active NOTAM in the NAS. Used whenever
-     NMS_CLIENT_ID / NMS_CLIENT_SECRET are set — access is granted by
-     emailing NOTAMS@faa.gov (no self-serve signup). This is the source the
-     hub is meant to run on; the two below are the keyless stopgaps.
+  0. NMS API — the FAA's NOTAM Management Service (the system that replaced
+     the US NOTAM System / FNS on 2026-04-18). Official, documented (OpenAPI
+     1.0.18), OAuth2 client-credentials: POST {NMS_HOST}/v1/auth/token with
+     Basic id:secret (the bare host, not /nmsapi), 30-minute tokens; the
+     API is {NMS_HOST}/nmsapi/v1 with a required nmsResponseFormat header
+     (AIXM | GEOJSON). Hosts: api-nms.aim.faa.gov (prod),
+     api-staging.cgifederal-aim.com (pre-prod, where the first credentials
+     land; NMS_HOST). Access: email NOTAMS@faa.gov — a ticket, an onboarding
+     packet with the pre-prod pair, then production on request once
+     validated. Two pulls, chosen per run from index.json:
+       full   GET /v1/notams?classification=X&allowRedirect=false, one per
+              class (DOMESTIC FDC MILITARY LOCAL_MILITARY INTERNATIONAL) ->
+              {status, data:{url:"/nmsapi/v1/content/<token>"}} -> a gzip
+              GeoJSON file of the whole class (host-relative path, Bearer;
+              the token is the signed storage.googleapis.com URL, 5 min).
+              Once a day (NMS_FULL_EVERY_S) or when the archive is empty.
+              Staging 2026-09-11: 74,527 features in 10 requests / 10 s,
+              36,729 kept — INTERNATIONAL is mostly foreign FIRs and the
+              files hold thousands past their end (nms_keep()).
+              /v1/notams/il (AIXM in SOAP, gzip, parse_aixm()) is the last
+              resort: the FAA allows it once per 24 h.
+       delta  GET /v1/notams?lastUpdatedDate=<ISO Z> (24 h window max):
+              everything created / updated / cancelled since, in the body
+              (~400 features an hour). A cancellation is the record itself
+              with cancelationDate earlier than its effectiveEnd (type stays
+              N); NOTAMC records (type C) are dropped as messages. Merged
+              onto the archive; expired records leave. One request.
+     This is the source the hub runs on; the two below are keyless
+     stopgaps that no longer work (see each).
   1. FAA NOTAM Search — notams.aim.faa.gov/notamSearch/search, the JSON
      behind the public search page (searchType=0, comma-separated
      designators, 30 records a page, `offset` to page). The request and
@@ -111,9 +133,19 @@ SOURCES = [s for s in os.environ.get("NOTAM_SOURCES", "nms,nsearch,dins").split(
 # constants (token URL, API base, Basic-auth token request).
 NMS_ID = os.environ.get("NMS_CLIENT_ID", "")
 NMS_SECRET = os.environ.get("NMS_CLIENT_SECRET", "")
-NMS_AUTH = os.environ.get("NMS_AUTH_URL", "https://api-nms.aim.faa.gov/v1/auth/token")
-NMS_API = os.environ.get("NMS_API_URL", "https://api-nms.aim.faa.gov/nmsapi")
+# Host without a path: prod api-nms.aim.faa.gov, pre-prod
+# api-staging.cgifederal-aim.com. The token endpoint is /v1/auth/token on
+# the bare host (NOT under /nmsapi — the FAQ's most common 401), the API is
+# /nmsapi. Both can still be overridden individually.
+NMS_HOST = (os.environ.get("NMS_HOST") or "https://api-nms.aim.faa.gov").rstrip("/")
+NMS_AUTH = os.environ.get("NMS_AUTH_URL") or NMS_HOST + "/v1/auth/token"
+NMS_API = os.environ.get("NMS_API_URL") or NMS_HOST + "/nmsapi"
 NMS_CLASSES = ["DOMESTIC", "FDC", "MILITARY", "LOCAL_MILITARY", "INTERNATIONAL"]
+# A full pull (every active NOTAM, one content file per classification) is
+# allowed once a day; between them each run asks for what changed since the
+# last run (lastUpdatedDate, a 24 h window at most).
+NMS_FULL_EVERY_S = int(os.environ.get("NMS_FULL_EVERY_S", str(23 * 3600)))
+NMS_DELTA_OVERLAP_S = int(os.environ.get("NMS_DELTA_OVERLAP_S", "900"))
 # Locations the page's "local" card lists in full. Mirror of the field +
 # nearby fields in js/site-config.js (SITE.notam.local) — keep the two in step.
 LOCAL = [s for s in os.environ.get(
@@ -538,10 +570,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def nms_get(path, fmt="GEOJSON", binary=False):
     """GET an NMS endpoint (path relative to NMS_API or absolute).
-    Returns (status, headers, bytes). 307s are returned, not followed."""
-    url = path if path.startswith("http") else NMS_API + (path if path.startswith("/") else "/" + path)
-    headers = {"User-Agent": UA, "Authorization": "Bearer " + nms_token(),
-               "Accept": "*/*" if binary else "application/json", "nmsResponseFormat": fmt}
+    Returns (status, headers, bytes). 307s are returned, not followed.
+    A content URL on another host (the signed storage.googleapis.com link
+    the initial load and classification pulls hand back) is fetched bare —
+    a Bearer header on a signed URL is rejected by the bucket."""
+    if path.startswith("http"):
+        url = path
+    elif path.startswith("/nmsapi/"):
+        # The content path a classification / initial-load call returns is
+        # relative to the HOST (/nmsapi/v1/content/<token>), not to /nmsapi.
+        url = NMS_HOST + path
+    else:
+        url = NMS_API + (path if path.startswith("/") else "/" + path)
+    foreign = not url.startswith(NMS_HOST)
+    headers = {"User-Agent": UA, "Accept": "*/*" if binary else "application/json"}
+    if not foreign:
+        headers["Authorization"] = "Bearer " + nms_token()
+        headers["nmsResponseFormat"] = fmt
     opener_nr = urllib.request.build_opener(_NoRedirect)
     delay = 2
     last = None
@@ -553,10 +598,10 @@ def nms_get(path, fmt="GEOJSON", binary=False):
             if e.code in (301, 302, 303, 307, 308):
                 return e.code, dict(e.headers), b""
             last = f"HTTP {e.code} {e.read()[:200]!r}"
-            if e.code == 401:
+            if e.code == 401 and not foreign:
                 _NMS_TOKEN["t"] = None
                 headers["Authorization"] = "Bearer " + nms_token()
-            elif e.code < 500 and e.code != 429:
+            elif e.code < 500 and e.code not in (408, 429):
                 raise SourceError(f"NMS {path}: {last}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last = str(e)
@@ -670,80 +715,228 @@ def nms_record(feature):
         rec["u"] = upd
     if n.get("icaoLocation") and not rec.get("icao"):
         rec["icao"] = n["icaoLocation"]
+    # A delta pull returns inactive NOTAMs too: a NOTAMC (type C) or an
+    # explicit cancellation stamp in the past means "gone", not "current".
+    ntype = str(n.get("type") or props.get("type") or "").upper()
+    cxl = iso_epoch(n.get("cancelationDate") or n.get("cancellationDate") or props.get("cancelationDate"))
+    if ntype == "C" or (cxl and rec.get("e") and cxl < rec["e"]):
+        rec["cxl"] = 1
     return rec
 
 
-def nms_download_features(fmt="GEOJSON"):
-    """The initial load: every active NOTAM. Returns a list of features."""
-    status, hdrs, body = nms_get("/v1/notams/il?allowRedirect=false", fmt)
+US_ICAO = ("K", "PA", "PH", "PG", "PW", "PM", "PJ", "PL", "TJ", "TI", "NS")
+
+
+def nms_keep(rec, uni, now):
+    """The hub is the US system: an INTERNATIONAL- or MILITARY-class record
+    is kept only for a US location (ICAO prefix, or an id the locations file
+    knows) — INTERNATIONAL carries every foreign FIR's NOTAMs too (RJJJ to
+    LIMM, 37,000 of the 74,000 features in the staging pull) and MILITARY
+    the US bases abroad (EDWW). And a record already past its end is not
+    current whatever file it came in — the class files hold thousands."""
+    if rec.get("e") and rec["e"] <= now:
+        return False
+    if rec.get("c") not in ("INTL", "MIL", "LMIL"):
+        return True
+    for loc in (rec.get("icao") or "", rec.get("l") or ""):
+        if loc and (loc.startswith(US_ICAO) or uni.resolve(loc)):
+            return True
+    return False
+
+
+AIXM_MEMBER_RE = re.compile(r"<AIXMBasicMessage\b.*?</AIXMBasicMessage>", re.S)
+AIXM_SIMPLE_RE = re.compile(r"<event:simpleText>(.*?)</event:simpleText>", re.S)
+AIXM_TAG_RE = {k: re.compile(rf"<{tag}(?:\s[^>]*)?>([^<]*)</{tag}>") for k, tag in [
+    ("number", "event:number"), ("type", "event:type"), ("issued", "event:issued"),
+    ("location", "event:location"), ("effectiveStart", "event:effectiveStart"),
+    ("effectiveEnd", "event:effectiveEnd"), ("text", "event:text"),
+    ("classification", "fnse:classification"), ("accountId", "fnse:accountId"),
+    ("lastUpdated", "fnse:lastUpdated"), ("icaoLocation", "fnse:icaoLocation")]}
+
+
+def parse_aixm(xml):
+    """The initial-load file (AIXM 5.1 members in a SOAP envelope) -> the
+    same flat feature dicts nms_record() reads. The LOCAL_FORMAT
+    translation's simpleText is the traditional NOTAM; the event fields are
+    the fallback. Regex, not an XML parser: the file is ~20,000 members of
+    deeply nested GML and only a dozen leaf values matter."""
+    feats = []
+    for m in AIXM_MEMBER_RE.finditer(xml):
+        block = m.group(0)
+        props = {}
+        for k, rx in AIXM_TAG_RE.items():
+            mm = rx.search(block)
+            if mm:
+                props[k] = htmllib.unescape(mm.group(1)).strip()
+        # event:type appears once per NOTAM (N/R/C) and once per translation
+        # (LOCAL_FORMAT/ICAO); the first is the NOTAM's.
+        st = AIXM_SIMPLE_RE.search(block)
+        tr = []
+        if st:
+            tr.append({"type": "LOCAL_FORMAT", "simpleText": htmllib.unescape(st.group(1))})
+        props["notamTranslation"] = tr
+        feats.append({"type": "Feature", "properties": props})
+    return feats
+
+
+def nms_content(status, hdrs, body, fmt):
+    """Resolve an NMS response that may be data, a 307 to a content URL, or
+    a JSON body naming one -> decoded content (a parsed JSON doc, or the
+    text of a JSON/XML file)."""
     content_url = None
     if status in (301, 302, 303, 307, 308):
         content_url = hdrs.get("Location") or hdrs.get("location")
     else:
         ctype = (hdrs.get("Content-Type") or hdrs.get("content-type") or "").lower()
         if body[:2] in (b"\x1f\x8b", b"PK") or "octet-stream" in ctype or "zip" in ctype or "gzip" in ctype:
-            return nms_features(json.loads(unpack_bytes(body)))
+            return unpack_bytes(body)
         try:
             doc = json.loads(body.decode("utf-8", "replace"))
         except json.JSONDecodeError:
-            raise SourceError(f"NMS initial load: not JSON; head {body[:120]!r}")
-        feats = nms_features(doc)
-        if feats:
-            return feats
-        content_url = (doc.get("data") or {}).get("url") if isinstance(doc.get("data"), dict) else doc.get("url")
+            text = body.decode("utf-8", "replace")
+            if "<AIXMBasicMessage" in text:
+                return text
+            raise SourceError(f"NMS: not JSON; head {body[:120]!r}")
+        if nms_features(doc):
+            return doc
+        data = doc.get("data") if isinstance(doc.get("data"), dict) else {}
+        content_url = data.get("url") or doc.get("url")
+        if not content_url:
+            if doc.get("status") and str(doc.get("status")).lower() != "success":
+                raise SourceError(f"NMS: {str(doc)[:200]}")
+            return doc   # a legitimately empty set
     if not content_url:
-        raise SourceError("NMS initial load: no content url in response")
+        raise SourceError("NMS: no content url in response")
     status, hdrs, body = nms_get(content_url, fmt, binary=True)
     if status != 200:
         raise SourceError(f"NMS content: HTTP {status}")
-    return nms_features(json.loads(unpack_bytes(body)))
+    return unpack_bytes(body)
 
 
-def nms_filtered_features(classification, fmt="GEOJSON"):
-    status, hdrs, body = nms_get(f"/v1/notams?classification={classification}", fmt)
+def nms_to_features(content):
+    if isinstance(content, dict):
+        return nms_features(content)
+    text = content.lstrip()
+    if text.startswith("<"):
+        return parse_aixm(text)
+    return nms_features(json.loads(text))
+
+
+def nms_initial_load(fmt="GEOJSON"):
+    """/v1/notams/il — every active NOTAM, AIXM in a SOAP envelope, gzip.
+    Allowed once per 24 h; the last resort of the daily full pull."""
+    status, hdrs, body = nms_get("/v1/notams/il?allowRedirect=false", fmt)
+    return nms_to_features(nms_content(status, hdrs, body, fmt))
+
+
+def nms_class_features(classification, fmt="GEOJSON"):
+    """/v1/notams?classification=X alone -> a content file with the whole
+    class in the format the header asks for (GeoJSON here)."""
+    status, hdrs, body = nms_get(f"/v1/notams?classification={classification}&allowRedirect=false", fmt)
+    if status not in (200, 301, 302, 303, 307, 308):
+        raise SourceError(f"NMS notams {classification}: HTTP {status} {body[:160]!r}")
+    return nms_to_features(nms_content(status, hdrs, body, fmt))
+
+
+def nms_delta_features(since, fmt="GEOJSON"):
+    """/v1/notams?lastUpdatedDate=… -> everything created, updated or
+    cancelled since (active and inactive), in the response body."""
+    stamp = datetime.datetime.fromtimestamp(since, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    status, hdrs, body = nms_get(f"/v1/notams?lastUpdatedDate={stamp}", fmt)
     if status != 200:
-        raise SourceError(f"NMS notams {classification}: HTTP {status}")
-    doc = json.loads(body.decode("utf-8", "replace"))
-    feats = nms_features(doc)
-    if feats:
-        return feats
-    url = (doc.get("data") or {}).get("url") if isinstance(doc.get("data"), dict) else None
-    if url:
-        status, hdrs, body = nms_get(url, fmt, binary=True)
-        if status != 200:
-            raise SourceError(f"NMS content: HTTP {status}")
-        return nms_features(json.loads(unpack_bytes(body)))
-    return []
+        raise SourceError(f"NMS delta: HTTP {status} {body[:160]!r}")
+    return nms_to_features(nms_content(status, hdrs, body, fmt))
 
 
-def collect_nms(uni, now, features=None):
-    """Bulk path: the whole NAS in one download (or one per classification).
-    Returns (records_by_id, ok_queries = every location, stats)."""
-    t0 = time.time()
-    stats = {"req": 0, "fail": 0, "batches": 0, "raw": 0, "unparsed": 0, "src": "nms",
-             "budget_hit": False, "errors": []}
-    if features is None:
+def nms_full_pull(stats):
+    """The daily full set: one content file per classification, and the
+    initial load only if that path fails outright."""
+    features = []
+    errors = []
+    for cls in NMS_CLASSES:
+        stats["req"] += 2
         try:
-            stats["req"] += 2
-            features = nms_download_features()
-            stats["batches"] = 1
+            got = nms_class_features(cls)
+            features.extend(got)
+            stats["batches"] += 1
+            log(f"NMS {cls}: {len(got)} features")
         except SourceError as e:
-            log(f"NMS initial load failed ({e}); trying per-classification queries")
-            stats["errors"].append(str(e)[:300])
-            features = []
-            for cls in NMS_CLASSES:
-                stats["req"] += 1
-                try:
-                    got = nms_filtered_features(cls)
-                    features.extend(got)
-                    stats["batches"] += 1
-                    log(f"NMS {cls}: {len(got)} features")
-                except SourceError as e2:
-                    stats["fail"] += 1
-                    stats["errors"].append(str(e2)[:300])
-                time.sleep(PAUSE_S)
-            if stats["fail"] == len(NMS_CLASSES):
-                raise SourceError("NMS: every request failed: " + "; ".join(stats["errors"][:3]))
+            stats["fail"] += 1
+            errors.append(f"{cls}: {str(e)[:200]}")
+        time.sleep(PAUSE_S)
+    if stats["batches"] == 0:
+        log(f"NMS per-classification pull failed ({'; '.join(errors)[:300]}); trying the initial load")
+        stats["errors"].extend(errors[:3])
+        stats["req"] += 2
+        features = nms_initial_load()
+        stats["batches"] = 1
+        stats["fail"] = 0
+    elif errors:
+        stats["errors"].extend(errors)
+    return features
+
+
+def collect_nms(uni, now, features=None, index=None, prev=None, delta_features=None):
+    """The NMS path. Returns (records_by_id, ok_queries = every location,
+    stats). Two modes, chosen from index.json:
+      full   every active NOTAM (per-classification files) — once a day
+             (NMS_FULL_EVERY_S) or when the archive is empty
+      delta  what changed since the last run (lastUpdatedDate, overlapped by
+             NMS_DELTA_OVERLAP_S) merged onto the archived set: updated and
+             new records replace, cancelled ones (NOTAMC / cancelation
+             stamp) and anything past its end time leave.
+    `features` / `delta_features` are test hooks for the two pulls."""
+    t0 = time.time()
+    index = index or {}
+    prev = prev or {}
+    stats = {"req": 0, "fail": 0, "batches": 0, "raw": 0, "unparsed": 0, "src": "nms",
+             "budget_hit": False, "errors": [], "mode": "full"}
+    last_full = int(index.get("nms_full") or 0)
+    last_run = int(index.get("t") or 0)
+    delta_ok = prev and last_full and last_run and index.get("ok") \
+        and now - last_full < NMS_FULL_EVERY_S and now - last_run < 23 * 3600
+    if delta_features is not None or (features is None and delta_ok):
+        stats["mode"] = "delta"
+        since = max(last_run - NMS_DELTA_OVERLAP_S, now - 23 * 3600)
+        if delta_features is None:
+            stats["req"] += 1
+            try:
+                delta_features = nms_delta_features(since)
+            except SourceError as e:
+                # A failed delta is a hole in the record; a full pull is the
+                # only thing that closes it.
+                log(f"NMS delta failed ({e}); doing a full pull instead")
+                stats["errors"].append(f"delta: {str(e)[:200]}")
+                stats["mode"] = "full"
+                delta_features = None
+    if stats["mode"] == "delta":
+        log(f"NMS delta since {utc_day(since)} "
+            f"{datetime.datetime.fromtimestamp(since, datetime.timezone.utc):%H:%MZ}: "
+            f"{len(delta_features)} features")
+        recs = {rid: r for rid, r in prev.items() if not (r.get("e") and r["e"] <= now)}
+        for f in delta_features:
+            stats["raw"] += 1
+            try:
+                rec = nms_record(f)
+            except Exception as e:
+                rec = None
+                if len(stats["errors"]) < 12:
+                    stats["errors"].append(f"nms_record: {e}")
+            if not rec:
+                stats["unparsed"] += 1
+                continue
+            old = recs.get(rec["id"])
+            if old and (old.get("u") or 0) > (rec.get("u") or 0):
+                continue   # an older revision than the one on file
+            if rec.pop("cxl", None) or not nms_keep(rec, uni, now):
+                recs.pop(rec["id"], None)
+            else:
+                recs[rec["id"]] = rec
+        stats["s"] = round(time.time() - t0, 1)
+        return recs, set(uni.recs), stats
+    if features is None:
+        features = nms_full_pull(stats)
+    stats["dropped"] = 0
     recs = {}
     for f in features:
         stats["raw"] += 1
@@ -758,11 +951,15 @@ def collect_nms(uni, now, features=None):
             if stats["unparsed"] == 1:
                 log(f"NMS: first unparsed feature keys: {str(f)[:400]}")
             continue
-        prev = recs.get(rec["id"])
-        if prev is None or (rec.get("u") or 0) > (prev.get("u") or 0):
+        if rec.pop("cxl", None) or not nms_keep(rec, uni, now):
+            stats["dropped"] += 1
+            continue
+        prev_rec = recs.get(rec["id"])
+        if prev_rec is None or (rec.get("u") or 0) > (prev_rec.get("u") or 0):
             recs[rec["id"]] = rec
     if features and not recs:
         raise SourceError(f"NMS: {len(features)} features, none parsed; first: {str(features[0])[:400]}")
+    log(f"NMS full: {len(features)} features, {stats['dropped']} dropped (foreign, cancelled or past end)")
     stats["s"] = round(time.time() - t0, 1)
     return recs, set(uni.recs), stats
 
@@ -942,7 +1139,7 @@ def run(out, uni, sources, now=None, batch_size=BATCH, budget_s=BUDGET_S, pause_
     if "nms" in sources:
         if NMS_ID and NMS_SECRET:
             try:
-                recs, ok_q, stats = collect_nms(uni, now)
+                recs, ok_q, stats = collect_nms(uni, now, index=index, prev=prev)
             except SourceError as e:
                 log(f"NMS unavailable ({e}); falling back to {batch_sources}")
                 recs = None
@@ -956,7 +1153,8 @@ def run(out, uni, sources, now=None, batch_size=BATCH, budget_s=BUDGET_S, pause_
                                     start_batch=int(index.get("cursor") or 0))
     n_found = len(recs)
     log(f"{n_found} NOTAMs from {stats['req']} requests ({stats['fail']} failed, "
-        f"{stats['unparsed']} unparsed) in {stats['s']}s via {stats['src']}")
+        f"{stats['unparsed']} unparsed) in {stats['s']}s via {stats['src']}"
+        + (f" ({stats['mode']})" if stats.get("mode") else ""))
 
     # Refuse a run that cannot be right rather than mark half the country gone.
     if prev and n_found < FLOOR * len(prev):
@@ -1049,8 +1247,11 @@ def run(out, uni, sources, now=None, batch_size=BATCH, budget_s=BUDGET_S, pause_
     drow["active"] = len(current)
     active_now = sum(1 for r in current.values() if not r.get("s") or r["s"] <= now)
     failed_q = sorted(q for q in uni.recs if q not in ok_q)
+    if stats.get("src") == "nms" and stats.get("mode") == "full":
+        index["nms_full"] = now
     index.update({
         "v": 1, "t": now, "ok": True, "src": stats["src"], "cursor": stats.get("next_cursor", 0),
+        "mode": stats.get("mode"),
         "note": ("bootstrap run — every NOTAM in the system today is tagged b" if bootstrap else
                  "; ".join(x for x in [
                      f"{stats['fail']} batch(es) failed" if stats["fail"] else "",
@@ -1288,6 +1489,25 @@ CHART NOTE: CIRCLING NA. 2609011200-PERM</PRE></td></tr>
 """
 
 
+AIXM_FIXTURE = """<?xml version="1.0"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>
+<ns3:FeatureCollection numberReturned="2"><aixm:member><AIXMBasicMessage gml:id="NMS_ID_1757609538792382"><hasMember><aixm:RunwayDirection>
+<aixm:designator>20</aixm:designator></aixm:RunwayDirection></hasMember><hasMember><event:Event gml:id="Event_1"><event:timeSlice><event:EventTimeSlice>
+<event:scenario>87</event:scenario><event:textNOTAM><event:NOTAM gml:id="NOTAM_1"><event:number>430</event:number><event:year>2025</event:year>
+<event:type>N</event:type><event:issued>2025-08-21T02:34:00.000Z</event:issued><event:location>8WC</event:location>
+<event:effectiveStart>202508210234</event:effectiveStart><event:effectiveEnd>202510012359</event:effectiveEnd><event:text>RWY 20 RWY END ID LGT U/S</event:text>
+<event:translation><event:NOTAMTranslation gml:id="NT01"><event:type>LOCAL_FORMAT</event:type><event:simpleText>!STL 08/430 8WC RWY 20 RWY END ID LGT U/S 2508210234-2510012359</event:simpleText></event:NOTAMTranslation></event:translation>
+</event:NOTAM></event:textNOTAM><event:extension><fnse:EventExtension><fnse:classification>DOM</fnse:classification><fnse:accountId>STL</fnse:accountId>
+<fnse:lastUpdated>2025-08-21T02:34:00.000Z</fnse:lastUpdated></fnse:EventExtension></event:extension></event:EventTimeSlice></event:timeSlice></event:Event></hasMember></AIXMBasicMessage></aixm:member>
+<aixm:member><AIXMBasicMessage gml:id="NMS_ID_1757609468919567"><hasMember><event:Event><event:timeSlice><event:EventTimeSlice><event:textNOTAM><event:NOTAM>
+<event:number>221</event:number><event:type>N</event:type><event:issued>2025-04-30T22:28:00.000Z</event:issued><event:location>ZBW</event:location>
+<event:effectiveStart>202505011100</event:effectiveStart><event:effectiveEnd>202511020001</event:effectiveEnd>
+<event:text>AIRSPACE UAS WI AN AREA DEFINED AS 1.5NM RADIUS OF 430205N0753903W (12.2NM NW VGC) SFC-1200FT AGL DLY 1100-0001</event:text>
+<event:translation><event:NOTAMTranslation><event:type>LOCAL_FORMAT</event:type><event:simpleText>!BDR 04/221 ZBW AIRSPACE UAS WI AN AREA DEFINED AS 1.5NM RADIUS OF 430205N0753903W (12.2NM NW VGC) SFC-1200FT AGL DLY 1100-0001 2505011100-2511020001</event:simpleText></event:NOTAMTranslation></event:translation>
+</event:NOTAM></event:textNOTAM><event:extension><fnse:EventExtension><fnse:classification>DOM</fnse:classification><fnse:accountId>BDR</fnse:accountId>
+<fnse:lastUpdated>2025-04-30T22:28:00.000Z</fnse:lastUpdated><fnse:icaoLocation>KZBW</fnse:icaoLocation></fnse:EventExtension></event:extension></event:EventTimeSlice></event:timeSlice></event:Event></hasMember></AIXMBasicMessage></aixm:member>
+</ns3:FeatureCollection></soap:Body></soap:Envelope>"""
+
+
 def selftest():
     import tempfile
     items = parse_dins_html(DINS_FIXTURE)
@@ -1335,7 +1555,7 @@ def selftest():
     r = nms_record(feat)
     assert r["id"] == "ANP 09/012" and r["k"] == "RWY" and r["c"] == "D" and r["i"] == stamp10("2609011430") \
         and r["u"] == stamp10("2609011431") and r["icao"] == "KANP", r
-    flat = {"properties": {"number": "6/2222", "location": "ADW", "accountId": "ADW", "classification": "MILITARY",
+    flat = {"properties": {"number": "6/2222", "location": "ADW", "icaoLocation": "KADW", "accountId": "ADW", "classification": "MILITARY",
                            "effectiveStart": "2026-09-01T00:00:00Z", "effectiveEnd": "PERM", "text": "RWY 01L/19R CLSD"}}
     r = nms_record(flat)
     assert r["id"] == "ADW 6/2222" and r["c"] == "MIL" and r["p"] == 1 and r["k"] == "RWY" \
@@ -1368,6 +1588,48 @@ def selftest():
     recs_n, okq_n, st_n = collect_nms(uni0, stamp10("2609121400"), features=[feat, flat, {"properties": {}}])
     assert set(recs_n) == {"ANP 09/012", "ADW 6/2222"} and okq_n == {"KANP"} and st_n["unparsed"] == 1
     assert attribute(uni0, recs_n["ANP 09/012"])["q"] == "KANP" and "icao" not in recs_n["ANP 09/012"]
+    assert st_n["mode"] == "full"
+    # Delta: a newer revision replaces, a NOTAMC removes, an expired one leaves,
+    # an older revision is ignored.
+    t_d = stamp10("2609122000")
+    prev_d = {"ANP 09/012": dict(recs_n["ANP 09/012"], f=1), "ADW 6/2222": dict(recs_n["ADW 6/2222"], f=1),
+              "OLD 1/001": {"id": "OLD 1/001", "a": "OLD", "n": "1/001", "l": "OLD", "k": "?", "c": "D",
+                            "s": stamp10("2609010000"), "e": stamp10("2609121900"), "raw": "!OLD 1/001 OLD X", "f": 1}}
+    rev = json.loads(json.dumps(feat))
+    rev["properties"]["coreNOTAMData"]["notam"]["lastUpdated"] = "2026-09-12T18:00:00Z"
+    rev["properties"]["coreNOTAMData"]["notamTranslation"][1]["simpleText"] = "!ANP 09/012 ANP RWY 12/30 CLSD 2609011430-2609302359"
+    stale = json.loads(json.dumps(feat))
+    stale["properties"]["coreNOTAMData"]["notam"]["lastUpdated"] = "2026-08-01T00:00:00Z"
+    stale["properties"]["coreNOTAMData"]["notamTranslation"][1]["simpleText"] = "!ANP 09/012 ANP RWY 12/30 CLSD 2609011430-2609152359"
+    canc = {"properties": {"number": "6/2222", "location": "ADW", "accountId": "ADW", "type": "C",
+                           "classification": "MILITARY", "text": "RWY 01L/19R CLSD", "lastUpdated": "2026-09-12T19:00:00Z"}}
+    idx_d = {"t": stamp10("2609121900"), "nms_full": stamp10("2609120100"), "ok": True}
+    recs_d, okq_d, st_d = collect_nms(uni0, t_d, index=idx_d, prev=prev_d, delta_features=[stale, rev, canc])
+    assert st_d["mode"] == "delta" and set(recs_d) == {"ANP 09/012"}, (st_d, set(recs_d))
+    assert recs_d["ANP 09/012"]["e"] == stamp10("2609302359"), recs_d["ANP 09/012"]
+    r_c = nms_record(canc)
+    assert r_c and r_c.get("cxl") == 1
+    # A day after the last full pull the mode flips back to full.
+    idx_f = dict(idx_d, nms_full=stamp10("2609111900"))
+    assert collect_nms(uni0, t_d, features=[feat], index=idx_f, prev=prev_d)[2]["mode"] == "full"
+    # Full pull: foreign INTL and past-end records are dropped, US INTL kept.
+    jp = {"properties": {"number": "A0100/26", "location": "RJJJ", "icaoLocation": "RJJJ", "accountId": "RJJJYNYX",
+                         "classification": "INTERNATIONAL", "effectiveStart": "2026-09-01T00:00:00Z",
+                         "effectiveEnd": "2026-12-01T00:00:00Z", "text": "X"}}
+    us_intl = dict(jp, properties=dict(jp["properties"], location="ADW", icaoLocation="KADW", accountId="KADW"))
+    dead = json.loads(json.dumps(feat))
+    dead["properties"]["coreNOTAMData"]["notamTranslation"][1]["simpleText"] = "!ANP 09/099 ANP RWY 12/30 CLSD 2609011430-2609112359"
+    recs_k, _, st_k = collect_nms(uni0, t_d, features=[feat, jp, us_intl, dead])
+    assert set(recs_k) == {"ANP 09/012", "KADW A0100/26"} and st_k["dropped"] == 2, (set(recs_k), st_k)
+    # AIXM initial-load members -> the same records.
+    ax = parse_aixm(AIXM_FIXTURE)
+    assert len(ax) == 2, ax
+    r_a = nms_record(ax[0])
+    assert r_a["id"] == "STL 08/430" and r_a["l"] == "8WC" and r_a["k"] == "RWY" and r_a["e"] == stamp10("2510012359") \
+        and r_a["u"] == iso_epoch("2025-08-21T02:34:00.000Z"), r_a
+    r_b = nms_record(ax[1])
+    assert r_b["id"] == "BDR 04/221" and r_b["k"] == "AIRSPACE" and r_b["icao"] == "KZBW", r_b
+    assert len(nms_to_features(AIXM_FIXTURE)) == 2 and len(nms_to_features(unpack_bytes(gzip.compress(AIXM_FIXTURE.encode())))) == 2
 
     # Two runs against a fixture: bootstrap, then one new / one expired / one
     # cancelled / one carried over a failed batch.
