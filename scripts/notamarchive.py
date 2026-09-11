@@ -657,6 +657,7 @@ def iso_epoch(v):
         return stamp10(v) if re.fullmatch(r"\d{10}", v) else None
 
 
+FAR_FUTURE = int(datetime.datetime(2100, 1, 1, tzinfo=datetime.timezone.utc).timestamp())
 NMS_CLASS = {"DOMESTIC": "D", "DOM": "D", "FDC": "FDC", "MILITARY": "MIL", "MIL": "MIL",
              "LOCAL_MILITARY": "LMIL", "LMIL": "LMIL", "INTERNATIONAL": "INTL", "INTL": "INTL"}
 
@@ -701,6 +702,8 @@ def nms_record(feature):
             rec["e"] = iso_epoch(end)
             if isinstance(end, str) and "EST" in end.upper():
                 rec["x"] = 1
+            if rec["e"] and rec["e"] >= FAR_FUTURE:
+                rec["e"], rec["p"] = None, 1   # 9999-12-31 is how some offices write PERM
         up = rec["raw"].upper()
         rec["c"] = "TFR" if acct == "FDC" and "TEMPORARY FLIGHT RESTRICTION" in up else \
             ("GPS" if acct == "GPS" else NMS_CLASS.get(cls_raw, "D"))
@@ -742,6 +745,31 @@ def nms_keep(rec, uni, now):
         if loc and (loc.startswith(US_ICAO) or uni.resolve(loc)):
             return True
     return False
+
+
+def body_key(rec):
+    """(location, start, first 40 chars of the body) — what a domestic
+    NOTAM and its ICAO-series crossover copy have in common."""
+    m = re.match(r"^!\S+\s+\S+\s+\S+\s+(.*)$", rec.get("raw") or "", re.S)
+    body = m.group(1) if m else rec.get("raw") or ""
+    body = PERIOD_RE.sub("", body)
+    loc = rec.get("l") or ""
+    if loc and body.startswith(loc + " "):
+        body = body[len(loc) + 1:]
+    body = re.sub(r"\s+", " ", body).strip().upper()
+    return (loc, rec.get("s"), body[:40])
+
+
+def drop_crossovers(recs):
+    """Every domestic / FDC NOTAM at an international airport is also
+    issued as an ICAO-series (A/L/M…) copy — the same NOTAM twice. Staging:
+    2,573 of the 6,086 US INTERNATIONAL records. The copy is dropped so a
+    count is a count of NOTAMs. Returns how many left."""
+    seen = {body_key(r) for r in recs.values() if r.get("c") != "INTL"}
+    dup = [rid for rid, r in recs.items() if r.get("c") == "INTL" and body_key(r) in seen]
+    for rid in dup:
+        del recs[rid]
+    return len(dup)
 
 
 AIXM_MEMBER_RE = re.compile(r"<AIXMBasicMessage\b.*?</AIXMBasicMessage>", re.S)
@@ -932,6 +960,7 @@ def collect_nms(uni, now, features=None, index=None, prev=None, delta_features=N
                 recs.pop(rec["id"], None)
             else:
                 recs[rec["id"]] = rec
+        stats["dup"] = drop_crossovers(recs)
         stats["s"] = round(time.time() - t0, 1)
         return recs, set(uni.recs), stats
     if features is None:
@@ -959,7 +988,9 @@ def collect_nms(uni, now, features=None, index=None, prev=None, delta_features=N
             recs[rec["id"]] = rec
     if features and not recs:
         raise SourceError(f"NMS: {len(features)} features, none parsed; first: {str(features[0])[:400]}")
-    log(f"NMS full: {len(features)} features, {stats['dropped']} dropped (foreign, cancelled or past end)")
+    stats["dup"] = drop_crossovers(recs)
+    log(f"NMS full: {len(features)} features, {stats['dropped']} dropped (foreign, cancelled or past end), "
+        f"{stats['dup']} ICAO-series crossover copies dropped")
     stats["s"] = round(time.time() - t0, 1)
     return recs, set(uni.recs), stats
 
@@ -1621,6 +1652,15 @@ def selftest():
     dead["properties"]["coreNOTAMData"]["notamTranslation"][1]["simpleText"] = "!ANP 09/099 ANP RWY 12/30 CLSD 2609011430-2609112359"
     recs_k, _, st_k = collect_nms(uni0, t_d, features=[feat, jp, us_intl, dead])
     assert set(recs_k) == {"ANP 09/012", "KADW A0100/26"} and st_k["dropped"] == 2, (set(recs_k), st_k)
+    # The ICAO-series crossover copy of a domestic NOTAM is one NOTAM, not two;
+    # a 9999 end is PERM.
+    xo = {"properties": {"number": "A0300/26", "location": "ANP", "icaoLocation": "KANP", "accountId": "KANP",
+                         "classification": "INTERNATIONAL", "effectiveStart": "2026-09-01T14:30:00Z",
+                         "effectiveEnd": "9999-12-31T00:00:00Z", "text": "ANP RWY 12/30 CLSD"}}
+    r_xo = nms_record(xo)
+    assert r_xo["p"] == 1 and r_xo["e"] is None and body_key(r_xo) == body_key(recs_n["ANP 09/012"]), (r_xo, body_key(r_xo))
+    recs_x, _, st_x = collect_nms(uni0, t_d, features=[feat, xo, us_intl])
+    assert set(recs_x) == {"ANP 09/012", "KADW A0100/26"} and st_x["dup"] == 1, (set(recs_x), st_x)
     # AIXM initial-load members -> the same records.
     ax = parse_aixm(AIXM_FIXTURE)
     assert len(ax) == 2, ax

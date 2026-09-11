@@ -88,6 +88,13 @@ STATES = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI"
           "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD",
           "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "PR", "VI", "GU", "AS", "MP"}
 
+# NASR lists a few foreign fields the FAA exchanges data with (82 Canadian,
+# 26 Bahamian, Turks and Caicos, Mexico...). Their NOTAMs are NAV CANADA's
+# and the Bahamas' business, not the NAS: keep the US and the Compact of
+# Free Association states the FAA issues NOTAMs for. NASR also files Puerto
+# Rico under its own code on a few rows.
+KEEP_COUNTRIES = {"US", "PR", "MH", "FM", "PW", ""}
+
 # NASR CSV columns, by role, first present wins.
 COLS = {
     "apt_id": ["ARPT_ID", "LOC_ID", "LOCATION_IDENTIFIER"],
@@ -103,6 +110,7 @@ COLS = {
     "notam_id": ["NOTAM_ID", "NOTAM_FACILITY_IDENT"],
     "artcc": ["RESP_ARTCC_ID", "ARTCC_ID", "ARTCC"],
     "owner": ["OWNERSHIP_TYPE_CODE", "OWNERSHIP"],
+    "country": ["COUNTRY_CODE", "COUNTRY"],
     "nav_id": ["NAV_ID", "NAVAID_ID", "NAVAID_IDENTIFIER"],
     "nav_type": ["NAV_TYPE", "NAVAID_TYPE", "TYPE"],
 }
@@ -235,6 +243,9 @@ def nasr_rows(zips):
             lid = col(row, "apt_id")
             if not lid:
                 continue
+            if col(row, "country").upper() not in KEEP_COUNTRIES:
+                n_skip += 1
+                continue
             use = col(row, "use").upper()
             flag = col(row, "notam_flag").upper()
             owner = col(row, "owner").upper()
@@ -269,6 +280,8 @@ def nasr_rows(zips):
                 ident = col(row, "nav_id")
                 if not ident or ident in seen or ident in have:
                     continue
+                if col(row, "country").upper() not in KEEP_COUNTRIES:
+                    continue
                 seen.add(ident)
                 try:
                     lat, lon = float(col(row, "lat")), float(col(row, "lon"))
@@ -280,7 +293,7 @@ def nasr_rows(zips):
                              round(lat, 4) if lat is not None else None,
                              round(lon, 4) if lon is not None else None, col(row, "artcc") or None])
                 n_nav += 1
-    print(f"nasr: {len(rows) - n_nav} airports kept ({n_skip} private/no-NOTAM skipped), {n_nav} navaids",
+    print(f"nasr: {len(rows) - n_nav} airports kept ({n_skip} private/no-NOTAM/foreign skipped), {n_nav} navaids",
           file=sys.stderr)
     return rows
 

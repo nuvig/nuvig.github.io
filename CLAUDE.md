@@ -630,9 +630,13 @@ concepts; to relink, add the tools.html card back.
   foreign FIR's NOTAMs too (RJJJ, RKRR, LIMM led the facility table) and MILITARY includes US
   bases abroad (EDWW), so both classes keep only US locations (ICAO prefix K/PA/PH/PG/PW/PM/
   PJ/PL/TJ/TI/NS or an id in locations.json); and the class files hold thousands of records
-  past their end (one 25 years old), which are not current whatever file they came in. Staging
-  result after filtering: **33,620 NOTAMs** (D 21,007 · INTL 5,779 · FDC 4,381 · MIL 1,722 ·
-  TFR 69 · GPS 8), 57 state files, 24.5 MB archive. ~3 requests a run instead of ~75, every
+  past their end (one 25 years old), which are not current whatever file they came in; an end
+  of 9999-12-31 is PERM. **`drop_crossovers()`**: every domestic/FDC/military NOTAM at an
+  international airport is also issued as an ICAO-series copy (ESN 05/011 ≡ KESN A0130/26),
+  and the class files carry both — the copy is dropped on (location, start, first 40 chars of
+  the body), 5,244 of them on staging, so a count is a count of NOTAMs. Staging result after
+  filtering: **28,038 NOTAMs** (D 20,989 · FDC 4,381 · MIL 1,697 · INTL 391 · TFR 69 · GPS 8),
+  57 state files, ~22 MB archive. ~3 requests a run instead of ~75, every
   classification, issue and last-updated stamps. **(1) FAA NOTAM Search** (`notams.aim.faa.gov/notamSearch/search`, the
   JSON behind the public page: `searchType=0&designatorsForLocation=A,B,C`, 30 a page (fixed —
   no page-size parameter is honoured), `offset` to page; `{notamList, startRecordCount,
@@ -696,9 +700,12 @@ concepts; to relink, add the tools.html card back.
   AIRAC dates the procedures build uses, verified against the FAA's own listing. Columns as
   the script expects (`ARPT_ID`, `ICAO_ID`, `SITE_TYPE_CODE` A/B/C/G/H/U — C is a seaplane
   base, `FACILITY_USE_CODE` PU/PR, `NOTAM_FLAG` Y/N/blank, `OWNERSHIP_TYPE_CODE` PU/PR/MA/MN/MR/CG,
-  `NAV_ID`, `NAV_TYPE`). Kept: public-use, or `NOTAM_FLAG` Y, or military-owned (bases are
-  private-use in NASR but file NOTAMs — that is how KADW/KNHK get in; KNAK is not an airport
-  record at all). NASR's `NOTAM_ID` is the *accountability* (ANP's is DCA), not the location —
+  `NAV_ID`, `NAV_TYPE`, `COUNTRY_CODE`). Kept: public-use, or `NOTAM_FLAG` Y, or military-owned
+  (bases are private-use in NASR but file NOTAMs — that is how KADW/KNHK get in; KNAK is not an
+  airport record at all), **and only `COUNTRY_CODE` US / PR / MH / FM / PW** — NASR lists 82
+  Canadian, 26 Bahamian and a few Caribbean fields, and through `locations.json` those let NAV
+  CANADA's NOTAMs (CYYZ, 218 records) past the archiver's US filter. 6,112 locations after that
+  cut. NASR's `NOTAM_ID` is the *accountability* (ANP's is DCA), not the location —
   `lid` is `ARPT_ID`, which is also what fixes the Alaska ids (`PAAB` ↔ `4A2`). Rebuild each
   cycle → commit the JSON; the archiver reads it at run time.
 
