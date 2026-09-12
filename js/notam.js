@@ -798,6 +798,7 @@ function glossToken(tok, prev) {
   if ((m = bare.match(/^(\d{3})(?:\.\d+)?$/)) && prev && /RADIAL|R-|BRG|CRS|HDG/.test(prev)) return `${bare}°`;
   if (/^[A-Z]{2}\.\.$/.test(bare)) return `state: ${bare.slice(0, 2)}`;
   if ((m = bare.match(/^(NOTAM)([NRC])$/))) return DICT[bare] || null;
+  if (/^\d{1,2}$/.test(bare) && prev === 'PRN') return `satellite PRN ${bare}`;
   if (bare === 'ASR' && tok.startsWith('(')) return 'antenna structure registration number';
   if (bare === 'ASN' && tok.startsWith('(')) return 'aeronautical study number';
   if (DIRS[bare] && prev && /^\d/.test(prev)) return DIRS[bare];
@@ -816,7 +817,7 @@ function altWord(s) {
 }
 
 function decodeNotam(text) {
-  const t = text.replace(/\s+/g, ' ').trim();
+  const t = text.replace(/\s+/g, ' ').trim().toUpperCase();
   const out = { header: [], tokens: [], plain: '' };
   if (!t) return out;
   let body = t;
