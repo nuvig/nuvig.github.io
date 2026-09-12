@@ -506,6 +506,29 @@ concepts; to relink, add the tools.html card back.
   the "strong shear" preset is weaker than reality for that reason. Self-contained (no
   `site-config.js`, no shared CSS, no fetches); carries GoatCounter + pagever like the other
   explainers. `window.STORM_DEBUG` exposes the model and UI state for headless checks.
+- `tunnel.html` + `js/tunnel.js` + `js/tunnel-model.js` + `js/tunnel-worker.js` — Wind Tunnel
+  (2026-09-12): a 2-D lattice-Boltzmann flow solver (D2Q9) run live around a NACA 4-digit
+  airfoil (camber · position · thickness · plain flap at 70 % · α about the quarter chord;
+  presets incl. a flat plate and a cylinder), with smoke rakes, pressure / speed / vorticity
+  tints, live C_L / C_D by momentum exchange at the wall, Cp along the chord from the first
+  fluid cell, a separation point (first upper-surface probe 3 cells out with reversed flow),
+  a lift sparkline that buffets at stall, and a `sweep α` that plots the lift curve against
+  the thin-airfoil line 2π(α − α₀). `tunnel-model.js` is the physics and has no DOM —
+  `node js/tunnel-model.js 2412 12 3000 1500` steps it headless and prints Cl/Cd/separation —
+  and runs in a Web Worker (`tunnel-worker.js`, buffers ping-ponged with transferables,
+  ~12 ms of steps per publish) with an in-thread fallback. Lattice 400 × 220, chord 90 cells,
+  U∞ = 0.1 (Mach 0.17), Re slider 100–3,000 (ν from Re; a phone gets 300 × 165 / chord 68).
+  **Collision is BGK, not TRT, on purpose**: the TRT split is in the code (`lambda` option)
+  but with bounce-back bodies at τ → 0.5 every Λ ≠ τ² blew up where BGK ran clean to Re
+  5,000 / α 25° / flap 40° / the cylinder at 1,000 — and the fixed-velocity inlet/top/bottom
+  rows need the **8-cell viscous sponge** (16 at the outlet; both relaxation rates blend to 1
+  there) or the inlet corners pump the run unstable. Validation: cylinder Cd 1.5 at Re 100
+  (textbook 1.4 plus blockage). Known and disclosed: 2-D (no induced drag), Re ≤ 3,000 vs
+  ~3×10⁶ on a real wing, walls 2.4 chords apart inflate lift, and post-stall lift keeps
+  rising with α as a 2-D bluff body's does — the stall story is the separation point, the
+  buffet and the Cd rise, not a C_L peak. Streaklines fade with stretch and break past 9
+  cells (a chord across a vortex core is not smoke). Self-contained (no `site-config.js`, no
+  shared CSS, no fetches); `window.TUNNEL_DEBUG` for headless checks.
 - `skew-t.html` + `js/skewt.js` + `js/skewt-obs.js` — Skew-T Explorer: canvas skew-T log-p
   (1000→100 hPa, 21 levels) of Open-Meteo pressure-level forecast soundings, 3 days hourly, for
   any US airport (coords resolved via `api.weather.gov/stations/{id}`; model selectable), with
