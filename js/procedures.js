@@ -1518,10 +1518,13 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     const parts = [];
     for (const [key, set] of state.sel)
       parts.push(key.replace('|', '.') + '.' + [...set].join('_'));
-    let h = '';
-    if (state.curApt) h = 'apt=' + state.curApt;
-    if (parts.length) h += (h ? '&' : '') + 'sel=' + parts.join(',');
-    history.replaceState(null, '', h ? '#' + h : location.pathname);
+    // keep the Nationwide / This-cycle view's own keys (procedures-national.js)
+    const h = new URLSearchParams(location.hash.slice(1));
+    h.delete('apt'); h.delete('sel');
+    if (state.curApt) h.set('apt', state.curApt);
+    if (parts.length) h.set('sel', parts.join(','));
+    const str = h.toString().replace(/%2C/g, ',').replace(/%3A/g, ':').replace(/%2E/g, '.');
+    history.replaceState(null, '', str ? '#' + str : location.pathname);
   }
   async function loadHash() {
     const h = new URLSearchParams(location.hash.slice(1));
@@ -1642,6 +1645,26 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
       }
     }
   }
+
+  // hook for the Nationwide / This-cycle views: draw one procedure whole
+  window.ProcExplorer = {
+    async open(apt, procId) {
+      const doc = await loadAirport(apt, false);
+      if (!doc) return false;
+      $('apt-search').value = apt;
+      state.sel.clear();
+      const proc = procId && doc.procs.find(p => p.id === procId);
+      if (proc && proc.trans && proc.trans.length)
+        proc.trans.forEach((t, i) => setTrans(apt, proc.id, i, true));
+      buildTree(doc);
+      map.invalidateSize();
+      redraw();
+      if (proc && state.sel.size) fitToSelection(apt, proc.id);
+      else map.setView([doc.lat, doc.lon], 10);
+      return true;
+    },
+    refresh() { map.invalidateSize(); },
+  };
 
   boot();
 })();

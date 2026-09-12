@@ -382,6 +382,33 @@ field contacts, and doesn't care).
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
   a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
   documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
+  Navaid and enroute-fix idents collide nationally (NDB `RU` is in NC and TX; KRUQ's NDB approach
+  drew its final from Texas until 2026-09-12), so the builder keeps every position per ident and
+  `resolve()` takes the one nearest the airport.
+  **It is an analysis tool about procedures at large, not a flying tutor** (Jesse, 2026-09-12:
+  students learn to fly the procedure from the chart, which already has its own map). Two views
+  beside the explorer, in `js/procedures-national.js` (`#modes` tabs, `#view=national|changes`
+  in the hash alongside the explorer's `apt`/`sel`; a row click hands off to
+  `window.ProcExplorer.open(apt, procId)` in `procedures.js`): **Nationwide** — every coded
+  procedure in the country queried at once from `data/procedures/metrics.json`
+  (type · kind · state · text · RF / DME-arc / procedure-turn / hold-in-lieu / circling-only /
+  missed-ends-in-hold / plate-only flags · VPA ≥ · SID climb ≥ · STAR descent ≥, plus presets),
+  with stat tiles, an Albers dot map (same construction as `notam.js`), by-kind / by-state bars
+  that filter on click, a one-measure histogram (VPA, FAF→MAP, FAF altitude, missed climb-to,
+  SID climb, STAR descent, top constraint, length, transitions, legs, fixes — single hue, dashed
+  median), a sortable table and the most-shared fixes; **This cycle** — `changes.json`, the diff
+  against the previous AIRAC cycle: added, withdrawn, and changed leg by leg (altitudes, speeds,
+  angles, courses ≥ 1°, fixes, transitions; a renumbered SID/STAR is paired with its successor as
+  one "revised from" entry, and tenth-of-a-degree course shifts are magvar noise, dropped).
+  Both files come from **`python scripts/build_procedure_metrics.py`** (stdlib, no downloads;
+  reads the committed airport files and the previous cycle out of git history — the newest
+  commit of `index.json` with a different `cycle`), so **each cycle is two commands**:
+  `build_procedures.py` then `build_procedure_metrics.py`, and commit all three outputs. Column
+  meanings are in that script's docstring; two of them are honest approximations and say so in
+  the table tooltips — a SID's `grad` is measured over the straight line from the departure end
+  to the first at-or-above fix (the shortest possible path, so a ceiling on the gradient, and
+  no figure at all when a vector leg precedes the fix), and a STAR's `dg` is the steepest
+  descent the constraints *require* (floor at the earlier fix to ceiling at the later).
 - `aircraft.html` + `js/aircraft.js` + `data/aircraft.json` — Aircraft Compare: pick up to six aircraft and
   put every number side by side. **`data/aircraft.json` is the whole tool** — a field registry
   (`fields`: id, group, label, unit, `hi` = which direction is better, `c` = computed) plus one specs

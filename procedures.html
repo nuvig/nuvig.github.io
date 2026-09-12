@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Procedure Explorer — SIDs, STARs &amp; Approaches in 3D</title>
-  <meta name="description" content="Overlay any US SID, STAR or instrument approach on a sectional chart, explore transitions, see altitudes in 3D, and pull up the official FAA plate. Built from the FAA CIFP + d-TPP.">
+  <title>Procedure Explorer — every US SID, STAR &amp; approach, drawn, queried, diffed</title>
+  <meta name="description" content="Every coded US SID, STAR and instrument approach: draw one on the chart with altitudes in 3D and the FAA plate, query and rank all 16,000 nationwide by kind, state, descent angle, climb gradient and leg types, and see what each AIRAC cycle added, withdrew and changed. Built from the FAA CIFP + d-TPP.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -246,6 +246,87 @@
     #howto summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
     #howto[open] summary { margin-bottom:6px; }
 
+    #explorer[hidden], .nv[hidden] { display:none !important; }
+    /* view tabs */
+    #modes { display:flex; gap:6px; margin:0 0 12px; }
+    #modes button {
+      background:#161616; color:#999; border:1px solid #333; border-radius:6px;
+      padding:6px 14px; font-size:13px; cursor:pointer; font-family:inherit;
+    }
+    #modes button:hover { color:#fff; border-color:#4a9eff; }
+    #modes button.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
+
+    /* nationwide + changes views */
+    .nv { display:flex; flex-direction:column; gap:12px; }
+    .nv .box { background:#141414; border:1px solid #2c2c2c; border-radius:8px; padding:12px 14px; }
+    .nv .box h2 { font-size:14px; margin:0 0 8px; color:#bbb; font-weight:600; }
+    .nv .box h2 small { color:#666; font-weight:400; margin-left:8px; }
+    .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px; }
+    .tile { background:#141414; border:1px solid #2c2c2c; border-radius:8px; padding:10px 12px; }
+    .tile .v { font-size:22px; font-weight:600; color:#e8e8e8; line-height:1.15; }
+    .tile .l { font-size:11.5px; color:#777; margin-top:2px; }
+    .fbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .fbar select, .fbar input[type=text], .fbar input[type=number] {
+      background:#0d0d0d; color:#ddd; border:1px solid #383838; border-radius:6px;
+      padding:5px 8px; font-size:12.5px; font-family:inherit; outline:none;
+    }
+    .fbar select:focus, .fbar input:focus { border-color:#4a9eff; }
+    .fbar input[type=text] { width:200px; }
+    .fbar input[type=number] { width:72px; }
+    .fbar label { display:flex; gap:4px; align-items:center; font-size:12.5px; color:#999; cursor:pointer; white-space:nowrap; }
+    .fbar input[type=checkbox] { accent-color:#4a9eff; margin:0; }
+    .fbar .sep { width:1px; height:22px; background:#2c2c2c; }
+    .presets { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+    .presets button, .lnk-btn {
+      background:#181f27; border:1px solid #2d3946; color:#8fa8c2; border-radius:12px;
+      font-size:11.5px; padding:2px 10px; cursor:pointer; font-family:inherit;
+    }
+    .presets button:hover, .lnk-btn:hover { border-color:#4a9eff; color:#fff; }
+    .presets button.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
+    #nat-count { font-size:13px; color:#999; margin-top:8px; }
+    #nat-count b { color:#ddd; font-weight:600; }
+    .two { display:grid; grid-template-columns:3fr 2fr; gap:12px; }
+    .two canvas { width:100%; display:block; }
+    .bars { font-size:12.5px; width:100%; border-collapse:collapse; }
+    .bars td { padding:2px 6px 2px 0; color:#aaa; white-space:nowrap; vertical-align:middle; }
+    .bars td.n { text-align:right; color:#ddd; font-variant-numeric:tabular-nums; }
+    .bars td.b { width:45%; }
+    .bars td.b i { display:block; height:8px; border-radius:2px; background:#3987e5; }
+    .bars tr { cursor:pointer; }
+    .bars tr:hover td { color:#fff; }
+    .bars tr.on td { color:#fff; } .bars tr.on td.b i { background:#8fc1ff; }
+    .tbl-wrap { overflow-x:auto; }
+    table.res { width:100%; border-collapse:collapse; font-size:12.5px; }
+    table.res th { text-align:left; color:#777; font-weight:600; font-size:11px; letter-spacing:.05em;
+      text-transform:uppercase; padding:5px 8px; border-bottom:1px solid #2c2c2c; cursor:pointer; white-space:nowrap; user-select:none; }
+    table.res th:hover { color:#ccc; }
+    table.res th.on { color:#8fc1ff; }
+    table.res td { padding:4px 8px; border-bottom:1px solid #1e1e1e; color:#bbb; white-space:nowrap; }
+    table.res td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    table.res th.num { text-align:right; }
+    table.res tr.clk { cursor:pointer; }
+    table.res tr.clk:hover td { background:#1a2028; color:#fff; }
+    table.res td .apt { color:#e8e8e8; font-weight:600; }
+    table.res td .st { color:#666; margin-left:4px; font-size:11px; }
+    table.res td .co { color:#6b7c93; font-size:10px; border:1px solid #33404f; border-radius:3px; padding:0 3px; margin-left:5px; }
+    .more { margin-top:8px; }
+    #hist-wrap { position:relative; }
+    #hist { width:100%; height:200px; display:block; }
+    .hstat { font-size:12px; color:#888; margin-top:6px; display:flex; gap:16px; flex-wrap:wrap; }
+    .hstat b { color:#ddd; font-weight:600; }
+    #nat-tip { position:fixed; z-index:2000; pointer-events:none; background:#0f1215; border:1px solid #3a4553;
+      border-radius:6px; padding:6px 9px; font-size:12px; color:#ddd; display:none; max-width:320px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
+    #nat-tip b { color:#fff; }
+    .nv details summary { cursor:pointer; color:#bbb; font-size:13.5px; font-weight:600; user-select:none; }
+    .nv details summary small { color:#666; font-weight:400; margin-left:8px; }
+    table.res td.chg-notes { color:#8a96a3; font-size:12px; white-space:normal; min-width:340px; }
+    .chg-notes span { display:inline-block; margin-right:10px; }
+    .chg-notes .arr { color:#5f6b78; }
+    .empty { color:#555; font-size:13px; padding:14px 0; }
+    @media (max-width: 900px) {
+      .two { grid-template-columns:1fr; }
+    }
+
     @media (max-width: 900px) {
       #explorer { flex-direction:column; }
       #sidebar { width:auto; max-height:340px; }
@@ -258,10 +339,104 @@
   <a id="back-link" href="/">&larr; jesselevine.net</a>
   <header>
     <h1>Procedure Explorer</h1>
-    <p class="subtitle">Overlay any US SID, STAR or instrument approach on the chart, see its altitudes in 3D,
-      and pull up the official FAA plate
+    <p class="subtitle">Every coded US SID, STAR and approach
       &middot; FAA CIFP cycle effective <span class="cycle" id="cycle-date">…</span><span id="tpp-cycle"></span></p>
   </header>
+
+  <div id="modes">
+    <button data-view="explorer" class="on">Explorer</button>
+    <button data-view="national">Nationwide</button>
+    <button data-view="changes">This cycle</button>
+  </div>
+
+  <div id="national" class="nv" hidden>
+    <div class="tiles" id="nat-tiles"></div>
+
+    <div class="box">
+      <div class="fbar">
+        <select id="nf-type">
+          <option value="">All types</option>
+          <option value="APP">Approaches</option>
+          <option value="SID">SIDs</option>
+          <option value="STAR">STARs</option>
+        </select>
+        <select id="nf-kind"><option value="">All kinds</option></select>
+        <select id="nf-st"><option value="">All states</option></select>
+        <input id="nf-q" type="text" placeholder="Airport, procedure, name…" autocomplete="off" spellcheck="false">
+        <span class="sep"></span>
+        <label title="RF legs (radius to fix) — RNP AR or advisory-only geometry"><input type="checkbox" id="nf-rf"> RF legs</label>
+        <label title="AF legs — DME arcs"><input type="checkbox" id="nf-arc"> DME arc</label>
+        <label title="PI legs — charted procedure turn"><input type="checkbox" id="nf-pi"> Procedure turn</label>
+        <label title="HF legs — hold in lieu of procedure turn"><input type="checkbox" id="nf-hf"> Hold in lieu</label>
+        <label title="Approach name carries no runway"><input type="checkbox" id="nf-circ"> Circling-only</label>
+        <label title="Missed approach ends in a hold"><input type="checkbox" id="nf-mhold"> Missed → hold</label>
+        <label title="Published plate with no public CIFP coding"><input type="checkbox" id="nf-co"> Plate only</label>
+        <span class="sep"></span>
+        <label title="Coded final descent angle">VPA ≥ <input type="number" id="nf-vpa" step="0.1" min="0" placeholder="°"></label>
+        <label title="SID: implied climb to the first at-or-above fix, straight-line from the departure end">Climb ≥ <input type="number" id="nf-grad" step="10" min="0" placeholder="ft/nm"></label>
+        <label title="STAR: steepest descent the constraints require">Descent ≥ <input type="number" id="nf-dg" step="10" min="0" placeholder="ft/nm"></label>
+        <button class="lnk-btn" id="nf-reset">Reset</button>
+      </div>
+      <div class="presets" id="nat-presets"></div>
+      <div id="nat-count"></div>
+    </div>
+
+    <div class="two">
+      <div class="box">
+        <h2>Where <small id="map-sub"></small></h2>
+        <canvas id="nat-map"></canvas>
+      </div>
+      <div class="box">
+        <h2>By kind <small>click to filter</small></h2>
+        <table class="bars" id="nat-kinds"></table>
+        <h2 style="margin-top:12px">By state <small>click to filter</small></h2>
+        <table class="bars" id="nat-states"></table>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>Distribution
+        <select id="nh-measure" style="margin-left:8px;background:#0d0d0d;color:#ddd;border:1px solid #383838;border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit"></select>
+        <small id="nh-sub"></small></h2>
+      <div id="hist-wrap"><canvas id="hist"></canvas></div>
+      <div class="hstat" id="hist-stat"></div>
+    </div>
+
+    <div class="box">
+      <h2>Procedures <small id="tbl-sub">click a column to sort · click a row to draw it</small></h2>
+      <div class="tbl-wrap"><table class="res" id="nat-table"></table></div>
+      <div class="more"><button class="lnk-btn" id="nat-more" hidden>Show more</button></div>
+    </div>
+
+    <div class="box">
+      <details><summary>Most-shared fixes<small>fixes that appear in the most procedures</small></summary>
+        <div class="tbl-wrap"><table class="res" id="nat-fixes"></table></div>
+      </details>
+    </div>
+  </div>
+
+  <div id="changes" class="nv" hidden>
+    <div class="tiles" id="chg-tiles"></div>
+    <div class="box">
+      <div class="fbar">
+        <select id="cf-type">
+          <option value="">All types</option>
+          <option value="APP">Approaches</option>
+          <option value="SID">SIDs</option>
+          <option value="STAR">STARs</option>
+        </select>
+        <select id="cf-st"><option value="">All states</option></select>
+        <input id="cf-q" type="text" placeholder="Airport, procedure, fix…" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="box"><details open><summary>Changed<small id="chg-n-changed"></small></summary>
+      <div class="tbl-wrap"><table class="res" id="chg-changed"></table></div></details></div>
+    <div class="box"><details open><summary>Added<small id="chg-n-added"></small></summary>
+      <div class="tbl-wrap"><table class="res" id="chg-added"></table></div></details></div>
+    <div class="box"><details open><summary>Withdrawn<small id="chg-n-removed"></small></summary>
+      <div class="tbl-wrap"><table class="res" id="chg-removed"></table></div></details></div>
+  </div>
+  <div id="nat-tip"></div>
 
   <div id="explorer">
     <div id="sidebar">
@@ -333,6 +508,8 @@
         (many VOR/NDB/TACAN full procedures, visuals, most military fields), so they can't be drawn — but the plate is real.
         The <b>leg table</b> lists each selected transition fix-by-fix; courses there are <b>&deg;true</b>
         (chart courses are magnetic — the local variation is applied).
+        <b>Nationwide</b> queries every coded procedure at once; <b>This cycle</b> diffs the current AIRAC cycle
+        against the last one, leg by leg.
         Data: FAA CIFP + d-TPP, for situational awareness only — <b>not for navigation</b>.
       </details>
     </div>
@@ -356,7 +533,8 @@
 
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/site-config.js"></script>
-  <script src="js/procedures.js?v=9"></script>
+  <script src="js/procedures.js?v=10"></script>
+  <script src="js/procedures-national.js?v=1"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

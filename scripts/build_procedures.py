@@ -385,9 +385,12 @@ def merge_charts(procs, dtpp_entry):
 def build(lines):
     airports = {}                    # icao -> dict
     term_wp = {}                     # (apt, ident) -> (lat, lon)
-    enroute_wp = {}                  # ident -> (lat, lon)
-    navaids = {}                     # ident -> (lat, lon)
-    ndbs = {}                        # ident -> (lat, lon)
+    # national idents collide (NDB "RU" exists in NC and TX; enroute fixes and
+    # DME-only navaids too), so these keep every position and resolve() picks
+    # the one nearest the airport.
+    enroute_wp = defaultdict(list)   # ident -> [(lat, lon), ...]
+    navaids = defaultdict(list)      # ident -> [(lat, lon), ...]
+    ndbs = defaultdict(list)         # ident -> [(lat, lon), ...]
     term_ndb = {}                    # (apt, ident) -> (lat, lon)
     runways = defaultdict(list)      # apt -> [[ident, lat, lon, brg, len], ...]
     legs = defaultdict(list)         # (apt, sub, proc) -> [raw lines]
@@ -401,19 +404,19 @@ def build(lines):
                 if f(line, 22, 22) in ('', '0', '1'):
                     lat, lon = parse_lat(f(line, 33, 41)), parse_lon(f(line, 42, 51))
                     if lat is not None:
-                        ndbs.setdefault(f(line, 14, 17), (lat, lon))
+                        ndbs[f(line, 14, 17)].append((lat, lon))
             else:
                 if f(line, 22, 22) in ('', '0', '1'):
                     lat, lon = parse_lat(f(line, 33, 41)), parse_lon(f(line, 42, 51))
                     if lat is None:                      # DME-only navaid
                         lat, lon = parse_lat(f(line, 56, 64)), parse_lon(f(line, 65, 74))
                     if lat is not None:
-                        navaids.setdefault(f(line, 14, 17), (lat, lon))
+                        navaids[f(line, 14, 17)].append((lat, lon))
         elif sec == 'E' and line[5] == 'A':              # enroute waypoints
             if f(line, 22, 22) in ('', '0', '1'):
                 lat, lon = parse_lat(f(line, 33, 41)), parse_lon(f(line, 42, 51))
                 if lat is not None:
-                    enroute_wp.setdefault(f(line, 14, 18), (lat, lon))
+                    enroute_wp[f(line, 14, 18)].append((lat, lon))
         elif sec == 'P':
             apt, sub = f(line, 7, 10), line[12]
             if sub == 'A':
@@ -444,12 +447,23 @@ def build(lines):
                 if f(line, 39, 39) in ('', '0', '1'):
                     legs[(apt, sub, f(line, 14, 19))].append(line)
 
+    def nearest(table, ident, apt):
+        cands = table.get(ident)
+        if not cands:
+            return None
+        a = airports.get(apt)
+        if len(cands) == 1 or not a:
+            return cands[0]
+        def d2(p):
+            return (p[0] - a['lat']) ** 2 + ((p[1] - a['lon']) * 0.8) ** 2
+        return min(cands, key=d2)
+
     def resolve(apt, ident, fsec, fsub):
         key2 = (apt, ident)
         if fsec == 'P' and fsub == 'C': hit = term_wp.get(key2)
-        elif fsec == 'E' and fsub == 'A': hit = enroute_wp.get(ident)
-        elif fsec == 'D' and fsub == 'B': hit = ndbs.get(ident)
-        elif fsec == 'D': hit = navaids.get(ident)
+        elif fsec == 'E' and fsub == 'A': hit = nearest(enroute_wp, ident, apt)
+        elif fsec == 'D' and fsub == 'B': hit = nearest(ndbs, ident, apt)
+        elif fsec == 'D': hit = nearest(navaids, ident, apt)
         elif fsec == 'P' and fsub == 'N': hit = term_ndb.get(key2)
         elif fsec == 'P' and fsub == 'G':
             hit = next(((r[1], r[2]) for r in runways.get(apt, []) if r[0] == ident), None)
@@ -459,8 +473,9 @@ def build(lines):
         else:
             hit = None
         if hit is None:  # fall back through every table — regional quirks
-            hit = (term_wp.get(key2) or enroute_wp.get(ident) or navaids.get(ident)
-                   or ndbs.get(ident) or term_ndb.get(key2))
+            hit = (term_wp.get(key2) or nearest(enroute_wp, ident, apt)
+                   or nearest(navaids, ident, apt) or nearest(ndbs, ident, apt)
+                   or term_ndb.get(key2))
         return hit
 
     def decode_leg(apt, line):
@@ -469,8 +484,8 @@ def build(lines):
         desc = line[39:43]
         flags = (1 if desc[2] == 'M' else 0) | (2 if desc[1] == 'Y' else 0)
         rec = f(line, 51, 54)
-        rec_pos = (navaids.get(rec) or ndbs.get(rec) or term_wp.get((apt, rec))
-                   or enroute_wp.get(rec)) if rec else None
+        rec_pos = (nearest(navaids, rec, apt) or nearest(ndbs, rec, apt)
+                   or term_wp.get((apt, rec)) or nearest(enroute_wp, rec, apt)) if rec else None
         ctr = f(line, 107, 111)
         ctr_pos = resolve(apt, ctr, f(line, 115, 115) or 'P', f(line, 116, 116) or 'C') if ctr else None
         dist_raw = f(line, 75, 78)
