@@ -586,8 +586,9 @@ concepts; to relink, add the tools.html card back.
   archived hourly and counted. Reads **only the `notam-data` branch** (`SITE.notam.dataBase`, over
   raw.githubusercontent like the tracker/wx3d snapshots; localStorage `notam_data_base` overrides
   it for a local copy) plus same-origin `data/notam/locations.json`. No FAA call from the browser.
-  First paint is `summary.json` alone (stat tiles · by keyword / class / ends · age · scheduled
-  length · the dot map · trend · start-hour clock · leaders · the folded watch lists · the local
+  First paint is `summary.json` alone (stat tiles · the **Mix** card — one canvas, five 100 %
+  stacked bars: keyword · class · ends · age · length, `stackRows()`, shades of the one blue,
+  replacing five separate bar charts 2026-09-12 · the dot map · trend · start-hour clock · leaders · the folded watch lists · the local
   card · coverage line); `current/<ST>.json` files are fetched only when a visitor browses or
   searches (a facility id resolves to its state through locations.json; a text search with no
   state loads every state file and says so). **Layout (2026-09-11, Jesse's order): tiles →

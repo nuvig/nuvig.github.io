@@ -211,6 +211,47 @@ function hbars(id, rows, opts = {}) {
   S.draws.push(draw); draw();
 }
 
+/* Stacked shares: one 100 % bar per group, every group a split of the same
+   set, so the rows share one scale and one card. groups = [{label, rows:
+   [[name, value, note?]], onClick?}]. Shades step light → dark along each row
+   (one hue, still); a segment prints its name when it has the room. */
+function stackRows(id, groups) {
+  const c = $(id);
+  if (!c) return;
+  const SH = ['#5da3f0', '#3987e5', '#2f6fc0', '#265a9c', '#1e477a', '#18385f', '#132c4a'];
+  const draw = () => {
+    const rowH = 34, H = groups.length * rowH + 4;
+    const { ctx, W } = setup(c, H);
+    const labW = Math.min(120, Math.max(...groups.map((g) => ctx.measureText(g.label).width)) + 14);
+    const x0 = labW, x1 = W - 4, bw = x1 - x0;
+    const hits = [];
+    groups.forEach((g, gi) => {
+      const y = 2 + gi * rowH, by = y + 7, bh = rowH - 14;
+      const rows = g.rows.filter((r) => r[1] > 0);
+      const tot = rows.reduce((a, r) => a + r[1], 0) || 1;
+      ctx.fillStyle = '#999'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(g.label, x0 - 8, y + rowH / 2);
+      let x = x0;
+      rows.forEach((r, i) => {
+        const w = bw * r[1] / tot;
+        ctx.fillStyle = SH[Math.min(i, SH.length - 1)];
+        ctx.fillRect(x, by, Math.max(0, w - 1), bh);
+        const pct = Math.round(100 * r[1] / tot);
+        const full = `${r[0]} ${pct}%`, short = `${pct}%`;
+        const lab = ctx.measureText(full).width + 8 < w ? full : ctx.measureText(short).width + 6 < w ? short : '';
+        if (lab) {
+          ctx.fillStyle = i < 2 ? '#0d1a2b' : '#dbe7f5'; ctx.textAlign = 'center';
+          ctx.fillText(lab, x + w / 2, by + bh / 2);
+        }
+        hits.push({ x, y: by, w, h: bh, row: r, pct: (100 * r[1] / tot).toFixed(1), g, click: g.onClick ? () => g.onClick(r) : null });
+        x += w;
+      });
+    });
+    hover(c, hits, (h) => `<b>${esc(h.row[0])}</b> · ${fmtN(h.row[1])} · ${h.pct}% of ${esc(h.g.label)}${h.row[2] ? `<br>${esc(h.row[2])}` : ''}`);
+  };
+  S.draws.push(draw); draw();
+}
+
 /* Vertical bars over an ordered axis (the start-hour clock). */
 function vbars(id, values, labels, opts = {}) {
   const c = $(id);
@@ -460,13 +501,15 @@ function renderTiles() {
 function renderCharts() {
   const s = S.sum;
   const kw = Object.entries(s.by_k).map(([k, v]) => [k, v, KW_HELP[k] || '']);
-  $('n-kw').textContent = `${fmtN(s.n.active)} total`;
-  hbars('c-kw', kw, { onClick: (r) => browseKeyword(r[0]) });
-  hbars('c-cls', Object.entries(s.by_c).map(([k, v]) => [k, v, CLASS_HELP[k] || '']), { onClick: (r) => browseKeyword(r[0]) });
-  const ends = [['dated end', s.n.active - s.n.perm - s.n.est, 'a fixed end time'], ['estimated (EST)', s.n.est, 'end time is an estimate — the NOTAM stays until cancelled'], ['PERM', s.n.perm, 'no end — stays until charted or cancelled']];
-  hbars('c-end', ends, { labW: 110 });
-  hbars('c-age', s.age.map(([k, v]) => [k, v]), { labW: 70 });
-  hbars('c-dur', s.dur.map(([k, v]) => [k, v]), { labW: 70 });
+  $('n-mix').textContent = `${fmtN(s.n.active)} in effect`;
+  const ends = [['dated', s.n.active - s.n.perm - s.n.est, 'a fixed end time'], ['EST', s.n.est, 'end time is an estimate — stays until cancelled'], ['PERM', s.n.perm, 'no end — stays until charted or cancelled']];
+  stackRows('c-mix', [
+    { label: 'keyword', rows: kw, onClick: (r) => browseKeyword(r[0]) },
+    { label: 'class', rows: Object.entries(s.by_c).map(([k, v]) => [k, v, CLASS_HELP[k] || '']), onClick: (r) => browseKeyword(r[0]) },
+    { label: 'ends', rows: ends },
+    { label: 'age', rows: s.age.map(([k, v]) => [k, v, 'time in effect so far']) },
+    { label: 'length', rows: s.dur.map(([k, v]) => [k, v, 'end − start as written']) },
+  ]);
   trend('c-trend', s.history || []);
   vbars('c-hour', s.start_hour || [], Array.from({ length: 24 }, (_, i) => pad(i)), { every: 3, unit: 'Z' });
 }
