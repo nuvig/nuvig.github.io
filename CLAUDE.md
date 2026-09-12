@@ -82,6 +82,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `tools.html` — the Aviation Tools hub; the categorized index of the explainers below. The homepage
   links here rather than to each tool, so **a new explainer needs a card added to `tools.html`**
   (and a `<url>` in `sitemap.xml`).
+  The last section is **Unfinished projects** (2026-09-11): a collapsed `<details>` at the bottom
+  holding the cards for pages that aren't done. `sky.html` (METAR Sky) and `sfra.html` (The DC
+  SFRA) moved there from the Weather and Cockpit sections at Jesse's request — their sitemap
+  entries stay, and the JSON-LD `ItemList` lists the finished tools only.
 - `sitemap.xml` — hand-maintained XML sitemap, referenced from `robots.txt`. Public pages only:
   `noindex` pages (`404`, `atc`, `scanner`, `bubbles`, `fugue`, `mural`, `slime`) and the
   deliberately unlinked `glow` / `sky2` / `watercycle` / `zoey` / `ctaf` are excluded on purpose. `lastmod` is
