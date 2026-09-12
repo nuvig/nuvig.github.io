@@ -799,6 +799,7 @@ function glossToken(tok, prev) {
   if (/^[A-Z]{2}\.\.$/.test(bare)) return `state: ${bare.slice(0, 2)}`;
   if ((m = bare.match(/^(NOTAM)([NRC])$/))) return DICT[bare] || null;
   if (/^\d{1,2}$/.test(bare) && prev === 'PRN') return `satellite PRN ${bare}`;
+  if ((m = bare.match(/^(PRN|SVN)(\d{1,3})$/))) return m[1] === 'PRN' ? `satellite PRN ${+m[2]} (its code number)` : `space vehicle ${+m[2]} (the physical satellite)`;
   if (bare === 'ASR' && tok.startsWith('(')) return 'antenna structure registration number';
   if (bare === 'ASN' && tok.startsWith('(')) return 'aeronautical study number';
   if (DIRS[bare] && prev && /^\d/.test(prev)) return DIRS[bare];
