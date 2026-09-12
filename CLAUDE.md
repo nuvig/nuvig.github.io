@@ -590,7 +590,13 @@ concepts; to relink, add the tools.html card back.
   length · the dot map · trend · start-hour clock · leaders · the folded watch lists · the local
   card · coverage line); `current/<ST>.json` files are fetched only when a visitor browses or
   searches (a facility id resolves to its state through locations.json; a text search with no
-  state loads every state file and says so). Deep links: `#q=KANP`, `#st=MD&k=RWY`.
+  state loads every state file and says so). **Layout (2026-09-11, Jesse's order): tiles →
+  Browse → charts → leaders → folds → Local → Decode → the map last** ("cluttered, for a rework
+  later" — don't move it back up). **The Browse pills are hide-toggles, all lit by default**:
+  a click hides that keyword (or class pill TFR/GPS/FDC; `other` = APRON/ROUTE/CHART/unkeyed),
+  the count says `N hidden`, and a chart bar click lights only its pill (`browseKeyword`;
+  a class that is not a pill — D/MIL/INTL — becomes `S.browse.cls`). Deep links: `#q=KANP`,
+  `#st=MD&hide=OBST,TWY` (old `k=` links still resolve).
   **Times are Z everywhere** — NOTAMs are written in UTC and the scope is the country, so
   archive days are UTC days too (unlike `data/wx/`). The map is an Albers conic for the lower 48
   with AK / HI / PR insets, one dot per facility with NOTAMs in effect sized by count — airport

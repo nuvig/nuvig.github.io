@@ -175,6 +175,18 @@
 
   <section class="tiles" id="tiles" aria-label="Counts"></section>
 
+  <div class="card">
+    <h2>Browse <span class="sub">facility id or text · lit pills show</span></h2>
+    <div class="bar">
+      <input id="q" type="search" placeholder="KANP · ANP · RWY 12/30 · CRANE…" autocomplete="off" aria-label="Search NOTAMs">
+      <select id="st" aria-label="State"><option value="">all states</option></select>
+      <div class="chips" id="kw-chips"></div>
+      <span id="b-count"></span>
+    </div>
+    <div id="results"><p class="empty">type a facility id, pick a state, or click a dot on the map</p></div>
+  </div>
+
+
   <div class="grid2">
     <div class="card"><h2>By keyword <span class="sub">in effect now</span><span class="n" id="n-kw"></span></h2><canvas class="chart" id="c-kw" height="300"></canvas></div>
     <div class="card"><h2>By class <span class="sub">D · FDC · TFR · GPS · military · international</span></h2><canvas class="chart" id="c-cls" height="120"></canvas>
@@ -183,15 +195,6 @@
   <div class="grid2">
     <div class="card"><h2>Age <span class="sub">time in effect so far</span></h2><canvas class="chart" id="c-age" height="200"></canvas></div>
     <div class="card"><h2>Scheduled length <span class="sub">end − start as written</span></h2><canvas class="chart" id="c-dur" height="200"></canvas></div>
-  </div>
-
-  <div class="card">
-    <h2>Where <span class="sub">one dot per facility with NOTAMs in effect · hover a dot · click to browse it</span></h2>
-    <div class="map-row">
-      <div id="map-wrap"><canvas id="map" height="420"></canvas><div id="map-hover"></div>
-        <div class="legend" id="map-legend"></div></div>
-      <div class="side" id="states"></div>
-    </div>
   </div>
 
   <div class="card"><h2>Trend <span class="sub">per UTC day · first seen vs left the system</span></h2><canvas class="chart" id="c-trend" height="260"></canvas></div>
@@ -213,28 +216,26 @@
 
   <div class="card"><h2>Local <span class="sub" id="local-sub"></span><span class="n" id="n-local"></span></h2><div id="local"></div></div>
 
-  <div class="card">
-    <h2>Browse <span class="sub">facility id or text</span></h2>
-    <div class="bar">
-      <input id="q" type="search" placeholder="KANP · ANP · RWY 12/30 · CRANE…" autocomplete="off" aria-label="Search NOTAMs">
-      <select id="st" aria-label="State"><option value="">all states</option></select>
-      <div class="chips" id="kw-chips"></div>
-      <span id="b-count"></span>
-    </div>
-    <div id="results"><p class="empty">type a facility id, pick a state, or click a dot on the map</p></div>
-  </div>
-
   <div class="card" id="dec-card">
     <h2>Decode <span class="sub">a NOTAM or a contraction</span><button class="chip" id="dec-ex" type="button">example</button></h2>
     <textarea id="dec-in" rows="3" placeholder="!DCA 09/198 ANP OBST TOWER LGT … U/S 2609060058-2610210057 · or one word: PAEW" spellcheck="false" aria-label="NOTAM text to decode"></textarea>
     <div id="dec-out"></div>
   </div>
 
+  <div class="card">
+    <h2>Where <span class="sub">one dot per facility with NOTAMs in effect · hover a dot · click to browse it</span></h2>
+    <div class="map-row">
+      <div id="map-wrap"><canvas id="map" height="420"></canvas><div id="map-hover"></div>
+        <div class="legend" id="map-legend"></div></div>
+      <div class="side" id="states"></div>
+    </div>
+  </div>
+
   <p class="foot" id="coverage"></p>
 
   <script src="js/site-config.js"></script>
   <script src="js/notam-dict.js?v=2"></script>
-  <script src="js/notam.js?v=5"></script>
+  <script src="js/notam.js?v=6"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

@@ -33,7 +33,7 @@ const S = {
   byQ: new Map(), byLid: new Map(),
   files: new Map(),       // ST -> Promise<records[]>
   draws: [],              // redraw fns for resize
-  browse: { q: '', st: '', k: '', shown: 300 },
+  browse: { q: '', st: '', hide: new Set(), cls: '', shown: 300 },
 };
 window.NOTAM_DEBUG = S;
 
@@ -603,7 +603,15 @@ function renderCoverage() {
    Browse — facility id, state and keyword filters over the state files
 --------------------------------------------------------------------------- */
 
-const KW_CHIPS = ['RWY', 'TWY', 'OBST', 'NAV', 'AD', 'SVC', 'COM', 'AIRSPACE', 'IAP', 'SID', 'STAR', 'ODP', 'TFR', 'GPS', 'FDC'];
+const KW_CHIPS = ['RWY', 'TWY', 'OBST', 'NAV', 'AD', 'SVC', 'COM', 'AIRSPACE', 'IAP', 'SID', 'STAR', 'ODP', 'TFR', 'GPS', 'FDC', 'other'];
+const KW_SET = new Set(KW_CHIPS);
+const CHIP_HELP = { other: 'APRON · ROUTE · CHART · SPECIAL · SECURITY and anything unkeyed' };
+/* a row's pills: its keyword (or `other`), plus its class when that is a pill (TFR · GPS · FDC) */
+function rowChips(r) {
+  const out = [KW_SET.has(r.k) ? r.k : 'other'];
+  if (KW_SET.has(r.c)) out.push(r.c);
+  return out;
+}
 
 function initBrowse() {
   const sel = $('st');
@@ -613,36 +621,40 @@ function initBrowse() {
     o.value = st; o.textContent = st === NOSTATE ? 'ARTCC · national' : st;
     sel.appendChild(o);
   }
-  $('kw-chips').innerHTML = KW_CHIPS.map((k) => `<button class="chip" data-k="${k}" title="${esc(KW_HELP[k] || CLASS_HELP[k] || '')}">${k}</button>`).join('');
+  $('kw-chips').innerHTML = KW_CHIPS.map((k) => `<button class="chip on" data-k="${k}" title="${esc(KW_HELP[k] || CLASS_HELP[k] || CHIP_HELP[k] || '')} · click to hide">${k}</button>`).join('');
   $('kw-chips').querySelectorAll('.chip').forEach((b) => {
-    b.onclick = () => { S.browse.k = S.browse.k === b.dataset.k ? '' : b.dataset.k; runBrowse(); };
+    b.onclick = () => { const h = S.browse.hide; if (h.has(b.dataset.k)) h.delete(b.dataset.k); else h.add(b.dataset.k); S.browse.cls = ''; runBrowse(); };
   });
   let timer = null;
   $('q').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { S.browse.q = $('q').value.trim(); runBrowse(); }, 350); };
   $('q').onkeydown = (e) => { if (e.key === 'Enter') { clearTimeout(timer); S.browse.q = $('q').value.trim(); runBrowse(); } };
   sel.onchange = () => { S.browse.st = sel.value; runBrowse(); };
   const h = new URLSearchParams(location.hash.replace(/^#/, ''));
-  if (h.get('q') || h.get('st') || h.get('k')) {
-    S.browse.q = h.get('q') || ''; S.browse.st = h.get('st') || ''; S.browse.k = h.get('k') || '';
+  if (h.get('q') || h.get('st') || h.get('k') || h.get('hide')) {
+    S.browse.q = h.get('q') || ''; S.browse.st = h.get('st') || '';
+    S.browse.hide = new Set((h.get('hide') || '').split(',').filter(Boolean));
+    if (h.get('k')) S.browse.hide = new Set(KW_CHIPS.filter((k) => k !== h.get('k')));   // old single-keyword links
     $('q').value = S.browse.q; sel.value = S.browse.st;
     runBrowse();
   }
 }
 
 function browseFacility(q) {
-  S.browse.q = q; S.browse.st = ''; S.browse.k = '';
+  S.browse.q = q; S.browse.st = ''; S.browse.hide = new Set(); S.browse.cls = '';
   $('q').value = q; $('st').value = '';
   runBrowse();
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function browseState(st) {
-  S.browse.q = ''; S.browse.st = st; S.browse.k = '';
+  S.browse.q = ''; S.browse.st = st; S.browse.hide = new Set(); S.browse.cls = '';
   $('q').value = ''; $('st').value = st;
   runBrowse();
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function browseKeyword(k) {
-  S.browse.k = k;
+  /* a chart bar: show only that keyword / pill; a class that is not a pill (D · MIL · INTL) filters by class */
+  if (KW_SET.has(k)) { S.browse.hide = new Set(KW_CHIPS.filter((x) => x !== k)); S.browse.cls = ''; }
+  else { S.browse.hide = new Set(); S.browse.cls = k; }
   if (!S.browse.q && !S.browse.st) S.browse.st = (locFor(SITE.airport.id) || {}).st || '';
   $('st').value = S.browse.st;
   runBrowse();
@@ -653,18 +665,18 @@ let browseGen = 0;
 async function runBrowse() {
   const gen = ++browseGen;
   const b = S.browse;
-  $('kw-chips').querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c.dataset.k === b.k));
+  $('kw-chips').querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', !b.hide.has(c.dataset.k)));
   const parts = [];
   if (b.q) parts.push(`q=${encodeURIComponent(b.q)}`);
   if (b.st) parts.push(`st=${encodeURIComponent(b.st)}`);
-  if (b.k) parts.push(`k=${encodeURIComponent(b.k)}`);
+  if (b.hide.size) parts.push(`hide=${[...b.hide].join(',')}`);
   history.replaceState(null, '', parts.length ? `#${parts.join('&')}` : location.pathname);
   const out = $('results');
   const loc = b.q ? locFor(b.q) : null;
   let states;
   if (loc) states = [loc.st || NOSTATE];
   else if (b.st) states = [b.st];
-  else if (b.q || b.k) states = (S.idx && S.idx.states) || Object.keys(S.sum.by_st);
+  else if (b.q || b.cls) states = (S.idx && S.idx.states) || Object.keys(S.sum.by_st);
   else { out.innerHTML = '<p class="empty">type a facility id, pick a state, or click a dot on the map</p>'; $('b-count').textContent = ''; return; }
   const cached = states.every((st) => S.files.has(st));
   if (!cached) out.innerHTML = `<p class="empty">loading ${states.length === 1 ? states[0] : `${states.length} state files`}…</p>`;
@@ -673,13 +685,15 @@ async function runBrowse() {
   let rows = lists.flat();
   if (loc) rows = rows.filter((r) => r.q === loc.q || r.l === loc.lid || r.l === loc.q);
   else if (b.q) { const T = b.q.toUpperCase(); rows = rows.filter((r) => r.raw.toUpperCase().includes(T)); }
-  if (b.k) rows = rows.filter((r) => r.k === b.k || r.c === b.k);
+  if (b.cls) rows = rows.filter((r) => r.c === b.cls);
+  const total = rows.length;
+  if (b.hide.size) rows = rows.filter((r) => !rowChips(r).some((c) => b.hide.has(c)));
   const t = now();
   rows.sort((a, b2) => (a.l || '').localeCompare(b2.l || '') || (b2.f || 0) - (a.f || 0));
   const inEffect = rows.filter((r) => !r.s || r.s <= t).length;
-  $('b-count').textContent = rows.length ? `${fmtN(rows.length)} NOTAMs · ${fmtN(inEffect)} in effect${loc ? ` · ${esc(locLabel(loc))}` : ''}` : '';
+  $('b-count').textContent = rows.length ? `${fmtN(rows.length)} NOTAMs · ${fmtN(inEffect)} in effect${total > rows.length ? ` · ${fmtN(total - rows.length)} hidden` : ''}${b.cls ? ` · ${b.cls} only` : ''}${loc ? ` · ${esc(locLabel(loc))}` : ''}` : '';
   if (!rows.length) {
-    out.innerHTML = `<p class="empty">${loc ? `nothing in the system for ${esc(loc.q)}` : 'no match'}${b.q && !loc && !b.st ? ' · searched every state file' : ''}</p>`;
+    out.innerHTML = `<p class="empty">${total ? `${fmtN(total)} hidden by the pills` : loc ? `nothing in the system for ${esc(loc.q)}` : 'no match'}${b.q && !loc && !b.st && !total ? ' · searched every state file' : ''}</p>`;
     return;
   }
   list(out, rows);
