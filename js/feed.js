@@ -108,6 +108,8 @@ const STREAMS = {
               on: 'discussion · almanac' },
   tracker:  { name: 'tracker',  color: '#94a3b8', what: 'ADS-B snapshot pushed by the Pi exporter to the traffic-data branch' ,
               on: 'kanp · changelog' },
+  notam:    { name: 'notam',    color: '#22c55e', what: 'NOTAM archive run: every NOTAM in the country first seen by that run, and the ones that left the system — one line per run' ,
+              on: 'notam' },
 };
 
 /* Chip tooltip: what the record is, then the pages that read it. Every stream
@@ -445,6 +447,7 @@ async function loadDay(date) {
 
   const afds = (IDX.afd || []).filter((a) => dayOf(a.t) === date);
   await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));
+  await notamRows(date);
 
   /* One line under the date: whether anything is missing. A count of rows
      cannot show what never arrived, so this reads index.json's hours rather
@@ -533,6 +536,60 @@ function mergeLatest(doc) {
     snapRows({ snaps: [doc.aloft] }, 'aloft', `aloft/${dayOf(doc.aloft.t)}.json`, aloftOne);
   }
   return rows.length - before;
+}
+
+/* The NOTAM archive (notam-data branch, UTC days): a day file lists every
+   NOTAM first seen that day (`new`, stamped `f` = the run that saw it) and
+   every one that left (`gone` = {id: [run, exp|cxl, first day]}). A run is
+   one arrival of a few hundred records, so a run is one line — the same rule
+   that folds the hourly METARs — and the expansion lists them. A local feed
+   day spans two UTC days, so both are read; the run stamp dedupes. */
+const NBASE = (SITE.notam && SITE.notam.dataBase) || '';
+let NIDX = null;
+const ndayCache = new Map();
+
+async function notamDay(d) {
+  if (!NIDX || !(NIDX.day_list || []).includes(d)) return null;
+  if (!ndayCache.has(d)) {
+    ndayCache.set(d, (async () => {
+      try { const r = await fetch(`${NBASE}/days/${d}.json`, { cache: 'no-cache' }); return r.ok ? await r.json() : null; }
+      catch (e) { return null; }
+    })());
+  }
+  return ndayCache.get(d);
+}
+
+const utcDay = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+
+async function notamRows(date) {
+  if (!NBASE) return;
+  const t0 = Date.parse(`${date}T12:00:00Z`) / 1000;
+  const days = Array.from(new Set([utcDay(t0), utcDay(t0 + 86400)]));
+  for (const d of days) {
+    const doc = await notamDay(d);
+    if (!doc) continue;
+    const runs = new Map();
+    const run = (t) => { if (!runs.has(t)) runs.set(t, { t, nw: [], gone: [] }); return runs.get(t); };
+    for (const r of doc.new || []) if (r.f) run(r.f).nw.push(r);
+    for (const [id, g] of Object.entries(doc.gone || {})) if (g && g[0]) run(g[0]).gone.push([id, g[1]]);
+    for (const t of doc.runs || []) run(t);
+    for (const x of runs.values()) {
+      if (dayOf(x.t) !== date) continue;
+      const exp = x.gone.filter((g) => g[1] === 'exp').length, cxl = x.gone.length - exp;
+      const bytes = x.nw.reduce((a, r) => a + (r.raw || '').length, 0);
+      const kw = {};
+      for (const r of x.nw) kw[r.k || '?'] = (kw[r.k || '?'] || 0) + 1;
+      const top = Object.entries(kw).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${n} ${k}`).join(', ');
+      const one = `${x.nw.length.toLocaleString()} new${top ? ` (${top})` : ''} · ${x.gone.length.toLocaleString()} gone`
+        + (x.gone.length ? ` (${exp} expired, ${cxl} cancelled)` : '');
+      const text = [`run ${clock(x.t)} · ${x.nw.length} first seen · ${x.gone.length} left the system`, '']
+        .concat(x.nw.map((r) => `${r.id.padEnd(14)} ${(r.l || '').padEnd(5)} ${(r.raw || '').replace(/\s+/g, ' ')}`))
+        .concat(x.gone.length ? ['', 'gone:'].concat(x.gone.map(([id, why]) => `${id.padEnd(14)} ${why === 'exp' ? 'expired' : 'cancelled'}`)) : [])
+        .join('\n');
+      add({ t: x.t, clock: 'in', stream: 'notam', src: 'NMS', one, text, bytes, ext: true,
+            path: `${NBASE}/days/${d}.json`, key: `notam|${x.t}` });
+    }
+  }
 }
 
 /* The tracker publishes one document; its `generated` stamp is a real arrival
@@ -1002,6 +1059,18 @@ async function poll() {
     if (!loaded.includes(today)) loaded.unshift(today);
     n += 1;
   }
+  if (NBASE) {
+    let nidx = null;
+    try { const r = await fetch(`${NBASE}/index.json`, { cache: 'no-cache' }); nidx = r.ok ? await r.json() : null; } catch (e) { nidx = null; }
+    if (nidx && (!NIDX || nidx.t !== NIDX.t)) {
+      NIDX = nidx;
+      ndayCache.clear();
+      const today = dayOf(Date.now() / 1000);
+      const before = rows.length;
+      await notamRows(today);
+      if (rows.length > before) n += 1;
+    }
+  }
   lastPoll = Date.now() / 1000;
   if (n) render();
   tick();
@@ -1074,12 +1143,20 @@ async function boot() {
     return;
   }
   allDays = catalogDays(IDX);
+  if (NBASE) {
+    try { const r = await fetch(`${NBASE}/index.json`, { cache: 'no-cache' }); NIDX = r.ok ? await r.json() : null; } catch (e) { NIDX = null; }
+  }
 
   /* Days before latest.json: both hold the same newest AFD and METARs, and
      the first one added wins the dedupe — so let the archived record win and
      cite its own file rather than the current-state document. latest.json
      still contributes anything newer than the last committed day file. */
   for (const d of allDays.slice(0, 2)) { await loadDay(d); loaded.push(d); }
+  /* the NOTAM archive runs on UTC days and lands before the weather archive
+     opens today's local day — so today is read from it even when no weather
+     day file exists yet */
+  const today = dayOf(Date.now() / 1000);
+  if (!loaded.includes(today)) await notamRows(today);
   mergeLatest(await WXA.latest());
   await loadTracker();
   render();

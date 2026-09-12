@@ -385,53 +385,6 @@ const REGIONS = [
     box: [[17.8, -67.4], [18.6, -64.4]], frame: [0.78, 0.86, 0.9, 0.98] },
 ];
 
-function drawMap(fac) {
-  const c = $('map');
-  if (!c) return;
-  const pts = [];
-  for (const [lid, n] of Object.entries(fac || {})) {
-    const loc = locFor(lid);
-    if (!loc || loc.lat == null || loc.lon == null) continue;
-    pts.push({ lid, n, loc });
-  }
-  pts.sort((a, b) => a.n - b.n);
-  const draw = () => {
-    const H = Math.max(300, Math.min(520, Math.round((c.clientWidth || 600) * 0.62)));
-    const { ctx, W } = setup(c, H);
-    mapFrame(ctx, W, H);
-    const hits = [];
-    let placed = 0;
-    for (const p of pts) {
-      const R = REGIONS.find((r) => r.test(p.loc.lat, p.loc.lon));
-      if (!R) continue;
-      const [x, y] = R.toXY(p.loc.lat, p.loc.lon);
-      const r = Math.min(15, 1.6 + 1.5 * Math.sqrt(p.n));
-      const col = p.n <= 2 ? RAMP[0] : p.n <= 5 ? RAMP[1] : p.n <= 15 ? RAMP[2] : p.n <= 40 ? RAMP[3] : RAMP[4];
-      ctx.globalAlpha = 0.82;
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-      if (p.n > 5) { ctx.globalAlpha = 1; ctx.strokeStyle = '#111'; ctx.lineWidth = 1; ctx.stroke(); }
-      const hr = Math.max(r, 5);
-      hits.push({ x: x - hr, y: y - hr, w: hr * 2, h: hr * 2, p, click: () => browseFacility(p.loc.q) });
-      placed++;
-    }
-    ctx.globalAlpha = 1;
-    // the local field, marked
-    const home = locFor(SITE.airport.id);
-    if (home && home.lat != null) {
-      const R = REGIONS[0], [x, y] = R.toXY(home.lat, home.lon);
-      ctx.strokeStyle = '#eee'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.stroke();
-    }
-    hits.reverse();   // big dots drawn last, so hit-test them first
-    hover(c, hits, (h) => `<b>${esc(h.p.loc.q)}</b> · ${esc(locLabel(h.p.loc))}<br>${fmtN(h.p.n)} in effect`);
-    const off = pts.length - placed;
-    $('map-legend').innerHTML = RAMP.map((col, i) => `<span><i style="background:${col}"></i>${['1–2', '3–5', '6–15', '16–40', '41+'][i]}</span>`).join('') +
-      `<span>${fmtN(placed)} facilities drawn${off ? ` · ${fmtN(off)} off-frame` : ''}</span>` +
-      `<span title="${esc(SITE.airport.id)}">○ ${esc(SITE.airport.id)}</span>`;
-  };
-  S.draws.push(draw); draw();
-}
 
 /* Per-region affine from the projected box corners to the frame; sets
    R.toXY for every region and draws the inset boxes. */
@@ -453,31 +406,44 @@ function mapFrame(ctx, W, H) {
   }
 }
 
-/* GPS interference test geometry out of the NOTAM text: the centre and each
-   radius tier ("379NM RADIUS … FL400-UNL, 342NM RADIUS AT FL250, …"). */
-function gpsGeom(raw) {
+/* Geometry out of a NOTAM's text. Three forms, tried in this order: a
+   polygon ("AREA DEFINED AS A TO B TO C …"), a circle ("30NM RADIUS OF
+   <coord>", "CENTERED AT <coord>" — GPS tests add one radius per altitude
+   tier, "379NM RADIUS … FL400-UNL, 342NM RADIUS AT FL250, …"), or the first
+   coordinate in the text (an obstruction's own position). Coordinates are
+   DDMMSS[.ss]N DDDMMSS[.ss]W. Null when the text carries none. */
+const CO = /(\d{2})(\d{2})(\d{2}(?:\.\d+)?)([NS])[\s/]?(\d{3})(\d{2})(\d{2}(?:\.\d+)?)([EW])/;
+const coLL = (m) => [(+m[1] + m[2] / 60 + m[3] / 3600) * (m[4] === 'S' ? -1 : 1), (+m[5] + m[6] / 60 + m[7] / 3600) * (m[8] === 'W' ? -1 : 1)];
+function notamGeom(raw) {
+  if (!raw) return null;
   const t = raw.replace(/\s+/g, ' ');
   const name = (t.match(/NAV GPS \(([^)]+)\)/) || [])[1] || '';
-  const ll = (m) => [(+m[1] + m[2] / 60 + m[3] / 3600) * (m[4] === 'S' ? -1 : 1), (+m[5] + m[6] / 60 + m[7] / 3600) * (m[8] === 'W' ? -1 : 1)];
-  const CO = /(\d{2})(\d{2})(\d{2})([NS])(\d{3})(\d{2})(\d{2})([EW])/;
-  const c = t.match(new RegExp('CENTERED AT ' + CO.source));
-  if (!c) {
-    // the other form: a polygon, "AREA DEFINED AS: A TO B TO C …"
-    const a = t.match(/AREA DEFINED AS:?\s*(.+?)(?:[,.]\s*(?:SFC|FL|\d+FT)|\.\s|$)/);
-    if (!a) return null;
-    const poly = a[1].split(/\s+TO\s+/).map((x) => x.match(CO)).filter(Boolean).map(ll);
-    if (poly.length < 3) return null;
-    const lat = poly.reduce((u, q) => u + q[0], 0) / poly.length, lon = poly.reduce((u, q) => u + q[1], 0) / poly.length;
-    const alt = (t.match(/(SFC|\d+FT(?: AGL)?|FL\d+)-(UNL|FL\d+|\d+FT)/) || [])[0] || '';
-    return { lat, lon, tiers: [], poly, alt, name };
+  const alt = (t.match(/\b(SFC|GND|\d+FT(?: AGL| MSL)?|FL\d+)\s?-\s?(UNL|FL\d+|\d+FT(?: AGL| MSL)?)\b/) || [])[0] || '';
+  const a = t.match(/AREA DEFINED AS:?\s*/);
+  if (a) {
+    const rest = t.slice(a.index + a[0].length);
+    const stop = rest.search(/[,.]?\s(?:SFC|GND|FL\d+|\d+FT|AT AND BELOW|UP TO)|\.\s|\.$/);
+    const poly = Array.from((stop > 0 ? rest.slice(0, stop) : rest).matchAll(new RegExp(CO.source, 'g'))).map(coLL);
+    if (poly.length >= 3) {
+      return { kind: 'poly', poly, alt, name,
+               lat: poly.reduce((u, q) => u + q[0], 0) / poly.length, lon: poly.reduce((u, q) => u + q[1], 0) / poly.length };
+    }
   }
-  const [lat, lon] = ll(c);
-  const tiers = [];
-  const re = /(\d+)NM RADIUS(?: CENTERED AT \d{6}[NS]\d{7}[EW](?: \([^)]*\))?)? (?:AT )?(FL\d+(?:-UNL)?|\d+FT(?: AGL)?)/g;
-  let m;
-  while ((m = re.exec(t))) tiers.push([+m[1], m[2]]);
-  return { lat, lon, tiers, name };
+  const c = t.match(new RegExp('(?:(\\d+(?:\\.\\d+)?)\\s?NM(?:R\\b| RADIUS)\\b[^0-9]{0,40}?|CENTERED (?:AT|ON) )' + CO.source));
+  if (c) {
+    const [lat, lon] = coLL(c.slice(1));
+    const tiers = [];
+    const re = /(\d+)NM RADIUS(?: CENTERED AT \d{6}[NS]\d{7}[EW](?: \([^)]*\))?)? (?:AT )?(FL\d+(?:-UNL)?|\d+FT(?: AGL)?)/g;
+    let m;
+    while ((m = re.exec(t))) tiers.push([+m[1], m[2]]);
+    const r = tiers.length ? Math.max(...tiers.map((x) => x[0])) : c[1] ? +c[1] : 0;
+    if (r) return { kind: 'circle', lat, lon, r, tiers, alt, name };
+  }
+  const pt = t.match(CO);
+  if (pt) { const [lat, lon] = coLL(pt); return { kind: 'point', lat, lon, tiers: [], alt, name }; }
+  return null;
 }
+const gpsGeom = notamGeom;
 
 /* A point r nm from (lat, lon) on bearing brg° — for drawing a test's ring. */
 function dest(lat, lon, brg, nm) {
@@ -518,7 +484,7 @@ function drawGpsMap(c, rows) {
       const R = REGIONS.find((r) => r.test(t.lat, t.lon));
       if (!R) continue;
       const live = t.s && t.s <= t0;
-      const tiers = t.poly ? [[0, t.alt]] : t.tiers.length ? t.tiers : [[50, '']];
+      const tiers = t.poly ? [[0, t.alt]] : t.tiers.length ? t.tiers : [[t.r || 50, t.alt]];
       tiers.forEach(([nm], i) => {
         ctx.beginPath();
         const ring = t.poly || Array.from({ length: 61 }, (_, j) => dest(t.lat, t.lon, j * 6, nm));
@@ -545,6 +511,139 @@ function drawGpsMap(c, rows) {
     ctx.fillText(tests.size ? `${tests.size} test${tests.size === 1 ? '' : 's'} · rings = radius by altitude, or the area as written · orange in effect · blue dashed scheduled · click a centre to decode` : 'no test with a centre in the text', W - 6, H - 4);
   };
   S.draws.push(draw); draw();
+}
+
+/* ---------------------------------------------------------------------------
+   Map — Leaflet (vendored), dark CARTO base. One dot per facility with NOTAMs
+   in effect, sized and shaded by count (click → Browse); GPS interference
+   tests as their rings or area (orange in effect, dashed when scheduled);
+   TFRs as their circle or polygon (red). A NOTAM's `map` link draws that one
+   NOTAM's geometry — or its facility when the text carries none — and flies
+   to it.
+--------------------------------------------------------------------------- */
+
+const TFR_RED = '#e5484d';
+function mapLayers() {
+  return {
+    base: L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${SITE.basemap.cartoKey}`, {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>', subdomains: 'abcd', maxZoom: 19 }),
+    vfr: L.tileLayer('https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'FAA', opacity: 0.7, minNativeZoom: 8, maxNativeZoom: 12, maxZoom: 19 }),
+  };
+}
+
+/* One NOTAM's geometry as a Leaflet layer (a group: rings per tier, or the
+   polygon, or a dot). */
+function geomLayer(g, col, dashed, tip) {
+  const grp = L.layerGroup();
+  const st = (i, n) => ({ color: col, weight: i === n - 1 ? 1.6 : 1, opacity: i === n - 1 ? 0.9 : 0.35 + 0.5 * i / n,
+                          fill: i === n - 1, fillColor: col, fillOpacity: 0.1, dashArray: dashed ? '5 4' : null, interactive: !!tip });
+  const add = (l) => { if (tip) l.bindTooltip(tip, { sticky: true, direction: 'top' }); grp.addLayer(l); };
+  if (g.kind === 'poly') add(L.polygon(g.poly, st(0, 1)));
+  else if (g.kind === 'circle') {
+    const tiers = g.tiers.length ? g.tiers.map((x) => x[0]) : [g.r];
+    tiers.forEach((nm, i) => add(L.circle([g.lat, g.lon], { radius: nm * 1852, ...st(i, tiers.length) })));
+  } else add(L.circleMarker([g.lat, g.lon], { radius: 5, color: col, weight: 1.5, fillColor: col, fillOpacity: 0.5 }));
+  return grp;
+}
+
+const geomWords = (g) => g.kind === 'poly' ? `area of ${g.poly.length} points${g.alt ? ` · ${esc(g.alt)}` : ''}`
+  : g.kind === 'circle' ? (g.tiers.length ? g.tiers.map(([nm, l]) => `${nm} nm ${esc(l)}`).join(' · ') : `${g.r} nm radius${g.alt ? ` · ${esc(g.alt)}` : ''}`)
+  : `${g.lat.toFixed(4)}, ${g.lon.toFixed(4)}`;
+
+function buildMap(sum) {
+  const el = $('map');
+  if (!el || !window.L) return;
+  const tiles = mapLayers();
+  const map = L.map(el, { preferCanvas: true, worldCopyJump: false, zoomSnap: 0.5, layers: [tiles.base] });
+  const canvas = L.canvas({ padding: 0.4 });
+  map.fitBounds([[24.5, -125], [49.5, -66.5]]);
+  S.map = map;
+  S.lyr = { fac: L.layerGroup(), gps: L.layerGroup(), tfr: L.layerGroup(), pin: L.layerGroup(), vfr: tiles.vfr };
+  // facilities, small first so big dots sit on top
+  const pts = [];
+  for (const [lid, n] of Object.entries(sum.fac || {})) {
+    const loc = locFor(lid);
+    if (loc && loc.lat != null) pts.push({ lid, n, loc });
+  }
+  pts.sort((a, b) => a.n - b.n);
+  let placed = 0;
+  for (const p of pts) {
+    const col = p.n <= 2 ? RAMP[0] : p.n <= 5 ? RAMP[1] : p.n <= 15 ? RAMP[2] : p.n <= 40 ? RAMP[3] : RAMP[4];
+    const m = L.circleMarker([p.loc.lat, p.loc.lon], { renderer: canvas, radius: Math.min(14, 2 + 1.4 * Math.sqrt(p.n)),
+      color: p.n > 5 ? '#111' : col, weight: 1, fillColor: col, fillOpacity: 0.8 });
+    m.bindTooltip(`<b>${esc(p.loc.q)}</b> · ${esc(locLabel(p.loc))}<br>${fmtN(p.n)} in effect`, { sticky: true, direction: 'top' });
+    m.on('click', () => browseFacility(p.loc.q));
+    S.lyr.fac.addLayer(m); placed++;
+  }
+  const home = locFor(SITE.airport.id);
+  if (home && home.lat != null) S.lyr.fac.addLayer(L.circleMarker([home.lat, home.lon], { renderer: canvas, radius: 7, color: '#eee', weight: 1.2, fill: false, interactive: false }));
+  // GPS tests: ARTCC copies of one test share a centre and draw once
+  const t0 = now(), seen = new Set();
+  let ngps = 0;
+  for (const r of sum.gps || []) {
+    const g = notamGeom(r.raw);
+    if (!g || g.kind === 'point') continue;
+    const key = `${g.name}|${g.lat.toFixed(3)}|${g.lon.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key); ngps++;
+    const live = r.s && r.s <= t0;
+    const tip = `<b>${esc(g.name || r.id)}</b> · GPS${live ? '' : ' · scheduled'}<br>${geomWords(g)}<br>${r.s ? `${zt(r.s)} → ${r.p ? 'PERM' : r.e ? zt(r.e) : '?'}` : ''}`;
+    const l = geomLayer(g, ORANGE, !live, tip);
+    l.eachLayer((x) => x.on('click', () => decodeInto(r.raw)));
+    S.lyr.gps.addLayer(l);
+  }
+  let ntfr = 0;
+  for (const r of sum.tfr || []) {
+    const g = notamGeom(r.raw);
+    if (!g) continue;
+    ntfr++;
+    const what = (r.raw.match(/\.\.AIRSPACE ([^.]+?)\.\./) || [])[1] || '';
+    const tip = `<b>${esc(r.id)}</b> · TFR${what ? ` · ${esc(what)}` : ''}<br>${geomWords(g)}<br>${r.s ? `${zt(r.s)} → ${r.p ? 'PERM' : r.e ? zt(r.e) : '?'}` : ''}`;
+    const l = geomLayer(g, TFR_RED, false, tip);
+    l.eachLayer((x) => x.on('click', () => decodeInto(r.raw)));
+    S.lyr.tfr.addLayer(l);
+  }
+  S.lyr.fac.addTo(map); S.lyr.gps.addTo(map); S.lyr.tfr.addTo(map); S.lyr.pin.addTo(map);
+  // layer chips
+  const chips = [['fac', `facilities · ${fmtN(placed)}`, 'one dot per facility with NOTAMs in effect · size and shade by count · click to browse'],
+                 ['gps', `GPS tests · ${fmtN(ngps)}`, 'GPS interference tests, rings by altitude tier or the area as written · orange in effect · dashed scheduled · click to decode'],
+                 ['tfr', `TFRs · ${fmtN(ntfr)}`, 'TFRs whose text carries a radius or an area · red · click to decode'],
+                 ['vfr', 'sectional', 'FAA VFR sectional tiles, zoom 8 and in']];
+  $('map-chips').innerHTML = chips.map(([k, l, h]) => `<button class="chip${k === 'vfr' ? '' : ' on'}" data-l="${k}" title="${esc(h)}">${esc(l)}</button>`).join('');
+  $('map-chips').querySelectorAll('.chip').forEach((b) => {
+    b.onclick = () => { const l = S.lyr[b.dataset.l]; if (map.hasLayer(l)) map.removeLayer(l); else l.addTo(map); b.classList.toggle('on', map.hasLayer(l)); };
+  });
+  $('map-legend').innerHTML = RAMP.map((col, i) => `<span><i style="background:${col}"></i>${['1–2', '3–5', '6–15', '16–40', '41+'][i]}</span>`).join('') +
+    `<span><i style="background:${ORANGE}"></i>GPS test</span><span><i style="background:${TFR_RED}"></i>TFR</span>` +
+    `<span title="${esc(SITE.airport.id)}">○ ${esc(SITE.airport.id)}</span>${pts.length - placed ? `<span>${fmtN(pts.length - placed)} without a position</span>` : ''}`;
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
+/* A row's `map` link: the NOTAM's own geometry, or its facility. The clipped
+   raw in a summary list may end before the coordinates, so the whole text is
+   fetched when the clip carries none. */
+async function showOnMap(r) {
+  if (!S.map) return;
+  let g = notamGeom(r.raw);
+  if (!g && r.raw && r.raw.endsWith('…')) g = notamGeom(await fullRaw(r));
+  const loc = locFor(r.q || r.l);
+  if (!g && !(loc && loc.lat != null)) return;
+  S.lyr.pin.clearLayers();
+  const label = `<b>${esc(r.id)}</b>${g ? `<br>${geomWords(g)}` : loc ? `<br>${esc(loc.q)} · ${esc(locLabel(loc))}` : ''}`;
+  const l = g ? geomLayer(g, '#fff', false, label) : geomLayer({ kind: 'point', lat: loc.lat, lon: loc.lon }, '#fff', false, label);
+  S.lyr.pin.addLayer(l);
+  $('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const b = [];
+  l.eachLayer((x) => { if (x.getBounds) b.push(x.getBounds()); else if (x.getLatLng) b.push(L.latLngBounds(x.getLatLng(), x.getLatLng())); });
+  const bounds = b.reduce((u, x) => (u ? u.extend(x) : x), null);
+  if (!bounds) return;
+  setTimeout(() => {
+    S.map.stop();
+    if (g && g.kind !== 'point') S.map.fitBounds(bounds.pad(0.3), { animate: false });
+    else S.map.setView(bounds.getCenter(), g ? 11 : 10, { animate: false });
+    l.eachLayer((x) => { if (x.openTooltip) x.openTooltip(); });
+  }, 350);
 }
 
 /* ---------------------------------------------------------------------------
@@ -638,7 +737,7 @@ function ntRow(r, extra) {
     `<span class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="browse ${esc(r.l)}">${esc(r.l)}${loc ? ` · ${esc(locLabel(loc))}` : r.st && r.st !== NOSTATE ? ` · ${esc(r.st)}` : ''}</span>` +
     `<span class="when">${when}</span>${age ? `<span class="when">${esc(age)}</span>` : ''}` +
     (r.b ? '' : `<span class="when" title="first seen by the archive">seen ${zt(r.f)}</span>`) +
-    (extra || '') + `<span class="dec" title="decode">decode</span></div><pre class="raw${r.raw.endsWith('…') ? ' clip' : ''}"${r.raw.endsWith('…') ? ' title="click for the whole NOTAM"' : ''}>${esc(r.raw)}</pre></div>`;
+    (extra || '') + `<span class="dec" title="decode">decode</span>${(loc && loc.lat != null) || CO.test(r.raw) ? '<span class="mp" title="show on the map">map</span>' : ''}</div><pre class="raw${r.raw.endsWith('…') ? ' clip' : ''}"${r.raw.endsWith('…') ? ' title="click for the whole NOTAM"' : ''}>${esc(r.raw)}</pre></div>`;
 }
 
 function list(el, rows, extraFn, cap = 300) {
@@ -647,6 +746,7 @@ function list(el, rows, extraFn, cap = 300) {
   el.innerHTML = shown.map((r) => ntRow(r, extraFn ? extraFn(r) : '')).join('') +
     (rows.length > cap ? `<button class="more" data-cap="${cap}">show ${fmtN(Math.min(300, rows.length - cap))} more of ${fmtN(rows.length)}</button>` : '');
   el.querySelectorAll('.loc').forEach((x) => { x.onclick = () => browseFacility(x.dataset.q); });
+  el.querySelectorAll('.mp').forEach((x) => { x.onclick = () => { const nt = x.closest('.nt'); showOnMap(rows[[...el.querySelectorAll('.nt')].indexOf(nt)]); }; });
   el.querySelectorAll('.dec').forEach((x) => { x.onclick = async () => { const nt = x.closest('.nt'); const pre = nt.querySelector('pre.raw'); decodeInto(pre.classList.contains('clip') ? await fullRaw(rows[[...el.querySelectorAll('.nt')].indexOf(nt)]) : pre.textContent); }; });
   el.querySelectorAll('pre.raw.clip').forEach((pre) => { pre.onclick = async () => { const nt = pre.closest('.nt'); pre.textContent = await fullRaw(rows[[...el.querySelectorAll('.nt')].indexOf(nt)]); pre.classList.remove('clip'); pre.removeAttribute('title'); }; });
   const more = el.querySelector('.more');
@@ -885,7 +985,7 @@ async function main() {
   }
   renderTiles();
   renderCharts();
-  drawMap(sum.fac);
+  buildMap(sum);
   renderStates();
   renderLeaders();
   renderFolds();
@@ -1092,6 +1192,6 @@ function initDecode() {
   if (h.get('decode')) decodeInto(h.get('decode'));
 }
 
-window.NOTAM_DEBUG = Object.assign(window.NOTAM_DEBUG || {}, { decodeNotam, glossToken });
+window.NOTAM_DEBUG = Object.assign(window.NOTAM_DEBUG || {}, { decodeNotam, glossToken, notamGeom, showOnMap });
 
 main();

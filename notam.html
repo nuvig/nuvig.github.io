@@ -14,6 +14,7 @@
   <meta property="og:title" content="NOTAM Hub — jesselevine.net">
   <meta property="og:description" content="Every active US NOTAM, archived hourly and counted by type, place and age.">
   <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
   <link rel="stylesheet" href="css/main.css?v=3">
   <style>
     body { max-width: 1180px; }
@@ -61,12 +62,17 @@
 
     /* ---- map ---- */
     #map-wrap { position: relative; }
-    #map { display: block; width: 100%; cursor: crosshair; }
-    #map-hover {
-      position: absolute; pointer-events: none; display: none;
-      background: #111e; border: 1px solid #444; border-radius: 6px; padding: 5px 8px;
-      font-size: 12px; color: #ddd; white-space: nowrap; z-index: 3;
-    }
+    #map { height: 480px; border-radius: 8px; background: #111; border: 1px solid #2a2a2a; }
+    .map-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .leaflet-container { font-family: inherit; font-size: 12px; }
+    .leaflet-tooltip { background: #111e; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 5px 8px; box-shadow: none; }
+    .leaflet-tooltip-top:before { border-top-color: #444; }
+    .leaflet-bar a { background: #1a1a1a; color: #ccc; border-bottom-color: #333; }
+    .leaflet-bar a:hover { background: #2a2a2a; color: #fff; }
+    .leaflet-control-attribution { background: #0009; color: #777; }
+    .leaflet-control-attribution a { color: #8ab4f8; }
+    .nt-head .mp { color: #666; cursor: pointer; font-size: 11px; }
+    .nt-head .mp:hover { color: #8ab4f8; }
     .map-row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
     .map-row #map-wrap { flex: 1 1 560px; min-width: 0; }
     .map-row .side { flex: 0 0 260px; }
@@ -198,8 +204,6 @@
   <div class="card"><h2>Trend <span class="sub">per UTC day · first seen vs left the system</span></h2><canvas class="chart" id="c-trend" height="260"></canvas></div>
   <div class="card"><h2>Start hour <span class="sub">Z · NOTAMs that started in the last 7 days</span></h2><canvas class="chart" id="c-hour" height="150"></canvas></div>
 
-  </div>
-
   <details class="card fold" id="f-tfr"><summary>TFRs <span class="sub">FDC airspace · temporary flight restrictions</span><span class="n"></span></summary><div class="body"></div></details>
   <details class="card fold" id="f-gps"><summary>GPS interference <span class="sub">NAV GPS NOTAMs · tests drawn as rings, in effect or scheduled</span><span class="n"></span></summary><div class="body"></div></details>
   <details class="card fold" id="f-rwy"><summary>Runway closures <span class="sub">RWY … CLSD</span><span class="n"></span></summary><div class="body"></div></details>
@@ -217,9 +221,9 @@
   </div>
 
   <div class="card">
-    <h2>Where <span class="sub">one dot per facility with NOTAMs in effect · hover a dot · click to browse it</span></h2>
+    <h2>Where <span class="sub">facilities with NOTAMs in effect · GPS tests · TFRs · a listed NOTAM's <em>map</em> link flies to it</span></h2>
     <div class="map-row">
-      <div id="map-wrap"><canvas id="map" height="420"></canvas><div id="map-hover"></div>
+      <div id="map-wrap"><div class="map-chips" id="map-chips"></div><div id="map"></div>
         <div class="legend" id="map-legend"></div></div>
       <div class="side" id="states"></div>
     </div>
@@ -229,12 +233,14 @@
     <div class="card"><h2>Most NOTAMs <span class="sub">facility</span></h2><ol class="lst" id="top-fac"></ol></div>
     <div class="card"><h2>Oldest in effect</h2><ol class="lst" id="oldest"></ol></div>
     <div class="card"><h2>Longest scheduled</h2><ol class="lst" id="longest"></ol></div>
+  </div>
 
   <p class="foot" id="coverage"></p>
 
   <script src="js/site-config.js"></script>
+  <script src="js/vendor/leaflet.js"></script>
   <script src="js/notam-dict.js?v=2"></script>
-  <script src="js/notam.js?v=10"></script>
+  <script src="js/notam.js?v=11"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

@@ -599,10 +599,18 @@ concepts; to relink, add the tools.html card back.
   a class that is not a pill — D/MIL/INTL — becomes `S.browse.cls`). Deep links: `#q=KANP`,
   `#st=MD&hide=OBST,TWY` (old `k=` links still resolve).
   **Times are Z everywhere** — NOTAMs are written in UTC and the scope is the country, so
-  archive days are UTC days too (unlike `data/wx/`). The map is an Albers conic for the lower 48
-  with AK / HI / PR insets, one dot per facility with NOTAMs in effect sized by count — airport
-  density draws the coastline, so there is no boundary file; ARTCC and national NOTAMs (state
-  `--`) are a row in the state table, not dots. Charts are single-hue blue for magnitude; the
+  archive days are UTC days too (unlike `data/wx/`). **The map is Leaflet** (2026-09-12,
+  `buildMap()`, vendored `js/vendor/leaflet.js`, dark CARTO base via `SITE.basemap.cartoKey`,
+  FAA VFR sectional tiles as an off-by-default chip): one canvas-rendered dot per facility with
+  NOTAMs in effect, sized and shaded by count, click → Browse; a GPS-tests layer (orange, dashed
+  when scheduled) and a TFR layer (red) drawn from the NOTAM text by **`notamGeom()`** — polygon
+  `AREA DEFINED AS A TO B TO …`, circle `NNM RADIUS OF <coord>` / `CENTERED AT <coord>` (+ one
+  ring per GPS altitude tier), else the first `DDMMSS[.ss]N DDDMMSS[.ss]W` in the text (an
+  obstruction's own position). **Every listed NOTAM carries a `map` link** (`showOnMap()`): its
+  geometry in white, or its facility's dot when the text carries none, and the map jumps to it
+  (a clipped summary raw is fetched whole first). ARTCC and national NOTAMs (state `--`) are a
+  row in the state table, not dots. The old Albers canvas (`REGIONS`, `albers()`, `mapFrame()`)
+  survives only for the GPS fold's small overview map. Charts are single-hue blue for magnitude; the
   trend's two lines are `#3987e5` / `#d95926`, validated on the card surface (CVD ΔE 26.8, both
   ≥ 3:1) — one y-scale per lane, never two on one plot. The status bar prints the run's age, the
   locations answered, the source, and every warning the archiver wrote (`note`, a refused run,
@@ -613,7 +621,13 @@ concepts; to relink, add the tools.html card back.
   the polygon form `AREA DEFINED AS: A TO B TO …`; ARTCC copies of one test share a centre and
   draw once; orange = in effect, blue dashed = scheduled; click a centre → Decode. The
   archiver's `gps` list carries **scheduled** GPS-class records too (`s > now`) — the tests
-  are filed days ahead and were invisible while the list was in-effect only. **Decode card** (2026-09-11, `#dec-card`): paste a NOTAM or
+  are filed days ahead and were invisible while the list was in-effect only. **The NOTAM
+  archive is also a feed stream** (`feed.html` pill `notam`, 2026-09-12): one line per archive
+  run, read from the notam-data branch's `days/<UTC day>.json` (both UTC days a local day
+  touches; `notamRows()` in `feed.js`), stamped at the run, `N new (top keywords) · M gone
+  (expired, cancelled)`, size = the new records' text, expansion lists every id; today is read
+  even before the weather archive opens today's local day, and a new run (index `t` moved)
+  re-reads it on the live poll. **Decode card** (2026-09-11, `#dec-card`): paste a NOTAM or
   type one contraction and it reads back — header (accountability · number · location ·
   keyword · period, names from locations.json), the ICAO Q-line (`Q_SUBJ`/`Q_COND` tables,
   traffic/purpose/scope, B)/C) times), then every token with a hover gloss and a plain-words
