@@ -36,6 +36,7 @@
     .cat.cockpit   { --hue: #a78bfa; }  /* violet     */
     .cat.study     { --hue: #34d399; }  /* green      */
     .cat.fun       { --hue: #fb7185; }  /* rose       */
+    .cat.unfinished{ --hue: #8b8b8b; }  /* grey       */
 
     .cat > h2 {
       display: flex;
@@ -136,6 +137,39 @@
       .tool-grid .card:hover { transform: none; }
     }
 
+    .cat.unfinished { margin-top: 40px; }
+    .cat.unfinished summary {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      cursor: pointer;
+      list-style: none;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .cat.unfinished summary::-webkit-details-marker { display: none; }
+    .cat.unfinished summary::before {
+      content: "b8";
+      color: var(--hue);
+      font-size: 0.9rem;
+      transition: transform 0.15s;
+    }
+    .cat.unfinished[open] summary::before { transform: rotate(90deg); }
+    .cat.unfinished summary::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(to right, color-mix(in srgb, var(--hue) 45%, transparent), transparent);
+    }
+    .cat.unfinished summary:hover { color: #d0d0d0; }
+    .cat.unfinished .tool-grid { margin-top: 12px; }
+    @media (prefers-reduced-motion: reduce) {
+      .cat.unfinished summary::before { transition: none; }
+    }
+
     .tool-grid .card.soon {
       border-style: dashed;
       background: transparent;
@@ -155,17 +189,15 @@
         { "@type": "ListItem", "position": 1, "name": "KANP Weather Hub", "url": "https://jesselevine.net/weather.html" },
         { "@type": "ListItem", "position": 2, "name": "DC Forecast Discussion", "url": "https://jesselevine.net/discussion.html" },
         { "@type": "ListItem", "position": 3, "name": "Skew-T Explorer", "url": "https://jesselevine.net/skew-t.html" },
-        { "@type": "ListItem", "position": 4, "name": "METAR Sky", "url": "https://jesselevine.net/sky.html" },
-        { "@type": "ListItem", "position": 5, "name": "The Air Above", "url": "https://jesselevine.net/wx3d.html" },
-        { "@type": "ListItem", "position": 6, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
-        { "@type": "ListItem", "position": 7, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
-        { "@type": "ListItem", "position": 8, "name": "Pressure Systems", "url": "https://jesselevine.net/pressure.html" },
-        { "@type": "ListItem", "position": 9, "name": "Thunderstorm Lab", "url": "https://jesselevine.net/storm.html" },
-        { "@type": "ListItem", "position": 10, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
-        { "@type": "ListItem", "position": 11, "name": "The DC SFRA", "url": "https://jesselevine.net/sfra.html" },
-        { "@type": "ListItem", "position": 12, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" },
-        { "@type": "ListItem", "position": 13, "name": "Aircraft Compare", "url": "https://jesselevine.net/aircraft.html" },
-        { "@type": "ListItem", "position": 14, "name": "NOTAM Hub", "url": "https://jesselevine.net/notam.html" }
+        { "@type": "ListItem", "position": 4, "name": "The Air Above", "url": "https://jesselevine.net/wx3d.html" },
+        { "@type": "ListItem", "position": 5, "name": "Weather Almanac", "url": "https://jesselevine.net/almanac.html" },
+        { "@type": "ListItem", "position": 6, "name": "Air Lab", "url": "https://jesselevine.net/airlab.html" },
+        { "@type": "ListItem", "position": 7, "name": "Pressure Systems", "url": "https://jesselevine.net/pressure.html" },
+        { "@type": "ListItem", "position": 8, "name": "Thunderstorm Lab", "url": "https://jesselevine.net/storm.html" },
+        { "@type": "ListItem", "position": 9, "name": "Procedure Explorer", "url": "https://jesselevine.net/procedures.html" },
+        { "@type": "ListItem", "position": 10, "name": "NOTAM Hub", "url": "https://jesselevine.net/notam.html" },
+        { "@type": "ListItem", "position": 11, "name": "Aviation Knowledge Map", "url": "https://jesselevine.net/knowledge.html" },
+        { "@type": "ListItem", "position": 12, "name": "Aircraft Compare", "url": "https://jesselevine.net/aircraft.html" }
       ]
     }
   }
@@ -203,12 +235,6 @@
           <h3>🌡 Skew-T Explorer</h3>
           <p>Forecast soundings for any US airport on an interactive Skew-T log-p diagram, plus real SPC balloon soundings with explain-on-hover — CAPE, cloud bases, freezing level, and how balloon data becomes the forecast.</p>
           <span class="go">Open the explorer</span>
-        </a>
-
-        <a class="card tracker-link" href="/sky.html">
-          <h3>🌤 METAR Sky</h3>
-          <p>The current METAR drawn as a living scene — sun and moon where they really are, cloud decks at their reported bases, rain, snow, fog and lightning, a windsock flying the actual wind. Decode the raw report group by group, preview TAF periods, or paste any METAR and watch it painted.</p>
-          <span class="go">Open the sky</span>
         </a>
 
         <a class="card tracker-link" href="/wx3d.html">
@@ -257,12 +283,6 @@
           <span class="go">Open the explorer</span>
         </a>
 
-        <a class="card tracker-link" href="/sfra.html">
-          <h3>🛡 The DC SFRA</h3>
-          <p>Washington's Special Flight Rules Area, explained from inside the ring — the SFRA, FRZ and prohibited areas drawn to scale on a click-anywhere map, the rules in plain English, and a decision tree that walks any flight to its exact procedure.</p>
-          <span class="go">Open the explainer</span>
-        </a>
-
         <a class="card tracker-link" href="/notam.html">
           <h3>📋 NOTAM Hub</h3>
           <p>Every active NOTAM in the country, archived hourly and counted — by keyword, state, facility and age; runway closures, TFRs, GPS interference and permanent NOTAMs; what came in and what left today; and any facility's list on demand.</p>
@@ -286,6 +306,25 @@
           <span class="go">Open the table</span>
         </a>
       </div>
+    </section>
+
+    <section class="cat unfinished">
+      <details>
+        <summary>Unfinished projects</summary>
+        <div class="tool-grid">
+          <a class="card tracker-link" href="/sky.html">
+            <h3>🌤 METAR Sky</h3>
+            <p>The current METAR drawn as a living scene — sun and moon where they really are, cloud decks at their reported bases, rain, snow, fog and lightning, a windsock flying the actual wind. Decode the raw report group by group, preview TAF periods, or paste any METAR and watch it painted.</p>
+            <span class="go">Open the sky</span>
+          </a>
+
+          <a class="card tracker-link" href="/sfra.html">
+            <h3>🛡 The DC SFRA</h3>
+            <p>Washington's Special Flight Rules Area, explained from inside the ring — the SFRA, FRZ and prohibited areas drawn to scale on a click-anywhere map, the rules in plain English, and a decision tree that walks any flight to its exact procedure.</p>
+            <span class="go">Open the explainer</span>
+          </a>
+        </div>
+      </details>
     </section>
 
   </main>
