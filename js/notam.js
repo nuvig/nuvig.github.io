@@ -802,8 +802,6 @@ function glossToken(tok, prev) {
   if (bare === 'ASN' && tok.startsWith('(')) return 'aeronautical study number';
   if (DIRS[bare] && prev && /^\d/.test(prev)) return DIRS[bare];
   if (DIRS[prev] && /^[A-Z0-9]{3,4}$/.test(bare)) { const loc = locFor(bare); if (loc) return `of ${locLabel(loc)}`; }
-  if ((m = bare.match(/^RWY$/))) return DICT.RWY;
-  if ((m = bare.match(/^(\d{1,2}[LRC]?)(?:\/(\d{1,2}[LRC]?))?$/)) && prev === 'RWY') return m[2] ? `runways ${m[1]} and ${m[2]}` : `runway ${m[1]}`;
   if (DICT[bare]) return DICT[bare];
   if (bare.includes('/') && bare.split('/').every((p) => DICT[p])) return bare.split('/').map((p) => DICT[p]).join(' / ');
   if (bare.includes('-') && bare.split('-').every((p) => DICT[p])) return bare.split('-').map((p) => DICT[p]).join('–');
