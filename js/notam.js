@@ -496,7 +496,7 @@ function ntRow(r, extra) {
     `<span class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="browse ${esc(r.l)}">${esc(r.l)}${loc ? ` · ${esc(locLabel(loc))}` : r.st && r.st !== NOSTATE ? ` · ${esc(r.st)}` : ''}</span>` +
     `<span class="when">${when}</span>${age ? `<span class="when">${esc(age)}</span>` : ''}` +
     (r.b ? '' : `<span class="when" title="first seen by the archive">seen ${zt(r.f)}</span>`) +
-    (extra || '') + `</div><pre class="raw">${esc(r.raw)}</pre></div>`;
+    (extra || '') + `<span class="dec" title="decode">decode</span></div><pre class="raw">${esc(r.raw)}</pre></div>`;
 }
 
 function list(el, rows, extraFn, cap = 300) {
@@ -505,6 +505,7 @@ function list(el, rows, extraFn, cap = 300) {
   el.innerHTML = shown.map((r) => ntRow(r, extraFn ? extraFn(r) : '')).join('') +
     (rows.length > cap ? `<button class="more" data-cap="${cap}">show ${fmtN(Math.min(300, rows.length - cap))} more of ${fmtN(rows.length)}</button>` : '');
   el.querySelectorAll('.loc').forEach((x) => { x.onclick = () => browseFacility(x.dataset.q); });
+  el.querySelectorAll('.dec').forEach((x) => { x.onclick = () => decodeInto(x.closest('.nt').querySelector('pre.raw').textContent); });
   const more = el.querySelector('.more');
   if (more) more.onclick = () => list(el, rows, extraFn, cap + 300);
 }
@@ -708,8 +709,206 @@ async function main() {
   renderLocal();
   renderCoverage();
   initBrowse();
+  initDecode();
   let rt = null;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => S.draws.forEach((d) => d()), 150); });
 }
+
+/* ---------------------------------------------------------------------------
+   Decode — a NOTAM or a contraction typed in, read back in plain words.
+   Header (accountability · number · location · keyword), the period, every
+   contraction NOTAM_DICT knows, coordinates, altitudes, schedules and the
+   ICAO Q-line. Pure text → HTML; no fetch.
+--------------------------------------------------------------------------- */
+
+const DICT = window.NOTAM_DICT || {};
+const DIRS = { N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest',
+  NNE: 'north-northeast', ENE: 'east-northeast', ESE: 'east-southeast', SSE: 'south-southeast', SSW: 'south-southwest',
+  WSW: 'west-southwest', WNW: 'west-northwest', NNW: 'north-northwest' };
+const Q_SUBJ = { AA: 'minimum altitude', AC: 'class B/C/D surface area', AD: 'ADIZ', AE: 'control area', AF: 'flight information region', AH: 'upper control area',
+  AL: 'minimum usable flight level', AN: 'area navigation route', AO: 'oceanic control area', AP: 'reporting point', AR: 'ATS route', AT: 'class B airspace',
+  AU: 'upper flight information region', AV: 'upper advisory area', AX: 'intersection', AZ: 'aerodrome traffic zone',
+  CA: 'air/ground facility', CB: 'ADS-B', CC: 'ADS-C', CD: 'CPDLC', CE: 'en route surveillance radar', CG: 'GCA system', CL: 'selective calling system',
+  CM: 'surface movement radar', CP: 'precision approach radar', CR: 'surveillance radar', CS: 'secondary surveillance radar', CT: 'terminal area surveillance radar',
+  FA: 'aerodrome', FB: 'friction measuring device', FC: 'ceiling measurement equipment', FD: 'docking system', FE: 'oxygen', FF: 'firefighting and rescue',
+  FG: 'ground movement control', FH: 'helicopter alighting area', FL: 'landing direction indicator', FM: 'meteorological service', FP: 'heliport', FS: 'snow removal equipment',
+  FT: 'transmissometer', FU: 'fuel availability', FW: 'wind direction indicator', FZ: 'customs/immigration',
+  GA: 'GNSS airfield-specific operations', GW: 'GNSS area-wide operations', IC: 'ILS', ID: 'ILS DME', IG: 'glide path', II: 'inner marker', IL: 'localizer',
+  IM: 'middle marker', IO: 'outer marker', IS: 'ILS category I', IT: 'ILS category II', IU: 'ILS category III', IW: 'MLS', IX: 'locator, outer', IY: 'locator, middle',
+  LA: 'approach lighting system', LB: 'aerodrome beacon', LC: 'runway centre line lights', LD: 'landing direction indicator lights', LE: 'runway edge lights',
+  LF: 'sequenced flashing lights', LH: 'high intensity runway lights', LI: 'runway end identifier lights', LJ: 'runway alignment indicator lights', LK: 'category II components of ALS',
+  LL: 'low intensity runway lights', LM: 'medium intensity runway lights', LP: 'PAPI', LR: 'all landing area lighting facilities', LS: 'stopway lights', LT: 'threshold lights',
+  LU: 'helicopter approach path indicator', LV: 'VASIS', LW: 'heliport lighting', LX: 'taxiway centre line lights', LY: 'taxiway edge lights', LZ: 'runway touchdown zone lights',
+  MA: 'movement area', MB: 'bearing strength', MC: 'clearway', MD: 'declared distances', MG: 'taxiing guidance system', MH: 'runway arresting gear', MK: 'parking area',
+  MM: 'daylight markings', MN: 'apron', MO: 'stopbar', MP: 'aircraft stands', MR: 'runway', MS: 'stopway', MT: 'threshold', MU: 'runway turning bay', MW: 'strip/shoulder', MX: 'taxiway', MY: 'rapid exit taxiway',
+  NA: 'all radio navigation facilities', NB: 'nondirectional radio beacon', NC: 'DECCA', ND: 'DME', NF: 'fan marker', NL: 'locator', NM: 'VOR/DME', NN: 'TACAN', NO: 'OMEGA', NT: 'VORTAC', NV: 'VOR', NX: 'direction finding station',
+  OA: 'aeronautical information service', OB: 'obstacle', OE: 'aircraft entry requirements', OL: 'obstacle lights', OR: 'rescue coordination centre',
+  PA: 'standard instrument arrival', PB: 'standard VFR arrival', PC: 'contingency procedures', PD: 'standard instrument departure', PE: 'standard VFR departure', PF: 'flow control procedure',
+  PH: 'holding procedure', PI: 'instrument approach procedure', PK: 'VFR approach procedure', PL: 'flight plan processing', PM: 'aerodrome operating minima', PN: 'noise operating restriction',
+  PO: 'obstacle clearance altitude and height', PR: 'radio failure procedure', PT: 'transition altitude or level', PU: 'missed approach procedure', PX: 'minimum holding altitude', PZ: 'ADIZ procedure',
+  RA: 'airspace reservation', RD: 'danger area', RM: 'military operating area', RO: 'overflying', RP: 'prohibited area', RR: 'restricted area', RT: 'temporary restricted area',
+  SA: 'automatic terminal information service', SB: 'ATS reporting office', SC: 'area control centre', SE: 'flight information service', SF: 'aerodrome flight information service',
+  SL: 'flow control centre', SO: 'oceanic area control centre', SP: 'approach control service', SS: 'flight service station', ST: 'aerodrome control tower', SU: 'upper area control centre', SV: 'VOLMET broadcast', SY: 'upper advisory service',
+  WA: 'air display', WB: 'aerobatics', WC: 'captive balloon or kite', WD: 'demolition of explosives', WE: 'exercises', WF: 'air refueling', WG: 'glider flying', WH: 'blasting', WJ: 'banner/target towing',
+  WL: 'ascent of free balloon', WM: 'missile, gun or rocket firing', WP: 'parachute jumping', WR: 'radioactive materials', WS: 'burning or blowing gas', WT: 'mass movement of aircraft', WU: 'unmanned aircraft', WV: 'formation flight', WW: 'significant volcanic activity', WZ: 'model flying',
+  XX: 'other' };
+const Q_COND = { AC: 'withdrawn for maintenance', AD: 'available for daylight operation', AF: 'flight checked and found reliable', AG: 'operating but ground checked only', AH: 'hours of service changed',
+  AK: 'resumed normal operations', AL: 'operative subject to previously published limitations', AM: 'military operations only', AN: 'available for night operation', AO: 'operational',
+  AP: 'available, prior permission required', AR: 'available on request', AS: 'unserviceable', AU: 'not available', AW: 'completely withdrawn', AX: 'previously promulgated shutdown cancelled',
+  CA: 'activated', CC: 'completed', CD: 'deactivated', CE: 'erected', CF: 'operating frequency changed', CG: 'downgraded', CH: 'changed', CI: 'identification changed', CL: 'realigned', CM: 'displaced',
+  CN: 'cancelled', CO: 'operating', CP: 'operating on reduced power', CR: 'temporarily replaced by', CS: 'installed', CT: 'on test, do not use',
+  HA: 'braking action', HB: 'friction coefficient', HC: 'covered by compacted snow', HD: 'covered by dry snow', HE: 'covered by water', HF: 'totally free of snow and ice', HG: 'grass cutting in progress',
+  HH: 'hazard', HI: 'covered by ice', HJ: 'launch planned', HK: 'migration in progress', HL: 'snow clearance completed', HM: 'marked', HN: 'covered by wet snow or slush', HO: 'obscured by snow',
+  HP: 'snow clearance in progress', HQ: 'operation cancelled', HR: 'standing water', HS: 'sanded', HT: 'approach according to signal area only', HU: 'launch in progress', HV: 'work completed',
+  HW: 'work in progress', HX: 'concentration of birds', HY: 'snow banks exist', HZ: 'covered by frozen ruts and ridges',
+  LA: 'operating on auxiliary power', LB: 'reserved for aircraft with special requirements', LC: 'closed', LD: 'unsafe', LE: 'operating without auxiliary power', LF: 'interference from',
+  LG: 'operating without identification', LH: 'unserviceable for aircraft heavier than', LI: 'closed to IFR operations', LK: 'operating as a fixed light', LL: 'usable for length and width',
+  LN: 'closed to all night operations', LP: 'prohibited to', LR: 'aircraft restrictions', LS: 'subject to interruption', LT: 'limited to', LV: 'closed to VFR operations', LW: 'will take place', LX: 'operating but caution advised',
+  TT: 'trigger NOTAM', XX: 'plain language' };
+
+function q10(s) {   // YYMMDDHHMM -> epoch
+  const y = 2000 + +s.slice(0, 2), mo = +s.slice(2, 4) - 1, d = +s.slice(4, 6), h = +s.slice(6, 8), mi = +s.slice(8, 10);
+  const t = Date.UTC(y, mo, d, h, mi) / 1000;
+  return Number.isFinite(t) && mo >= 0 && mo < 12 && d >= 1 && d <= 31 && h < 24 && mi < 60 ? t : null;
+}
+function coordDec(lat, ns, lon, ew) {
+  const dms = (s, dd) => { const deg = +s.slice(0, dd), min = +s.slice(dd, dd + 2), sec = +(s.slice(dd + 2) || 0); return deg + min / 60 + sec / 3600; };
+  const la = dms(lat, 2) * (ns === 'S' ? -1 : 1), lo = dms(lon, 3) * (ew === 'W' ? -1 : 1);
+  return `${Math.abs(la).toFixed(4)}°${la < 0 ? 'S' : 'N'} ${Math.abs(lo).toFixed(4)}°${lo < 0 ? 'W' : 'E'}`;
+}
+function hhmm(s) { return `${s.slice(0, 2)}:${s.slice(2)}Z`; }
+
+/* one token -> {text, gloss|null}. The gloss is what the tooltip and the plain line say. */
+function glossToken(tok, prev) {
+  const bare = tok.replace(/^[(\[]+|[.,;:)\]]+$/g, '');
+  if (!bare) return null;
+  let m;
+  if ((m = bare.match(/^(\d{10})-(\d{10}|PERM)(EST)?$/))) {
+    const a = q10(m[1]), b = m[2] === 'PERM' ? null : q10(m[2]);
+    return `${a ? zt(a, true) : m[1]} → ${b ? zt(b, true) : m[2]}${m[3] ? ' (estimated end)' : ''}${a && b ? ` · ${span(b - a)}` : ''}`;
+  }
+  if ((m = bare.match(/^(\d{6}(?:\.\d+)?)([NS])(\d{7}(?:\.\d+)?)([EW])$/))) return coordDec(m[1], m[2], m[3], m[4]);
+  if ((m = bare.match(/^(\d{4})([NS])(\d{5})([EW])$/))) return coordDec(m[1], m[2], m[3], m[4]);
+  if ((m = bare.match(/^(\d{4})-(\d{4})$/)) && +m[1] < 2400 && +m[2] < 2400) return `${hhmm(m[1])}–${hhmm(m[2])}`;
+  if ((m = bare.match(/^(SFC|GND|\d+FT|FL\d{3})-(UNL|\d+FT|FL\d{3})$/))) return `${altWord(m[1])} to ${altWord(m[2])}`;
+  if ((m = bare.match(/^FL(\d{3})$/))) return `flight level ${m[1]} (${(+m[1] * 100).toLocaleString('en-US')} ft pressure altitude)`;
+  if ((m = bare.match(/^(\d+(?:\.\d+)?)(NM|SM|FT|KT|KTS|MPH)$/))) return `${m[1]} ${DICT[m[2]] || m[2]}`;
+  if ((m = bare.match(/^(\d{1,2})\/(\d{3,4})$/)) && prev && /^!?[A-Z0-9]{2,8}$/.test(prev)) return `NOTAM number: ${+m[1] === 0 ? '' : `month ${+m[1]}, `}sequence ${m[2]}`;
+  if ((m = bare.match(/^([A-Z])(\d{4})\/(\d{2})$/))) return `ICAO series ${m[1]} NOTAM ${+m[2]} of 20${m[3]}`;
+  if ((m = bare.match(/^(\d{3})(?:\.\d+)?$/)) && prev && /RADIAL|R-|BRG|CRS|HDG/.test(prev)) return `${bare}°`;
+  if (/^[A-Z]{2}\.\.$/.test(bare)) return `state: ${bare.slice(0, 2)}`;
+  if ((m = bare.match(/^(NOTAM)([NRC])$/))) return DICT[bare] || null;
+  if (bare === 'ASR' && tok.startsWith('(')) return 'antenna structure registration number';
+  if (bare === 'ASN' && tok.startsWith('(')) return 'aeronautical study number';
+  if (DIRS[bare] && prev && /^\d/.test(prev)) return DIRS[bare];
+  if (DIRS[prev] && /^[A-Z0-9]{3,4}$/.test(bare)) { const loc = locFor(bare); if (loc) return `of ${locLabel(loc)}`; }
+  if ((m = bare.match(/^RWY$/))) return DICT.RWY;
+  if ((m = bare.match(/^(\d{1,2}[LRC]?)(?:\/(\d{1,2}[LRC]?))?$/)) && prev === 'RWY') return m[2] ? `runways ${m[1]} and ${m[2]}` : `runway ${m[1]}`;
+  if (DICT[bare]) return DICT[bare];
+  if (bare.includes('/') && bare.split('/').every((p) => DICT[p])) return bare.split('/').map((p) => DICT[p]).join(' / ');
+  if (bare.includes('-') && bare.split('-').every((p) => DICT[p])) return bare.split('-').map((p) => DICT[p]).join('–');
+  return null;
+}
+function altWord(s) {
+  if (s === 'SFC' || s === 'GND') return 'the surface';
+  if (s === 'UNL') return 'unlimited';
+  const m = s.match(/^FL(\d{3})$/);
+  if (m) return `FL${m[1]}`;
+  return s.replace(/FT$/, ' ft');
+}
+
+function decodeNotam(text) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  const out = { header: [], tokens: [], plain: '' };
+  if (!t) return out;
+  let body = t;
+  let m;
+  // ICAO format: A1234/26 NOTAMN Q) ... A) ... B) ... C) ... E) ...
+  if ((m = t.match(/^([A-Z]\d{4}\/\d{2})\s+NOTAM([NRC])(?:\s+([A-Z]\d{4}\/\d{2}))?/))) {
+    out.header.push(['number', `${m[1]} · ICAO series ${m[1][0]}`]);
+    out.header.push(['type', { N: 'new', R: `replaces ${m[3] || '?'}`, C: `cancels ${m[3] || '?'}` }[m[2]]]);
+    const q = t.match(/\bQ\)\s*([A-Z]{4})\/Q([A-Z]{2})([A-Z]{2})\/([IV]+)\/([NBOM]+)\/([AEWK]+)\/(\d{3})\/(\d{3})\/(\d{4}[NS]\d{5}[EW])(\d{3})?/);
+    if (q) {
+      out.header.push(['FIR', q[1]]);
+      out.header.push(['Q code', `Q${q[2]}${q[3]} · ${Q_SUBJ[q[2]] || q[2]} · ${Q_COND[q[3]] || q[3]}`]);
+      out.header.push(['traffic', { I: 'IFR', V: 'VFR', IV: 'IFR and VFR' }[q[4]] || q[4]]);
+      out.header.push(['purpose', q[5].split('').map((c) => ({ N: 'immediate attention', B: 'briefing', O: 'flight operations', M: 'miscellaneous' }[c] || c)).join(', ')]);
+      out.header.push(['scope', q[6].split('').map((c) => ({ A: 'aerodrome', E: 'en route', W: 'navigation warning', K: 'checklist' }[c] || c)).join(', ')]);
+      out.header.push(['levels', `FL${q[7]} to FL${q[8]}`]);
+      out.header.push(['centre', coordDec(q[9].slice(0, 4), q[9][4], q[9].slice(5, 10), q[9][10]) + (q[10] ? ` · ${+q[10]} nm radius` : '')]);
+    }
+    const A = t.match(/\bA\)\s*([A-Z0-9 ]+?)\s+(?=[B-G]\))/); if (A) out.header.push(['location', A[1].trim().split(' ').map((l) => { const loc = locFor(l); return loc ? `${l} · ${locLabel(loc)}` : l; }).join(', ')]);
+    const B = t.match(/\bB\)\s*(\d{10})/); const C = t.match(/\bC\)\s*(\d{10}|PERM)(\s*EST)?/);
+    if (B) out.header.push(['from', zt(q10(B[1]), true)]);
+    if (C) out.header.push(['to', C[1] === 'PERM' ? 'permanent' : `${zt(q10(C[1]), true)}${C[2] ? ' (estimated)' : ''}${B ? ` · ${span(q10(C[1]) - q10(B[1]))}` : ''}`]);
+    const D = t.match(/\bD\)\s*(.+?)\s+(?=E\))/); if (D) out.header.push(['schedule', D[1]]);
+    const F = t.match(/\bF\)\s*(.+?)\s+(?=G\))/); const G = t.match(/\bG\)\s*(.+?)$/);
+    if (F || G) out.header.push(['limits', `${F ? F[1] : '?'} to ${G ? G[1] : '?'}`]);
+    const E = t.match(/\bE\)\s*([\s\S]*?)(?=\s+[FG]\)|$)/); body = E ? E[1] : t;
+  } else if ((m = t.match(/^!\s*([A-Z0-9]{2,8})\s+(\d{1,2}\/\d{3,4}|[A-Z]\d{4}\/\d{2})\s+([A-Z0-9]{2,5})\s+([\s\S]*)$/))) {
+    const acct = locFor(m[1]);
+    out.header.push(['accountability', `${m[1]}${acct ? ` · ${locLabel(acct)}` : m[1] === 'FDC' ? ' · Flight Data Center' : m[1] === 'GPS' ? ' · GPS NOTAM' : ''}`]);
+    const mn = m[2].match(/^(\d{1,2})\/(\d{3,4})$/);
+    out.header.push(['number', mn ? `${m[2]} · month ${+mn[1]}, sequence ${mn[2]}` : m[2]]);
+    const loc = locFor(m[3]);
+    out.header.push(['location', `${m[3]}${loc ? ` · ${locLabel(loc)}` : ''}`]);
+    body = m[4];
+    const st = body.match(/^([A-Z]{2})\.\.\s*/); if (st) { out.header.push(['state', st[1]]); body = body.slice(st[0].length); }
+    const kw = body.split(' ')[0].replace(/[.,]$/, '');
+    if (KW_HELP[kw] || DICT[kw]) out.header.push(['keyword', `${kw} · ${KW_HELP[kw] || DICT[kw]}`]);
+    const per = body.match(/(\d{10})\s*-\s*(\d{10}|PERM)\s*(EST)?\b/g);
+    if (per) { const g = glossToken(per[per.length - 1].replace(/\s+/g, ''), ''); out.header.push(['period', g]); }
+    if (/TEMPORARY FLIGHT RESTRICTION/.test(body)) out.header.push(['class', 'TFR']);
+  }
+  // tokens
+  const words = body.split(' ');
+  let prev = '';
+  let plain = [];
+  for (const w of words) {
+    const g = glossToken(w, prev);
+    out.tokens.push({ t: w, g });
+    const lead = (w.match(/^[(\[]+/) || [''])[0], trail = (w.match(/[.,;:)\]]+$/) || [''])[0];
+    plain.push(g ? lead + g + trail : w);
+    prev = w.replace(/[.,;:]+$/, '');
+  }
+  out.plain = plain.join(' ');
+  return out;
+}
+
+function renderDecode(text) {
+  const box = $('dec-out');
+  const single = text.trim().split(/\s+/).length === 1;
+  const d = decodeNotam(text);
+  if (!d.tokens.length) { box.innerHTML = ''; return; }
+  if (single) {
+    const g = d.tokens[0].g;
+    box.innerHTML = g ? `<div class="dec-one"><b>${esc(d.tokens[0].t)}</b> → ${esc(g)}</div>` :
+      `<div class="dec-one"><b>${esc(d.tokens[0].t)}</b> → not in the contraction list</div>`;
+    return;
+  }
+  const known = d.tokens.filter((x) => x.g).length;
+  box.innerHTML =
+    (d.header.length ? `<dl class="dec-head">${d.header.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : '') +
+    `<p class="dec-tok">${d.tokens.map((x) => x.g ? `<span class="g" title="${esc(x.g)}">${esc(x.t)}</span>` : esc(x.t)).join(' ')}</p>` +
+    `<p class="dec-plain">${esc(d.plain)}</p>` +
+    `<p class="dec-n">${known} of ${d.tokens.length} words decoded · hover a word</p>`;
+}
+
+function decodeInto(text) {
+  $('dec-in').value = text;
+  renderDecode(text);
+  $('dec-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function initDecode() {
+  const ta = $('dec-in');
+  let timer = null;
+  ta.oninput = () => { clearTimeout(timer); timer = setTimeout(() => renderDecode(ta.value), 250); };
+  $('dec-ex').onclick = () => decodeInto('!DCA 09/198 ANP OBST TOWER LGT (ASR 1037031) 385814.00N0763026.00W (3.3NM ENE ANP) 282.2FT (262.5FT AGL) U/S 2609060058-2610210057');
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  if (h.get('decode')) decodeInto(h.get('decode'));
+}
+
+window.NOTAM_DEBUG = Object.assign(window.NOTAM_DEBUG || {}, { decodeNotam, glossToken });
 
 main();

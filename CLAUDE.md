@@ -595,7 +595,16 @@ concepts; to relink, add the tools.html card back.
   trend's two lines are `#3987e5` / `#d95926`, validated on the card surface (CVD ΔE 26.8, both
   ≥ 3:1) — one y-scale per lane, never two on one plot. The status bar prints the run's age, the
   locations answered, the source, and every warning the archiver wrote (`note`, a refused run,
-  a stale run > 4 h). Page copy is label → value; `window.NOTAM_DEBUG` for headless checks.
+  a stale run > 4 h). **Decode card** (2026-09-11, `#dec-card`, last card): paste a NOTAM or
+  type one contraction and it reads back — header (accountability · number · location ·
+  keyword · period, names from locations.json), the ICAO Q-line (`Q_SUBJ`/`Q_COND` tables,
+  traffic/purpose/scope, B)/C) times), then every token with a hover gloss and a plain-words
+  line; coordinates → decimal degrees, `SFC-2000FT`/`FL` bands, `DLY HHMM-HHMM`, `3.3NM ENE ANP`
+  → "3.3 nautical miles east-northeast of Lee". The contraction list is `js/notam-dict.js`
+  (`NOTAM_DICT`, ~750 entries from JO 7340.2 — plain English words are deliberately absent so
+  only real contractions are underlined). Every listed NOTAM carries a `decode` link into it;
+  `#decode=<text>` deep-links. Page copy is label → value; `window.NOTAM_DEBUG` (`decodeNotam`,
+  `glossToken`) for headless checks.
 - `scripts/notamarchive.py` + `.github/workflows/notamarchive.yml` — the archiver, hourly at :48
   (stdlib; `NOTAM_*` env knobs at the top of the script). **Sources, in order** (`NOTAM_SOURCES`,
   default `nms,nsearch,dins`): **(0) the FAA NMS API** — the NOTAM Management

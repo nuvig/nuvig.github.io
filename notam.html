@@ -133,6 +133,20 @@
     }
     #q { width: 240px; }
     #q:focus, #st:focus { outline: none; border-color: #4a9eff; }
+    #dec-in { width: 100%; box-sizing: border-box; background: #121212; color: #ddd; border: 1px solid #2c2c2c; border-radius: 6px;
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; padding: 8px 10px; resize: vertical; }
+    #dec-in:focus { outline: none; border-color: #4a9eff; }
+    #dec-card h2 .chip { margin-left: auto; }
+    .dec-head { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 10px 0 0; font-size: 12.5px; }
+    .dec-head dt { color: #777; }
+    .dec-head dd { margin: 0; color: #ddd; font-variant-numeric: tabular-nums; }
+    .dec-tok { margin: 10px 0 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.7; color: #bbb; white-space: pre-wrap; word-break: break-word; }
+    .dec-tok .g { color: #e0e0e0; border-bottom: 1px dotted #4a9eff; cursor: help; }
+    .dec-plain { margin: 10px 0 0; font-size: 13.5px; color: #ccc; line-height: 1.5; }
+    .dec-one { margin: 10px 0 0; font-size: 14px; color: #ddd; }
+    .dec-n { margin: 8px 0 0; font-size: 11px; color: #666; }
+    .nt-head .dec { color: #666; cursor: pointer; font-size: 11px; margin-left: auto; }
+    .nt-head .dec:hover { color: #8ab4f8; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; }
     .chip {
       background: #161616; color: #666; border: 1px solid #2c2c2c; font-family: inherit;
@@ -210,10 +224,17 @@
     <div id="results"><p class="empty">type a facility id, pick a state, or click a dot on the map</p></div>
   </div>
 
+  <div class="card" id="dec-card">
+    <h2>Decode <span class="sub">a NOTAM or a contraction</span><button class="chip" id="dec-ex" type="button">example</button></h2>
+    <textarea id="dec-in" rows="3" placeholder="!DCA 09/198 ANP OBST TOWER LGT … U/S 2609060058-2610210057 · or one word: PAEW" spellcheck="false" aria-label="NOTAM text to decode"></textarea>
+    <div id="dec-out"></div>
+  </div>
+
   <p class="foot" id="coverage"></p>
 
   <script src="js/site-config.js"></script>
-  <script src="js/notam.js?v=1"></script>
+  <script src="js/notam-dict.js?v=1"></script>
+  <script src="js/notam.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>
