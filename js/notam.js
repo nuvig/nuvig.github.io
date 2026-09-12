@@ -529,12 +529,13 @@ function renderLeaders() {
   }).join('');
   $('top-fac').querySelectorAll('a').forEach((a) => { a.onclick = () => browseFacility(a.dataset.q); });
   const clip = (raw, n = 150) => (raw.length > n ? `${raw.slice(0, n - 1)}…` : raw);
-  const where = (r) => { const loc = locFor(r.q || r.l); return `<a class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="browse ${esc(r.l)}">${esc(r.l)}${loc ? ` · ${esc(locLabel(loc))}` : ''}</a>`; };
+  const where = (r) => { const loc = locFor(r.q || r.l); return `<a class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="${esc(loc ? locLabel(loc) : r.l)}">${esc(r.l)}</a>`; };
+  const acct = (r) => { const a = r.id.split(' ')[0]; const loc = locFor(a); return `<b title="${esc(loc ? `${a} · ${locLabel(loc)}` : a === 'FDC' ? 'FDC · Flight Data Center' : a)}">${esc(r.id)}</b>`; };
   const text = (r) => `<span class="m txt" title="${r.raw.length > 150 ? 'click for the whole NOTAM' : ''}">${esc(clip(r.raw))}</span>`;
   $('oldest').innerHTML = s.oldest.slice(0, 12).map((r, i) =>
-    `<li data-i="${i}"><b>${esc(r.id)}</b> <span class="m">${where(r)} · since ${zd(r.s)} · ${span(t - r.s)}${r.p ? ' · PERM' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
+    `<li data-i="${i}">${acct(r)} <span class="m">${where(r)} · since ${zd(r.s)} · ${span(t - r.s)}${r.p ? ' · PERM' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
   $('longest').innerHTML = s.longest.slice(0, 12).map((r, i) =>
-    `<li data-i="${i}"><b>${esc(r.id)}</b> <span class="m">${where(r)} · ${span(r.e - r.s)} · ${zd(r.s)} → ${zd(r.e)}${r.x ? ' EST' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
+    `<li data-i="${i}">${acct(r)} <span class="m">${where(r)} · ${span(r.e - r.s)} · ${zd(r.s)} → ${zd(r.e)}${r.x ? ' EST' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
   for (const [id, rows] of [['oldest', s.oldest], ['longest', s.longest]]) {
     $(id).querySelectorAll('a.loc').forEach((a) => { a.onclick = () => browseFacility(a.dataset.q); });
     $(id).querySelectorAll('li .txt').forEach((el) => { el.onclick = () => expandText(el, rows[+el.closest('li').dataset.i]); });
