@@ -87,6 +87,7 @@
   }
   const col = (r, c) => r[S.ix[c]];
   const stOf = r => (S.apts[col(r, 'apt')] || [])[1] || '';
+  const stLabel = st => st === 'XX' ? 'Pacific' : st;   // the d-TPP files Guam, Saipan, Pago Pago… under XX
   const nameOf = apt => (S.apts[apt] || [])[0] || apt;
 
   // ---------------------------------------------------------------- filters
@@ -123,7 +124,7 @@
     { l: 'Shortest finals', t: 'FAF → MAP', f: { type: 'APP' }, sort: ['fd', 1] },
   ];
   function initFilters() {
-    $('nf-st').innerHTML = '<option value="">All states</option>' + S.states.map(s => `<option>${s}</option>`).join('');
+    $('nf-st').innerHTML = '<option value="">All states</option>' + S.states.map(s => `<option value="${s}">${esc(stLabel(s))}</option>`).join('');
     $('cf-st').innerHTML = $('nf-st').innerHTML;
     $('nat-presets').innerHTML = PRESETS.map((p, i) => `<button data-i="${i}" title="${esc(p.t)}">${esc(p.l)}</button>`).join('');
     $('nat-presets').addEventListener('click', e => {
@@ -230,7 +231,7 @@
   function barsTable(el, entries, total, cur, onClick) {
     const max = Math.max(1, ...entries.map(e => e[1]));
     el.innerHTML = entries.map(([k, n]) =>
-      `<tr data-k="${esc(k)}" class="${k === cur ? 'on' : ''}"><td>${esc(k)}</td><td class="n">${fmtN(n)}</td>` +
+      `<tr data-k="${esc(k)}" class="${k === cur ? 'on' : ''}"><td>${esc(stLabel(k))}</td><td class="n">${fmtN(n)}</td>` +
       `<td class="n" style="color:#666">${(100 * n / total).toFixed(0)}%</td><td class="b"><i style="width:${(100 * n / max).toFixed(1)}%"></i></td></tr>`).join('');
     el.onclick = e => { const tr = e.target.closest('tr'); if (tr) onClick(tr.dataset.k === cur ? '' : tr.dataset.k); };
   }
@@ -279,29 +280,38 @@
     };
   }
 
-  // ---- map: Albers conic for the lower 48, insets for AK · HI · PR — same
-  // construction as notam.js; airport density draws the coastline itself
-  const RAD = Math.PI / 180;
-  function albers(lat, lon, p1, p2, p0, l0) {
-    const φ = lat * RAD, λ = lon * RAD, φ1 = p1 * RAD, φ2 = p2 * RAD, φ0 = p0 * RAD, λ0 = l0 * RAD;
-    const n = (Math.sin(φ1) + Math.sin(φ2)) / 2;
-    const C = Math.cos(φ1) ** 2 + 2 * n * Math.sin(φ1);
-    const ρ = Math.sqrt(C - 2 * n * Math.sin(φ)) / n, ρ0 = Math.sqrt(C - 2 * n * Math.sin(φ0)) / n;
-    const θ = n * (λ - λ0);
-    return [ρ * Math.sin(θ), ρ0 - ρ * Math.cos(θ)];
+  // ---- map: Leaflet on the explorer's dark basemap, one dot per airport in
+  // the filter (canvas renderer — thousands of markers), every other airport
+  // as a faint ground so an empty filter still reads as the country
+  let nmap = null, dotLayer = null, groundLayer = null;
+  const CONUS = L.latLngBounds([24.3, -125.2], [49.6, -66.5]);
+  function ensureMap() {
+    if (nmap) return nmap;
+    nmap = L.map('nat-map', { zoomControl: true, preferCanvas: true, worldCopyJump: true, attributionControl: false,
+      zoomSnap: 0.25, zoomDelta: 0.5 });   // fractional zoom so the country fills the box
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + SITE.basemap.cartoKey,
+      { attribution: '© OpenStreetMap © CARTO', maxZoom: 12 }).addTo(nmap);
+    L.control.attribution({ prefix: false }).addTo(nmap);
+    const renderer = L.canvas({ padding: 0.3 });
+    groundLayer = L.layerGroup().addTo(nmap);
+    for (const a of Object.values(S.apts)) {
+      if (a[2] == null) continue;
+      L.circleMarker([a[2], a[3]], { renderer, radius: 1.2, stroke: false, fillColor: '#4a4a4a', fillOpacity: 0.9, interactive: false }).addTo(groundLayer);
+    }
+    dotLayer = L.layerGroup().addTo(nmap);
+    nmap.fitBounds(CONUS);
+    // dot radius follows the zoom: a whole-country view is thousands of pinpricks,
+    // a state view gets the count-sized dots
+    nmap.on('zoomend', () => {
+      const k = Math.pow(1.35, nmap.getZoom() - 5);
+      dotLayer.eachLayer(mk => mk.setRadius(Math.max(1.2, Math.min(16, mk.options.baseR * k))));
+    });
+    return nmap;
   }
-  const REGIONS = [
-    { name: 'conus', test: (la, lo) => la > 24 && la < 50 && lo > -125.5 && lo < -66, proj: (la, lo) => albers(la, lo, 29.5, 45.5, 23, -96),
-      box: [[24.5, -124.8], [49.4, -66.9], [31, -117], [29, -81], [47, -68], [25.5, -80.5]], frame: [0.02, 0.02, 0.98, 0.94] },
-    { name: 'ak', test: (la, lo) => la >= 50 && lo < -125, proj: (la, lo) => albers(la, lo, 55, 65, 50, -154),
-      box: [[51, -179], [71.5, -130], [55, -165], [60, -141]], frame: [0.02, 0.62, 0.24, 0.98] },
-    { name: 'hi', test: (la, lo) => la > 18 && la < 23 && lo < -154 && lo > -161, proj: (la, lo) => albers(la, lo, 8, 18, 13, -157),
-      box: [[18.8, -160.4], [22.4, -154.7]], frame: [0.27, 0.78, 0.4, 0.98] },
-    { name: 'pr', test: (la, lo) => la > 17 && la < 19 && lo > -68 && lo < -64, proj: (la, lo) => albers(la, lo, 8, 18, 13, -66),
-      box: [[17.8, -67.4], [18.6, -64.4]], frame: [0.78, 0.86, 0.9, 0.98] },
-  ];
   function renderMap() {
-    const c = $('nat-map');
+    const m = ensureMap();
+    const renderer = L.canvas({ padding: 0.3 });
+    dotLayer.clearLayers();
     const perApt = new Map();
     for (const r of S.hits) perApt.set(col(r, 'apt'), (perApt.get(col(r, 'apt')) || 0) + 1);
     const pts = [];
@@ -310,54 +320,29 @@
       pts.push({ apt, n, lat: a[2], lon: a[3] });
     }
     pts.sort((a, b) => a.n - b.n);
-    const draw = () => {
-      const H = Math.max(280, Math.min(460, Math.round((c.clientWidth || 600) * 0.6)));
-      const { ctx, W } = setup(c, H);
-      for (const R of REGIONS) {
-        const pr = R.box.map(([la, lo]) => R.proj(la, lo));
-        const xs = pr.map(p => p[0]), ys = pr.map(p => p[1]);
-        const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
-        const fx0 = R.frame[0] * W, fy0 = R.frame[1] * H, fw = (R.frame[2] - R.frame[0]) * W, fh = (R.frame[3] - R.frame[1]) * H;
-        const k = Math.min(fw / (maxx - minx), fh / (maxy - miny));
-        const ox = fx0 + (fw - k * (maxx - minx)) / 2, oy = fy0 + (fh - k * (maxy - miny)) / 2;
-        R.toXY = (la, lo) => { const [x, y] = R.proj(la, lo); return [ox + (x - minx) * k, oy + (maxy - y) * k]; };
-        if (R.name !== 'conus') {
-          ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1;
-          ctx.strokeRect(fx0 + 0.5, fy0 + 0.5, fw - 1, fh - 1);
-          ctx.fillStyle = '#555'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-          ctx.fillText(R.name.toUpperCase(), fx0 + 5, fy0 + 4);
-        }
-      }
-      // every airport in the country as a faint ground, so an empty filter still reads as a map
-      ctx.fillStyle = '#242424';
-      for (const [apt, a] of Object.entries(S.apts)) {
-        if (a[2] == null || perApt.has(apt)) continue;
-        const R = REGIONS.find(r => r.test(a[2], a[3])); if (!R) continue;
-        const [x, y] = R.toXY(a[2], a[3]);
-        ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
-      }
-      const hits = [];
-      let placed = 0;
-      // dot size follows the count, shrunk when the filter is wide enough to flood the map
-      const sc = Math.max(0.35, Math.min(1, Math.sqrt(250 / Math.max(1, pts.length))));
-      for (const p of pts) {
-        const R = REGIONS.find(r => r.test(p.lat, p.lon)); if (!R) continue;
-        const [x, y] = R.toXY(p.lat, p.lon);
-        const r = Math.max(1.2, Math.min(14, (1.6 + 1.4 * Math.sqrt(p.n)) * sc));
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = p.n <= 1 ? RAMP[1] : p.n <= 3 ? RAMP[2] : p.n <= 10 ? RAMP[3] : RAMP[4];
-        ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-        if (p.n > 3) { ctx.globalAlpha = 1; ctx.strokeStyle = '#111'; ctx.lineWidth = 1; ctx.stroke(); }
-        const hr = Math.max(r, 5);
-        hits.push({ x: x - hr, y: y - hr, w: hr * 2, h: hr * 2, p, click: () => openInExplorer(p.apt) });
-        placed++;
-      }
-      ctx.globalAlpha = 1;
-      hits.reverse();
-      hover(c, hits, h => `<b>${esc(h.p.apt)}</b> · ${esc(nameOf(h.p.apt))}<br>${fmtN(h.p.n)} matching · click to open`);
-      $('map-sub').textContent = `${fmtN(placed)} airports${pts.length - placed ? ` · ${pts.length - placed} off-frame` : ''}`;
-    };
-    S.draws[0] = draw; draw();
+    // dot size follows the count, shrunk when the filter is wide enough to flood the map
+    const sc = Math.max(0.4, Math.min(1, Math.sqrt(250 / Math.max(1, pts.length))));
+    const bounds = L.latLngBounds([]);
+    for (const p of pts) bounds.extend([p.lat, p.lon]);
+    if (pts.length) {
+      // the whole country (or anything reaching Alaska / Hawaii / the Caribbean) frames the lower 48
+      const wide = bounds.getWest() < -130 || bounds.getEast() > -60 || bounds.getSouth() < 17 || !bounds.isValid();
+      m.invalidateSize();
+      m.fitBounds(wide ? CONUS : bounds.pad(0.15), { maxZoom: 8, animate: false });
+    }
+    for (const p of pts) {
+      const r = Math.max(1.5, Math.min(14, (2 + 1.6 * Math.sqrt(p.n)) * sc));
+      const col = p.n <= 1 ? RAMP[2] : p.n <= 3 ? RAMP[3] : RAMP[4];
+      const k = Math.pow(1.35, m.getZoom() - 5);
+      const mk = L.circleMarker([p.lat, p.lon], { renderer, radius: Math.max(1.2, Math.min(16, r * k)), baseR: r,
+        fillColor: col, fillOpacity: 0.85, color: '#111', weight: p.n > 3 ? 1 : 0 });
+      mk.bindTooltip(`<b>${esc(p.apt)}</b> · ${esc(nameOf(p.apt))}<br>${fmtN(p.n)} matching · click to open`, { direction: 'top', opacity: 0.95 });
+      mk.on('click', () => openInExplorer(p.apt));
+      mk.addTo(dotLayer);
+    }
+    $('map-sub').textContent = `${fmtN(pts.length)} airports`;
+    S.draws[0] = () => m.invalidateSize();
+    setTimeout(() => m.invalidateSize(), 0);
   }
 
   // ---- histogram
@@ -428,7 +413,7 @@
 
   // ---- table
   const COLS = [
-    { k: 'apt', l: 'Airport', w: r => `<span class="apt">${esc(col(r, 'apt'))}</span><span class="st">${esc(stOf(r))}</span> <span style="color:#777">${esc(nameOf(col(r, 'apt')))}</span>`, s: r => col(r, 'apt') },
+    { k: 'apt', l: 'Airport', w: r => `<span class="apt">${esc(col(r, 'apt'))}</span><span class="st">${esc(stLabel(stOf(r)))}</span> <span style="color:#777">${esc(nameOf(col(r, 'apt')))}</span>`, s: r => col(r, 'apt') },
     { k: 'name', l: 'Procedure', w: r => esc(col(r, 'name')) + (col(r, 'co') ? '<span class="co">plate only</span>' : ''), s: r => col(r, 'name') },
     { k: 'kind', l: 'Kind', w: r => esc(col(r, 'kind')), s: r => col(r, 'kind') },
     { k: 'nt', l: 'Trans', num: true, w: r => fmtN(col(r, 'nt')) },

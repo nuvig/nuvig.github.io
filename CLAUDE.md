@@ -393,7 +393,8 @@ field contacts, and doesn't care).
   procedure in the country queried at once from `data/procedures/metrics.json`
   (type · kind · state · text · RF / DME-arc / procedure-turn / hold-in-lieu / circling-only /
   missed-ends-in-hold / plate-only flags · VPA ≥ · SID climb ≥ · STAR descent ≥, plus presets),
-  with stat tiles, an Albers dot map (same construction as `notam.js`), by-kind / by-state bars
+  with stat tiles, a zoomable Leaflet dot map on the explorer's dark basemap (was an Albers canvas
+  for a day — Jesse: too big, and the PR inset sat on Florida), by-kind / by-state bars
   that filter on click, a one-measure histogram (VPA, FAF→MAP, FAF altitude, missed climb-to,
   SID climb, STAR descent, top constraint, length, transitions, legs, fixes — single hue, dashed
   median), a sortable table and the most-shared fixes; **This cycle** — `changes.json`, the diff

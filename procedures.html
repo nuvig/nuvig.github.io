@@ -285,8 +285,12 @@
     .presets button.on { background:#1d3352; border-color:#4a9eff; color:#fff; }
     #nat-count { font-size:13px; color:#999; margin-top:8px; }
     #nat-count b { color:#ddd; font-weight:600; }
-    .two { display:grid; grid-template-columns:3fr 2fr; gap:12px; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     .two canvas { width:100%; display:block; }
+    .two > .box:first-child { display:flex; flex-direction:column; }
+    #nat-map { flex:1; min-height:340px; border-radius:6px; background:#0d0d0d; }
+    #nat-map .leaflet-tooltip { background:#0f1215; border:1px solid #3a4553; color:#ddd; font-size:12px; }
+    #nat-map .leaflet-tooltip-top:before { border-top-color:#3a4553; }
     .bars { font-size:12.5px; width:100%; border-collapse:collapse; }
     .bars td { padding:2px 6px 2px 0; color:#aaa; white-space:nowrap; vertical-align:middle; }
     .bars td.n { text-align:right; color:#ddd; font-variant-numeric:tabular-nums; }
@@ -384,7 +388,7 @@
     <div class="two">
       <div class="box">
         <h2>Where <small id="map-sub"></small></h2>
-        <canvas id="nat-map"></canvas>
+        <div id="nat-map"></div>
       </div>
       <div class="box">
         <h2>By kind <small>click to filter</small></h2>
@@ -534,7 +538,7 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/site-config.js"></script>
   <script src="js/procedures.js?v=10"></script>
-  <script src="js/procedures-national.js?v=1"></script>
+  <script src="js/procedures-national.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>
