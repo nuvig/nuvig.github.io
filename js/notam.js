@@ -496,7 +496,7 @@ function ntRow(r, extra) {
     `<span class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="browse ${esc(r.l)}">${esc(r.l)}${loc ? ` · ${esc(locLabel(loc))}` : r.st && r.st !== NOSTATE ? ` · ${esc(r.st)}` : ''}</span>` +
     `<span class="when">${when}</span>${age ? `<span class="when">${esc(age)}</span>` : ''}` +
     (r.b ? '' : `<span class="when" title="first seen by the archive">seen ${zt(r.f)}</span>`) +
-    (extra || '') + `<span class="dec" title="decode">decode</span></div><pre class="raw">${esc(r.raw)}</pre></div>`;
+    (extra || '') + `<span class="dec" title="decode">decode</span></div><pre class="raw${r.raw.endsWith('…') ? ' clip' : ''}"${r.raw.endsWith('…') ? ' title="click for the whole NOTAM"' : ''}>${esc(r.raw)}</pre></div>`;
 }
 
 function list(el, rows, extraFn, cap = 300) {
@@ -505,7 +505,8 @@ function list(el, rows, extraFn, cap = 300) {
   el.innerHTML = shown.map((r) => ntRow(r, extraFn ? extraFn(r) : '')).join('') +
     (rows.length > cap ? `<button class="more" data-cap="${cap}">show ${fmtN(Math.min(300, rows.length - cap))} more of ${fmtN(rows.length)}</button>` : '');
   el.querySelectorAll('.loc').forEach((x) => { x.onclick = () => browseFacility(x.dataset.q); });
-  el.querySelectorAll('.dec').forEach((x) => { x.onclick = () => decodeInto(x.closest('.nt').querySelector('pre.raw').textContent); });
+  el.querySelectorAll('.dec').forEach((x) => { x.onclick = async () => { const nt = x.closest('.nt'); const pre = nt.querySelector('pre.raw'); decodeInto(pre.classList.contains('clip') ? await fullRaw(rows[[...el.querySelectorAll('.nt')].indexOf(nt)]) : pre.textContent); }; });
+  el.querySelectorAll('pre.raw.clip').forEach((pre) => { pre.onclick = async () => { const nt = pre.closest('.nt'); pre.textContent = await fullRaw(rows[[...el.querySelectorAll('.nt')].indexOf(nt)]); pre.classList.remove('clip'); pre.removeAttribute('title'); }; });
   const more = el.querySelector('.more');
   if (more) more.onclick = () => list(el, rows, extraFn, cap + 300);
 }
@@ -528,10 +529,33 @@ function renderLeaders() {
   }).join('');
   $('top-fac').querySelectorAll('a').forEach((a) => { a.onclick = () => browseFacility(a.dataset.q); });
   const clip = (raw, n = 150) => (raw.length > n ? `${raw.slice(0, n - 1)}…` : raw);
-  $('oldest').innerHTML = s.oldest.slice(0, 12).map((r) =>
-    `<li><b>${esc(r.id)}</b> <span class="m">${esc(r.l)} · since ${zd(r.s)} · ${span(t - r.s)}${r.p ? ' · PERM' : ''}</span><br><span class="m">${esc(clip(r.raw))}</span></li>`).join('') || '<li class="m">none</li>';
-  $('longest').innerHTML = s.longest.slice(0, 12).map((r) =>
-    `<li><b>${esc(r.id)}</b> <span class="m">${esc(r.l)} · ${span(r.e - r.s)} · ${zd(r.s)} → ${zd(r.e)}${r.x ? ' EST' : ''}</span><br><span class="m">${esc(clip(r.raw))}</span></li>`).join('') || '<li class="m">none</li>';
+  const where = (r) => { const loc = locFor(r.q || r.l); return `<a class="loc" data-q="${esc(loc ? loc.q : r.l)}" title="browse ${esc(r.l)}">${esc(r.l)}${loc ? ` · ${esc(locLabel(loc))}` : ''}</a>`; };
+  const text = (r) => `<span class="m txt" title="${r.raw.length > 150 ? 'click for the whole NOTAM' : ''}">${esc(clip(r.raw))}</span>`;
+  $('oldest').innerHTML = s.oldest.slice(0, 12).map((r, i) =>
+    `<li data-i="${i}"><b>${esc(r.id)}</b> <span class="m">${where(r)} · since ${zd(r.s)} · ${span(t - r.s)}${r.p ? ' · PERM' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
+  $('longest').innerHTML = s.longest.slice(0, 12).map((r, i) =>
+    `<li data-i="${i}"><b>${esc(r.id)}</b> <span class="m">${where(r)} · ${span(r.e - r.s)} · ${zd(r.s)} → ${zd(r.e)}${r.x ? ' EST' : ''}</span><br>${text(r)}</li>`).join('') || '<li class="m">none</li>';
+  for (const [id, rows] of [['oldest', s.oldest], ['longest', s.longest]]) {
+    $(id).querySelectorAll('a.loc').forEach((a) => { a.onclick = () => browseFacility(a.dataset.q); });
+    $(id).querySelectorAll('li .txt').forEach((el) => { el.onclick = () => expandText(el, rows[+el.closest('li').dataset.i]); });
+  }
+}
+
+/* The summary carries a clipped raw (300–400 chars); the whole NOTAM lives in
+   its state file. Click → fetch it once, swap the clip for the full text and
+   a decode link. */
+async function fullRaw(r) {
+  const rows = await stateFile(r.st || NOSTATE);
+  const hit = (rows || []).find((x) => x.id === r.id);
+  return hit ? hit.raw : r.raw;
+}
+async function expandText(el, r) {
+  if (el.dataset.full) return;
+  el.dataset.full = '1';
+  const raw = await fullRaw(r);
+  const pre = document.createElement('pre'); pre.className = 'raw'; pre.textContent = raw;
+  const dec = document.createElement('span'); dec.className = 'dec'; dec.textContent = 'decode'; dec.onclick = () => decodeInto(raw);
+  el.replaceWith(pre); pre.after(dec);
 }
 
 function renderFolds() {
