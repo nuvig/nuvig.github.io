@@ -398,22 +398,7 @@ function drawMap(fac) {
   const draw = () => {
     const H = Math.max(300, Math.min(520, Math.round((c.clientWidth || 600) * 0.62)));
     const { ctx, W } = setup(c, H);
-    // per-region affine from the projected box corners to the frame
-    for (const R of REGIONS) {
-      const pr = R.box.map(([la, lo]) => R.proj(la, lo));
-      const xs = pr.map((p) => p[0]), ys = pr.map((p) => p[1]);
-      const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
-      const fx0 = R.frame[0] * W, fy0 = R.frame[1] * H, fw = (R.frame[2] - R.frame[0]) * W, fh = (R.frame[3] - R.frame[1]) * H;
-      const k = Math.min(fw / (maxx - minx), fh / (maxy - miny));
-      const ox = fx0 + (fw - k * (maxx - minx)) / 2, oy = fy0 + (fh - k * (maxy - miny)) / 2;
-      R.toXY = (la, lo) => { const [x, y] = R.proj(la, lo); return [ox + (x - minx) * k, oy + (maxy - y) * k]; };
-      if (R.name !== 'conus') {
-        ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1;
-        ctx.strokeRect(fx0 + 0.5, fy0 + 0.5, fw - 1, fh - 1);
-        ctx.fillStyle = '#555'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText(R.name.toUpperCase(), fx0 + 5, fy0 + 4);
-      }
-    }
+    mapFrame(ctx, W, H);
     const hits = [];
     let placed = 0;
     for (const p of pts) {
@@ -444,6 +429,120 @@ function drawMap(fac) {
     $('map-legend').innerHTML = RAMP.map((col, i) => `<span><i style="background:${col}"></i>${['1–2', '3–5', '6–15', '16–40', '41+'][i]}</span>`).join('') +
       `<span>${fmtN(placed)} facilities drawn${off ? ` · ${fmtN(off)} off-frame` : ''}</span>` +
       `<span title="${esc(SITE.airport.id)}">○ ${esc(SITE.airport.id)}</span>`;
+  };
+  S.draws.push(draw); draw();
+}
+
+/* Per-region affine from the projected box corners to the frame; sets
+   R.toXY for every region and draws the inset boxes. */
+function mapFrame(ctx, W, H) {
+  for (const R of REGIONS) {
+    const pr = R.box.map(([la, lo]) => R.proj(la, lo));
+    const xs = pr.map((p) => p[0]), ys = pr.map((p) => p[1]);
+    const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+    const fx0 = R.frame[0] * W, fy0 = R.frame[1] * H, fw = (R.frame[2] - R.frame[0]) * W, fh = (R.frame[3] - R.frame[1]) * H;
+    const k = Math.min(fw / (maxx - minx), fh / (maxy - miny));
+    const ox = fx0 + (fw - k * (maxx - minx)) / 2, oy = fy0 + (fh - k * (maxy - miny)) / 2;
+    R.toXY = (la, lo) => { const [x, y] = R.proj(la, lo); return [ox + (x - minx) * k, oy + (maxy - y) * k]; };
+    if (R.name !== 'conus') {
+      ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1;
+      ctx.strokeRect(fx0 + 0.5, fy0 + 0.5, fw - 1, fh - 1);
+      ctx.fillStyle = '#555'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(R.name.toUpperCase(), fx0 + 5, fy0 + 4);
+    }
+  }
+}
+
+/* GPS interference test geometry out of the NOTAM text: the centre and each
+   radius tier ("379NM RADIUS … FL400-UNL, 342NM RADIUS AT FL250, …"). */
+function gpsGeom(raw) {
+  const t = raw.replace(/\s+/g, ' ');
+  const name = (t.match(/NAV GPS \(([^)]+)\)/) || [])[1] || '';
+  const ll = (m) => [(+m[1] + m[2] / 60 + m[3] / 3600) * (m[4] === 'S' ? -1 : 1), (+m[5] + m[6] / 60 + m[7] / 3600) * (m[8] === 'W' ? -1 : 1)];
+  const CO = /(\d{2})(\d{2})(\d{2})([NS])(\d{3})(\d{2})(\d{2})([EW])/;
+  const c = t.match(new RegExp('CENTERED AT ' + CO.source));
+  if (!c) {
+    // the other form: a polygon, "AREA DEFINED AS: A TO B TO C …"
+    const a = t.match(/AREA DEFINED AS:?\s*(.+?)(?:[,.]\s*(?:SFC|FL|\d+FT)|\.\s|$)/);
+    if (!a) return null;
+    const poly = a[1].split(/\s+TO\s+/).map((x) => x.match(CO)).filter(Boolean).map(ll);
+    if (poly.length < 3) return null;
+    const lat = poly.reduce((u, q) => u + q[0], 0) / poly.length, lon = poly.reduce((u, q) => u + q[1], 0) / poly.length;
+    const alt = (t.match(/(SFC|\d+FT(?: AGL)?|FL\d+)-(UNL|FL\d+|\d+FT)/) || [])[0] || '';
+    return { lat, lon, tiers: [], poly, alt, name };
+  }
+  const [lat, lon] = ll(c);
+  const tiers = [];
+  const re = /(\d+)NM RADIUS(?: CENTERED AT \d{6}[NS]\d{7}[EW](?: \([^)]*\))?)? (?:AT )?(FL\d+(?:-UNL)?|\d+FT(?: AGL)?)/g;
+  let m;
+  while ((m = re.exec(t))) tiers.push([+m[1], m[2]]);
+  return { lat, lon, tiers, name };
+}
+
+/* A point r nm from (lat, lon) on bearing brg° — for drawing a test's ring. */
+function dest(lat, lon, brg, nm) {
+  const d = nm / 3440.065, la1 = lat * RAD, b = brg * RAD;
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+  const lo2 = lon * RAD + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return [la2 / RAD, lo2 / RAD];
+}
+
+/* The GPS fold's map: every facility as a faint dot for the coastline, then
+   one set of rings per test (its ARTCC copies share a centre and draw once) —
+   the widest tier faint, the lowest solid. */
+function drawGpsMap(c, rows) {
+  const tests = new Map();
+  for (const r of rows) {
+    const g = gpsGeom(r.raw);
+    if (!g) continue;
+    const key = `${g.name}|${g.lat.toFixed(3)}|${g.lon.toFixed(3)}`;
+    const t = tests.get(key) || { ...g, ids: [], s: r.s, e: r.e, p: r.p, raw: r.raw };
+    t.ids.push(r.l);
+    tests.set(key, t);
+  }
+  const draw = () => {
+    const H = Math.max(240, Math.min(420, Math.round((c.clientWidth || 600) * 0.55)));
+    const { ctx, W } = setup(c, H);
+    mapFrame(ctx, W, H);
+    ctx.fillStyle = '#2e2e2e';
+    for (const lid of Object.keys(S.sum.fac || {})) {
+      const loc = locFor(lid);
+      if (!loc || loc.lat == null) continue;
+      const R = REGIONS.find((r) => r.test(loc.lat, loc.lon));
+      if (!R) continue;
+      const [x, y] = R.toXY(loc.lat, loc.lon);
+      ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
+    }
+    const hits = [], t0 = now();
+    for (const t of tests.values()) {
+      const R = REGIONS.find((r) => r.test(t.lat, t.lon));
+      if (!R) continue;
+      const live = t.s && t.s <= t0;
+      const tiers = t.poly ? [[0, t.alt]] : t.tiers.length ? t.tiers : [[50, '']];
+      tiers.forEach(([nm], i) => {
+        ctx.beginPath();
+        const ring = t.poly || Array.from({ length: 61 }, (_, j) => dest(t.lat, t.lon, j * 6, nm));
+        ring.forEach(([la, lo], j) => { const [x, y] = R.toXY(la, lo); if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.closePath();
+        const last = i === tiers.length - 1;
+        ctx.globalAlpha = last ? 0.9 : 0.25 + 0.5 * i / tiers.length;
+        ctx.strokeStyle = live ? ORANGE : BLUE; ctx.lineWidth = last ? 1.5 : 1;
+        if (!live) ctx.setLineDash([4, 3]);
+        ctx.stroke(); ctx.setLineDash([]);
+        if (last) { ctx.globalAlpha = 0.12; ctx.fillStyle = live ? ORANGE : BLUE; ctx.fill(); }
+      });
+      ctx.globalAlpha = 1;
+      const [x, y] = R.toXY(t.lat, t.lon);
+      ctx.fillStyle = live ? ORANGE : BLUE;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ccc'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.name, x + 6, y);
+      hits.push({ x: x - 10, y: y - 10, w: 20, h: 20, t, click: () => decodeInto(t.raw) });
+    }
+    hover(c, hits, (h) => `<b>${esc(h.t.name)}</b> · ${h.t.ids.join(' ')}<br>${h.t.lat.toFixed(2)}, ${h.t.lon.toFixed(2)}` +
+      `${h.t.poly ? `<br>area of ${h.t.poly.length} points · ${esc(h.t.alt)}` : h.t.tiers.map(([nm, l]) => `<br>${nm} nm ${esc(l)}`).join('')}<br>${h.t.s ? `${zt(h.t.s)} → ${h.t.p ? 'PERM' : h.t.e ? zt(h.t.e) : '?'}` : ''}${h.t.s && h.t.s > t0 ? ' · scheduled' : ''}`);
+    ctx.fillStyle = '#777'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(tests.size ? `${tests.size} test${tests.size === 1 ? '' : 's'} · rings = radius by altitude, or the area as written · orange in effect · blue dashed scheduled · click a centre to decode` : 'no test with a centre in the text', W - 6, H - 4);
   };
   S.draws.push(draw); draw();
 }
@@ -554,12 +653,12 @@ function list(el, rows, extraFn, cap = 300) {
   if (more) more.onclick = () => list(el, rows, extraFn, cap + 300);
 }
 
-function renderFold(id, rows, extraFn, pre) {
+function renderFold(id, rows, extraFn, pre, after) {
   const d = $(id);
   d.querySelector('summary .n').textContent = fmtN(rows.length);
   const body = d.querySelector('.body');
   let done = false;
-  const fill = () => { if (done) return; done = true; body.innerHTML = pre || ''; const holder = document.createElement('div'); body.appendChild(holder); list(holder, rows, extraFn); };
+  const fill = () => { if (done) return; done = true; body.innerHTML = pre || ''; const holder = document.createElement('div'); body.appendChild(holder); list(holder, rows, extraFn); if (after) after(body); };
   d.addEventListener('toggle', () => { if (d.open) fill(); });
   if (d.open) fill();
 }
@@ -605,7 +704,9 @@ async function expandText(el, r) {
 function renderFolds() {
   const s = S.sum;
   renderFold('f-tfr', s.tfr || []);
-  renderFold('f-gps', s.gps || []);
+  const gps = s.gps || [];
+  renderFold('f-gps', gps, null, gps.some((r) => gpsGeom(r.raw)) ? '<canvas class="chart" id="gps-map" height="300" style="margin-bottom:10px"></canvas>' : '',
+    (body) => { const c = body.querySelector('#gps-map'); if (c) drawGpsMap(c, gps); });
   const rb = Object.entries(s.rwy_clsd.by_st || {}).filter(([st]) => st !== NOSTATE).sort((a, b) => b[1] - a[1]).slice(0, 12);
   const pre = rb.length ? `<table class="t" style="max-width:360px;margin-bottom:8px"><tbody>${rb.map(([st, n]) =>
     `<tr><td>${esc(st)}</td><td class="r"><span class="bar" style="width:${Math.round(80 * n / rb[0][1])}px"></span>${fmtN(n)}</td></tr>`).join('')}</tbody></table>` +

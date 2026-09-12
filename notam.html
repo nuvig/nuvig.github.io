@@ -198,14 +198,10 @@
   <div class="card"><h2>Trend <span class="sub">per UTC day · first seen vs left the system</span></h2><canvas class="chart" id="c-trend" height="260"></canvas></div>
   <div class="card"><h2>Start hour <span class="sub">Z · NOTAMs that started in the last 7 days</span></h2><canvas class="chart" id="c-hour" height="150"></canvas></div>
 
-  <div class="grid3">
-    <div class="card"><h2>Most NOTAMs <span class="sub">facility</span></h2><ol class="lst" id="top-fac"></ol></div>
-    <div class="card"><h2>Oldest in effect</h2><ol class="lst" id="oldest"></ol></div>
-    <div class="card"><h2>Longest scheduled</h2><ol class="lst" id="longest"></ol></div>
   </div>
 
   <details class="card fold" id="f-tfr"><summary>TFRs <span class="sub">FDC airspace · temporary flight restrictions</span><span class="n"></span></summary><div class="body"></div></details>
-  <details class="card fold" id="f-gps"><summary>GPS interference <span class="sub">NAV GPS NOTAMs</span><span class="n"></span></summary><div class="body"></div></details>
+  <details class="card fold" id="f-gps"><summary>GPS interference <span class="sub">NAV GPS NOTAMs · tests drawn as rings, in effect or scheduled</span><span class="n"></span></summary><div class="body"></div></details>
   <details class="card fold" id="f-rwy"><summary>Runway closures <span class="sub">RWY … CLSD</span><span class="n"></span></summary><div class="body"></div></details>
   <details class="card fold" id="f-ad"><summary>Airports closed <span class="sub">AD AP CLSD</span><span class="n"></span></summary><div class="body"></div></details>
   <details class="card fold" id="f-exp"><summary>Ending in 24 h<span class="n"></span></summary><div class="body"></div></details>
@@ -229,11 +225,16 @@
     </div>
   </div>
 
+  <div class="grid3">
+    <div class="card"><h2>Most NOTAMs <span class="sub">facility</span></h2><ol class="lst" id="top-fac"></ol></div>
+    <div class="card"><h2>Oldest in effect</h2><ol class="lst" id="oldest"></ol></div>
+    <div class="card"><h2>Longest scheduled</h2><ol class="lst" id="longest"></ol></div>
+
   <p class="foot" id="coverage"></p>
 
   <script src="js/site-config.js"></script>
   <script src="js/notam-dict.js?v=2"></script>
-  <script src="js/notam.js?v=9"></script>
+  <script src="js/notam.js?v=10"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

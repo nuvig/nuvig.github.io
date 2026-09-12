@@ -592,7 +592,7 @@ concepts; to relink, add the tools.html card back.
   card · coverage line); `current/<ST>.json` files are fetched only when a visitor browses or
   searches (a facility id resolves to its state through locations.json; a text search with no
   state loads every state file and says so). **Layout (2026-09-11, Jesse's order): tiles →
-  Browse → charts → leaders → folds → Local → Decode → the map last** ("cluttered, for a rework
+  Browse → charts → folds → Local → Decode → the map → leaders last** (leaders moved under the map 2026-09-12) ("cluttered, for a rework
   later" — don't move it back up). **The Browse pills are hide-toggles, all lit by default**:
   a click hides that keyword (or class pill TFR/GPS/FDC; `other` = APRON/ROUTE/CHART/unkeyed),
   the count says `N hidden`, and a chart bar click lights only its pill (`browseKeyword`;
@@ -606,7 +606,14 @@ concepts; to relink, add the tools.html card back.
   trend's two lines are `#3987e5` / `#d95926`, validated on the card surface (CVD ΔE 26.8, both
   ≥ 3:1) — one y-scale per lane, never two on one plot. The status bar prints the run's age, the
   locations answered, the source, and every warning the archiver wrote (`note`, a refused run,
-  a stale run > 4 h). **Decode card** (2026-09-11, `#dec-card`, last card): paste a NOTAM or
+  a stale run > 4 h). **GPS fold map** (2026-09-12): the GPS interference fold opens with a small copy of the map
+  (`drawGpsMap()`, `mapFrame()` shared with the big one) drawing every test whose text carries
+  geometry — `gpsGeom()` parses `CENTERED AT DDMMSSN DDDMMSSW` plus the radius tiers
+  (`379NM RADIUS … FL400-UNL, 342NM RADIUS AT FL250 …`, one ring each, lowest tier solid) or
+  the polygon form `AREA DEFINED AS: A TO B TO …`; ARTCC copies of one test share a centre and
+  draw once; orange = in effect, blue dashed = scheduled; click a centre → Decode. The
+  archiver's `gps` list carries **scheduled** GPS-class records too (`s > now`) — the tests
+  are filed days ahead and were invisible while the list was in-effect only. **Decode card** (2026-09-11, `#dec-card`): paste a NOTAM or
   type one contraction and it reads back — header (accountability · number · location ·
   keyword · period, names from locations.json), the ICAO Q-line (`Q_SUBJ`/`Q_COND` tables,
   traffic/purpose/scope, B)/C) times), then every token with a hover gloss and a plain-words
