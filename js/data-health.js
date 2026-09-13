@@ -468,9 +468,18 @@
       : disk < 4000 ? { cls: 'warn', word: 'low' } : { cls: 'ok', word: 'ok' };
     const diskTxt = disk == null ? 'not reported'
       : `${(disk / 1000).toFixed(1)} GB free` + (sum.db_mb ? ` · DB ${(sum.db_mb / 1000).toFixed(1)} GB` : '');
-    const diskRow = row('Pi disk', 'root, incl. the DB and its WAL', diskTxt, diskV, '');
-    const worst = [pushV, heardV, diskV].some(v => v.cls === 'bad') ? 'bad'
-      : [pushV, heardV, diskV].some(v => v.cls === 'warn') ? 'warn' : 'ok';
+    // The ATC clips' USB stick is a separate filesystem; the recorder's own
+    // 45-day retention should hold it around 8 GB, so under 1 GB means that
+    // retention is not doing its job.
+    const stick = Number.isFinite(sum.atc_free_mb) ? sum.atc_free_mb : null;
+    const stickV = stick == null ? { cls: 'quiet', word: '' }
+      : stick < 1000 ? { cls: 'bad', word: 'full' }
+      : stick < 3000 ? { cls: 'warn', word: 'low' } : { cls: 'ok', word: 'ok' };
+    const stickRow = stick == null ? ''
+      : row('ATC stick', 'clips, 45-day retention', `${(stick / 1000).toFixed(1)} GB free`, stickV, '');
+    const diskRow = row('Pi disk', 'root, incl. the DB and its WAL', diskTxt, diskV, '') + stickRow;
+    const worst = [pushV, heardV, diskV, stickV].some(v => v.cls === 'bad') ? 'bad'
+      : [pushV, heardV, diskV, stickV].some(v => v.cls === 'warn') ? 'warn' : 'ok';
     const head = worst === 'ok' ? 'snapshots ok' : worst === 'warn' ? 'snapshots late' : 'snapshots down';
 
     const byDate = new Map(sum.days.map(d => [d.date, d]));

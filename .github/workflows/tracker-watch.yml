@@ -44,6 +44,9 @@ jobs:
               bad.append(f"collector has stored nothing for {heard_h:.1f} h")
           if disk is not None and disk < 2000:
               bad.append(f"Pi root has {disk} MB free")
+          stick = s.get("atc_free_mb")
+          if stick is not None and stick < 1000:
+              bad.append(f"ATC stick has {stick} MB free")
           if bad:
               print("::error::" + "; ".join(bad) +
                     " — run pi/recover.sh on the Pi (one line, see the script header)")

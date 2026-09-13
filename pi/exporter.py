@@ -439,6 +439,15 @@ def main():
         disk_free_mb = int(shutil.disk_usage(os.path.dirname(DB_PATH)).free / 1e6)
     except OSError:
         disk_free_mb = None
+    # The ATC clips' stick (mounted at KANP_ATC_DIR) is its own filesystem,
+    # so it gets its own number — only when it really is a separate mount.
+    atc_dir = os.environ.get("KANP_ATC_DIR", "/var/lib/kanp/atc")
+    atc_free_mb = None
+    if os.path.ismount(atc_dir):
+        try:
+            atc_free_mb = int(shutil.disk_usage(atc_dir).free / 1e6)
+        except OSError:
+            pass
     db_mb = 0
     for suffix in ("", "-wal"):
         try:
@@ -450,6 +459,7 @@ def main():
             "generated": int(datetime.datetime.now().timestamp()),
             "newest_position": newest,
             "disk_free_mb": disk_free_mb,
+            "atc_free_mb": atc_free_mb,
             "db_mb": int(db_mb / 1e6),
             "days": days,
         }, f, separators=(",", ":"))
