@@ -1388,7 +1388,12 @@ concepts; to relink, add the tools.html card back.
   that died on a full disk leaves it unusable), then verifies from GitHub and the DB and
   prints ALL GOOD or NOT FIXED with the reason. Never delete `kanp.db-wal` to free space —
   it holds committed rows; checkpoint it (`PRAGMA wal_checkpoint(TRUNCATE)`) with every
-  reader and writer stopped, including `kanp-api`. **Two watchers** so it is noticed next time:
+  reader and writer stopped, including `kanp-api`. **And the WAL grows on its own even with
+  space** — the DB always has readers (the API, the exporter's minutes-long reads), so it never
+  gets the reader-free moment a reset needs: ~5 GB a day on 2026-09-13, freed only by the
+  service restart in `install.sh`. `prune()` now TRUNCATE-checkpoints every hourly pass with a
+  2 s busy wait (it holds the write lock while waiting) and `journal_size_limit` is 256 MB.
+  **Two watchers** so it is noticed next time:
   `.github/workflows/tracker-watch.yml` (hourly at :05; fails — and so emails — when the
   push or the last stored fix is over 3 h old or `disk_free_mb` < 2000) and a `Pi disk` row in
   changelog.html's tracker panel; both read `summary.json`, which the exporter now stamps
