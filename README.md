@@ -1,129 +1,146 @@
 # jesselevine.net
 
-Personal site for Jesse Levine — flight instructor (CFI/CFII/MEI) in
-Annapolis, MD. Hosted on GitHub Pages, served from `main`.
+Personal site for Jesse Levine, flight instructor (CFI/CFII/MEI) at Lee Airport
+(KANP), Annapolis MD. GitHub Pages, served from `main`.
 
-Plain HTML/CSS/JS: no build step, no framework, no npm. Leaflet is vendored in
-`js/vendor/`. The only tooling is two stdlib-Python data generators whose
-output is committed to the repo.
+Plain HTML/CSS/JS. No build step, no framework, no npm. Leaflet is vendored in
+`js/vendor/`. Tooling is stdlib Python: a few data generators whose output is
+committed, and three GitHub Actions that archive weather, GFS grids and NOTAMs
+into the repo on a schedule.
 
 ## Pages
 
 **Site**
 
-- **`index.html`** — landing page: flight-training services and contact.
-  Includes a small ball-physics toy (`js/sim.js`), lazy-loaded on first click
-  of the ▶ button so it costs a normal visit nothing.
-- **`tools.html`** — the Aviation Tools hub; the categorized index of the
-  explainers below.
+- `index.html` — landing page: flight-training services, contact, live cards.
+  The cards are the navigation: Tracker, Weather, Tools.
+- `tools.html` — Aviation Tools hub, the index of everything below.
+- `changelog.html` — commit history of `main` beside health panels for the
+  data pipelines.
+- `feed.html` — the site's intake log: every record the weather and tracker
+  archives take in, newest first.
 
 **Flight tracker**
 
-- **`kanp.html`** — flight tracker for Lee Airport (KANP), in three tabs:
-  - *Live* — current ADS-B traffic within 60 nm on a Leaflet map, with
-    altitude-colored trails and a geographic heatmap.
-  - *History Map* — replays any collected day's tracks with hour-of-day and
-    altitude filtering; the airspace-study tool.
-  - *Traffic Study* — hour-of-day × day-of-week activity grids, altitude and
-    type histograms, runway operations counts, plus two comparison tools:
-    **climb-out** (altitude gained vs distance from liftoff, for comparing the
-    same aircraft across density altitudes) and **straight-in** (how precisely
-    each arrival tracked the extended centerline).
+- `kanp.html` — ADS-B traffic within 60 nm of KANP, three tabs:
+  - *Live* — current traffic, altitude-colored trails, heatmap.
+  - *History Map* — any archived day's tracks, filtered by time, altitude,
+    aircraft class and KANP operation (pattern laps, departures, arrivals by
+    runway).
+  - *Traffic Study* — hour × day grids, histograms, type/operator breakdowns,
+    and five sub-tools: climb-out comparison, straight-in precision, pattern
+    shape, proximity events, runway ops counts.
 
-**Interactive explainers** (self-contained, no backend)
+**Weather** (KANP / DC area)
 
-- **`procedures.html`** — Procedure Explorer: overlays any US SID/STAR/IAP on
-  a sectional/TAC/IFR map with a 3D altitude view, per-transition selection,
-  a leg-by-leg table, flow animation, shareable links, and the official FAA
-  plate (d-TPP) for every procedure — plates with no public CIFP coding
-  (many VOR/NDB/TACAN, visuals, military fields) are listed too.
-- **`power.html`** — the airplane power curve: parasite vs induced power,
-  minimum-power speed, the region of reversed command, slow flight, and a
-  live approach simulation of the low-and-slow trap.
-- **`eights.html`** — eights on pylons: pivotal altitude, why the wingtip
-  stays on the pylon, and a wind-aware simulation of the full maneuver.
-- **`airlab.html`** — atmosphere and performance lab: pressure and density
-  altitude, an air-parcel stability simulator, and IAS → TAS → GS.
-- **`knowledge.html`** — an expandable concept graph of the airplane
-  knowledge domains, with the cross-links between them.
-- **`notam.html`** — NOTAM Hub: every active NOTAM in the country, archived
-  hourly by a GitHub Action (`scripts/notamarchive.py` → the `notam-data`
-  branch) and counted by keyword, class, state, facility and age — runway
-  closures, TFRs, GPS interference, permanent NOTAMs, what came in and what
-  left, and any facility's list on demand.
+- `weather.html` — wind compass, flight-window scoring, crosswind and runway
+  analysis, TAFs, radar, PIREPs, AIRMETs/SIGMETs, TFRs.
+- `discussion.html` — the LWX forecast discussion read as a story: headline,
+  synoptic map, AFD reader with change log, aviation grid strip, and a
+  verification card that judges each forecast window as it closes.
+- `skew-t.html` — Skew-T log-p of forecast soundings for any US airport, with
+  parcel analysis and an explain-on-hover overlay for SPC observed soundings.
+- `wx3d.html` — The Air Above: the GFS forecast as a rotatable 3-D volume
+  over the DC region, cloud decks, winds aloft, flow tracers, radar drape.
+- `almanac.html` — the weather archive as a reading room: calendar, day
+  meteogram, forecast lead-up, TAF vs METAR, alerts timeline, sounding.
+- `sky.html` — METAR Sky: the current observation painted as a scene.
 
-**Weather**
+**Atmosphere and performance**
 
-- **`weather.html`** — wind compass, flight-window scoring, crosswind and
-  runway analysis, TAFs and radar. Sources are NWS (`api.weather.gov`) for
-  observations, TAFs and the forecast grid, Open-Meteo for CAPE/pressure/winds
-  aloft, and RainViewer for radar tiles.
+- `airlab.html` — atmosphere column, pressure/density altitude, parcel
+  stability, wind triangle.
+- `pressure.html` — Pressure Systems: draggable highs and lows with the wind
+  as the balance of pressure gradient, Coriolis and friction; 3-D view.
+- `storm.html` — Thunderstorm Lab: a 2-D cloud model run live in the browser,
+  warm bubble to anvil, mixed-phase microphysics, charging, lightning, thunder.
+- `tunnel.html` — Wind Tunnel: lattice-Boltzmann flow around a reshapeable
+  NACA airfoil, smoke, pressure, live lift and drag, stall.
+- `aircraft.html` — Aircraft Compare: up to six aircraft side by side, every
+  number from one registry, silhouettes drawn to scale from the table.
 
-**Radio**
+**Cockpit and procedures**
 
-- **`atc.html`** — LiveATC transcript viewer for the Potomac feeds around
-  KANP. Requires the Pi backend; there is no public fallback, and recordings
-  are never republished (LiveATC's terms forbid it).
-- **`ctaf.html`** / **`scanner.html`** — KANP CTAF 122.9 clips and a remotely
-  tunable SDR scanner. These talk to a separate SDR machine over a private
-  Tailscale funnel; that server's code is not in this repo.
+- `procedures.html` — Procedure Explorer: any US SID/STAR/IAP on a map with a
+  3-D altitude view, leg table, FAA plate, plus a nationwide query view and a
+  cycle-to-cycle diff.
+- `notam.html` — NOTAM Hub: every active NOTAM in the country, archived hourly,
+  counted, mapped, searchable, with a decoder.
+- `sfra.html` — The DC SFRA from a KANP seat: rings, FRZ, gates, decision tree,
+  ASRS report record.
 
-## KANP tracker architecture
+**Study and reference**
 
-A Raspberry Pi is the whole data pipeline; the browser only reads.
+- `knowledge.html` — expandable concept graph of the airplane knowledge
+  domains.
 
-- **Collection** — `pi/collector.py` polls [airplanes.live](https://airplanes.live)
-  every 3 s for traffic within 60 nm of KANP and writes positions to SQLite at
-  `/var/lib/kanp/kanp.db`. It can poll a local dump1090-fa/readsb receiver
-  instead via `KANP_SOURCE`. Python 3 stdlib only — nothing to pip install.
-- **Serving** — `pi/server.py` serves a filterable API *and* the tracker page
-  itself on port 8787: `/api/status`, `/api/tracks`, `/api/stats`,
-  `/api/aircraft`, `/api/export.csv`, `/api/site-traffic`, `/api/atc/*`.
-- **Publishing** — `pi/exporter.py` runs hourly and pushes simplified per-day
-  JSON snapshots to this repo's `traffic-data` branch, where
-  `tracks/index.json` lists the available days. Tracks are shape-simplified
-  with Douglas-Peucker in a local tangent plane (`pi/trackutil.py`), so turns
-  and pattern work survive while straight legs collapse to a few points.
-- **Routing in the browser** — the page tries the Pi API first and falls back
-  to the GitHub snapshots automatically (`js/kanp-static.js`), which is what
-  happens off-LAN, since the HTTPS site can't call a plain-HTTP Pi. Snapshot
-  data is up to an hour stale, so Live polls every 3 s against the Pi and
-  every 60 s against snapshots. Served from the Pi itself, the page uses the
-  same origin with no setup; otherwise set `kanp_api_base` in `localStorage`
-  (or `none` to force snapshot mode).
+**Reachable by URL, not linked from the hub**
 
-Backend install, configuration and storage math: **[`pi/README.md`](pi/README.md)**
-(`sudo bash pi/install.sh`; update later with `git pull && sudo bash pi/install.sh`).
+- `power.html`, `eights.html`, `instruments.html` — power curve, eights on
+  pylons, instrument errors.
+- `sequencing.html` — why a GPS navigator sequences when it does.
+- `alternates.html` — FAA alternate airport rules by part.
+- `sky2.html`, `wxai.html`, `terps.html` — successors and drafts.
+- `fireworks.html`, `glow.html`, `watercycle.html`, `slime.html`,
+  `bubbles.html`, `fugue.html`, `mural.html`, `zoey.html` — toys and personal
+  pages, self-contained.
 
-Wiring up your own RTL-SDR antenna: [`docs/receiver-setup.md`](docs/receiver-setup.md)
-— note that its collector sections describe the older Node collector in
-`scripts/`, which `pi/` has superseded; the receiver-hardware sections still
-apply.
+**Radio** (need a backend on the LAN or the SDR box; no public fallback)
+
+- `atc.html` — LiveATC clip viewer for the Potomac feeds. Recordings are never
+  republished; LiveATC's terms forbid it.
+- `ctaf.html` / `scanner.html` — KANP CTAF 122.9 clips and a remotely tunable
+  SDR scanner, served from a separate machine over a private Tailscale funnel.
+
+## Data pipelines
+
+**Tracker.** A Raspberry Pi is the whole pipeline; the browser only reads.
+
+- `pi/collector.py` polls the public ADS-B feeds (adsb.fi, then adsb.lol):
+  60 nm every 3 s, plus the 5 nm pattern area every second. SQLite at
+  `/var/lib/kanp/kanp.db`. `pi/heal.py` fills pattern gaps from adsb.lol's
+  stored traces every 30 min.
+- `pi/server.py` serves the API and the page on port 8787.
+- `pi/exporter.py` pushes simplified per-day JSON to the `traffic-data`
+  branch (one amended commit; `tracks/index.json` lists days). Tracks are
+  Douglas-Peucker simplified except inside the 5 nm ring, where every fix is
+  kept.
+- The page tries the Pi first and falls back to the GitHub snapshots
+  (`js/kanp-static.js`), which is what happens off the LAN. Snapshots are up
+  to an hour stale.
+
+Install and configuration: [`pi/README.md`](pi/README.md). Receiver wiring:
+[`docs/receiver-setup.md`](docs/receiver-setup.md), whose hardware sections are
+current and whose collector sections describe the retired Node collector.
+
+**Weather archive.** `.github/workflows/wxarchive.yml` runs `scripts/wxarchive.py`
+hourly and commits `data/wx/` on `main`: METARs for KDCA, KNAK and the local
+ring of fields, TAFs, every LWX discussion, the NWS forecast and hourly grid,
+alerts, GFS point data, PIREPs, AIRMETs/SIGMETs, TFRs, KIAD soundings, winds
+aloft. One file per stream per day, never rewritten; METARs and TAFs the live
+API dropped are healed from IEM. `data/wx/latest.json` is the current state of
+every stream in one document, and `js/wx-archive.js` is the page-side reader.
+`scripts/wxbackfill.py` fills history by hand.
+
+**GFS grids.** `.github/workflows/wx3dsnap.yml` pulls wx3d's Open-Meteo grids
+hourly to the `wx3d-data` branch, so page views don't hit the API.
+
+**NOTAMs.** `.github/workflows/notamarchive.yml` runs `scripts/notamarchive.py`
+hourly against the FAA NMS API and force-pushes the `notam-data` branch:
+the whole system by state, a daily new/gone ledger, and aggregates.
 
 ## Generated data
 
-Two datasets are built by script and committed. Neither runs at page load and
-neither should be hand-edited.
+Built by script, committed, never hand-edited.
 
-**Instrument procedures** — `data/procedures/` (an airport index plus one JSON
-file per airport, ~3,000 of them), converted from the FAA CIFP. Rebuild each
-28-day AIRAC cycle:
-
-```sh
-python scripts/build_procedures.py        # downloads the current cycle
-```
-
-**Knowledge map** — `data/knowledge/*.md` is the source of truth, one Markdown
-file per domain. Edit the Markdown, then rebuild:
-
-```sh
-python scripts/build_knowledge.py
-```
-
-This compiles `data/knowledge.json` and validates as it goes: duplicate ids
-and unresolved cross-links are fatal errors rather than silent omissions.
-Commit the regenerated JSON alongside the Markdown. The grammar is documented
-in [`data/knowledge/README.md`](data/knowledge/README.md).
+| Output | Script | When |
+|---|---|---|
+| `data/procedures/` | `scripts/build_procedures.py` then `scripts/build_procedure_metrics.py` | each 28-day AIRAC cycle |
+| `data/notam/locations.json` | `scripts/build_notam_locations.py` | each AIRAC cycle |
+| `data/knowledge.json` | `scripts/build_knowledge.py` from `data/knowledge/*.md` | when the Markdown changes |
+| `data/wx3d/terrain*.json` | `scripts/build_wx3d_terrain.py` | only to re-site |
+| `data/sfra/asrs.json` | `scripts/build_sfra_reports.py` from ASRS CSV exports | by hand |
+| `data/zoey.json` | `scripts/build_zoey.py` | when photos change |
 
 ## Development
 
@@ -133,14 +150,13 @@ No build step. Serve the directory with any static server:
 python3 -m http.server
 ```
 
-Site-wide constants — airport, coordinates, runway geometry, nearby fields,
-TAF stations — live in `js/site-config.js` as a single `SITE` global. Edit
-those rather than the pages that consume them; `pi/site.env.example` is the
-Pi-side mirror.
+Site constants (airport, coordinates, runway geometry, nearby fields, TAF
+stations, snapshot URLs) live in `js/site-config.js` as one `SITE` global;
+`pi/site.env.example` is the Pi-side mirror. Edit those, not the consumers.
 
-A few assets are versioned by query string (`js/foo.js?v=3`). If you change
-one, bump the number wherever it's referenced, or GitHub Pages will keep
-serving the cached copy.
+Assets are versioned by query string (`js/foo.js?v=N`). Change one, bump the
+number everywhere it's referenced, or GitHub Pages keeps serving the cached
+copy.
 
-The site deploys itself on push to `main`. API keys never belong in this
-repo — it's public.
+The site deploys itself on push to `main`. API keys never belong in this repo;
+it's public.

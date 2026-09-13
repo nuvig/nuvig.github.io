@@ -57,6 +57,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   `.claude/` wholesale to keep local state private; these files, like `.claude/skills/`, are
   force-added — a new file under `.claude/` meant for the repo needs `git add -f`.)
 - `.nojekyll` is present; GitHub Pages serves the tree as-is. `CNAME` pins jesselevine.net.
+- **`README.md` is the public description of the repo** (rewritten 2026-09-13 from the current
+  tree; it had described early August). Its page list mirrors `tools.html`'s sections plus an
+  "unlinked" list. A new page, pipeline or build script gets a line there too. Nothing personal
+  about Jesse goes in it or in this file — only what the code needs.
 - Never commit API keys — this repo is public. The tracker's optional RapidAPI key lives only in
   the visitor's `localStorage`. The one deliberate exception is `SITE.basemap.cartoKey`
   (CARTO basemap tile key, added 2026-08-29): it's a client-side key that appears in every
@@ -435,6 +439,9 @@ field contacts, and doesn't care).
   reordering or extending it**, and note `MAX_SEL` is tied to the palette length. Self-contained
   otherwise — no `site-config.js`, no network beyond the one JSON fetch. `window.ACOMP` is a read-only
   handle for headless checks.
+- `alternates.html` — Alternate Rules: FAA alternate airport requirements by part (91/121/135/125),
+  alternate minima, takeoff alternates, a flowchart per part. Self-contained. Tracked since
+  2026-08-21 but **never linked or in the sitemap** — no tools.html card. Orphan until promoted.
 **`power.html`, `eights.html` and `instruments.html` are unlinked as of 2026-08-21** — their
 `tools.html` cards (and JSON-LD list entries) were removed at Jesse's request. The pages and their
 sitemap entries are untouched, and `js/knowledge.js` still deep-links to them from the relevant
@@ -1542,4 +1549,8 @@ Otherwise: `python3 -m http.server` from the repo root and open the page.
   turn, without a permission round trip. The verification happens here (headless browser /
   fixture run) because he can't review a branch from his phone. Only hold back when he said to.
 - Test in the browser preview before pushing; the site is live on push to `main`.
+- **Don't infer Jesse's life from the code.** The site scores flight windows; that does not
+  mean he cancels lessons on the morning forecast, or anything else about how he flies or
+  works. State what he told you, ask what you don't know, and keep personal matters out of
+  repo files (2026-09-13).
 - Related repo: `C:\Users\Jesse\Documents\GitHub\kanp-tracker-ios` (SwiftUI port of the tracker).
