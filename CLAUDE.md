@@ -1394,8 +1394,9 @@ concepts; to relink, add the tools.html card back.
   service restart in `install.sh`. `prune()` now TRUNCATE-checkpoints every hourly pass with a
   2 s busy wait (it holds the write lock while waiting) and `journal_size_limit` is 256 MB.
   **Two watchers** so it is noticed next time:
-  `.github/workflows/tracker-watch.yml` (hourly at :05; fails — and so emails — when the
-  push or the last stored fix is over 3 h old or `disk_free_mb` < 2000) and a `Pi disk` row in
+  the **Tracker watch** step at the end of `wxarchive.yml` (rides the existing hourly run so
+  it costs no extra Actions runs — Jesse didn't want a workflow of its own; fails — and so
+  emails — when the push or the last stored fix is over 3 h old or `disk_free_mb` < 2000) and a `Pi disk` row in
   changelog.html's tracker panel; both read `summary.json`, which the exporter now stamps
   with `disk_free_mb` and `db_mb` (main file + WAL). Until the new exporter is installed on
   the Pi the row says `not reported`. `KANP_MAX_DB_MB` is 20000 in the live `site.env` (the
