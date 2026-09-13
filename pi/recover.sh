@@ -42,7 +42,13 @@ echo "== KANP recover $(date '+%Y-%m-%d %H:%M %Z')"
 # 1. retention -------------------------------------------------------------
 setenv KANP_RETENTION_DAYS 45
 setenv KANP_ATC_RETENTION_DAYS 45
-echo "retention: positions 45 d · ATC clips 45 d"
+# The collector installed before ec459e63 measures the cap on the FILE size,
+# and the file never shrinks (auto_vacuum never took), so once kanp.db crossed
+# 8000 MB its emergency loop dropped "30 more days" twelve times an hour —
+# every row, including today's — and the file stayed the same size. Raise the
+# cap above the file until the new collector (live pages + WAL) is installed.
+setenv KANP_MAX_DB_MB 20000
+echo "retention: positions 45 d · ATC clips 45 d · size cap 20000 MB"
 
 # 2. ATC clips onto the stick -----------------------------------------------
 mkdir -p "$ATC_MNT"
