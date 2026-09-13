@@ -9,9 +9,9 @@
 #
 # What it does, in order, and reports in one line each:
 #   1. site.env: 45-day retention for positions and for ATC clips.
-#   2. ATC clips go to the USB stick (LABEL=kanp-atc, ext4, /mnt/atc) — mounts
-#      it, points the recorder there, adds the systemd ReadWritePaths the
-#      hardened unit needs, and deletes any clips left on root.
+#   2. ATC clips go to the USB stick (LABEL=kanp-atc, ext4) mounted at the
+#      recorder's own directory, /var/lib/kanp/atc, so the hardened unit
+#      needs no change; clips left on root are deleted first.
 #   3. Restarts the collector, API, heal and export timers.
 #   4. Runs an export now. If it fails, re-clones the traffic-data checkout
 #      (a push that died mid-write on a full disk leaves it unusable) and
@@ -23,7 +23,6 @@ set -u
 ENV=/etc/kanp/site.env
 KDIR=/var/lib/kanp
 EXPORT=$KDIR/traffic-data
-ATC_MNT=/mnt/atc
 REPO=nuvig/nuvig.github.io
 
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
@@ -51,30 +50,35 @@ setenv KANP_MAX_DB_MB 20000
 echo "retention: positions 45 d · ATC clips 45 d · size cap 20000 MB"
 
 # 2. ATC clips onto the stick -----------------------------------------------
-mkdir -p "$ATC_MNT"
-grep -q "LABEL=kanp-atc" /etc/fstab || \
-  echo 'LABEL=kanp-atc /mnt/atc ext4 defaults,noatime,nofail 0 2' >> /etc/fstab
-mountpoint -q "$ATC_MNT" || mount "$ATC_MNT" 2>/dev/null
-if mountpoint -q "$ATC_MNT"; then
-  chown kanp:kanp "$ATC_MNT"
-  setenv KANP_ATC_DIR "$ATC_MNT"
-  # kanp-atc.service runs with ProtectSystem=strict: only ReadWritePaths are
-  # writable, so the stick has to be added or every clip write is EROFS.
-  mkdir -p /etc/systemd/system/kanp-atc.service.d
-  printf '[Service]\nReadWritePaths=%s\n' "$ATC_MNT" > /etc/systemd/system/kanp-atc.service.d/override.conf
-  systemctl daemon-reload
-  systemctl restart kanp-atc
-  rm -rf "$KDIR/atc"
-  sleep 3
-  if journalctl -u kanp-atc --since "-20s" --no-pager -o cat | grep -qiE "read-only|permission denied"; then
-    ATC="recorder cannot write $ATC_MNT — check: journalctl -u kanp-atc -n 20"
+# The stick is mounted AT the recorder's default directory. The first attempt
+# (2026-09-12) mounted it at /mnt/atc and added a ReadWritePaths= drop-in for
+# the hardened unit, and the recorder still could not write there; mounting
+# it where the unit is already allowed to write needs no sandbox change and
+# nothing to debug.
+ATC_DIR=$KDIR/atc
+systemctl stop kanp-atc
+mountpoint -q /mnt/atc && umount /mnt/atc
+sed -i '/LABEL=kanp-atc/d' /etc/fstab
+echo "LABEL=kanp-atc $ATC_DIR ext4 defaults,noatime,nofail 0 2" >> /etc/fstab
+rm -rf /etc/systemd/system/kanp-atc.service.d
+systemctl daemon-reload
+setenv KANP_ATC_DIR "$ATC_DIR"
+if ! mountpoint -q "$ATC_DIR"; then
+  # anything recorded onto root meanwhile is not worth keeping over the disk
+  rm -rf "$ATC_DIR"; mkdir -p "$ATC_DIR"
+  mount "$ATC_DIR" 2>/dev/null
+fi
+if mountpoint -q "$ATC_DIR"; then
+  chown kanp:kanp "$ATC_DIR"
+  systemctl start kanp-atc
+  sleep 8
+  if journalctl -u kanp-atc --since "-8s" --no-pager -o cat | grep -qiE "read-only|permission denied|errno"; then
+    ATC="recorder started but logged an error — journalctl -u kanp-atc -n 20"
   else
-    ATC="recorder → $ATC_MNT ($(df -h "$ATC_MNT" | awk 'NR==2{print $4}') free)"
+    ATC="recorder → stick at $ATC_DIR ($(df -h "$ATC_DIR" | awk 'NR==2{print $4}') free) · $(systemctl is-active kanp-atc)"
   fi
 else
-  systemctl stop kanp-atc
-  setenv KANP_ATC_DIR "$KDIR/atc"
-  ATC="stick not mounted — recorder stopped so it cannot fill root"
+  ATC="stick not mounted — recorder left stopped so it cannot fill root"
 fi
 echo "atc: $ATC"
 

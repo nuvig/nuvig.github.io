@@ -51,6 +51,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -431,10 +432,25 @@ def main():
             continue
 
     newest = db.execute("SELECT MAX(ts) FROM positions").fetchone()[0]
+    # Disk and DB size ride along so changelog.html's data-health panel and
+    # the tracker-watch Action can warn before the root fills — on 2026-09-12
+    # it filled with nothing on the site able to say so until the push stopped.
+    try:
+        disk_free_mb = int(shutil.disk_usage(os.path.dirname(DB_PATH)).free / 1e6)
+    except OSError:
+        disk_free_mb = None
+    db_mb = 0
+    for suffix in ("", "-wal"):
+        try:
+            db_mb += os.path.getsize(DB_PATH + suffix)
+        except OSError:
+            pass
     with open(os.path.join(V2_DIR, "summary.json"), "w") as f:
         json.dump({
             "generated": int(datetime.datetime.now().timestamp()),
             "newest_position": newest,
+            "disk_free_mb": disk_free_mb,
+            "db_mb": int(db_mb / 1e6),
             "days": days,
         }, f, separators=(",", ":"))
     db.close()

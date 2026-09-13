@@ -1371,16 +1371,25 @@ concepts; to relink, add the tools.html card back.
   6000 MB on live pages + WAL** (`db_live_mb()`; `auto_vacuum` never took on the live DB, so
   the file only ever grows to its high-water mark and freed pages are reused, which is why
   the cap must not read the file size), deletes in 100k-row batches with a TRUNCATE
-  checkpoint after. **ATC clips live on a USB stick** (`LABEL=kanp-atc`, ext4, `/mnt/atc`,
-  `nofail` in fstab; ~186 MB/day for three feeds, 45-day retention ≈ 8.4 GB) — the unit's
-  `ProtectSystem=strict` needs `ReadWritePaths` for it, which `kanp-atc.service` now carries.
+  checkpoint after. **ATC clips live on a USB stick** (`LABEL=kanp-atc`, ext4, mounted **at
+  `/var/lib/kanp/atc`** — the recorder's default dir, so the hardened unit needs no change;
+  a `/mnt/atc` + `ReadWritePaths` drop-in was tried first and the recorder still could not
+  write; `nofail` in fstab; ~186 MB/day for three feeds, 45-day retention ≈ 8.4 GB).
   **`pi/recover.sh`** is the one-line repair for a stale-snapshot day (`curl … | sudo bash`,
   URL in its header): sets retention, mounts the stick and repoints the recorder, restarts
   the units, runs an export (re-cloning the traffic-data checkout if the push fails — a push
   that died on a full disk leaves it unusable), then verifies from GitHub and the DB and
   prints ALL GOOD or NOT FIXED with the reason. Never delete `kanp.db-wal` to free space —
   it holds committed rows; checkpoint it (`PRAGMA wal_checkpoint(TRUNCATE)`) with every
-  reader and writer stopped, including `kanp-api`.
+  reader and writer stopped, including `kanp-api`. **Two watchers** so it is noticed next time:
+  `.github/workflows/tracker-watch.yml` (hourly at :05; fails — and so emails — when the
+  push or the last stored fix is over 3 h old or `disk_free_mb` < 2000) and a `Pi disk` row in
+  changelog.html's tracker panel; both read `summary.json`, which the exporter now stamps
+  with `disk_free_mb` and `db_mb` (main file + WAL). Until the new exporter is installed on
+  the Pi the row says `not reported`. `KANP_MAX_DB_MB` is 20000 in the live `site.env` (the
+  pre-ec459e63 collector still installed measures the file, which sat at 8050 MB, and its
+  emergency loop wiped every row hourly on 2026-09-12 evening — the Pi's raw history is gone
+  back to that night; GitHub has all days) — drop it back to the default after `install.sh`.
 - `pc/` — `atc_transcribe.py` (faster-whisper worker) + `atc_vocab.txt`. Runs on the PC, not the Pi.
 - `scripts/api-collector.js`, `scripts/receiver-export.js` — legacy Node collector, superseded by
   `pi/`; don't extend it.

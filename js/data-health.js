@@ -460,8 +460,17 @@
     const heardAge = sum.newest_position ? t - sum.newest_position : null;
     const pushV = verdict(pushAge, 2, 6);
     const heardV = verdict(heardAge, 1.5, 4);
-    const worst = pushV.cls === 'bad' || heardV.cls === 'bad' ? 'bad'
-      : pushV.cls === 'warn' || heardV.cls === 'warn' ? 'warn' : 'ok';
+    // Pi root free space, published by the exporter since 2026-09-13 — the
+    // 09-12 outage was a full disk that nothing on the site could see coming.
+    const disk = Number.isFinite(sum.disk_free_mb) ? sum.disk_free_mb : null;
+    const diskV = disk == null ? { cls: 'quiet', word: '' }
+      : disk < 2000 ? { cls: 'bad', word: 'full' }
+      : disk < 4000 ? { cls: 'warn', word: 'low' } : { cls: 'ok', word: 'ok' };
+    const diskTxt = disk == null ? 'not reported'
+      : `${(disk / 1000).toFixed(1)} GB free` + (sum.db_mb ? ` · DB ${(sum.db_mb / 1000).toFixed(1)} GB` : '');
+    const diskRow = row('Pi disk', 'root, incl. the DB and its WAL', diskTxt, diskV, '');
+    const worst = [pushV, heardV, diskV].some(v => v.cls === 'bad') ? 'bad'
+      : [pushV, heardV, diskV].some(v => v.cls === 'warn') ? 'warn' : 'ok';
     const head = worst === 'ok' ? 'snapshots ok' : worst === 'warn' ? 'snapshots late' : 'snapshots down';
 
     const byDate = new Map(sum.days.map(d => [d.date, d]));
@@ -488,6 +497,7 @@
         <span class="dh-sub">Pi → traffic-data branch</span></div>
       ${row('Snapshot push', 'exporter, at least hourly', fmtAge(pushAge), pushV, '')}
       ${row('Last aircraft heard', 'collector, via public feeds', fmtAge(heardAge), heardV, '')}
+      ${diskRow}
       ${row('Archive', '', `${sum.days.length} days since ${firstDay || '—'}`, { cls: 'quiet', word: '' }, '')}
       <div class="dh-bars" aria-label="aircraft per day, last ${SPAN} days">
         <span class="dh-peak">peak ${peak.toLocaleString()}</span>${bars}</div>

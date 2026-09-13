@@ -1,0 +1,51 @@
+# Tracker watch — fails (and so emails the repo owner) when the Pi stops
+# publishing, so a stale tracker is noticed within the hour instead of when
+# someone happens to open changelog.html. Added after 2026-09-12, when the
+# Pi's disk filled and the site sat 6.5 h stale before anyone looked.
+#
+# Reads only the traffic-data branch's summary.json:
+#   generated       exporter push stamp   — stale past 3 h
+#   newest_position last fix stored       — stale past 3 h (collector down)
+#   disk_free_mb    root free on the Pi   — bad under 2 GB (exporter ≥ ec459e63)
+# Repair: pi/recover.sh (one line, header of the script).
+name: tracker-watch
+
+on:
+  schedule:
+    - cron: '5 * * * *'    # hourly, clear of wxarchive :18 / wx3dsnap :38 / notam :48
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the traffic-data snapshot
+        run: |
+          curl -fsS -o summary.json \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/traffic-data/v2/summary.json"
+          python3 - <<'EOF'
+          import json, time, sys
+          s = json.load(open("summary.json"))
+          now = time.time()
+          bad = []
+          push_h = (now - s.get("generated", 0)) / 3600
+          heard_h = (now - s.get("newest_position", 0)) / 3600
+          disk = s.get("disk_free_mb")
+          print(f"push {push_h:.1f} h ago · last fix {heard_h:.1f} h ago · "
+                f"disk free {disk if disk is not None else '?'} MB · "
+                f"{len(s.get('days', []))} days")
+          if push_h > 3:
+              bad.append(f"exporter has not pushed for {push_h:.1f} h")
+          if heard_h > 3:
+              bad.append(f"collector has stored nothing for {heard_h:.1f} h")
+          if disk is not None and disk < 2000:
+              bad.append(f"Pi root has {disk} MB free")
+          if bad:
+              print("::error::" + "; ".join(bad) +
+                    " — run pi/recover.sh on the Pi (one line, see the script header)")
+              sys.exit(1)
+          EOF
