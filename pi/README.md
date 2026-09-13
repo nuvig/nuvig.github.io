@@ -54,8 +54,8 @@ files (`sudo systemctl edit kanp-collector` is the clean way), then
 | `KANP_RADIUS_NM` | `60` | search radius around KANP |
 | `KANP_NEAR_RADIUS_NM` | `5` | second, tight poll of the pattern area run between wide polls — 2 near + 1 wide per 3 s stays at the feeds' 1 req/s. Public feeds only; `0` disables |
 | `KANP_NEAR_POLL_SECONDS` | `1` | cadence of that near poll; must be under `KANP_POLL_SECONDS` |
-| `KANP_RETENTION_DAYS` | `365` | positions older than this are pruned hourly |
-| `KANP_MAX_DB_MB` | `8000` | hard cap; oldest 30-day chunks dropped if exceeded |
+| `KANP_RETENTION_DAYS` | `45` | positions older than this are pruned hourly, in 100k-row batches. The site's history is the traffic-data branch, not this DB |
+| `KANP_MAX_DB_MB` | `6000` | hard cap on live pages + WAL; oldest 30-day chunks dropped if exceeded |
 | `KANP_SIMPLIFY_NM` | `0.03` | Douglas-Peucker tolerance (nm) for exported/served tracks |
 | `KANP_SIMPLIFY_NEAR_NM` | `0` | tolerance inside `KANP_NEAR_RADIUS_NM`; `0` keeps every fix. Set it to `KANP_SIMPLIFY_NM` to turn the near-field detail off |
 | `KANP_PORT` | `8787` | API/web port |

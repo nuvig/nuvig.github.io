@@ -70,10 +70,16 @@ DEFAULTS = {
     "KANP_FEEDS_NEAR": "",
     "KANP_FEEDS_WIDE": "",
     "KANP_DB": "/var/lib/kanp/kanp.db",
-    "KANP_RETENTION_DAYS": "365",
-    # Safety cap so the DB can never fill the SD card. Oldest data is pruned
-    # in 30-day chunks once this is exceeded.
-    "KANP_MAX_DB_MB": "8000",
+    # The site's history is the traffic-data branch, not this DB — the Pi only
+    # needs enough for the Live tab, the exporter's today/yesterday re-export
+    # and heal.py's 30 h window. 365 days at ~110 MB/day filled a 27 GB root
+    # shared with the OS on 2026-09-12 (the DB hit 7.5 GB plus a 3.9 GB WAL
+    # that could no longer checkpoint), which took the exporter down for a day.
+    "KANP_RETENTION_DAYS": "45",
+    # Safety cap so the DB can never fill the card. Measures live data + WAL,
+    # not the file (freed pages are reused before the file shrinks). Oldest
+    # data is pruned in 30-day chunks once this is exceeded.
+    "KANP_MAX_DB_MB": "6000",
     # Skip re-inserting a stationary aircraft more than once per this many
     # seconds (parked aircraft with ADS-B on would otherwise flood the DB).
     "KANP_STATIONARY_SECONDS": "300",
@@ -559,19 +565,64 @@ def _store(db, aircraft, now, wide):
     return inserted
 
 
+PRUNE_BATCH = 100_000
+
+
+def delete_before(db, cutoff):
+    """DELETE positions older than cutoff in batches, one commit each.
+
+    One statement deleting weeks of rows is one transaction: on 2026-09-12 a
+    first prune of ~7 M rows would have written every touched page to the
+    WAL (gigabytes) and held the write lock for minutes, starving the near
+    poll. Batches keep the WAL checkpointing and the lock short. Returns the
+    number of rows deleted.
+    """
+    total = 0
+    while True:
+        cur = db.execute(
+            "DELETE FROM positions WHERE id IN"
+            " (SELECT id FROM positions WHERE ts < ? LIMIT ?)",
+            (cutoff, PRUNE_BATCH))
+        db.commit()
+        total += cur.rowcount
+        if cur.rowcount < PRUNE_BATCH:
+            return total
+
+
+def db_live_mb(db):
+    """Data actually held (pages in use) plus the WAL, in MB.
+
+    Not the file size: deleted rows leave free pages that are reused, not
+    returned (the auto_vacuum pragma in SCHEMA never took — the live DB reads
+    auto_vacuum=0, so incremental_vacuum is a no-op and the file only ever
+    grows to its high-water mark), so measuring the file after a prune would
+    call the DB over the cap and drop another 30 days it did not need to.
+    And the WAL is real disk the file size never shows — 3.9 GB of it on
+    2026-09-12 while the file sat under the cap. prune() TRUNCATE-checkpoints
+    before each measure so a WAL left at its high-water mark by the deletes
+    (34 MB on a 90k-row fixture — enough to empty it against a small cap)
+    is not counted; a WAL that will not truncate is disk in use and counts.
+    """
+    page = db.execute("PRAGMA page_size").fetchone()[0]
+    used = db.execute("PRAGMA page_count").fetchone()[0] \
+        - db.execute("PRAGMA freelist_count").fetchone()[0]
+    try:
+        wal = os.path.getsize(DB_PATH + "-wal")
+    except OSError:
+        wal = 0
+    return (used * page + wal) / 1e6
+
+
 def prune(db, now):
-    """Retention pruning plus a hard DB-size cap for the 32 GB SD card."""
+    """Retention pruning plus a hard size cap so the DB can't fill the card."""
     cutoff = now - RETENTION_DAYS * 86400
-    cur = db.execute("DELETE FROM positions WHERE ts < ?", (cutoff,))
-    if cur.rowcount:
-        log.info("pruned %d rows older than %d days", cur.rowcount, RETENTION_DAYS)
-    db.commit()
+    n = delete_before(db, cutoff)
+    if n:
+        log.info("pruned %d rows older than %d days", n, RETENTION_DAYS)
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     for _ in range(12):  # at most a year of emergency pruning per pass
-        try:
-            size_mb = os.path.getsize(DB_PATH) / 1e6
-        except OSError:
-            break
+        size_mb = db_live_mb(db)
         if size_mb <= MAX_DB_MB:
             break
         row = db.execute("SELECT MIN(ts) FROM positions").fetchone()
@@ -579,10 +630,8 @@ def prune(db, now):
             break
         chunk_cutoff = row[0] + 30 * 86400
         log.warning("DB %.0f MB over cap %d MB — dropping oldest 30 days", size_mb, MAX_DB_MB)
-        db.execute("DELETE FROM positions WHERE ts < ?", (chunk_cutoff,))
-        db.commit()
-        db.execute("PRAGMA incremental_vacuum")
-        db.commit()
+        delete_before(db, chunk_cutoff)
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     db.execute("PRAGMA incremental_vacuum(2000)")
     db.commit()

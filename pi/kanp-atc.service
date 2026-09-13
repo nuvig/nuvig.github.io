@@ -24,7 +24,9 @@ EnvironmentFile=-/etc/kanp/site.env
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/kanp
+# /mnt/atc is the USB stick the clips live on (see site.env.example); the
+# leading - means a box without one still starts.
+ReadWritePaths=/var/lib/kanp -/mnt/atc
 PrivateTmp=true
 
 [Install]

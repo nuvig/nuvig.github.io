@@ -1363,6 +1363,24 @@ concepts; to relink, add the tools.html card back.
   bound (it hit 5.7 GB against 301 MB of data on the real Pi). Weather archiving used to live
   here (`wxarchive.py`) but moved to the wxarchive GitHub Action so the Pi stores no weather
   history; `install.sh` retires the old `kanp-wxarchive` units.
+  **Disk (2026-09-12 incident):** the Pi's root is 27 GB shared with the OS, not a dedicated
+  card. `KANP_RETENTION_DAYS` defaulted to 365 and `KANP_MAX_DB_MB` to 8000 measured on the
+  main file only, so nothing ever pruned: `kanp.db` reached 7.5 GB, root filled, SQLite could
+  no longer checkpoint (WAL grew to 3.9 GB, then 6.6 GB with `kanp-api`'s readers pinning
+  it), `git push` failed and the site went stale for a day. Now: **retention 45 days, cap
+  6000 MB on live pages + WAL** (`db_live_mb()`; `auto_vacuum` never took on the live DB, so
+  the file only ever grows to its high-water mark and freed pages are reused, which is why
+  the cap must not read the file size), deletes in 100k-row batches with a TRUNCATE
+  checkpoint after. **ATC clips live on a USB stick** (`LABEL=kanp-atc`, ext4, `/mnt/atc`,
+  `nofail` in fstab; ~186 MB/day for three feeds, 45-day retention ≈ 8.4 GB) — the unit's
+  `ProtectSystem=strict` needs `ReadWritePaths` for it, which `kanp-atc.service` now carries.
+  **`pi/recover.sh`** is the one-line repair for a stale-snapshot day (`curl … | sudo bash`,
+  URL in its header): sets retention, mounts the stick and repoints the recorder, restarts
+  the units, runs an export (re-cloning the traffic-data checkout if the push fails — a push
+  that died on a full disk leaves it unusable), then verifies from GitHub and the DB and
+  prints ALL GOOD or NOT FIXED with the reason. Never delete `kanp.db-wal` to free space —
+  it holds committed rows; checkpoint it (`PRAGMA wal_checkpoint(TRUNCATE)`) with every
+  reader and writer stopped, including `kanp-api`.
 - `pc/` — `atc_transcribe.py` (faster-whisper worker) + `atc_vocab.txt`. Runs on the PC, not the Pi.
 - `scripts/api-collector.js`, `scripts/receiver-export.js` — legacy Node collector, superseded by
   `pi/`; don't extend it.
