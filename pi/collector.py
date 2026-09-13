@@ -143,6 +143,11 @@ SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 PRAGMA auto_vacuum=INCREMENTAL;
+-- The WAL can only reset when no reader is inside it, and this DB always has
+-- readers (the API, the exporter's minutes-long reads), so left to SQLite's
+-- passive autocheckpoint it grew ~5 GB a day and shrank only on a restart
+-- (2026-09-13). Cap what a reset leaves behind; prune() truncates it hourly.
+PRAGMA journal_size_limit=268435456;
 
 CREATE TABLE IF NOT EXISTS positions (
     id        INTEGER PRIMARY KEY,
@@ -635,6 +640,20 @@ def prune(db, now):
 
     db.execute("PRAGMA incremental_vacuum(2000)")
     db.commit()
+    # Fold the WAL back into the file and truncate it, every pass, deletions
+    # or not — see the journal_size_limit note in SCHEMA. TRUNCATE waits for
+    # readers to clear and holds the write lock while it does, so the wait is
+    # capped at 2 s here rather than the connection's 30 s (a 30 s hold once
+    # an hour would cost the near thread 30 polls whenever the exporter's
+    # minutes-long read coincides); a busy result is a WAL that shrinks on
+    # the next pass instead.
+    db.execute("PRAGMA busy_timeout=2000")
+    try:
+        r = db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    finally:
+        db.execute("PRAGMA busy_timeout=30000")
+    if r and r[0]:
+        log.warning("WAL checkpoint busy (a reader held it) — %d frames not yet checkpointed", r[1] - r[2])
 
 
 # The near poll runs on its own thread with its own DB connection: the old
