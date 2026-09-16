@@ -1,0 +1,1 @@
+{"date":"2026-09-16","region":"37.0,-79.5,41.0,-74.0","pireps":[{"t":1789598280,"seen":1789599335,"raw":"SEG UA /OV SEG110015/TM 2238/FL300/TP E75L/TB NEG","type":"PIREP","ac":"E75L","lat":40.7386,"lon":-76.5618,"fl":300,"flType":"OTHER","tb":[["NEG",null,null,null]],"ic":null,"sky":null,"wx":null,"temp":null,"wind":null}]}
