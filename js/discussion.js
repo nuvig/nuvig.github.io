@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 40;
+const DISC_VER = 41;
 
 const $ = (id) => document.getElementById(id);
 
@@ -2583,7 +2583,21 @@ function alertWhat(a) {
   const what = desc.match(/\*\s*WHAT\.{3}\s*(.+?)(?:\s*\*\s*[A-Z]+\.{3}|$)/);
   let t = (what ? what[1] : desc) || String(a.headline || '');
   if (t && !/[a-z]/.test(t)) t = t.charAt(0) + t.slice(1).toLowerCase();   // de-shout
-  if (t.length > 240) t = t.slice(0, 237).replace(/\s\S*$/, '') + '…';
+  if (!what) {
+    /* Marine / special weather statements have no WHAT bullet: they open with
+       "...has been issued for the following areas... <zone>... <zone>..." and
+       the content starts at the timed sentence ("At 149 PM EDT, Doppler radar
+       indicated..."). A fixed-length cut landed inside the zone list. */
+    const at = t.search(/At \d{3,4} (?:AM|PM) [A-Z]{2,4}/);
+    if (at > 0) t = t.slice(at);
+    else t = t.replace(/^.*?issued for the following areas\.{3}\s*(?:[^.]+?\.{3}\s*)*/i, '');
+    /* whole sentences, up to ~360 chars, at least one */
+    const parts = t.split(/(?<=[.!?])\s+(?=[A-Z])/);
+    let out = '';
+    for (const p of parts) { if (out && (out + ' ' + p).length > 360) break; out = out ? out + ' ' + p : p; }
+    t = out;
+  }
+  if (t.length > 400) t = t.slice(0, 397).replace(/\s\S*$/, '') + '…';
   return t || `${a.event} in effect for the DC area.`;
 }
 
