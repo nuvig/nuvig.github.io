@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 41;
+const DISC_VER = 42;
 
 const $ = (id) => document.getElementById(id);
 
@@ -3405,6 +3405,18 @@ function outlook(n = 3) {
   return rows;
 }
 
+/* A day's precip chance at every forecast archived today, then the live one —
+   the endpoints alone hide a number that went 45 → 75 → 91 → 86. Repeats are
+   folded; null when it never moved. */
+function popPath(date) {
+  const snaps = (ARC.todayFc && ARC.todayFc.snaps) || [];
+  const vals = snaps.map((s) => s.days && s.days[date] && s.days[date].pop);
+  vals.push(FC.days && FC.days[date] && FC.days[date].pop);
+  const out = [];
+  for (const v of vals) if (v != null && out[out.length - 1] !== v) out.push(v);
+  return out.length > 1 ? `${out.join(' → ')}%` : '';
+}
+
 /* The office's own account of what moved — the honest answer to "why is this
    different from this morning?". */
 function afdWhatChanged() {
@@ -3889,10 +3901,14 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
       const label = r.k === 0 ? 'Today' : r.k === 1 ? 'Tomorrow'
         : fmtTime(new Date(r.date + 'T12:00:00'), { weekday: 'long' });
       const wx = `${r.c.short || '—'}${r.c.pop != null ? ` · ${r.c.pop}%` : ''}`;
+      const path = popPath(r.date);
       return `<div class="ol-row ${esc(r.state)}"><span class="d">${esc(label)}</span>` +
-        `<span class="w">${esc(wx)}</span><span class="chg">${esc(r.note)}</span></div>`;
+        `<span class="w">${esc(wx)}</span><span class="chg">${esc(r.note)}</span>` +
+        `<span class="ol-sub">${path ? `<span title="DC precip chance at each archived forecast today, oldest first">${esc(path)}</span>` : ''}` +
+        `<span class="ol-dn" data-date="${esc(r.date)}"></span></span></div>`;
     }).join('')
     : '<span class="faint" style="font-size:13px">No forecast loaded to compare.</span>';
+  if (typeof AVN !== 'undefined' && AVN.fillDayNight) AVN.fillDayNight();
 
   $('also-stories').innerHTML = alsos.length
     ? `<div class="sn-head">Also in play</div>` + alsos.map((x) =>

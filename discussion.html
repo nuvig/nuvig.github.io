@@ -479,6 +479,21 @@
       margin-top: 9px; font-size: 12.5px; color: #b9c3cc;
       font-variant-numeric: tabular-nums; min-height: 18px;
     }
+    .tl-cell.none { background: #1b2129; }
+    .tl-cell .pp {
+      position: absolute; left: 0; right: 0; bottom: 0; border-radius: 0 0 3px 3px;
+      background: rgba(255,255,255,0.38); pointer-events: none;
+    }
+    .tn-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+    .tn-row .tl-strip, .tn-row .tl-axis { flex: 1 1 0; min-width: 0; margin-top: 0; }
+    .tn-row .tl-cell { height: 26px; }
+    .tn-lab { width: 54px; flex-shrink: 0; font-size: 10.5px; color: #6d7d8c; text-align: right; white-space: nowrap; }
+    .ol-sub { flex: 1 1 100%; padding-left: 88px; display: flex; gap: 14px; flex-wrap: wrap;
+      font-size: 11.5px; color: #6f7a85; font-variant-numeric: tabular-nums; }
+    .ol-sub:empty { display: none; }
+    .ol-sub .was { color: #566069; }
+    .ol-dn:empty { display: none; }
+    @media (max-width: 520px) { .ol-sub { padding-left: 0; } }
     .tl-key { margin-top: 7px; font-size: 11px; color: #5f6c78; }
     .tl-key b { font-weight: 700; }
     .chg-block { border-top: 1px solid #262626; padding: 8px 0; }
@@ -661,6 +676,11 @@
     <div id="since-morning"></div>
   </div>
 
+  <div class="card" id="thennow-card" style="margin-bottom:8px;display:none">
+    <h3 class="card-h3" id="thennow-h">Tomorrow at KANP</h3>
+    <div id="thennow-body"></div>
+  </div>
+
   <div class="card" id="drift-card" style="margin-bottom:8px">
     <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em">Forecast drift — DC, three days back and three ahead</h3>
     <div id="drift-body"><span class="muted" style="font-size:13px">Loading…</span></div>
@@ -726,9 +746,9 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=41"></script>
+  <script src="js/discussion.js?v=42"></script>
   <script src="js/taf-tac.js?v=1"></script>
-  <script src="js/discussion-avn.js?v=6"></script>
+  <script src="js/discussion-avn.js?v=7"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=2" defer></script>

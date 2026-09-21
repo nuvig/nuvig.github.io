@@ -1050,6 +1050,17 @@ concepts; to relink, add the tools.html card back.
   baselines) prefers the **`data/wx/` archive** written hourly by the wxarchive GitHub Action
   (`SITE.weather.archiveBase`, same-origin), falling back to the live NWS API + localStorage
   for anything the archive lacks. Same no-CORS rule as weather.html: never fetch aviationweather.gov.
+  **Timing, not just the daily number (2026-09-20, v42):** Monday's daily precip went 45 → 86 %
+  in a day while its daylight hours dried out — the whole rise was Monday night — and "↑41" read as
+  "tomorrow got worse". Three things in Act III now show it: each "Since this morning" row carries
+  the day's precip **path** across every forecast archived today (`popPath()`, "45 → 75 → 91 → 86%",
+  repeats folded) and a **day / night split** (`AVN.dayNight()` / `AVN.fillDayNight()` — peak hourly
+  PoP from the KANP grid, day 6 AM–6 PM, night 6 PM–6 AM, only hours both grids carry, labelled KANP
+  because the row itself is the DC forecast; `moved later` / `moved earlier` when the halves move
+  ≥ 10 opposite ways); and a **then-vs-now card** (`#thennow-card`, `renderThenNow()` in
+  `discussion-avn.js`): tomorrow's 24 hours twice, this morning's first archived grid over the
+  live one — cell colour = category, white fill = PoP, bolt = thunder, amber bar = moved. Hidden
+  when the two grids share fewer than 6 of tomorrow's hours.
 - `js/discussion-avn.js` — the aviation layer on `discussion.html`: the NWS hourly grid at the
   field as a 24 h flight-category strip — one cell per hour, night dimmed, a bolt where the grid
   carries thunder, an amber bar where the hour moved since the morning snapshot, hover for the

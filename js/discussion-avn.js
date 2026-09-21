@@ -463,6 +463,142 @@ function renderFieldGrid() {
   strip.addEventListener('mouseleave', () => { read.innerHTML = readoutFor(hours[0]); });
 }
 
+/* ---------------------- tomorrow, then vs now ----------------------------- */
+/* A daily precip number hides timing: on 2026-09-20 Monday's went 45 → 86 %
+   while Monday's daylight hours dried out — all of the rise was Monday night.
+   Two rows of the same hours, this morning's first archived grid over the
+   live one, show that where one number cannot. */
+
+const wxAt = (snapWx) => String(snapWx || '');
+
+/* One local day's hours from both grids. `then` is null for an hour the
+   morning snapshot does not reach. */
+function thenNowHours(date) {
+  const out = [];
+  if (!AVN.grid || !AVN.base || typeof WXA === 'undefined') return out;
+  const start = Math.floor(Date.now() / 3600000) * 3600000 - 24 * 3600000;
+  for (let t = start; t < start + 80 * 3600000; t += 3600000) {
+    if (localDay(t) !== date) continue;
+    const nowHas = AVN.grid.tempC.has(t) || AVN.grid.pop.has(t);
+    const bp = WXA.gridAt(AVN.base, 'pop', t);
+    const bc = WXA.gridAt(AVN.base, 'ceil', t), bv = WXA.gridAt(AVN.base, 'vis', t);
+    const bw = wxAt(WXA.gridAt(AVN.base, 'wx', t));
+    const then = bp === undefined && bc === undefined && bv === undefined ? null : {
+      ceil: bc ?? null, vis: bv ?? null, pop: bp ?? null, cat: category(bc ?? null, bv ?? null),
+      ts: /thunder/i.test(bw), wx: bw.replace(/_/g, ' ').replace(/,/g, ', '),
+    };
+    let now = null;
+    if (nowHas) {
+      const ceil = AVN.grid.ceil.get(t) ?? null, vis = AVN.grid.vis.get(t) ?? null;
+      const wx = (AVN.grid.wx.get(t) || []).map((w) => w.wx.replace(/_/g, ' '))
+        .filter((w, i, a) => a.indexOf(w) === i);
+      now = { ceil, vis, pop: AVN.grid.pop.get(t) ?? null, cat: category(ceil, vis),
+        ts: wx.some((w) => /thunder/i.test(w)), wx: wx.join(', ') };
+    }
+    out.push({ t, day: isDaylight(t), then, now });
+  }
+  return out;
+}
+
+/* Peak precip chance, NWS periods: day 6 AM–6 PM, night 6 PM–6 AM after.
+   Only hours both grids carry are counted, so the two peaks are comparable. */
+AVN.dayNight = function dayNight(date) {
+  if (!AVN.grid || !AVN.base || typeof WXA === 'undefined') return null;
+  const hourOf = (t) => +new Intl.DateTimeFormat('en-US',
+    { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date(t));
+  const acc = { day: { n: 0, now: 0, then: 0 }, night: { n: 0, now: 0, then: 0 } };
+  const start = Math.floor(Date.now() / 3600000) * 3600000 - 24 * 3600000;
+  for (let t = start; t < start + 90 * 3600000; t += 3600000) {
+    const h = hourOf(t);
+    const per = h >= 6 && h < 18 ? 'day' : 'night';
+    // a night belongs to the day it starts on
+    const owner = per === 'night' && h < 6 ? localDay(t - 6 * 3600000) : localDay(t);
+    if (owner !== date) continue;
+    const n = AVN.grid.pop.get(t), b = WXA.gridAt(AVN.base, 'pop', t);
+    if (n == null || b == null) continue;
+    const a = acc[per];
+    a.n++; a.now = Math.max(a.now, n); a.then = Math.max(a.then, b);
+  }
+  const out = {};
+  for (const k of ['day', 'night']) if (acc[k].n >= 3) out[k] = acc[k];
+  return out.day || out.night ? out : null;
+};
+
+/* discussion.js leaves a slot per row of "Since this morning"; fill them. */
+AVN.fillDayNight = function fillDayNight() {
+  document.querySelectorAll('.ol-dn[data-date]').forEach((el) => {
+    const dn = AVN.dayNight(el.dataset.date);
+    if (!dn) { el.textContent = ''; return; }
+    const part = (k) => dn[k]
+      ? `${k} ${Math.round(dn[k].now)}%` +
+        (Math.abs(dn[k].now - dn[k].then) >= 10 ? ` <span class="was">was ${Math.round(dn[k].then)}%</span>` : '')
+      : '';
+    let tag = '';
+    if (dn.day && dn.night) {
+      const dd = dn.day.now - dn.day.then, dnn = dn.night.now - dn.night.then;
+      if (dd <= -10 && dnn >= 10) tag = ' <span class="tl-moved">moved later</span>';
+      else if (dd >= 10 && dnn <= -10) tag = ' <span class="tl-moved">moved earlier</span>';
+    }
+    el.innerHTML = `KANP · ${[part('day'), part('night')].filter(Boolean).join(' · ')}${tag}`;
+    el.title = 'Peak hourly precip chance, NWS grid at KANP: day 6 AM–6 PM, night 6 PM–6 AM. ' +
+      'was = this morning’s first archived grid';
+  });
+};
+
+const tnNumbers = (s) => !s ? 'not in that grid'
+  : `<b class="${catClass(s.cat)}">${s.cat}</b> · ${esc(numbersOf(s))} · ${s.pop == null ? '—' : Math.round(s.pop)}% precip` +
+    `${s.wx ? ` · ${esc(s.wx)}` : ''}`;
+
+function renderThenNow() {
+  const card = $('thennow-card');
+  if (!card) return;
+  const date = shiftDay(localDay(Date.now()), 1);
+  const hours = thenNowHours(date);
+  if (hours.filter((h) => h.then && h.now).length < 6) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const baseAt = fmtTime(new Date(AVN.base.t * 1000), { hour: 'numeric', minute: '2-digit' });
+  $('thennow-h').textContent =
+    `${fmtTime(new Date(date + 'T12:00:00'), { weekday: 'long' })} at KANP — ${baseAt} vs now`;
+
+  const row = (key) => hours.map((h, i) => {
+    const s = h[key];
+    if (!s) return `<div class="tl-cell none" data-i="${i}"></div>`;
+    const o = h[key === 'now' ? 'then' : 'now'];
+    const moved = key === 'now' && o && (o.cat !== s.cat || o.ts !== s.ts ||
+      (o.pop != null && s.pop != null && Math.abs(o.pop - s.pop) >= 20));
+    return `<div class="tl-cell ${catClass(s.cat)}${h.day ? '' : ' night'}${moved ? ' moved' : ''}" data-i="${i}">` +
+      `<i class="pp" style="height:${Math.round(Math.max(0, Math.min(100, s.pop || 0)))}%"></i>` +
+      `<span class="mk">${s.ts ? '⚡' : ''}</span></div>`;
+  }).join('');
+  const axis = hours.map((h, i) =>
+    `<div class="tl-tick">${i % 3 === 0 ? esc(hourLbl(h.t).replace(' ', '')) : ''}</div>`).join('');
+
+  const dn = AVN.dayNight(date);
+  const dnLine = dn ? ['day', 'night'].filter((k) => dn[k]).map((k) =>
+    `${k} ${Math.round(dn[k].then)}% → <b>${Math.round(dn[k].now)}%</b>`).join(' · ') : '';
+  const idle = dnLine ? `precip peak · ${dnLine}` : '';
+
+  $('thennow-body').innerHTML =
+    `<div class="tn-row"><span class="tn-lab">${esc(baseAt)}</span><div class="tl-strip" data-k="then">${row('then')}</div></div>` +
+    `<div class="tn-row"><span class="tn-lab">now</span><div class="tl-strip" data-k="now">${row('now')}</div></div>` +
+    `<div class="tn-row"><span class="tn-lab"></span><div class="tl-axis">${axis}</div></div>` +
+    `<div class="tl-read" id="tn-read">${idle}</div>` +
+    `<div class="tl-key">color = flight category · white fill = precip chance · ⚡ thunder · ` +
+    `dim = night · amber bar = moved</div>`;
+
+  const body = $('thennow-body'), read = $('tn-read');
+  const show = (e) => {
+    const cell = e.target.closest('.tl-cell');
+    if (!cell) return;
+    const h = hours[+cell.dataset.i];
+    read.innerHTML = `<b>${esc(fmtTime(new Date(h.t), { weekday: 'short', hour: 'numeric' }))}</b> · ` +
+      `${esc(baseAt)}: ${tnNumbers(h.then)} <span class="faint">→</span> now: ${tnNumbers(h.now)}`;
+  };
+  body.onmousemove = show;
+  body.onclick = show;
+  body.onmouseleave = () => { read.innerHTML = idle; };
+}
+
 /* What moved between the last two TAF issuances, and why. */
 function renderTafChanges() {
   const host = $('avn-changes');
@@ -555,5 +691,7 @@ AVN.init = async function init() {
   }));
   await Promise.all(jobs);
   if (AVN.grid) renderFieldGrid();
+  renderThenNow();
+  AVN.fillDayNight();
   renderTafChanges();
 };
