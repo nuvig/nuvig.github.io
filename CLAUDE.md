@@ -1002,7 +1002,10 @@ concepts; to relink, add the tools.html card back.
   use for a real one — the same failure mode as the headline card going quiet.) A ‹ › pager
   rebuilds the same card for any archived past day, where every window has closed; days the grid
   stream doesn't reach degrade to day rows plus an unjudged "what fell" line rather than scoring
-  a forecast that was never captured. The ceiling row judges **height bands on top of flight
+  a forecast that was never captured. **Lead tabs** (`VF_LEADS`, 2026-09-22): 1 week / 3 days /
+  1 day prior / morning of — `leadSnap()` takes the earliest snapshot archived on D−n that reaches
+  D (the NWS 7-day list reaches D only from D−7's evening; the grid is 48 h, so 3+ days out has
+  no hourly rows and rain/thunder are judged against the day's wording). The ceiling row judges **height bands on top of flight
   category** (`ceilBand()`: the LIFR/IFR/MVFR edges, then 3/5/10 k splits of VFR) — a 3,000 ft
   deck and a clear sky are both VFR but not the same forecast, so the row prints both heights,
   a same-category day ≥2 bands off scores ≈ not ✓, and a missed hour is named with
