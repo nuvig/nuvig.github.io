@@ -291,6 +291,14 @@
     .vf-step:hover:not(:disabled) { background: #263140; color: #e4eaf0; }
     .vf-step:disabled { opacity: .35; cursor: default; }
     .vf-day { color: #e4eaf0; font-weight: 600; min-width: 112px; text-align: center; }
+    .vf-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+    .vf-tab {
+      background: #1e2630; border: 1px solid #2c3743; color: #93a2b1;
+      border-radius: 5px; padding: 3px 9px; font-size: 12px; cursor: pointer;
+    }
+    .vf-tab:hover { color: #e4eaf0; }
+    .vf-tab.on { background: #213247; border-color: #3a72b0; color: #e4eaf0; }
+    .vf-read { color: #6d7d8c; margin-left: auto; }
     .vf-head {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
       font-size: 12px; margin-bottom: 12px;
@@ -746,7 +754,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/discussion.js?v=42"></script>
+  <script src="js/discussion.js?v=43"></script>
   <script src="js/taf-tac.js?v=1"></script>
   <script src="js/discussion-avn.js?v=7"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"

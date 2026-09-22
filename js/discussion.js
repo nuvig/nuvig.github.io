@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 42;
+const DISC_VER = 43;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1980,6 +1980,40 @@ function vRowHtml(r) {
 let vfOffset = 0;
 let vfSeq = 0;
 
+/* Which forecast the day is judged against: the one archived n days before
+   it (the earliest snapshot on that day that reaches the date), or n = 0,
+   the morning-of reading. The NWS 7-day list reaches day D only from the
+   evening of D−7, and the hourly grid runs 48 h — so a week out is the
+   evening snap, and 3 days out has daily wording only, no hourly grid. */
+const VF_LEADS = [
+  { k: '7', n: 7, label: '1 week prior' },
+  { k: '3', n: 3, label: '3 days prior' },
+  { k: '1', n: 1, label: '1 day prior' },
+  { k: '0', n: 0, label: 'Morning of' },
+];
+const VF_LEAD_KEY = 'dcwx_vf_lead';
+let vfLead = VF_LEADS[3];
+try {
+  const k = localStorage.getItem(VF_LEAD_KEY);
+  vfLead = VF_LEADS.find((l) => l.k === k) || vfLead;
+} catch (e) { /* storage blocked — default tab */ }
+
+function vfTabsHtml() {
+  return `<div class="vf-tabs" role="tablist">` + VF_LEADS.map((l) =>
+    `<button type="button" role="tab" class="vf-tab${l === vfLead ? ' on' : ''}" data-lead="${l.k}"` +
+    ` aria-selected="${l === vfLead}">${esc(l.label)}</button>`).join('') + `</div>`;
+}
+
+/* Earliest snapshot archived on date−n that reaches `date` — a forecast
+   digest carrying the day, or a grid whose hours touch it. */
+async function leadSnap(stream, date, n) {
+  const doc = await WXA.day(stream, shiftDay(date, -n));
+  const reaches = stream === 'grid'
+    ? (s) => s.t0 != null && s.n && localDay((s.t0 + (s.n - 1) * 3600) * 1000) >= date
+    : (s) => s.days && s.days[date];
+  return ((doc && doc.snaps) || []).find(reaches) || null;
+}
+
 function vfNavHtml(date, off) {
   const days = (ARC.index && ARC.index.obs_days) || null;
   const canPrev = days ? days.includes(shiftDay(date, -1)) : off > -14;
@@ -1993,17 +2027,26 @@ function vfNavHtml(date, off) {
 }
 
 function vfRender(date, off, body) {
-  $('verify-body').innerHTML = vfNavHtml(date, off) + body;
+  $('verify-body').innerHTML = vfNavHtml(date, off) + vfTabsHtml() + body;
   const p = $('vf-prev'), n = $('vf-next');
   if (p) p.onclick = () => loadVerification(off - 1);
   if (n) n.onclick = () => loadVerification(off + 1);
+  for (const b of $('verify-body').querySelectorAll('.vf-tab')) {
+    b.onclick = () => {
+      const l = VF_LEADS.find((x) => x.k === b.dataset.lead);
+      if (!l || l === vfLead) return;
+      vfLead = l;
+      try { localStorage.setItem(VF_LEAD_KEY, l.k); } catch (e) { /* not remembered */ }
+      loadVerification(vfOffset);
+    };
+  }
 }
 
 async function loadVerification(off = 0) {
   vfOffset = Math.min(0, off);
   const seq = ++vfSeq;
   const date = shiftDay(localDay(Date.now()), vfOffset);
-  if (vfOffset < 0) vfRender(date, vfOffset, '<span class="muted" style="font-size:13px">Loading…</span>');
+  vfRender(date, vfOffset, '<span class="muted" style="font-size:13px">Loading…</span>');
   let body;
   try {
     body = await vfBuild(date, vfOffset);
@@ -2025,28 +2068,40 @@ async function vfBuild(date, off) {
   /* the day's whole-day call, from the first snapshot archived that morning
      (shared across devices), else — for today only — the earliest one this
      browser saved */
-  let exp = null, expSrc = '';
-  const fcDoc = live ? ARC.todayFc : await WXA.day('forecast', date);
-  const arcSnap = ((fcDoc && fcDoc.snaps) || []).find((s) => s.days && s.days[date]);
-  if (arcSnap) {
-    exp = { at: arcSnap.t * 1000, ...arcSnap.days[date] };
-    expSrc = `archived ${fmtTime(new Date(exp.at), { hour: 'numeric' })}`;
-  } else if (live) {
-    let snaps = [];
-    try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
-    const withToday = snaps.filter((s) => s.days && s.days[date] && now - s.at > 3 * 3600 * 1000);
-    if (withToday.length) {
-      exp = { at: withToday[0].at, ...withToday[0].days[date] };
-      expSrc = `saved here ${timeAgo(new Date(exp.at))}`;
+  const lead = vfLead.n;
+  let exp = null, expLo = null, gridSnap = null;
+  if (lead === 0) {
+    const fcDoc = live ? ARC.todayFc : await WXA.day('forecast', date);
+    const arcSnap = ((fcDoc && fcDoc.snaps) || []).find((s) => s.days && s.days[date]);
+    if (arcSnap) {
+      exp = { at: arcSnap.t * 1000, ...arcSnap.days[date] };
+    } else if (live) {
+      let snaps = [];
+      try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* none */ }
+      const withToday = snaps.filter((s) => s.days && s.days[date] && now - s.at > 3 * 3600 * 1000);
+      if (withToday.length) exp = { at: withToday[0].at, ...withToday[0].days[date] };
     }
+    /* the night's low was called the previous morning, and the NWS "low" for a
+       day bottoms out in the next day's small hours — so this day's early obs
+       verify the previous day's number */
+    const yFc = await WXA.firstSnap('forecast', yest);
+    expLo = (yFc && yFc.days && yFc.days[yest] && yFc.days[yest].lo != null) ? yFc.days[yest].lo : null;
+    /* the field's own hourly forecast as it stood that morning */
+    gridSnap = await WXA.firstSnap('grid', date);
+  } else {
+    /* one snapshot read n days ahead supplies everything — the day, and the
+       night before it, whose low this day's early obs verify */
+    const fc = await leadSnap('forecast', date, lead);
+    if (fc) {
+      exp = { at: fc.t * 1000, ...fc.days[date] };
+      if (fc.days[yest] && fc.days[yest].lo != null) expLo = fc.days[yest].lo;
+    }
+    gridSnap = await leadSnap('grid', date, lead);
   }
-  /* the night's low was called the previous morning, and the NWS "low" for a
-     day bottoms out in the next day's small hours — so this day's early obs
-     verify the previous day's number */
-  const yFc = await WXA.firstSnap('forecast', yest);
-  const expLo = (yFc && yFc.days && yFc.days[yest] && yFc.days[yest].lo != null) ? yFc.days[yest].lo : null;
-  /* the field's own hourly forecast as it stood that morning */
-  const gridSnap = await WXA.firstSnap('grid', date);
+  /* no hourly grid reaches this far ahead: rain and thunder are judged
+     against the day's wording instead */
+  const noGrid = lead >= 3 ? 'no hourly grid 3+ days out' : 'no grid archived';
+  const readMs = exp ? exp.at : gridSnap && gridSnap.t ? gridSnap.t * 1000 : null;
 
   /* ---------- what actually happened ---------- */
 
@@ -2302,7 +2357,7 @@ async function vfBuild(date, off) {
       if (cloudy.length) {
         row = {
           state: 'na', what: 'Low clouds, area',
-          said: '<span class="faint">no morning grid archived</span>',
+          said: `<span class="faint">${noGrid}</span>`,
           got: `<b>low clouds</b> at ${cloudy.length} of ${areaSums.length} stations`,
           note: esc(detail),
         };
@@ -2382,7 +2437,36 @@ async function vfBuild(date, off) {
   const rainAhead = rainHrs.filter((ms) => ms > nowCap);
   const rainWhat = live ? 'Rain so far' : 'Rain';
 
-  if (!gridSnap) {
+  if (!gridSnap && exp && exp.short) {
+    /* No hourly grid — 3+ days out, or none archived — but the day's own
+       wording was: judge rain and thunder at day resolution. A chance that
+       stayed dry is a ≈, not a bust; on a live day an advertised event not
+       yet seen stays open until the day ends. */
+    const pop = exp.pop == null ? null : exp.pop;
+    const said = `<span class="wx">${esc(exp.short)}</span>${pop != null ? ` · ${pop}%` : ''}`;
+    const advRain = (pop != null && pop >= 30) || /rain|shower|drizzle|thunder/i.test(exp.short);
+    const advTs = /thunder/i.test(exp.short);
+    const day = (what, adv, obsMs, station, tag, likely) => {
+      if (!adv && !obsMs.length && what === 'Thunder') return;
+      if (obsMs.length) {
+        settled.push({
+          state: adv ? 'hit' : 'miss', what: live ? `${what} so far` : what, said,
+          got: `${esc(station)} <b>${tag}</b> ${esc(hourSpan(obsMs))}`,
+          note: adv ? '' : 'unadvertised',
+        });
+      } else if (live) {
+        if (adv) open.push({ state: 'watch', what, said, got: '<b>none so far</b>', note: 'settles at midnight' });
+      } else {
+        settled.push({
+          state: !adv ? 'hit' : likely ? 'miss' : 'near', what, said,
+          got: `${esc(station)} <b>none</b>`,
+          note: adv ? (likely ? 'called likely' : 'a chance, none came') : '',
+        });
+      }
+    };
+    day('Rain', advRain, rainObs.map((d) => d.ms), fieldStation, 'rain', pop != null && pop >= 60);
+    day('Thunder', advTs, tsObs.map((d) => d.ms), OBS_STATION, 'TS', pop != null && pop >= 60);
+  } else if (!gridSnap) {
     /* No morning grid archived for this day (the stream starts 2026-08-04) —
        name what fell rather than judging a forecast that was never captured. */
     const bits = [];
@@ -2391,7 +2475,7 @@ async function vfBuild(date, off) {
     if (bits.length) {
       settled.push({
         state: 'na', what: 'Weather',
-        said: '<span class="faint">no morning grid archived</span>',
+        said: `<span class="faint">${noGrid}</span>`,
         got: bits.join(' · '), note: '',
       });
     }
@@ -2487,7 +2571,7 @@ async function vfBuild(date, off) {
     open.push({
       state: 'open', what: 'Rest of the day',
       said: `<span class="wx">${esc(exp.short)}</span>${restPop}`,
-      got: rainAhead.length ? `grid has rain ${esc(hourSpan(rainAhead))}` : '<span class="faint">grid is dry from here</span>',
+      got: !gridSnap ? '' : rainAhead.length ? `grid has rain ${esc(hourSpan(rainAhead))}` : '<span class="faint">grid is dry from here</span>',
       note: '',
     });
   }
@@ -2522,8 +2606,8 @@ async function vfBuild(date, off) {
   } else if (!settled.length) {
     /* no rows at all is not a clean sheet — say what's missing */
     S.push(live
-      ? 'Nothing has closed that this page can check yet — no morning forecast or grid snapshot is archived for today.'
-      : 'Nothing is archived to check this day against.');
+      ? `Nothing has closed that this page can check yet — no forecast archived ${lead ? `${vfLead.label}` : 'this morning'}.`
+      : `Nothing archived ${lead ? vfLead.label : 'that morning'} to check this day against.`);
   } else if (!settled.some((r) => r.state === 'miss')) {
     S.push(live
       ? `Everything that has closed so far verified${hNow < 18 ? ' — the day is not over' : ''}.`
@@ -2539,6 +2623,7 @@ async function vfBuild(date, off) {
     `<span class="vf-front">Verified through ${esc(hourLabel(lastObMs))}</span>` +
     `<span class="vf-bar"><i style="width:${pct.toFixed(0)}%"></i></span>` +
     `<span class="vf-open">${live ? `${openH} h still open` : 'day closed'}</span>` +
+    (readMs ? `<span class="vf-read">read ${esc(fmtTime(new Date(readMs), { month: 'short', day: 'numeric', hour: 'numeric' }))}</span>` : '') +
     `</div>` +
     (settled.length ? `<div class="vf-sec">Settled</div>${settled.map(vRowHtml).join('')}` : '') +
     (open.length ? `<div class="vf-sec">Still open</div>${open.map(vRowHtml).join('')}` : '') +
