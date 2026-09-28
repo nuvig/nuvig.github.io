@@ -1211,10 +1211,20 @@ concepts; to relink, add the tools.html card back.
   hour without a routine ob is **missing, never zero**, and at the synoptic hours the 6-hourly
   group (`6RRRR`, in the bucket *before* 00/06/12/18Z since the :52 ob sits there) fills hours
   the feed dropped (`filled`), which is what makes KDCA's event total match its own 24-hour
-  groups (Sep 21–23: 1.64 in, = 70066 + 70098). A wet hour = KDCA or KNAK measured / reported
-  precip or thunder, or a ring gauge ≥ 0.10 in; wet hours ≤ 6 h apart are one event (a
-  nor'easter has lulls); kept when KDCA or KNAK ≥ 0.10 in, thunder, anything frozen, or a ring
-  gauge ≥ 0.25 in. **Rank is by the KDCA total** (the record station; KNAK beside it), `since`
+  groups (Sep 21–23 rain: 1.64 in, = 70066 + 70098). A wet hour = KDCA or KNAK measured /
+  reported precip or thunder, or a ring gauge ≥ 0.10 in; wet hours ≤ 6 h apart are one rain
+  span (a nor'easter has lulls). **An event is the system, not only its rain** (Jesse,
+  2026-09-28: "I care about weather events as systems as a whole"): a windy hour = KDCA or KNAK
+  sustained ≥ 15 kt or gust ≥ 18 kt in any ob; windy hours ≤ 18 h apart (an evening-to-morning
+  lull) form a blow, a blow touching a rain span (within 6 h) joins it, and a blow bridging two
+  rain spans makes them one event — that is what turns Sep 21–23 + Sep 26–27 into the one
+  Sep 21–27 nor'easter (151 h, 74 wet, 90 windy, KDCA 1.98 in, #1) LWX itself called one storm
+  throughout. A blow with no rain is an event only at ≥ 12 windy hours and a gust ≥ 25 kt
+  (`types` gains `wind`; none in the archive so far). Kept when KDCA or KNAK ≥ 0.10 in,
+  thunder, anything frozen, a ring gauge ≥ 0.25 in, or wind-only. The card shows it: `rain N h`
+  / `wind N h` facts, a grey windy-hour strip along the top of the hyetograph, the season strip
+  underlines days with ≥ 6 windy hours, `windiest` sort chip. Copy stays about the weather, never
+  about flying or being grounded. **Rank is by the KDCA total** (the record station; KNAK beside it), `since`
   = the last earlier event that was wetter. **`driver` is what LWX called it**: mention counts
   of named features (nor'easter · tropical · coastal low · cold/warm/stalled front · upper low
   · shortwave · trough …, weighted so a named storm beats the trough it rides) over the

@@ -69,6 +69,7 @@ const dateLabel = (ymd) => {
   const t = Date.UTC(y, m - 1, d, 17) / 1000;   // noon local, any DST
   return fmtMD(t);
 };
+const dur = (h) => (h >= 48 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h} h`);
 const inches = (v) => (v == null ? '—' : `${v.toFixed(2)} in`);
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const dirName = (d) => (d == null ? '' : DIRS[Math.round(d / 22.5) % 16]);
@@ -147,9 +148,9 @@ function readHash() {
   const h = location.hash.slice(1);
   const m = new URLSearchParams(h.replace(/^#/, ''));
   const sort = m.get('sort');
-  if (sort && ['newest', 'wettest', 'longest'].includes(sort)) STATE.sort = sort;
+  if (sort && ['newest', 'wettest', 'longest', 'windiest'].includes(sort)) STATE.sort = sort;
   const type = m.get('type');
-  if (type && ['all', 'thunder', 'snow'].includes(type)) STATE.type = type;
+  if (type && ['all', 'thunder', 'snow', 'wind'].includes(type)) STATE.type = type;
   const e = m.get('e');
   if (e) STATE.open.add(e);
 }
@@ -244,8 +245,10 @@ function renderSeason() {
       if (fl & 1) { ctx.fillStyle = C.ts; ctx.beginPath(); ctx.arc(x0 + bw / 2, (v > 0 ? y(v) : T + ph) - 5, 2, 0, Math.PI * 2); ctx.fill(); }
       if (fl & 6) { ctx.fillStyle = C.sn; ctx.beginPath(); ctx.arc(x0 + bw / 2, (v > 0 ? y(v) : T + ph) - 5, 2, 0, Math.PI * 2); ctx.fill(); }
     });
-    // baseline
+    // baseline, then a grey underline on days with 6+ windy hours
     ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(L, T + ph + 0.5); ctx.lineTo(w - R, T + ph + 0.5); ctx.stroke();
+    ctx.fillStyle = '#3a3a3a';
+    days.forEach((d, i) => { if ((d[6] || 0) >= 6) ctx.fillRect(L + i * slot, T + ph + 2, slot + 0.5, 3); });
     // labels on the biggest events
     ctx.textBaseline = 'alphabetic'; ctx.font = '11px system-ui, -apple-system, Segoe UI, sans-serif';
     const used = [];
@@ -280,6 +283,7 @@ function renderSeason() {
       `${D.record} ${inches(d[1])}${d[5] ? ` <span class="d">· ${d[5]} h missing</span>` : ''}`,
       `${D.field} ${inches(d[2])}`,
       d[3] != null ? `ring max ${inches(d[3])}` : '',
+      d[6] ? `windy ${d[6]} h` : '',
       fl & 1 ? 'thunder' : '', fl & 2 ? 'snow' : '', fl & 4 ? 'freezing' : '',
       e ? `<span class="d">event #${e.rank} · ${esc(e.driver)}</span>` : ''];
     placeTip(tip, host, ev.clientX - r.left, ev.clientY - r.top, rows.filter(Boolean).join('<br>'));
@@ -302,6 +306,7 @@ function renderTiles() {
   const wetDay = D.days.slice().sort((a, b) => (b[1] || 0) - (a[1] || 0))[0];
   const tsDays = D.days.filter((d) => (d[4] || 0) & 1).length;
   const longest = D.events.slice().sort((a, b) => b.hours - a.hours)[0];
+  const windiest = D.events.slice().sort((a, b) => peakGust(b) - peakGust(a))[0];
   // longest dry spell: consecutive days with nothing measured at either gauge
   let run = 0, best = { n: 0, end: null }, prev = null;
   D.days.forEach((d) => {
@@ -316,7 +321,8 @@ function renderTiles() {
   const tiles = [
     top && ['wettest event', inches(top.totals[rec]), `<a href="#e=${top.id}" data-open="${top.id}">${fmtRange(top.start, top.end)}</a> · ${esc(top.driver)}`],
     wetDay && ['wettest day', inches(wetDay[1]), `${dateLabel(wetDay[0])} · ${rec}`],
-    longest && ['longest event', `${longest.hours} h`, `<a href="#e=${longest.id}" data-open="${longest.id}">${fmtRange(longest.start, longest.end)}</a>`],
+    longest && ['longest event', dur(longest.hours), `<a href="#e=${longest.id}" data-open="${longest.id}">${fmtRange(longest.start, longest.end)}</a>`],
+    windiest && ['windiest event', `G ${peakGust(windiest)} kt`, `<a href="#e=${windiest.id}" data-open="${windiest.id}">${fmtRange(windiest.start, windiest.end)}</a> · ${esc(windiest.driver)}`],
     ['thunder days', `${tsDays}`, `${rec} or ${fld} reported TS`],
     best.n && ['longest dry spell', `${best.n} d`, `${dateLabel(best.start)} – ${dateLabel(best.end)}`],
   ].filter(Boolean);
@@ -329,22 +335,28 @@ function sorted() {
   let list = D.events.slice();
   if (STATE.type === 'thunder') list = list.filter((e) => e.types.includes('thunder'));
   if (STATE.type === 'snow') list = list.filter((e) => e.types.includes('snow') || e.types.includes('ice'));
+  if (STATE.type === 'wind') list = list.filter((e) => e.types.includes('wind'));
   if (STATE.sort === 'wettest') list.sort((a, b) => a.rank - b.rank);
   else if (STATE.sort === 'longest') list.sort((a, b) => b.hours - a.hours || a.rank - b.rank);
+  else if (STATE.sort === 'windiest') list.sort((a, b) => peakGust(b) - peakGust(a) || a.rank - b.rank);
   return list;
 }
+
+const peakGust = (e) => Math.max((e.wind.record && e.wind.record.gust) || 0, (e.wind.field && e.wind.field.gust) || 0);
 
 function renderChips() {
   const el = document.getElementById('chips');
   const nTs = D.events.filter((e) => e.types.includes('thunder')).length;
   const nSn = D.events.filter((e) => e.types.includes('snow') || e.types.includes('ice')).length;
+  const nWd = D.events.filter((e) => e.types.includes('wind')).length;
   el.innerHTML =
     `<span class="lbl">sort</span>` +
-    ['newest', 'wettest', 'longest'].map((s) => `<button class="chip${STATE.sort === s ? ' on' : ''}" data-sort="${s}">${s}</button>`).join('') +
+    ['newest', 'wettest', 'longest', 'windiest'].map((s) => `<button class="chip${STATE.sort === s ? ' on' : ''}" data-sort="${s}">${s}</button>`).join('') +
     `<span class="lbl">show</span>` +
     `<button class="chip${STATE.type === 'all' ? ' on' : ''}" data-type="all">all ${D.events.length}</button>` +
     `<button class="chip${STATE.type === 'thunder' ? ' on' : ''}" data-type="thunder">thunder ${nTs}</button>` +
-    `<button class="chip${STATE.type === 'snow' ? ' on' : ''}" data-type="snow">snow · ice ${nSn}</button>`;
+    `<button class="chip${STATE.type === 'snow' ? ' on' : ''}" data-type="snow">snow · ice ${nSn}</button>` +
+    (nWd ? `<button class="chip${STATE.type === 'wind' ? ' on' : ''}" data-type="wind">wind only ${nWd}</button>` : '');
   el.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.sort) STATE.sort = b.dataset.sort;
     if (b.dataset.type) STATE.type = b.dataset.type;
@@ -389,6 +401,11 @@ function eventCard(e) {
   const since = e.since ? `wettest since ${dateLabel(e.since)}` : 'wettest in the archive';
   const w = e.wind.record, wf = e.wind.field;
   const facts = [];
+  const R = D.rules || {};
+  const windyDef = `sustained ≥ ${R.windy_sust_kt || 15} kt or gust ≥ ${R.windy_gust_kt || 18} kt at ${rec} or ${fld}`;
+  if (e.rain && (e.rain[0] > e.start || e.rain[1] < e.end)) facts.push(['rain', `${e.wet_hours} h <span class="d">${fmtDT(e.rain[0])} → ${fmtDT(e.rain[1] + 3600)}</span>`]);
+  else if (e.rain) facts.push(['rain', `${e.wet_hours} h`]);
+  if (e.windy_hours) facts.push(['<span title="' + windyDef + '">wind</span>', `${e.windy_hours} h <span class="d">≥ ${R.windy_sust_kt || 15} kt / G${R.windy_gust_kt || 18}</span>`]);
   if (e.peak) facts.push(['peak hour', `${inches(e.peak.p)} <span class="d">${fmtDT(e.peak.t)}</span>`]);
   if (w && w.gust) facts.push([`${rec} wind`, `${dirName(w.dir)} ${w.spd || '—'} G ${w.gust} kt <span class="d">${fmtDT(w.gust_t)}</span>`]);
   if (wf && wf.gust) facts.push([`${fld} wind`, `${dirName(wf.dir)} ${wf.spd || '—'} G ${wf.gust} kt`]);
@@ -416,7 +433,7 @@ function eventCard(e) {
       <span class="driver" title="the feature LWX's discussions named most while it rained">${esc(e.driver)}</span>
       ${typeChips(e)}
       ${e.live ? '<span class="ty live">in progress</span>' : ''}
-      <span class="span">${e.hours} h · ${fmtDT(e.start)} → ${e.live ? 'now' : fmtDT(e.end + 3600)}</span>
+      <span class="span">${dur(e.hours)} · ${fmtDT(e.start)} → ${e.live ? 'now' : fmtDT(e.end + 3600)}</span>
     </div>
     <div class="hero">
       <div class="big"><span class="n">${tr == null ? '—' : tr.toFixed(2)}</span><span class="u">in</span><span class="who">${rec}</span></div>
@@ -424,7 +441,7 @@ function eventCard(e) {
       <div class="since">${since}</div>
     </div>
     <div class="chart hyeto"><canvas></canvas>
-      <div class="legend"><i style="background:${C.rec}"></i>${rec}<i style="background:${C.fld}"></i>${fld}<i class="dot" style="background:${C.ts}"></i>thunder<i class="miss"></i>no ob</div>
+      <div class="legend"><i style="background:${C.rec}"></i>${rec}<i style="background:${C.fld}"></i>${fld}<i class="dot" style="background:${C.ts}"></i>thunder<i style="background:#3a3a3a;height:4px"></i><span title="${windyDef}">windy hour</span><i class="miss"></i>no ob</div>
     </div>
     <dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
     ${cover.length ? `<p class="cover">${cover.join(' · ')}</p>` : ''}
@@ -467,7 +484,7 @@ function drawHyeto(host, e) {
   const ser = e.series;
   const H = 150;
   const { ctx, w } = setup(cv, H);
-  const L = 34, R = 8, T = 16, B = 20;
+  const L = 34, R = 8, T = 22, B = 20;
   const pw = w - L - R, ph = H - T - B;
   const slot = pw / ser.n;
   const max = Math.max(0.05, ...ser.p.map((v) => v || 0), ...ser.pf.map((v) => v || 0));
@@ -486,8 +503,9 @@ function drawHyeto(host, e) {
     ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
     ctx.fillStyle = C.text; ctx.fillText(v.toFixed(2).replace(/^0/, ''), L - 5, yy);
   }
-  ctx.textAlign = 'left'; ctx.fillText('in / h', L, T - 8);
   hourAxis(ctx, ser, L, T, ph, slot, w);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
+  ctx.fillText('wind', L - 5, T - 10);
 
   const gap = slot > 6 ? 1 : 0;
   const bw = Math.max(1, (slot - gap * 3) / 2);
@@ -501,6 +519,7 @@ function drawHyeto(host, e) {
     const x0 = L + i * slot + gap;
     bar(x0, ser.p[i], C.rec);
     bar(x0 + bw + gap, ser.pf[i], C.fld);
+    if (ser.wd && ser.wd[i]) { ctx.fillStyle = '#3a3a3a'; ctx.fillRect(L + i * slot, T - 12, slot + 0.5, 4); }
     if (ser.ts[i]) {
       ctx.fillStyle = C.ts;
       const cx = L + i * slot + slot / 2;
@@ -529,6 +548,7 @@ function drawHyeto(host, e) {
         ser.s[i] != null ? `wind ${dirName(ser.d[i])} ${ser.s[i]}${ser.g[i] ? ` G ${ser.g[i]}` : ''} kt` : '',
         ser.slp[i] != null ? `${ser.slp[i].toFixed(1)} mb` : '',
         ser.c[i] != null ? `ceiling ${ser.c[i].toLocaleString()} ft` : '',
+        ser.wd && ser.wd[i] ? '<span class="d">windy hour</span>' : '',
         ser.wx[i] ? `<span class="d">${esc(ser.wx[i])}</span>` : ''];
       placeTip(tip, host, ev.clientX - r.left, ev.clientY - r.top, rows.filter(Boolean).join('<br>'));
     });

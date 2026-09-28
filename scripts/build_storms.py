@@ -19,11 +19,19 @@ the group when nothing fell; P0000 is a trace). SPECIs are read only for
 present weather, wind and pressure — their P-groups are cumulative since the
 last routine ob and would double-count.
 
-A wet hour is one where KDCA (the record station) or KNAK (the field's
-sensor) measured anything, reported precipitation in the present-weather
+A storm is its rain and its wind. A wet hour is one where KDCA (the record
+station) or KNAK (the field's sensor) measured anything, reported precipitation in the present-weather
 groups (a trace keeps a run continuous), or reported thunder — or where any
 ring station measured RING_WET_IN or more. Wet hours closer than MERGE_GAP_H
 apart are one event: a nor'easter has lulls, and a lull is not the end.
+A windy hour is one where either station reported WINDY_SUST_KT sustained
+or a gust to WINDY_GUST_KT; windy hours up to BLOW_GAP_H apart (an overnight
+calm) form a blow, a blow touching a rain span joins it, and a blow bridging
+two rain spans makes them one system — a coastal low's gradient or the surge
+behind a front blows before, between and after the rain, and the Sep 21–27
+nor'easter rained on three days and blew for six. A blow with no rain is an
+event on its own only when it holds WIND_ONLY_H windy hours and a gust to
+WIND_ONLY_GUST.
 
 An event is kept when KDCA or KNAK measured at least MIN_IN, or thunder was
 observed at either, or frozen precipitation was observed anywhere, or a ring
@@ -37,13 +45,17 @@ Output (data/storms.json)
   first, last     first and last archived day
   record, field   the two stations every event is measured at (KDCA, KNAK)
   stations        [{id, gauge}] — gauge false = never reported a P-group
-  days            [[date, p_record, p_field, p_area_max, flags, hours_missing]]
+  days            [[date, p_record, p_field, p_area_max, flags, hours_missing,
+                   windy_hours]]
                   one row per archived day; flags bit 1 thunder, 2 snow/ice,
                   4 freezing; p_* in inches (null = no obs at all)
   events          newest first, each:
     id            start day + start hour, e.g. 2026-09-21T14
     start, end    epoch of the first and last wet hour (hour start)
-    hours         wet span in hours (end − start + 1)
+    hours         span in hours (end − start + 1), rain and wind together
+    wet_hours     hours with precipitation inside the span
+    windy_hours   hours at or over the wind thresholds inside the span
+    rain          [first wet hour, last wet hour] epochs, or null (wind only)
     live          true when the last wet hour touches the archive's last run
     rank          1 = wettest at the record station, over every event
     since         end date of the most recent earlier event that was wetter
@@ -62,7 +74,8 @@ Output (data/storms.json)
     low           {ceil, ceil_t, vis, vis_t} — lowest ceiling ft and
                   visibility SM at the record station; field: same at KNAK
     wx            {ts, sn, fz, fg, hvy} — obs counts across KDCA + KNAK
-    types         subset of [rain, thunder, snow, ice] actually observed
+    types         subset of [rain, thunder, snow, ice, wind] actually observed
+                  (wind = a blow with no rain at all)
     driver        the feature LWX's discussions named most while it rained
     drivers       [[term, mentions] …] the top three
     expected      KEY MESSAGES of the last discussion issued before onset
@@ -74,7 +87,8 @@ Output (data/storms.json)
                   p (record in), pf (field in), pa (area max in), pas (its
                   station), g (gust kt), s (speed kt), d (dir), slp (mb),
                   c (ceiling ft), v (vis SM), wx (present weather, joined),
-                  ts (thunder at either station, 0/1) — null = no ob
+                  ts (thunder at either station, 0/1), wd (windy hour, 0/1)
+                  — null = no ob
 
 Every inch here is what a gauge measured; a station that reported rain
 with no gauge total is listed under `trace`, never rounded into a number.
@@ -92,6 +106,11 @@ OUT = os.path.join(REPO, "data", "storms.json")
 TZ = ZoneInfo("America/New_York")
 
 MERGE_GAP_H = 6        # dry hours that still belong to the same event
+WINDY_SUST_KT = 15     # an hour is windy when KDCA or KNAK sustained >= this …
+WINDY_GUST_KT = 18     # … or gusted to this, in any ob of the hour
+BLOW_GAP_H = 18        # calm hours (an evening-to-morning lull) that still belong to the same blow
+WIND_ONLY_H = 12       # a blow with no rain is an event on its own past this …
+WIND_ONLY_GUST = 25    # … many windy hours and a gust this strong
 MIN_IN = 0.10          # KDCA or KNAK total that makes an event
 AREA_MIN_IN = 0.25     # ring total that makes an event on its own
 RING_WET_IN = 0.10     # ring hourly amount that counts as a wet hour
@@ -386,6 +405,14 @@ def build():
                 best, bs = p, st.id
         return best, bs
 
+    def windy(h):
+        for st in (record, field):
+            b = st.bucket(h)
+            for o in (b["obs"] if b else []):
+                if (o["spd"] or 0) >= WINDY_SUST_KT or (o["gst"] or 0) >= WINDY_GUST_KT:
+                    return True
+        return False
+
     wet = []
     for h in range(h_first, h_last + 1):
         w = False
@@ -399,12 +426,60 @@ def build():
         if w:
             wet.append(h)
 
-    spans = []
+    wet_spans = []
     for h in wet:
-        if spans and h - spans[-1][1] <= MERGE_GAP_H:
-            spans[-1][1] = h
+        if wet_spans and h - wet_spans[-1][1] <= MERGE_GAP_H:
+            wet_spans[-1][1] = h
         else:
-            spans.append([h, h])
+            wet_spans.append([h, h])
+
+    # An event is the weather system, not only its rain. A coastal low's
+    # pressure gradient, or the surge behind a front, blows before, between
+    # and after the wet hours — the Sep 21–27 nor'easter rained on three days
+    # and blew for six — so windy hours are storm hours too: consecutive
+    # windy hours (an evening-to-morning lull allowed) form a blow, a blow
+    # that touches a rain span joins it, and a blow that bridges two rain
+    # spans makes them one system. A blow with no rain at all is its own
+    # event only when it is long and strong (WIND_ONLY_*).
+    windy_hours = [h for h in range(h_first, h_last + 1) if windy(h)]
+    blows = []
+    for h in windy_hours:
+        if blows and h - blows[-1][1] <= BLOW_GAP_H:
+            blows[-1][1] = h
+        else:
+            blows.append([h, h])
+    windy_set = set(windy_hours)
+
+    def touches(a, b):
+        return a[0] <= b[1] + MERGE_GAP_H and b[0] <= a[1] + MERGE_GAP_H
+
+    spans = []
+    used_blows = set()
+    for ws in wet_spans:
+        span = list(ws)
+        changed = True
+        while changed:
+            changed = False
+            for i, bl in enumerate(blows):
+                if i in used_blows or not touches(span, bl):
+                    continue
+                used_blows.add(i)
+                span = [min(span[0], bl[0]), max(span[1], bl[1])]
+                changed = True
+        if spans and touches(spans[-1], span):
+            spans[-1] = [min(spans[-1][0], span[0]), max(spans[-1][1], span[1])]
+        else:
+            spans.append(span)
+    for i, bl in enumerate(blows):
+        if i in used_blows:
+            continue
+        n_windy = sum(1 for h in range(bl[0], bl[1] + 1) if h in windy_set)
+        gust = max((o["gst"] or o["spd"] or 0) for st in (record, field) for h in range(bl[0], bl[1] + 1)
+                   for o in (st.bucket(h) or {"obs": []})["obs"]) if n_windy else 0
+        if n_windy >= WIND_ONLY_H and gust >= WIND_ONLY_GUST:
+            spans.append(list(bl))
+    spans.sort()
+    wet_set = set(wet)
 
     def total(st, h0, h1):
         if not st.gauge:
@@ -502,8 +577,11 @@ def build():
         frozen_any = sn_n or fz_n or any(
             (st.bucket(h) or {}).get("frozen") or (st.bucket(h) or {}).get("fz")
             for st in ring for h in range(h0, h1 + 1))
+        wet_in = [h for h in range(h0, h1 + 1) if h in wet_set]
+        n_windy = sum(1 for h in range(h0, h1 + 1) if h in windy_set)
+        wind_only = not wet_in
         keep = ((tot_r or 0) >= MIN_IN or (tot_f or 0) >= MIN_IN or ts_n or frozen_any
-                or ring_max >= AREA_MIN_IN)
+                or ring_max >= AREA_MIN_IN or wind_only)
         if not keep:
             continue
 
@@ -537,7 +615,7 @@ def build():
         # series
         n = h1 - h0 + 1
         ser = {"t0": t0, "n": n, "p": [], "pf": [], "pa": [], "pas": [], "g": [], "s": [], "d": [],
-               "slp": [], "c": [], "v": [], "wx": [], "ts": []}
+               "slp": [], "c": [], "v": [], "wx": [], "ts": [], "wd": []}
         for h in range(h0, h1 + 1):
             ser["p"].append(record.p(h))
             ser["pf"].append(field.p(h))
@@ -564,6 +642,7 @@ def build():
             ser["wx"].append(" ".join(codes))
             fb = field.bucket(h)
             ser["ts"].append(1 if ((b and b["ts"]) or (fb and fb["ts"])) else 0)
+            ser["wd"].append(1 if h in windy_set else 0)
 
         # LWX commentary
         lo_t, hi_t = t0 - LOG_BEFORE_H * 3600, t1 + (LOG_AFTER_H + 1) * 3600
@@ -605,11 +684,15 @@ def build():
             types.append("snow")
         if fz_n:
             types.append("ice")
+        if wind_only:
+            types.append("wind")
 
         d0 = datetime.datetime.fromtimestamp(t0, TZ)
         events.append({
             "id": d0.strftime("%Y-%m-%dT%H"),
             "start": t0, "end": t1, "hours": n,
+            "wet_hours": len(wet_in), "windy_hours": n_windy,
+            "rain": [wet_in[0] * 3600, wet_in[-1] * 3600] if wet_in else None,
             "live": (h1 >= h_last - 1),
             "totals": totals, "missing": missing, "filled": filled_h, "trace": trace,
             "peak": peak, "peak_field": peak_of(field), "peak_area": area_peak,
@@ -666,7 +749,7 @@ def build():
                     flags |= 2
                 if bb["fz"]:
                     flags |= 4
-        day_rows.append([day, pr, pf, best, flags, mr])
+        day_rows.append([day, pr, pf, best, flags, mr, sum(1 for h in range(a, b + 1) if h in windy_set)])
 
     return {
         "built": int(datetime.datetime.now().timestamp()),
@@ -674,7 +757,8 @@ def build():
         "first": days[0], "last": days[-1],
         "record": record.id, "field": field.id,
         "stations": [{"id": st.id, "gauge": st.gauge} for st in [record, field] + ring],
-        "rules": {"merge_gap_h": MERGE_GAP_H, "min_in": MIN_IN, "area_min_in": AREA_MIN_IN},
+        "rules": {"merge_gap_h": MERGE_GAP_H, "min_in": MIN_IN, "area_min_in": AREA_MIN_IN,
+                  "windy_sust_kt": WINDY_SUST_KT, "windy_gust_kt": WINDY_GUST_KT, "blow_gap_h": BLOW_GAP_H},
         "days": day_rows,
         "events": events,
     }
