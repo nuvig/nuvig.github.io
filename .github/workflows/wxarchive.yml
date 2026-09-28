@@ -52,11 +52,18 @@ jobs:
       - name: Fetch AFDs, forecast snapshot, METARs
         run: python3 scripts/wxarchive.py || echo "::warning::wxarchive.py reported problems (see the log); committing what landed"
 
+      # storms.html reads one compiled document instead of 150 day files;
+      # rebuilt from whatever this run archived, so an event in progress
+      # grows each hour. Same rule as above: a failure is a warning, not a
+      # lost commit.
+      - name: Build the storm log
+        run: python3 scripts/build_storms.py || echo "::warning::build_storms.py failed (see the log); committing the archive without it"
+
       - name: Commit archive
         run: |
           git config user.name  "wx-archive[bot]"
           git config user.email "wx-archive[bot]@users.noreply.github.com"
-          git add data/wx
+          git add data/wx data/storms.json
           if git diff --cached --quiet; then
             echo "no changes"
             exit 0

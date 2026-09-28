@@ -36,7 +36,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   2026-08-21 — Jesse didn't like it. Navigation is: the homepage cards → `tools.html` → a tool,
   plus each page's own `#back-link` to `/`. Don't reintroduce a shared bar without being asked.
   **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among
-  five weather pages (weather, discussion, skew-t, wx3d, almanac, in that order; page list lives
+  six weather pages (weather, discussion, skew-t, wx3d, almanac, storms, in that order; page list lives
   in the script), injected under each page's title. It replaced those pages' ad-hoc subtitle links
   (weather.html keeps its non-weather tracker/air-lab links). **METAR Sky (`sky.html`) was pulled
   out of the strip the same day at Jesse's request** — it carries no `wxnav.js` script tag and
@@ -1199,6 +1199,36 @@ concepts; to relink, add the tools.html card back.
   an hour nobody reported is not drawn) and **Winds aloft** (`aloftSeries()`: the GFS column
   from the shortest-lead snap covering each hour, one line per level, arrows on 850 hPa —
   model only, named GFS; RAOB winds live in the sounding card). Both lanes off by default.
+- `storms.html` + `js/storms.js` + `scripts/build_storms.py` → `data/storms.json` — Storm Log
+  (2026-09-28): every precipitation event in the archive as it happened, ranked. The page reads
+  **only `data/storms.json`**, compiled from `data/wx/` by the build script at the end of every
+  hourly `wxarchive.yml` run (a step before the commit; `git add data/wx data/storms.json`), so
+  an event in progress grows each hour and the page fetches one document, not 150 day files.
+  Rules in the script's docstring, worth not re-breaking: hour buckets come from each station's
+  **routine ob** (minute ≥ 45, the one carrying SLP preferred) and its P-group — SPECI P-groups
+  are cumulative since the last routine ob and would double-count, so SPECIs feed only present
+  weather / wind / pressure; an ob without a P-group is a dry hour (ASOS omits the group), an
+  hour without a routine ob is **missing, never zero**, and at the synoptic hours the 6-hourly
+  group (`6RRRR`, in the bucket *before* 00/06/12/18Z since the :52 ob sits there) fills hours
+  the feed dropped (`filled`), which is what makes KDCA's event total match its own 24-hour
+  groups (Sep 21–23: 1.64 in, = 70066 + 70098). A wet hour = KDCA or KNAK measured / reported
+  precip or thunder, or a ring gauge ≥ 0.10 in; wet hours ≤ 6 h apart are one event (a
+  nor'easter has lulls); kept when KDCA or KNAK ≥ 0.10 in, thunder, anything frozen, or a ring
+  gauge ≥ 0.25 in. **Rank is by the KDCA total** (the record station; KNAK beside it), `since`
+  = the last earlier event that was wetter. **`driver` is what LWX called it**: mention counts
+  of named features (nor'easter · tropical · coastal low · cold/warm/stalled front · upper low
+  · shortwave · trough …, weighted so a named storm beats the trough it rides) over the
+  discussions issued while it rained; thunder with only a generic feature → "thunderstorms".
+  The narrative is LWX's own: `expected` = the KEY MESSAGES of the last issuance before onset,
+  `log` = every WHAT HAS CHANGED paragraph from 6 h before to 3 h after — quoted, stamped, no
+  generated prose. Page: season strip (one bar per day, events shaded, top six labelled, dots
+  for thunder/snow, click → the event) → tiles → sort/filter chips (`#sort=`, `#type=`) → a
+  card per event: hero totals, hyetograph (KDCA and KNAK paired bars, thunder ticks, missing
+  hours hatched), fact row, and folded (`#e=<id>` opens it): wind / pressure / ceiling lanes
+  (one scale each), every gauge as a bar list (`no gauge` for KFME, `N h missing` said), NWS
+  alerts at the DC point, almanac day links, the LWX log. Chart pair `#3987e5` / `#d95926`
+  validated on the card surface. `--selftest` covers the parser and the 6-hourly fill.
+  `window.STORMS_DEBUG` for headless checks. In the `wxnav.js` strip (sixth, after Almanac).
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history

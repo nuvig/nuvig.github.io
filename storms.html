@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Storm Log — every rain, snow and thunder event, as it happened</title>
+  <meta name="description" content="Every precipitation event in the DC/Annapolis weather archive since May 2026, ranked: hour-by-hour rain at KDCA and KNAK, wind, pressure, ceiling, every gauge in the ring, and what the forecast office said while it happened.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/storms.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/storms.html">
+  <meta property="og:title" content="Storm Log — every rain, snow and thunder event, as it happened">
+  <meta property="og:description" content="Every precipitation event in the DC/Annapolis weather archive, ranked, hour by hour, with the forecast office's own running commentary.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1000px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+    .status-bar b.live { color: #e0a020; }
+    .status-bar a { color: #4a9eff; text-decoration: none; }
+
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card h2 .sub, .card h3 .sub { font-size: 12px; font-weight: 400; color: #666; }
+    .card h3 { margin: 14px 0 6px; font-size: 12.5px; color: #999; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+    .card h3:first-child { margin-top: 0; }
+
+    /* charts */
+    .chart { position: relative; }
+    .chart canvas { display: block; width: 100%; }
+    .chart .tip {
+      display: none; position: absolute; z-index: 3; pointer-events: none;
+      background: #0e0e0e; border: 1px solid #3a3a3a; border-radius: 6px;
+      padding: 6px 9px; font-size: 12px; line-height: 1.45; color: #bbb;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .chart .tip b { color: #eee; font-weight: 600; }
+    .chart .d, .facts .d, .stations .d, .det .d, .tile .d { color: #666; }
+    .chart .xh { position: absolute; width: 1px; background: #555; pointer-events: none; }
+    .legend { display: flex; gap: 6px 12px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: #777; margin: 4px 0 0 34px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+    .legend i.dot { border-radius: 50%; width: 8px; height: 8px; }
+    .legend i.miss { background: #1f1f1f; border: 1px solid #2c2c2c; }
+
+    /* season tiles */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 14px; }
+    .tile { background: #151515; border: 1px solid #272727; border-radius: 8px; padding: 9px 12px; font-variant-numeric: tabular-nums; }
+    .tile .k { font-size: 10.5px; color: #666; letter-spacing: 0.06em; text-transform: uppercase; }
+    .tile .v { font-size: 22px; color: #e5e5e5; font-weight: 600; margin: 2px 0 1px; }
+    .tile .s { font-size: 12px; color: #888; }
+    .tile a { color: #7da7d9; text-decoration: none; }
+    .tile a:hover { color: #4a9eff; text-decoration: underline; }
+
+    /* chips */
+    #chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 20px 0 6px; font-size: 12.5px; }
+    #chips .lbl { color: #556; margin: 0 2px 0 6px; }
+    #chips .lbl:first-child { margin-left: 0; }
+    .chip {
+      background: #1a1a1a; border: 1px solid #333; color: #999; border-radius: 999px;
+      padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    .chip:hover { border-color: #555; color: #ccc; }
+    .chip.on { background: #223145; border-color: #3987e5; color: #dbe7f7; }
+
+    /* event card */
+    .ev { padding: 16px 20px 12px; }
+    .ev.live { border-color: #5a4a1a; }
+    .ev-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .ev-head h2 { margin: 0; font-size: 1.15rem; color: #e5e5e5; }
+    .rank {
+      font-size: 11.5px; color: #7da7d9; border: 1px solid #2d4a70; border-radius: 6px;
+      padding: 1px 6px; font-variant-numeric: tabular-nums; cursor: help;
+    }
+    .driver { font-size: 12px; color: #bbb; background: #262626; border-radius: 999px; padding: 2px 9px; cursor: help; }
+    .ty { font-size: 11px; border-radius: 999px; padding: 2px 8px; letter-spacing: 0.02em; }
+    .ty.thunder { color: #e0a020; background: #2a2210; }
+    .ty.snow, .ty.ice { color: #cfd8e3; background: #23272c; }
+    .ty.live { color: #e0a020; border: 1px solid #5a4a1a; }
+    .ev-head .span { margin-left: auto; font-size: 12.5px; color: #777; font-variant-numeric: tabular-nums; }
+
+    .hero { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin: 10px 0 8px; font-variant-numeric: tabular-nums; }
+    .hero .n { font-weight: 600; color: #f0f0f0; }
+    .hero .big .n { font-size: 34px; letter-spacing: -0.01em; }
+    .hero .mid .n { font-size: 20px; color: #ddd; }
+    .hero .u { font-size: 14px; color: #888; margin-left: 4px; }
+    .hero .who { font-size: 12px; color: #777; margin-left: 8px; }
+    .hero .since { font-size: 12.5px; color: #7da7d9; margin-left: auto; }
+
+    .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 16px; margin: 10px 0 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .facts div { display: flex; gap: 8px; align-items: baseline; border-top: 1px solid #222; padding: 4px 0 3px; }
+    .facts dt { color: #777; flex: none; min-width: 84px; }
+    .facts dd { margin: 0; color: #d0d0d0; }
+    .cover { margin: 6px 0 0; font-size: 11.5px; color: #666; }
+
+    .ev details { margin-top: 10px; }
+    .ev summary { cursor: pointer; font-size: 12.5px; color: #7da7d9; list-style: none; padding: 4px 0; }
+    .ev summary::-webkit-details-marker { display: none; }
+    .ev summary::before { content: '▸ '; color: #556; }
+    .ev details[open] summary::before { content: '▾ '; }
+    .det { margin-top: 8px; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px 28px; margin-top: 12px; }
+    @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } .hero .since { margin-left: 0; } .ev-head .span { margin-left: 0; } }
+
+    .stations { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .st { display: grid; grid-template-columns: 46px minmax(0, 1fr) 62px auto; gap: 8px; align-items: center; padding: 2px 0; }
+    .st .id { color: #999; }
+    .st .bar { height: 8px; background: #1f1f1f; border-radius: 2px; overflow: hidden; }
+    .st .bar i { display: block; height: 100%; background: #3987e5; border-radius: 2px; }
+    .st .val { color: #d0d0d0; text-align: right; }
+    .st .d { font-size: 11px; }
+    .alerts { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+    .al { background: #2a1a1a; color: #e8a0a0; border-radius: 999px; padding: 2px 9px; cursor: help; }
+    .days { font-size: 12.5px; }
+    .days a { color: #7da7d9; text-decoration: none; }
+    .days a:hover { text-decoration: underline; }
+
+    .log { font-size: 12.5px; line-height: 1.5; }
+    .lg { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 10px; padding: 5px 0; border-top: 1px solid #222; }
+    .lg:first-child { border-top: 0; }
+    .lg .t { color: #777; font-variant-numeric: tabular-nums; font-size: 11.5px; padding-top: 1px; }
+    .lg .tx { color: #c8c8c8; }
+    .lg.exp .tx { color: #9fb3c8; }
+    @media (max-width: 480px) { .lg { grid-template-columns: 1fr; gap: 2px; } }
+    .none { color: #667; font-size: 13px; }
+
+    footer { margin-top: 28px; font-size: 12px; color: #555; }
+    footer a { color: #6a8fb5; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Storm Log</h1>
+    <p class="subtitle">Every rain, snow and thunder event in the site's weather archive · record → KDCA · field → KNAK · since May 2026</p>
+  </header>
+
+  <div class="status-bar" id="stats">Loading…</div>
+
+  <section class="card">
+    <h2>The season <span class="sub">KDCA daily total · events shaded · dot = thunder / snow · hover a day, click an event</span></h2>
+    <div class="chart"><canvas id="season-cv"></canvas></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <div id="chips"></div>
+  <div id="events"></div>
+
+  <footer>
+    <p>Hourly P-groups summed per station, 6-hourly groups fill dropped hours · events = wet hours ≤ 6 h apart ·
+      driver → the feature LWX named most · build → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/scripts/build_storms.py">build_storms.py</a> ·
+      data → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/data/storms.json">storms.json</a></p>
+  </footer>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/storms.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/wxnav.js?v=3" defer></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
