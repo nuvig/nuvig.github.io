@@ -46,6 +46,8 @@ into the repo on a schedule.
   meteogram, forecast lead-up, TAF vs METAR, alerts timeline, sounding.
 - `storms.html` — Storm Log: every precipitation event in the archive, ranked,
   hour by hour, with every gauge in the ring and LWX's running commentary.
+- `afd.html` — LWX Discussions: every archived Area Forecast Discussion as a
+  corpus — themes, key-message stories, hedging, models, products, search.
 - `sky.html` — METAR Sky: the current observation painted as a scene.
 
 **Atmosphere and performance**
@@ -141,6 +143,7 @@ Built by script, committed, never hand-edited.
 | `data/notam/locations.json` | `scripts/build_notam_locations.py` | each AIRAC cycle |
 | `data/knowledge.json` | `scripts/build_knowledge.py` from `data/knowledge/*.md` | when the Markdown changes |
 | `data/storms.json` | `scripts/build_storms.py` from `data/wx/` | hourly, by the weather-archive workflow |
+| `data/afd.json`, `data/afd-text.json` | `scripts/build_afd.py` from `data/wx/afd/` | hourly, by the weather-archive workflow |
 | `data/wx3d/terrain*.json` | `scripts/build_wx3d_terrain.py` | only to re-site |
 | `data/sfra/asrs.json` | `scripts/build_sfra_reports.py` from ASRS CSV exports | by hand |
 | `data/zoey.json` | `scripts/build_zoey.py` | when photos change |

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LWX Discussions — every forecast discussion since May 2026, analyzed</title>
+  <meta name="description" content="Every NWS Baltimore/Washington Area Forecast Discussion archived since May 2026 as a corpus: what the office wrote about, how much, how surely, which models it named, the key messages it carried for days, and a full-text search.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/afd.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/afd.html">
+  <meta property="og:title" content="LWX Discussions — every forecast discussion since May 2026, analyzed">
+  <meta property="og:description" content="The LWX Area Forecast Discussion as a corpus: themes, stories, hedging, models, products, words of the month, full-text search.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1000px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+    .subtitle a { color: #4a9eff; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+    .status-bar a { color: #4a9eff; text-decoration: none; }
+
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card h2 .sub, .card h3 .sub { font-size: 12px; font-weight: 400; color: #666; }
+    .card h3 { margin: 16px 0 6px; font-size: 12.5px; color: #999; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+    .card .d { color: #666; }
+    .card .note { font-size: 12px; color: #666; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+    .card .note a { color: #7da7d9; text-decoration: none; }
+    .card .note a:hover { color: #4a9eff; text-decoration: underline; }
+
+    .chart { position: relative; }
+    .chart canvas { display: block; width: 100%; }
+    .chart .tip {
+      display: none; position: absolute; z-index: 3; pointer-events: none;
+      background: #0e0e0e; border: 1px solid #3a3a3a; border-radius: 6px;
+      padding: 6px 9px; font-size: 12px; line-height: 1.45; color: #bbb;
+      font-variant-numeric: tabular-nums; max-width: 340px; white-space: normal;
+    }
+    .chart .tip b { color: #eee; font-weight: 600; }
+    .chart .tip .d { color: #666; }
+
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 0 0 14px; }
+    .tile { background: #151515; border: 1px solid #272727; border-radius: 8px; padding: 9px 12px; font-variant-numeric: tabular-nums; }
+    .tile .k { font-size: 10.5px; color: #666; letter-spacing: 0.06em; text-transform: uppercase; }
+    .tile .v { font-size: 22px; color: #e5e5e5; font-weight: 600; margin: 2px 0 1px; }
+    .tile .s { font-size: 12px; color: #888; }
+    .tile a { color: #7da7d9; text-decoration: none; }
+    .tile a:hover { color: #4a9eff; text-decoration: underline; }
+
+    .chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; font-size: 12.5px; }
+    .chips .lbl { color: #556; margin: 0 2px 0 6px; }
+    .chips .lbl:first-child { margin-left: 0; }
+    .chip {
+      background: #1a1a1a; border: 1px solid #333; color: #999; border-radius: 999px;
+      padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    .chip:hover { border-color: #555; color: #ccc; }
+    .chip.on { background: #223145; border-color: #3987e5; color: #dbe7f7; }
+    .chip .n { color: #667; margin-left: 4px; }
+
+    /* bar lists */
+    .bl { display: grid; grid-template-columns: max-content 1fr max-content; gap: 3px 10px; font-size: 12.5px; align-items: center; font-variant-numeric: tabular-nums; }
+    .bl .k { color: #bbb; white-space: nowrap; }
+    .bl .b { height: 10px; background: #1e1e1e; border-radius: 2px; overflow: hidden; }
+    .bl .b i { display: block; height: 100%; background: #3987e5; border-radius: 2px; }
+    .bl .n { color: #777; text-align: right; white-space: nowrap; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 28px; }
+    @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+
+    /* share bar */
+    .share { display: flex; height: 18px; border-radius: 4px; overflow: hidden; margin: 4px 0 2px; }
+    .share i { display: block; height: 100%; }
+    .share-lg { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #888; font-variant-numeric: tabular-nums; }
+    .share-lg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+    /* tables */
+    .tw { overflow-x: auto; }
+    table.t { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    table.t th { text-align: left; color: #666; font-weight: 600; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 8px 4px 0; border-bottom: 1px solid #2a2a2a; }
+    table.t td { padding: 5px 8px 5px 0; border-bottom: 1px solid #202020; vertical-align: top; color: #bbb; }
+    table.t td.n { text-align: right; color: #888; white-space: nowrap; }
+    table.t th.n { text-align: right; }
+    table.t td .was { display: block; color: #666; font-size: 11.5px; margin-top: 2px; }
+    table.t td a { color: #7da7d9; text-decoration: none; }
+    table.t td a:hover { color: #4a9eff; text-decoration: underline; }
+    table.t tr:hover td { background: #161616; }
+
+    .months { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+    .month h4 { margin: 0 0 6px; font-size: 12px; color: #999; font-weight: 600; }
+    .month .tm { display: flex; flex-wrap: wrap; gap: 4px; }
+    .month .tm span { background: #161616; border: 1px solid #262626; border-radius: 4px; padding: 2px 7px; font-size: 12px; color: #bbb; }
+    .month .tm span .n { color: #667; margin-left: 4px; font-size: 11px; }
+
+    /* search */
+    #q-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    #q { flex: 1; min-width: 200px; background: #111; border: 1px solid #333; color: #e5e5e5; border-radius: 6px; padding: 7px 10px; font-size: 14px; font-family: inherit; }
+    #q:focus { outline: none; border-color: #3987e5; }
+    #q-btn { background: #223145; border: 1px solid #3987e5; color: #dbe7f7; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+    #q-btn:disabled { opacity: 0.5; cursor: default; }
+    #q-note { font-size: 12.5px; color: #777; font-variant-numeric: tabular-nums; }
+    .hit { padding: 7px 0; border-bottom: 1px solid #202020; font-size: 13px; line-height: 1.5; color: #bbb; }
+    .hit .m { color: #666; font-size: 11.5px; font-variant-numeric: tabular-nums; margin-right: 8px; }
+    .hit .m a { color: #7da7d9; text-decoration: none; }
+    .hit .m a:hover { color: #4a9eff; text-decoration: underline; }
+    .hit mark { background: #3a3110; color: #f0d070; padding: 0 1px; border-radius: 2px; }
+
+    footer { margin-top: 24px; font-size: 12px; color: #555; }
+    footer a { color: #666; }
+    #err { display: none; color: #d95926; font-size: 13px; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>LWX Discussions</h1>
+  <p class="subtitle">every Area Forecast Discussion archived since May 2026, read as one corpus · newest issuance → <a href="/discussion.html">Discussion</a></p>
+
+  <div class="status-bar" id="stats">Loading…</div>
+  <div id="err"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card">
+    <h2>Themes <span class="sub">mentions per issuance, by day · row scale = the theme's own busiest day · click a day → almanac</span></h2>
+    <div class="chart" id="themes"></div>
+  </section>
+
+  <section class="card">
+    <h2>Stories <span class="sub">key messages carried across issuances · a bar = one message, first to last restatement · hover for the wording</span></h2>
+    <div class="chart" id="threads"></div>
+    <div class="chips" id="thread-chips"></div>
+    <div id="thread-list"></div>
+  </section>
+
+  <section class="card">
+    <h2>Volume <span class="sub">words and issuances per day</span></h2>
+    <div class="chart" id="volume"></div>
+    <div class="cols">
+      <div>
+        <h3>Issuance hour <span class="sub">local</span></h3>
+        <div class="chart" id="hours"></div>
+        <div id="slots" class="note"></div>
+      </div>
+      <div>
+        <h3>Section share <span class="sub">words</span></h3>
+        <div id="sections"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Confidence <span class="sub">hedges per 1,000 words, weekly · high vs low confidence statements</span></h2>
+    <div class="chart" id="hedge"></div>
+    <div class="cols">
+      <div>
+        <h3>Hedge words</h3>
+        <div class="bl" id="hedge-words"></div>
+      </div>
+      <div>
+        <h3>Day before rain vs dry <span class="sub">KDCA, storm log</span></h3>
+        <div class="bl" id="rain"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Models &amp; features <span class="sub">what the office named</span></h2>
+    <div class="cols">
+      <div>
+        <h3>Guidance named</h3>
+        <div class="bl" id="models"></div>
+      </div>
+      <div>
+        <h3>Synoptic features</h3>
+        <div class="bl" id="feats"></div>
+      </div>
+    </div>
+    <h3>Features by week <span class="sub">mentions per issuance</span></h3>
+    <div class="chart" id="feats-strip"></div>
+  </section>
+
+  <section class="card">
+    <h2>Products <span class="sub">watches, warnings and advisories named in the issuance, by day</span></h2>
+    <div class="chart" id="wwa-strip"></div>
+    <div class="bl" id="wwa"></div>
+  </section>
+
+  <section class="card">
+    <h2>Aviation section <span class="sub">flight categories and fog mentioned per issuance, by day</span></h2>
+    <div class="chart" id="avn-strip"></div>
+    <h3>TAF sites named</h3>
+    <div class="bl" id="tafs"></div>
+  </section>
+
+  <section class="card">
+    <h2>Words of the month <span class="sub">terms concentrated in one month · count · share of all mentions</span></h2>
+    <div class="months" id="terms"></div>
+  </section>
+
+  <section class="card">
+    <h2>Temperatures in words <span class="sub">“upper 80s”, “near 90” — decade phrases in the discussion, by month</span></h2>
+    <div class="chart" id="temps"></div>
+  </section>
+
+  <section class="card">
+    <div class="cols">
+      <div>
+        <h2>Places</h2>
+        <div class="bl" id="places"></div>
+      </div>
+      <div>
+        <h2>Signatures <span class="sub">issuances signed</span></h2>
+        <div class="bl" id="sigs"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Search <span class="sub">every sentence in the corpus</span></h2>
+    <div id="q-row">
+      <input id="q" type="search" placeholder="e.g. bay breeze, HRRR, Annapolis" autocomplete="off">
+      <button id="q-btn">Search</button>
+      <span id="q-note"></span>
+    </div>
+    <div class="chips" id="q-chips"></div>
+    <div class="chart" id="q-strip"></div>
+    <div id="q-hits"></div>
+  </section>
+
+  <footer>
+    <p>source → <code>data/wx/afd/</code> · build → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/scripts/build_afd.py">build_afd.py</a> · data → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/data/afd.json">afd.json</a></p>
+  </footer>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/afd.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/wxnav.js?v=4" defer></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

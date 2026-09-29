@@ -1239,6 +1239,34 @@ concepts; to relink, add the tools.html card back.
   alerts at the DC point, almanac day links, the LWX log. Chart pair `#3987e5` / `#d95926`
   validated on the card surface. `--selftest` covers the parser and the 6-hourly fill.
   `window.STORMS_DEBUG` for headless checks. In the `wxnav.js` strip (sixth, after Almanac).
+- `afd.html` + `js/afd.js` + `scripts/build_afd.py` → `data/afd.json` + `data/afd-text.json` — LWX
+  Discussions (2026-09-29): every archived Area Forecast Discussion (`data/wx/afd/`, one file per
+  issuance since 2026-05-01) read as one corpus. The page reads **only `data/afd.json`** (~130 KB,
+  every aggregate) and fetches `afd-text.json` (the section texts, ~4 MB) only when a visitor
+  searches; both are rebuilt at the end of every hourly `wxarchive.yml` run beside the storm log
+  (`git add` lists them). Cards, in order: theme strip (mentions per issuance per day, each row
+  scaled to its own 95th percentile, `THEMES` lexicon) · **stories** = key-message threads
+  (consecutive issuances restate a key message with edits; Jaccard ≥ 0.4 on content words chains
+  them, two missed issuances close a thread — `threads_of()`; the bar chart is the top 40 by
+  lifetime, the table sortable by held / revised / newest) · volume (words and issuances per day,
+  issuance-hour clock — LWX's four-a-day cycle at ~3 / 10 / 15 / 21 local — section share) ·
+  confidence (hedges per 1,000 words weekly, `HEDGES` lexicon; high- vs low-confidence statements
+  paired bars, `#3987e5` / `#d95926`; day-before-rain vs dry split read from `data/storms.json`) ·
+  models and synoptic features (`MODELS`, `FEATURES` — the latter mirrors `build_storms.py`
+  `DRIVERS`) · products (the `.LWX WATCHES/WARNINGS/ADVISORIES` block parsed for `<Name>
+  Advisory|Warning|Watch|Statement`, a day strip) · aviation section (VFR/MVFR/IFR/LIFR/fog
+  mentions per day, TAF sites named) · words of the month (unigrams and adjacent bigrams whose
+  mentions are ≥ 50 % concentrated in one month) · temperature decade phrases by month · places ·
+  signatures (initials from the `$$` block, issuances signed; style figures only over solo-signed
+  discussions, which are rare) · full-text search (sentence hits with the archive file linked,
+  a per-day hit strip, section chips, `#q=` deep link). **Parsing rules worth keeping:** AFDs are
+  hard-wrapped at ~66 columns, so `sections()` unwraps lines inside a paragraph before anything
+  is counted — "sea\nbreeze" is one phrase and every lexicon missed it until it did; the climate
+  section (record tables) is excluded from every rate and count except section share; all rates
+  are per 1,000 words so a short evening update compares with a morning package. Lexicons are
+  the thing to edit (`THEMES`/`MODELS`/`FEATURES`/`HEDGES`/`PLACES` at the top of the script), not
+  the page. `--selftest` covers the parser, signatures, products, lexicons and threading.
+  In the `wxnav.js` strip (seventh, "LWX Text"); `window.AFD_DEBUG` for headless checks.
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history

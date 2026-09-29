@@ -1,5 +1,5 @@
 // Weather-family cross-links — a one-line strip under each weather page's
-// title so the six weather pages link to each other (added at Jesse's
+// title so the weather pages link to each other (added at Jesse's
 // request 2026-08-29; this is deliberately NOT a site-wide nav bar — see
 // CLAUDE.md, and keep it to the weather pages).
 //
@@ -15,6 +15,7 @@
     ['wx3d.html', 'Air Above'],
     ['almanac.html', 'Almanac'],
     ['storms.html', 'Storm Log'],
+    ['afd.html', 'LWX Text'],
   ];
   const here = location.pathname.split('/').pop() || 'index.html';
   const nav = document.createElement('nav');

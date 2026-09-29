@@ -87,7 +87,7 @@ const STREAMS = {
   taf:      { name: 'taf',      color: '#a78bfa', what: 'TAF for KMTN, KBWI or KDCA' ,
               on: 'weather · almanac · discussion' },
   afd:      { name: 'afd',      color: '#f59e0b', what: 'Area Forecast Discussion from NWS Baltimore/Washington' ,
-              on: 'discussion · almanac' },
+              on: 'discussion · almanac · afd' },
   pirep:    { name: 'pirep',    color: '#facc15', what: 'PIREP filed within ~150 nm of the field, at the report\'s own time' ,
               on: 'weather · almanac' },
   airsig:   { name: 'airsig',   color: '#fb7185', what: 'G-AIRMET, SIGMET or AIRMET touching the region, stamped when first seen' ,

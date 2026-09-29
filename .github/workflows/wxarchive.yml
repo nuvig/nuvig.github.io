@@ -59,11 +59,15 @@ jobs:
       - name: Build the storm log
         run: python3 scripts/build_storms.py || echo "::warning::build_storms.py failed (see the log); committing the archive without it"
 
+      # afd.html reads the AFD corpus the same way: one compiled document.
+      - name: Build the AFD study
+        run: python3 scripts/build_afd.py || echo "::warning::build_afd.py failed (see the log); committing the archive without it"
+
       - name: Commit archive
         run: |
           git config user.name  "wx-archive[bot]"
           git config user.email "wx-archive[bot]@users.noreply.github.com"
-          git add data/wx data/storms.json
+          git add data/wx data/storms.json data/afd.json data/afd-text.json
           if git diff --cached --quiet; then
             echo "no changes"
             exit 0
