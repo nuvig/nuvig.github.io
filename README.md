@@ -44,10 +44,6 @@ into the repo on a schedule.
   over the DC region, cloud decks, winds aloft, flow tracers, radar drape.
 - `almanac.html` — the weather archive as a reading room: calendar, day
   meteogram, forecast lead-up, TAF vs METAR, alerts timeline, sounding.
-- `storms.html` — Storm Log: every precipitation event in the archive, ranked,
-  hour by hour, with every gauge in the ring and LWX's running commentary.
-- `afd.html` — LWX Discussions: every archived Area Forecast Discussion as a
-  corpus — themes, key-message stories, hedging, models, products, search.
 - `sky.html` — METAR Sky: the current observation painted as a scene.
 
 **Atmosphere and performance**
@@ -84,6 +80,8 @@ into the repo on a schedule.
   pylons, instrument errors.
 - `sequencing.html` — why a GPS navigator sequences when it does.
 - `alternates.html` — FAA alternate airport rules by part.
+- `storms.html` — Storm Log: every precipitation event in the archive, ranked.
+- `afd.html` — LWX Discussions: the archived forecast discussions as a corpus.
 - `sky2.html`, `wxai.html`, `terps.html` — successors and drafts.
 - `fireworks.html`, `glow.html`, `watercycle.html`, `slime.html`,
   `bubbles.html`, `fugue.html`, `mural.html`, `zoey.html` — toys and personal

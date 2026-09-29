@@ -14,8 +14,6 @@
     ['skew-t.html', 'Skew-T'],
     ['wx3d.html', 'Air Above'],
     ['almanac.html', 'Almanac'],
-    ['storms.html', 'Storm Log'],
-    ['afd.html', 'LWX Text'],
   ];
   const here = location.pathname.split('/').pop() || 'index.html';
   const nav = document.createElement('nav');

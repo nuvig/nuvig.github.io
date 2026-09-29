@@ -36,7 +36,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   2026-08-21 — Jesse didn't like it. Navigation is: the homepage cards → `tools.html` → a tool,
   plus each page's own `#back-link` to `/`. Don't reintroduce a shared bar without being asked.
   **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among
-  six weather pages (weather, discussion, skew-t, wx3d, almanac, storms, in that order; page list lives
+  five weather pages (weather, discussion, skew-t, wx3d, almanac, in that order; page list lives
   in the script), injected under each page's title. It replaced those pages' ad-hoc subtitle links
   (weather.html keeps its non-weather tracker/air-lab links). **METAR Sky (`sky.html`) was pulled
   out of the strip the same day at Jesse's request** — it carries no `wxnav.js` script tag and
@@ -1238,7 +1238,9 @@ concepts; to relink, add the tools.html card back.
   (one scale each), every gauge as a bar list (`no gauge` for KFME, `N h missing` said), NWS
   alerts at the DC point, almanac day links, the LWX log. Chart pair `#3987e5` / `#d95926`
   validated on the card surface. `--selftest` covers the parser and the 6-hourly fill.
-  `window.STORMS_DEBUG` for headless checks. In the `wxnav.js` strip (sixth, after Almanac).
+  `window.STORMS_DEBUG` for headless checks. **Unlinked 2026-09-29** (Jesse: "storm log and afd
+  clutter the website") — tools.html card, JSON-LD entry and `wxnav.js` slot removed; the page
+  and its sitemap entry stay (the sequencing.html pattern). Don't re-add without being asked.
 - `afd.html` + `js/afd.js` + `scripts/build_afd.py` → `data/afd.json` + `data/afd-text.json` — LWX
   Discussions (2026-09-29): every archived Area Forecast Discussion (`data/wx/afd/`, one file per
   issuance since 2026-05-01) read as one corpus. The page reads **only `data/afd.json`** (~130 KB,
@@ -1266,7 +1268,9 @@ concepts; to relink, add the tools.html card back.
   are per 1,000 words so a short evening update compares with a morning package. Lexicons are
   the thing to edit (`THEMES`/`MODELS`/`FEATURES`/`HEDGES`/`PLACES` at the top of the script), not
   the page. `--selftest` covers the parser, signatures, products, lexicons and threading.
-  In the `wxnav.js` strip (seventh, "LWX Text"); `window.AFD_DEBUG` for headless checks.
+  **Unlinked 2026-09-29, same day it shipped** (Jesse: "storm log and afd clutter the website") —
+  no tools.html card, no JSON-LD entry, not in `wxnav.js`; reachable by URL and the sitemap.
+  `window.AFD_DEBUG` for headless checks.
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history
