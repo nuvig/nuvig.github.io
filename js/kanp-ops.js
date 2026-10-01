@@ -33,27 +33,20 @@ const KANPOps = (() => {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('ops-load');
     if (!btn) return;
-    btn.addEventListener('click', run);
+    btn.addEventListener('click', () => run());
+    KANPStudy.register(run);
     window.addEventListener('resize', () => { if (lastOps) render(lastOps); });
   });
 
-  async function run() {
+  // Reads the study's shared near-field dataset (fetched by Run study, or on
+  // demand here), clipped to the field area the detector wants.
+  async function run(shared) {
     const btn = document.getElementById('ops-load');
     const out = document.getElementById('ops-result');
     btn.disabled = true;
-    out.textContent = 'Fetching tracks near the field…';
+    out.textContent = 'Analyzing…';
     try {
-      // Same filters as the study, but forced to keep the low/ground data the
-      // detector needs, and trimmed to the field area to stay light.
-      const p = KANP.readFilters('study-filters');
-      delete p.min_alt;
-      delete p.max_alt;
-      p.ground = 'include';
-      p.max_dist = 4;
-      p.max_alt = 3500;
-      p.max_points = 400000;
-      const d = await KANP.getTracks(p);
-      out.textContent = 'Analyzing…';
+      const d = KANPStudy.clip(shared || await KANPStudy.data(), 4, 3500);
       const a = analyze(d);
       lastOps = a;
       render(a);
@@ -64,7 +57,7 @@ const KANPOps = (() => {
         `<strong>${a.totalOps.toLocaleString()}</strong> operations ` +
         `(${a.counts.arr} arrivals, ${a.counts.dep} departures, ${a.counts.tng} go-arounds` +
         `${a.counts.unk ? `, ${a.counts.unk} unclassified` : ''}) over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(d)}${dense}`;
+        `${days < 2 ? days.toFixed(1) : Math.round(days)} days${dense}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {

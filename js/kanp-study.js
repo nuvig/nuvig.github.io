@@ -4,6 +4,17 @@
 const KANPStudy = (() => {
   let lastParams = null;
   let lastStats = null;
+
+  // ---- shared near-field dataset ----
+  // Run study fetches the tracks once (10 nm / 4,500 ft around the field, the
+  // union of what the sub-tools below need) and every sub-tool reads that
+  // one set, clipped to its own box — so everything on the tab describes the
+  // same aircraft the headline counts. Keyed on the filter bar so a sub-tool
+  // button after a filter change refetches rather than analysing stale data.
+  const NEAR = { max_dist: 10, max_alt: 4500 };
+  const DENSE_POINTS = 250_000;           // mirrors kanp-static.js / server.py
+  let shared = null;                      // { key, promise }
+  const analyzers = [];                   // sub-tools run after Run study
   let gridMetric = 'ac';                    // 'ac' | 'samples'
   let sortKey = 'samples', sortDesc = true; // aircraft table sort
 
@@ -34,22 +45,85 @@ const KANPStudy = (() => {
       }));
   }
 
+  function nearParams() {
+    const p = KANP.readFilters('study-filters');
+    delete p.min_alt;
+    delete p.max_alt;
+    delete p.callsign;          // the highlight boxes handle per-aircraft focus
+    p.ground = 'include';
+    p.max_dist = NEAR.max_dist;
+    p.max_alt = NEAR.max_alt;
+    p.max_points = 500000;
+    return p;
+  }
+
+  // The shared dataset for the current filters — fetched once, reused by
+  // every sub-tool. `force` refetches (Run study always does).
+  function data(force) {
+    const p = nearParams();
+    const key = JSON.stringify(p);
+    if (!force && shared && shared.key === key) return shared.promise;
+    const promise = KANP.getTracks(p);
+    shared = { key, promise };
+    promise.catch(() => { if (shared && shared.promise === promise) shared = null; });
+    return promise;
+  }
+
+  // The shared set cut down to a sub-tool's own box — the same clip the
+  // server applied when each tool fetched for itself, so results are
+  // unchanged. Returns the API shape.
+  function clip(d, maxDist, maxAlt) {
+    const tracks = [];
+    let n = 0;
+    for (const t of d.tracks || []) {
+      const pts = t.points.filter(p =>
+        (maxAlt == null || p[3] == null || p[3] <= maxAlt) &&
+        (maxDist == null || KANP.distNm(p[1], p[2]) <= maxDist));
+      if (!pts.length) continue;
+      tracks.push(Object.assign({}, t, { points: pts }));
+      n += pts.length;
+    }
+    return Object.assign({}, d, {
+      tracks, aircraft_count: tracks.length,
+      returned_points: n, dense: n > DENSE_POINTS,
+    });
+  }
+
+  function register(fn) { analyzers.push(fn); }
+
+  const fmtRange = (s, e) => {
+    const a = new Date(s * 1000), b = new Date(e * 1000);
+    const day = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const time = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (e - s <= 86400 && a.toDateString() === b.toDateString())
+      return `${day(a)} · ${time(a)} – ${time(b)}`;
+    if (e - s <= 2 * 86400) return `${day(a)} ${time(a)} – ${day(b)} ${time(b)}`;
+    return `${day(a)} – ${day(b)}`;
+  };
+
   async function run() {
     const btn = document.getElementById('study-load');
     const out = document.getElementById('study-result');
     btn.disabled = true;
-    out.textContent = 'Crunching…';
+    out.className = 'result-line loading';
+    out.textContent = 'Loading analysis…';
     try {
       lastParams = KANP.readFilters('study-filters');
-      const stats = await KANP.getStats(lastParams);
+      const [stats, d] = await Promise.all([KANP.getStats(lastParams), data(true)]);
       lastStats = stats;
       render(stats);
-      const days = Math.max(1, (stats.end - stats.start) / 86400);
+      out.textContent = 'Analyzing…';
+      await new Promise(r => setTimeout(r));   // let the status paint
+      for (const fn of analyzers) {
+        try { await fn(d); } catch (e) { console.warn('[KANP] study sub-tool failed:', e); }
+      }
+      out.className = 'result-line done';
       out.textContent =
-        `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft, ` +
-        `${Number(stats.totals.samples).toLocaleString()} position reports over ` +
-        `${days < 2 ? days.toFixed(1) : Math.round(days)} days · ${KANP.sourceLabel(stats)}`;
+        `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft · ` +
+        `${Number(stats.totals.samples).toLocaleString()} position reports · ` +
+        fmtRange(stats.start, stats.end);
     } catch (e) {
+      out.className = 'result-line';
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
       btn.disabled = false;
@@ -68,10 +142,11 @@ const KANPStudy = (() => {
       return;
     }
     // remote: build a CSV in the browser from the GitHub snapshots
-    out.textContent = 'Building CSV from snapshots…';
+    out.className = 'result-line';
+    out.textContent = 'Building CSV…';
     try {
       await KANPStatic.exportCsv(params);
-      out.textContent = 'CSV downloaded (snapshot resolution)';
+      out.textContent = 'CSV downloaded';
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     }
@@ -241,5 +316,5 @@ const KANPStudy = (() => {
     return a >= 1000 ? `${(a / 1000).toFixed(1)}k` : String(a);
   }
 
-  return { init };
+  return { init, data, clip, register };
 })();

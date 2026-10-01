@@ -65,7 +65,8 @@ const KANPPattern = (() => {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('pattern-load');
     if (!btn) return;
-    btn.addEventListener('click', run);
+    btn.addEventListener('click', () => run());
+    KANPStudy.register(run);
     document.getElementById('pattern-rwy')
       .addEventListener('change', () => { if (last) run(); });
     document.getElementById('pattern-reg')
@@ -76,22 +77,13 @@ const KANPPattern = (() => {
     canvas.addEventListener('mouseleave', () => setHover(null));
   });
 
-  async function run() {
+  async function run(shared) {
     const btn = document.getElementById('pattern-load');
     const out = document.getElementById('pattern-result');
     btn.disabled = true;
-    out.textContent = 'Fetching pattern tracks…';
+    out.textContent = 'Measuring downwind legs…';
     try {
-      const p = KANP.readFilters('study-filters');
-      delete p.min_alt;
-      delete p.max_alt;
-      delete p.callsign;          // the highlight box handles per-aircraft focus
-      p.ground = 'include';
-      p.max_dist = BOX_NM + 1;
-      p.max_alt = 3500;
-      p.max_points = 400000;
-      const d = await KANP.getTracks(p);
-      out.textContent = 'Measuring downwind legs…';
+      const d = KANPStudy.clip(shared || await KANPStudy.data(), BOX_NM + 1, 3500);
       const rwy = document.getElementById('pattern-rwy').value;
       const legs = extract(d, rwy || null);
       last = { legs, hoverIdx: null };
@@ -107,8 +99,7 @@ const KANPPattern = (() => {
         ? ' · <span class="warn">large range — narrow it for accuracy</span>' : '';
       out.innerHTML = `<strong>${legs.length}</strong> downwind leg(s) measured · ` +
         `median ${med(legs.map(l => l.width)).toFixed(2)} nm out at ` +
-        `${Math.round(med(legs.map(l => l.agl)) / 10) * 10} ft AGL · ` +
-        `${KANP.sourceLabel(d)}${dense}`;
+        `${Math.round(med(legs.map(l => l.agl)) / 10) * 10} ft AGL${dense}`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {

@@ -35,7 +35,8 @@ const KANPClimb = (() => {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('climb-load');
     if (!btn) return;
-    btn.addEventListener('click', run);
+    btn.addEventListener('click', () => run());
+    KANPStudy.register(run);
     window.addEventListener('resize', () => { if (last) renderChart(); });
     document.getElementById('climb-reg')
       .addEventListener('input', () => { if (last) renderAll(); });
@@ -44,22 +45,13 @@ const KANPClimb = (() => {
     canvas.addEventListener('mouseleave', () => setHover(null));
   });
 
-  async function run() {
+  async function run(shared) {
     const btn = document.getElementById('climb-load');
     const out = document.getElementById('climb-result');
     btn.disabled = true;
-    out.textContent = 'Fetching departure tracks…';
+    out.textContent = 'Extracting climb profiles…';
     try {
-      const p = KANP.readFilters('study-filters');
-      delete p.min_alt;
-      delete p.max_alt;
-      delete p.callsign;          // the highlight box handles per-aircraft focus
-      p.ground = 'include';
-      p.max_dist = MAX_DIST + 1;
-      p.max_alt = 3500;
-      p.max_points = 400000;
-      const d = await KANP.getTracks(p);
-      out.textContent = 'Extracting climb profiles…';
+      const d = KANPStudy.clip(shared || await KANPStudy.data(), MAX_DIST + 1, 3500);
       const profiles = extract(d);
       last = { profiles, hoverIdx: null };
       if (!profiles.length) {
@@ -69,8 +61,7 @@ const KANPClimb = (() => {
       }
       document.getElementById('climb-out').style.display = '';
       renderAll();
-      out.innerHTML = `<strong>${profiles.length}</strong> climb-outs extracted · ` +
-        `${KANP.sourceLabel(d)}`;
+      out.innerHTML = `<strong>${profiles.length}</strong> climb-outs extracted`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {

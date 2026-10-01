@@ -44,42 +44,49 @@ const KANPConflict = (() => {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('conflict-load');
     if (!btn) return;
-    btn.addEventListener('click', run);
+    btn.addEventListener('click', () => run());
+    KANPStudy.register(run);
     document.getElementById('conflict-play').addEventListener('click', togglePlay);
     document.getElementById('conflict-scrub').addEventListener('input', onScrub);
   });
 
-  async function run() {
+  // "Pattern area only" reads the study's shared near-field dataset (its box
+  // is exactly NEAR_DIST / NEAR_ALT); the whole 60 nm is its own fetch.
+  async function run(shared) {
     const btn = document.getElementById('conflict-load');
     const out = document.getElementById('conflict-result');
     btn.disabled = true;
-    out.textContent = 'Fetching tracks…';
+    out.textContent = 'Loading tracks…';
     try {
       const H = Math.max(0.05, +document.getElementById('conflict-h').value || 0.5);
       const V = Math.max(50, +document.getElementById('conflict-v').value || 500);
       const near = document.getElementById('conflict-near').checked;
 
-      const p = KANP.readFilters('study-filters');
-      delete p.min_alt;
-      delete p.max_alt;
-      delete p.callsign;
-      p.ground = 'include';
-      p.max_points = 500000;
-      if (near) { p.max_dist = NEAR_DIST; p.max_alt = NEAR_ALT; }
-      const d = await KANP.getTracks(p);
+      let d;
+      if (near) {
+        d = KANPStudy.clip(shared || await KANPStudy.data(), NEAR_DIST, NEAR_ALT);
+      } else {
+        const p = KANP.readFilters('study-filters');
+        delete p.min_alt;
+        delete p.max_alt;
+        delete p.callsign;
+        p.ground = 'include';
+        p.max_points = 500000;
+        d = await KANP.getTracks(p);
+      }
 
       out.textContent = 'Scanning for proximity events…';
       await new Promise(r => setTimeout(r));   // let the status paint
       const preps = prep(d.tracks || []);
       const events = detect(preps, H, V);
-      last = { events, preps, source: KANP.sourceLabel(d) };
+      last = { events, preps };
 
       stopAnim();
       document.getElementById('conflict-anim').style.display = 'none';
       if (!events.length) {
         document.getElementById('conflict-out').style.display = 'none';
         out.innerHTML = `No events inside ${H} nm / ${V} ft in this range ` +
-          `(${(d.tracks || []).length} tracks scanned) · ${last.source}`;
+          `(${(d.tracks || []).length} tracks scanned)`;
         return;
       }
       document.getElementById('conflict-out').style.display = '';
@@ -88,7 +95,7 @@ const KANPConflict = (() => {
       out.innerHTML = `<strong>${events.length}</strong> event(s) inside ` +
         `${H} nm / ${V} ft · worst: <strong>${worst.regA}</strong> / ` +
         `<strong>${worst.regB}</strong> ${fmtSep(worst.hCpaNm)} & ` +
-        `${Math.round(worst.vCpa)} ft on ${fmtTs(worst.cpaT)} · ${last.source}` +
+        `${Math.round(worst.vCpa)} ft on ${fmtTs(worst.cpaT)}` +
         `<br><span style="color:#777">Simplified-track interpolation — treat ` +
         `distances as approximate. Non-ADS-B aircraft are invisible to this scan.</span>`;
     } catch (e) {

@@ -329,6 +329,17 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   is all there up close and free at 60 nm. The result line says `· coarsened` (tooltip explains)
   when the load-time pass ran.
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
+  **Run study drives the whole tab (2026-10-01):** it fetches the stats and **one shared
+  near-field track set** (10 nm / 4,500 ft, ground included — `KANPStudy.data()`, keyed on the
+  filter bar) and then runs every registered sub-tool (`KANPStudy.register(fn)`: ops, climb,
+  final, pattern, conflict) off that set, each clipped to its own box by `KANPStudy.clip()` —
+  the same clip the server used to apply per fetch, so results are unchanged (checked on
+  2026-09-30: 108 ops / 38 climbs / 2 finals / 30 legs / 3 events, old and new). A sub-tool's
+  own button re-analyses the shared set without a fetch (a RWY or threshold change), fetching
+  only when the filters moved; the conflict tool's "whole 60 nm" mode is still its own fetch.
+  The result line reads `Loading analysis…` (amber, pulsing) and then, green with a glow,
+  `N unique aircraft · N position reports · <range>` — **no `via GitHub snapshot` / age on this
+  tab** (Jesse's call); the Live/History heat-grid labels keep theirs.
 - `js/kanp-ops.js` — ops detection: contiguous "at the field" segments (inside `OPS_GATES`), classified
   by airborne context before/after into arrival / departure / go-around, attributed to runway 12 or 30.
   Each op carries `ts` / `ts1` (first / last at-field fix) — the History tab's clipping modes cut

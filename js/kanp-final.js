@@ -32,7 +32,8 @@ const KANPFinal = (() => {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('final-load');
     if (!btn) return;
-    btn.addEventListener('click', run);
+    btn.addEventListener('click', () => run());
+    KANPStudy.register(run);
     document.getElementById('final-rwy')
       .addEventListener('change', () => { if (last) run(); });
     window.addEventListener('resize', () => { if (last) renderChart(); });
@@ -41,22 +42,13 @@ const KANPFinal = (() => {
     canvas.addEventListener('mouseleave', () => setHover(null));
   });
 
-  async function run() {
+  async function run(shared) {
     const btn = document.getElementById('final-load');
     const out = document.getElementById('final-result');
     btn.disabled = true;
-    out.textContent = 'Fetching arrival tracks…';
+    out.textContent = 'Extracting approaches…';
     try {
-      const p = KANP.readFilters('study-filters');
-      delete p.min_alt;
-      delete p.max_alt;
-      delete p.callsign;
-      p.ground = 'include';
-      p.max_dist = MAX_ALONG + 1;
-      p.max_alt = 3500;
-      p.max_points = 400000;
-      const d = await KANP.getTracks(p);
-      out.textContent = 'Extracting approaches…';
+      const d = KANPStudy.clip(shared || await KANPStudy.data(), MAX_ALONG + 1, 3500);
       const rwy = document.getElementById('final-rwy').value;
       const finals = extract(d, rwy);
       last = { finals, hoverIdx: null };
@@ -72,7 +64,7 @@ const KANPFinal = (() => {
       const w = finals[0];
       out.innerHTML = `<strong>${finals.length}</strong> straight-in(s) to RWY ${rwy} · ` +
         `best: <strong>${w.reg}</strong> (${Math.round(w.meanOff)} ft avg offset, ` +
-        `established ${w.estFrom.toFixed(1)} nm out) · ${KANP.sourceLabel(d)}`;
+        `established ${w.estFrom.toFixed(1)} nm out)`;
     } catch (e) {
       out.innerHTML = `<span class="err">${e.message}</span>`;
     } finally {
