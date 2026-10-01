@@ -1389,6 +1389,13 @@ concepts; to relink, add the tools.html card back.
   reported — normal for a part-time AWOS overnight) and never re-fetched, so a field that sleeps
   at night can't make this pass re-scrape the ring every hour forever. `wxbackfill.py` ignores
   `nh`, so a wrongly settled hour is still repairable by hand. Consumers only ever read `metars`.
+  **IEM rate-limits bursts (found 2026-10-01):** the heal fired its 13 ASOS requests 0.15 s
+  apart and IEM answered 429 to every station after the first two, every run since the ring was
+  added — KDCA/KNAK healed (first in line), the ring never did, and a 429'd station was skipped
+  unsettled, which is why Sep 22–26 showed ~300 ring hours missing a week later with nothing
+  marked `nh`. Every IEM request now goes through `iem_text()` / `iem_json()` (`WX_IEM_PAUSE_S`
+  2 s apart, a 429/5xx retried 3× with Retry-After or 4/8/16 s); `wxbackfill.py` shares them.
+  Check the Actions log for `heal <ID>: HTTP Error 429` before blaming a station.
   A day file that ends up holding **no** obs is that bookkeeping and nothing else — `index.json`
   does not list it as a day, or a station that has gone dark shows a full day count and reads as
   healthy (KFME did exactly that).

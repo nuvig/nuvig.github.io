@@ -71,6 +71,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -157,6 +158,12 @@ HEAL_DAYS = int(os.environ.get("WX_HEAL_DAYS", "3"))
 # the station never reported (normal for a part-time AWOS overnight) and
 # recorded in the day file's "nh" list so it is never re-fetched.
 NH_SETTLE_H = int(os.environ.get("WX_NH_SETTLE_H", "3"))
+# IEM rate-limits bursts: the heal's thirteen back-to-back ASOS requests got
+# 429 on every station after the first two, every run, from the day the ring
+# was added (seen 2026-09-24 and 2026-10-01 in the Actions log), so no ring
+# hole was ever healed or settled. Space IEM requests and retry a 429.
+IEM_PAUSE_S = float(os.environ.get("WX_IEM_PAUSE_S", "2"))
+IEM_RETRIES = int(os.environ.get("WX_IEM_RETRIES", "3"))
 IEM = os.environ.get("WX_IEM", "https://mesonet.agron.iastate.edu")
 # When the scheduled TAFs for these stations are issued (UTC). heal_tafs()
 # treats a scheduled slot with no issuance near it as a hole to fill from IEM.
@@ -231,6 +238,40 @@ def fetch_text(url):
     })
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read().decode("utf-8", "replace")
+
+
+_iem_last = [0.0]
+
+
+def _iem(getter, url):
+    """One IEM request, paced IEM_PAUSE_S from the previous one and retried on
+    a 429 / 5xx (Retry-After if given, else 4 / 8 / 16 s). `getter` is looked
+    up at call time so the backfiller's selftests can still swap the transport."""
+    for attempt in range(IEM_RETRIES + 1):
+        wait = IEM_PAUSE_S - (time.monotonic() - _iem_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _iem_last[0] = time.monotonic()
+        try:
+            return getter(url)
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 502, 503, 504) or attempt == IEM_RETRIES:
+                raise
+            delay = IEM_PAUSE_S * 2 ** (attempt + 1)
+            try:
+                delay = max(delay, float((e.headers or {}).get("Retry-After", 0)))
+            except (TypeError, ValueError):
+                pass
+            log(f"iem: HTTP {e.code}, retry in {delay:.0f} s")
+            time.sleep(delay)
+
+
+def iem_text(url):
+    return _iem(lambda u: fetch_text(u), url)
+
+
+def iem_json(url):
+    return _iem(lambda u: fetch(u), url)
 
 
 def epoch(iso):
@@ -529,7 +570,7 @@ def heal_metars():
         log(f"heal {station}: {sum(len(v) for v in holes.values())} missing "
             f"hour(s) across {len(holes)} day(s)")
         try:
-            text = fetch_text(asos_url(station, days[0], days[-1]))
+            text = iem_text(asos_url(station, days[0], days[-1]))
         except (urllib.error.URLError, OSError) as e:
             log(f"heal {station}: {e}")
             continue
@@ -922,7 +963,7 @@ def heal_tafs():
                     continue
                 seen.add(utc_day)
                 try:
-                    data = fetch(afos_list_url(taf_pil(station), utc_day))
+                    data = iem_json(afos_list_url(taf_pil(station), utc_day))
                 except (urllib.error.URLError, OSError, ValueError) as e:
                     log(f"heal taf {station} {utc_day}: {e}")
                     continue
@@ -940,7 +981,7 @@ def heal_tafs():
                        for x in doc["tafs"]):
                     continue
                 try:
-                    raw = clean_product(fetch_text(afos_text_url(pid)))
+                    raw = clean_product(iem_text(afos_text_url(pid)))
                 except (urllib.error.URLError, OSError) as e:
                     log(f"heal taf {pid}: {e}")
                     continue
