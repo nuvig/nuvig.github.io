@@ -64,6 +64,9 @@ rush.json (what the page reads — one document):
   days [{d, cls (wk/sat/sun/hol), cov "24 chars: 1 covered, 0 missing, x not
          yet reached by the exporter when the day was compiled", cs_hist,
          ap {ID: {a "96", d "96", al {PFX: ["96 arr", "96 dep"]},
+                  co {PFX: [arrivals, departures]} for every airline prefix
+                     seen that day ("~" = everything else: N-numbers,
+                     military, untagged) — the by-airline totals table,
                   rwy {"33": "24 arrivals by hour"},
                   lee {"33": [arrivals that passed within lee_nm of KANP
                               below 6,000 ft, arrivals on that runway,
@@ -73,6 +76,7 @@ rush.json (what the page reads — one document):
       clamped at 61): "96" = 15-min slots, "24" = hours; airline series only
       for the airports in TOP_AIRLINES
   feeds {feed: {label, freq}}
+  fleet {ID: {PFX: [[type, ops], …] top 3}}  — what each airline flies there
   recurring [[ap, kind, cs, type, median_min, p25, p75, days_seen,
               days_possible, first, last, dowmask], …]  — the observed
       schedule: a callsign seen on ≥ REC_MIN_DAYS days at one airport,
@@ -528,17 +532,22 @@ def aggregate(days, feeds):
     out_days = []
     rec = collections.defaultdict(list)       # (ap, kind, cs) → [(date, minute, type)]
     grid = {str(b): collections.Counter() for b in range(len(BANDS))}
+    fleet = {ap: collections.defaultdict(collections.Counter) for ap in ORDER}
     for d in days:
         ap_rec = {}
         for ap in ORDER:
             ap_rec[ap] = {"a": [0] * 96, "d": [0] * 96,
                           "al": {p: [[0] * 96, [0] * 96] for p in top[ap]},
-                          "rwy": {}, "lee": {}}
+                          "co": {}, "rwy": {}, "lee": {}}
         for ts, ap, kind, cs, typ, hx, rwy, lee, x in d["ops"]:
             sl = slot_of(ts)
             r = ap_rec[ap]
             r["a" if kind == "A" else "d"][sl] += 1
             p = airline_prefix(cs)
+            co = r["co"].setdefault(p or "~", [0, 0])
+            co[0 if kind == "A" else 1] += 1
+            if p and typ:
+                fleet[ap][p][typ] += 1
             if p in r["al"]:
                 r["al"][p][0 if kind == "A" else 1][sl] += 1
             if kind == "A" and rwy:
@@ -623,6 +632,8 @@ def aggregate(days, feeds):
         "term": {k: {"nm": v[2], "ft": v[3], "airliners": v[4]} for k, v in TERM.items()},
         "map_meta": {"cell_nm": MAP_CELL_NM, "half_nm": MAP_HALF_NM, "step_s": MAP_STEP_S},
         "feeds": feeds,
+        "fleet": {ap: {p: [[t, n] for t, n in c.most_common(3)] for p, c in fleet[ap].items()}
+                  for ap in ORDER},
         "days": out_days,
         "recurring": recurring,
         "map": {b: [[x, y, s] for (x, y), s in sorted(g.items()) if s >= MAP_MIN_S]
@@ -837,6 +848,9 @@ def selftest():
     assert dec(rush["days"][0]["ap"]["BWI"]["al"]["SWA"][0])[28] == 1
     assert dec(rush["days"][0]["ap"]["BWI"]["rwy"]["33"])[7] == 1
     assert rush["days"][0]["ap"]["BWI"]["lee"]["33"] == [1, 1, 1], rush["days"][0]["ap"]["BWI"]["lee"]
+    assert rush["days"][0]["ap"]["BWI"]["co"] == {"SWA": [1, 1]}, rush["days"][0]["ap"]["BWI"]["co"]
+    assert rush["days"][0]["ap"]["MTN"]["co"] == {"~": [1, 1]}
+    assert rush["fleet"]["BWI"]["SWA"] == [["B738", 8]], rush["fleet"]
     assert rush["days"][0]["cov"][7] == "1" and rush["days"][0]["cov"][3] == "0", rush["days"][0]["cov"]
     days[0]["src"]["generated"] = t0 + 1800          # compiled at 07:30 → 08:00 on is unreached
     assert aggregate(days, {})["days"][0]["cov"][8:] == "x" * 16

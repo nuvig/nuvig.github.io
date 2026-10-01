@@ -397,7 +397,10 @@
     .rush-week span.on { color: #ccc; }
     .rush-click { cursor: pointer; }
     .rush-click:hover .rwy-name { color: #fff; }
-    .rush-list { font-size: 13px; color: #bbb; line-height: 1.7; font-variant-numeric: tabular-nums; }
+    #rush-co td, #rush-co th { font-variant-numeric: tabular-nums; }
+    #rush-co .rush-col { color: #cfe6ff; }
+    #rush-co .rush-dim { color: #666; font-size: 11px; }
+    #rush-co tr.rush-total td { border-top: 1px solid #444; color: #ddd; }
     #rush-rec th.on { color: #cfe6ff; }
     #rush-map { display: block; margin: 8px auto 0; border-radius: 6px; }
     #rush-day { width: 140px; }
@@ -1067,16 +1070,22 @@
     <div id="rush-body" style="display:none">
       <div class="section-title" id="rush-today-title">Today</div>
       <div class="card">
-        <canvas id="rush-today-strip" class="chart" style="height:150px" title="expected arrivals for this kind of day, today's arrivals as ticks, hour tiers below"></canvas>
+        <canvas id="rush-today-strip" class="chart" style="height:140px" title="the usual arrivals for this kind of day as an area, today's arrivals as ticks"></canvas>
         <div id="rush-today-legend" class="rush-legend"></div>
-        <div class="rush-verdict" id="rush-verdict"></div>
-        <div class="rush-verdict" id="rush-windows"></div>
-        <div class="rush-verdict" id="rush-rwy-line"></div>
+        <div class="rush-verdict" id="rush-today-facts"></div>
       </div>
       <div class="stat-cards">
         <div class="stat-card"><div class="num" id="rt-arr">–</div><div class="lbl" id="rt-arr-lbl">arrivals / day</div></div>
-        <div class="stat-card"><div class="num" id="rt-share">–</div><div class="lbl" id="rt-share-lbl">airline share</div></div>
+        <div class="stat-card"><div class="num" id="rt-dep">–</div><div class="lbl" id="rt-dep-lbl">departures / day</div></div>
         <div class="stat-card"><div class="num" id="rt-today">–</div><div class="lbl" id="rt-today-lbl">today</div></div>
+      </div>
+
+      <div class="section-title">By airline <span style="font-weight:400;color:#555;font-size:12px" id="rush-co-note"></span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="rush-co">
+          <thead><tr><th>Airline</th><th></th><th data-ap="BWI">BWI</th><th data-ap="DCA">DCA</th><th data-ap="IAD">IAD</th><th data-ap="ADW">ADW</th><th data-ap="MTN">MTN</th><th>Total</th><th>Types</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
 
       <details class="rush-fold" id="fold-profile">
@@ -1094,18 +1103,10 @@
               <tbody></tbody>
             </table>
           </div>
-          <div class="two-col">
-            <div>
-              <div class="section-title">Movements by hour × weekday <span style="font-weight:400;color:#555;font-size:12px">· per day, range only</span></div>
-              <div class="card">
-                <canvas id="rush-grid" class="chart" style="height:168px"></canvas>
-                <div class="heatmap-legend"><span>Less</span><div class="legend-gradient"></div><span>More</span></div>
-              </div>
-            </div>
-            <div>
-              <div class="section-title">Airlines <span style="font-weight:400;color:#555;font-size:12px">· click to filter</span></div>
-              <div class="card" id="rush-airlines"></div>
-            </div>
+          <div class="section-title">Movements by hour × weekday <span style="font-weight:400;color:#555;font-size:12px">· per day, range only</span></div>
+          <div class="card">
+            <canvas id="rush-grid" class="chart" style="height:168px"></canvas>
+            <div class="heatmap-legend"><span>Less</span><div class="legend-gradient"></div><span>More</span></div>
           </div>
         </div>
       </details>
@@ -1156,16 +1157,6 @@
           <div class="qr-row rush-chips" id="rush-region" style="margin-bottom:6px"></div>
           <div class="result-line" id="rush-term-title" title="aircraft counted from ADS-B — a proxy for controller workload, not frequency traffic"></div>
           <div class="card"><canvas id="rush-term-chart" class="chart" style="height:160px"></canvas></div>
-          <div class="two-col">
-            <div>
-              <div class="section-title">Quietest hours <span style="font-weight:400;color:#555;font-size:12px">· 6a–10p</span></div>
-              <div class="card rush-list" id="rush-quiet"></div>
-            </div>
-            <div>
-              <div class="section-title">Busiest hours</div>
-              <div class="card rush-list" id="rush-busy"></div>
-            </div>
-          </div>
           <div id="rush-atc" style="display:none">
             <div class="section-title">Frequency load <span class="qr-row" id="rush-feed"></span></div>
             <div class="result-line" id="rush-atc-title"></div>
@@ -1211,7 +1202,7 @@
   <script src="js/kanp.js?v=9"></script>
   <script src="js/kanp-history.js?v=6"></script>
   <script src="js/kanp-study.js"></script>
-  <script src="js/kanp-rush.js?v=2"></script>
+  <script src="js/kanp-rush.js?v=3"></script>
   <script src="js/kanp-ops.js?v=1"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>
