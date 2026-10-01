@@ -1,9 +1,11 @@
 // KANP Flight Tracker — Airline Traffic tab
-// Today first: what the airliners at BWI / DCA / IAD / ADW / MTN are doing
-// right now and next, then the folds that explain it. Reads rush.json on the
-// rush-data branch (scripts/build_rush.py compiles it hourly from the Pi's
-// day snapshots). Every mean is per covered day; an hour the collector
-// missed is left out, never counted as quiet. Times are the field's zone.
+// The airliners at BWI / DCA / IAD / ADW / MTN as data: today's arrivals
+// against the usual day, totals by airline, then folds for the profile,
+// runway, timetable, load and any one day. It states what was measured and
+// draws no conclusions. Reads rush.json on the rush-data branch
+// (scripts/build_rush.py compiles it hourly from the Pi's day snapshots).
+// Every mean is per covered day; an hour the collector missed is left out,
+// never counted as quiet. Times are the field's zone.
 
 const KANPRush = (() => {
   const A62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -13,14 +15,11 @@ const KANPRush = (() => {
   const CAT = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'];
   // ordinal ramp for the altitude bands, lowest band brightest
   const BAND_COLORS = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#1c5cab'];
-  // status: quiet / normal / busy — always with a label, never colour alone
-  const TIER = [['quiet', '#22c55e'], ['normal', '#555'], ['busy', '#ef4444']];
   const RANGES = [['7 d', 7], ['30 d', 30], ['90 d', 90], ['All', 0]];
   const CLASSES = [['Weekdays', 'wk'], ['Sat', 'sat'], ['Sun', 'sun'], ['All', 'all']];
   const REGION_LABEL = {
     bwi25: 'BWI 25 nm', dca25: 'DCA 25 nm', iad25: 'IAD 25 nm', lee15: 'Lee 15 nm',
   };
-  const REGION_OF = { BWI: 'bwi25', DCA: 'dca25', IAD: 'iad25', ADW: 'lee15', MTN: 'lee15' };
   const DOW = 'MTWTFSS';
   const DAY0 = 20, DAY1 = 92;            // the strip: 5a → 11p in 15-min slots
 
@@ -182,30 +181,6 @@ const KANPRush = (() => {
     return { n: days.length, missing };
   }
 
-  // the workload series for the tier strip: measured transmissions when the
-  // Pi has published them, else the ADS-B count in the airport's region
-  function loadSeries(days) {
-    const feeds = R.feeds || {};
-    if (S.feed && feeds[S.feed]) {
-      const have = days.filter(d => d.atc && d.atc[S.feed]);
-      if (have.length >= 3) {
-        return { v: series(have, d => d.atc[S.feed].n), src: `${feeds[S.feed].freq || S.feed} transmissions`, n: have.length };
-      }
-    }
-    const region = REGION_OF[S.ap] || 'lee15';
-    const m = R.term[region];
-    return { v: series(days, d => d.term[region]),
-             src: `${m.airliners ? 'airliners' : 'aircraft'} below ${m.ft.toLocaleString()} ft within ${m.nm} nm of ${REGION_LABEL[region].split(' ')[0]} (ADS-B count)`, n: days.length };
-  }
-
-  // hourly tiers over the daytime: terciles of the hourly mean
-  function tiers(v) {
-    const hourly = Array.from({ length: 24 }, (_, h) => (v[h * 4] + v[h * 4 + 1] + v[h * 4 + 2] + v[h * 4 + 3]) / 4);
-    const day = hourly.slice(6, 22).slice().sort((a, b) => a - b);
-    const lo = day[Math.floor(day.length / 3)], hi = day[Math.floor(day.length * 2 / 3)];
-    return { hourly, tier: hourly.map(x => x <= lo ? 0 : x >= hi ? 2 : 1) };
-  }
-
   // a bank: a run of 15-min slots clearly above the day's typical slot
   // (1.25× the median of the day's active slots on a lightly smoothed
   // series; a lone slot counts only at 1.6×)
@@ -250,6 +225,7 @@ const KANPRush = (() => {
     $('rush-body').style.display = '';
     void gen;
     renderToday(days);
+    renderCompanies(days);
     document.querySelectorAll('#tab-rush details.rush-fold').forEach(d => {
       summarizeFold(d.id);
       if (d.open) renderFold(d.id);
@@ -278,94 +254,35 @@ const KANPRush = (() => {
     const now = new Date();
     const nowSlot = isToday ? now.getHours() * 4 + Math.floor(now.getMinutes() / 15) : 96;
     const prof = apSeries(days, S.ap, S.al, 'A');
-    const banks = detectBanks(prof);
-    const load = loadSeries(days);
-    const { hourly, tier } = tiers(load.v);
+    const profD = apSeries(days, S.ap, S.al, 'D');
     const arrivals = todayOps('A');
+    const departures = todayOps('D');
     const rec = S.todayRec;
     const asOf = rec ? clock(rec.generated) : null;
 
     $('rush-today-title').textContent = isToday ? 'Today' : `${S.today} (newest compiled day)`;
-    drawToday($('rush-today-strip'), { prof, arrivals, nowSlot, tier, hourly, load, isToday });
+    drawToday($('rush-today-strip'), { prof, arrivals, nowSlot, isToday });
     $('rush-today-legend').innerHTML =
-      `<span><span class="rush-sw" style="background:${BLUE};opacity:.45"></span>expected arrivals</span>` +
-      `<span><span class="rush-sw" style="background:${BLUE}"></span>today's arrivals${asOf ? ` (as of ${asOf})` : ''}</span>` +
-      TIER.map(([n, c]) => `<span><span class="rush-sw" style="background:${c}"></span>${n}</span>`).join('') +
-      `<span class="rush-src">tiers → ${esc(load.src)}</span>`;
+      `<span><span class="rush-sw" style="background:${BLUE};opacity:.45"></span>expected arrivals per 15 min</span>` +
+      `<span><span class="rush-sw" style="background:${BLUE}"></span>today's arrivals${asOf ? ` (as of ${asOf})` : ''}</span>`;
 
-    // the verdict: now · next lull · next bank
-    const parts = [];
-    if (isToday) {
-      const h = now.getHours();
-      const inBank = banks.find(b => nowSlot >= b.s && nowSlot <= b.e);
-      const recent = arrivals.filter(o => o[0] >= now.getTime() / 1000 - 900).length;
-      let state;
-      if (h < 5 || h >= 23) state = 'overnight';
-      else if (inBank) state = `bank · ${fmt1(prof[nowSlot])} expected / 15 min`;
-      else state = tier[h] === 0 ? 'lull' : tier[h] === 2 ? 'busy' : 'normal';
-      parts.push(`now → ${state}${recent && rec && rec.generated > now.getTime() / 1000 - 1800 ? ` · ${recent} in the last 15 min` : ''}`);
-      const nextQuiet = tier.findIndex((t, hh) => t === 0 && hh > h && hh < 23);
-      if (nextQuiet > 0) parts.push(`next lull → ${hourLabel(nextQuiet)}–${hourLabel(nextQuiet + 1)}`);
-      const nextBank = banks.find(b => b.s > nowSlot);
-      if (nextBank) parts.push(`next bank → ${slotLabel(nextBank.s)}–${slotLabel(nextBank.e + 1)} · ${fmt1(nextBank.total)} arrivals`);
-      else if (h < 23) parts.push('next bank → none left today');
-    } else {
-      const first = banks[0];
-      parts.push(first ? `first bank → ${slotLabel(first.s)}–${slotLabel(first.e + 1)} · ${fmt1(first.total)} arrivals` : 'no bank stands out');
+    // facts: today so far, and the runway today
+    const facts = [];
+    if (rec) {
+      facts.push(`${isToday ? 'so far' : 'that day'} → ${arrivals.length} arrivals · ${departures.length} departures`);
+      const byRwy = {};
+      arrivals.forEach(o => { if (o[6]) byRwy[o[6]] = (byRwy[o[6]] || 0) + 1; });
+      const rw = Object.entries(byRwy).sort((a, b) => b[1] - a[1]);
+      if (rw.length) facts.push('landing → ' + rw.map(([r, n]) => `RWY ${r} ${n}`).join(' · '));
     }
-    $('rush-verdict').textContent = parts.join('   ·   ');
-
-    // best windows: the quietest remaining 60-min windows, 6a–10p
-    const wins = [];
-    const fromSlot = isToday ? Math.max(24, nowSlot + 1) : 24;
-    for (let s = fromSlot; s + 4 <= 88; s++) wins.push({ s, v: (load.v[s] + load.v[s + 1] + load.v[s + 2] + load.v[s + 3]) / 4 });
-    const best = [];
-    for (const w of wins.sort((a, b) => a.v - b.v)) {
-      if (best.some(o => Math.abs(o.s - w.s) < 4)) continue;
-      best.push(w);
-      if (best.length === 3) break;
-    }
-    best.sort((a, b) => a.s - b.s);
-    $('rush-windows').textContent = best.length
-      ? `best windows${isToday ? ' left today' : ''} → ` + best.map(w => `${slotLabel(w.s)}–${slotLabel(w.s + 4)}`).join(' · ')
-      : 'best windows → none left today';
-
-    // runway in use → where the jets are
-    const byRwy = {};
-    arrivals.forEach(o => { if (o[6]) byRwy[o[6]] = (byRwy[o[6]] || 0) + 1; });
-    const total = sum(Object.values(byRwy));
-    const lee = leeByRunway(days);
-    let rw = '';
-    if (total >= 5) {
-      const [r, n] = Object.entries(byRwy).sort((a, b) => b[1] - a[1])[0];
-      rw = `${S.ap} landing ${r}${isToday ? ' today' : ''} (${n} of ${total})`;
-      const l = lee.get(r);
-      if (l && l[1]) rw += ` → ${Math.round(100 * l[0] / l[1])}% pass within ${R.lee_nm} nm of Lee below 6,000 ft, ${Math.round(100 * l[2] / l[1])}% below 3,000 ft`;
-    } else {
-      const usual = [...lee.entries()].sort((a, b) => b[1][1] - a[1][1])[0];
-      if (usual) {
-        const [r, l] = usual;
-        const all = sum([...lee.values()].map(x => x[1]));
-        rw = `${S.ap} usually lands ${r} (${Math.round(100 * l[1] / all)}%) → ${Math.round(100 * l[0] / l[1])}% pass within ${R.lee_nm} nm of Lee below 6,000 ft`;
-      }
-    }
-    $('rush-rwy-line').textContent = rw;
+    $('rush-today-facts').textContent = facts.join('   ·   ');
 
     // tiles
     $('rt-arr').textContent = fmt1(sum(prof));
     $('rt-arr-lbl').textContent = `${S.al || 'all'} arrivals / day`;
-    const allTotal = sum(apSeries(days, S.ap, '', 'A')) + sum(apSeries(days, S.ap, '', 'D'));
-    const pfx = S.al || (R.top[S.ap] || [])[0];
-    if (pfx && allTotal) {
-      const mine = sum(apSeries(days, S.ap, pfx, 'A')) + sum(apSeries(days, S.ap, pfx, 'D'));
-      $('rt-share').textContent = `${Math.round(100 * mine / allTotal)}%`;
-      $('rt-share-lbl').textContent = `${pfx} share of ${S.ap}`;
-    } else {
-      $('rt-share').textContent = '–';
-      $('rt-share-lbl').textContent = 'airline share';
-    }
+    $('rt-dep').textContent = fmt1(sum(profD));
+    $('rt-dep-lbl').textContent = `${S.al || 'all'} departures / day`;
     if (rec) {
-      const upto = isToday ? Math.min(96, Math.floor(rec.generated % 86400 / 900)) : 96;
       const cutoff = isToday ? rec.generated : Infinity;
       const actual = arrivals.filter(o => o[0] <= cutoff).length;
       let expected = 0;
@@ -374,13 +291,74 @@ const KANPRush = (() => {
         const gs = genLocal.getHours() * 4 + genLocal.getMinutes() / 15;
         for (let i = 0; i < 96; i++) expected += prof[i] * Math.max(0, Math.min(1, gs - i));
       } else expected = sum(prof);
-      void upto;
       $('rt-today').textContent = String(actual);
-      $('rt-today-lbl').textContent = `${isToday ? 'so far' : 'that day'} · ${fmt1(expected)} expected${asOf ? ` · as of ${asOf}` : ''}`;
+      $('rt-today-lbl').textContent = `arrivals ${isToday ? 'so far' : 'that day'} · usual ${fmt1(expected)}${asOf ? ` · as of ${asOf}` : ''}`;
     } else {
       $('rt-today').textContent = '–';
       $('rt-today-lbl').textContent = 'today · not compiled yet';
     }
+  }
+
+  // totals by airline: rows = prefixes, columns = airports, movements per day
+  function renderCompanies(days) {
+    const per = {};                              // pfx → {ap → [arr, dep]}
+    const nd = {};                               // ap → covered days with the airport
+    for (const d of days) {
+      for (const ap of R.order) {
+        const a = d.ap[ap];
+        if (!a) continue;
+        nd[ap] = (nd[ap] || 0) + 1;
+        for (const [p, [ar, de]] of Object.entries(a.co || {})) {
+          const row = per[p] || (per[p] = {});
+          const cell = row[ap] || (row[ap] = [0, 0]);
+          cell[0] += ar; cell[1] += de;
+        }
+      }
+    }
+    const rows = Object.entries(per).map(([p, byAp]) => {
+      let total = 0;
+      const cells = R.order.map(ap => {
+        const c = byAp[ap];
+        const v = c && nd[ap] ? (c[0] + c[1]) / nd[ap] : 0;
+        total += v;
+        return v;
+      });
+      return { p, cells, total };
+    }).sort((a, b) => b.total - a.total);
+    const colTotal = R.order.map((_, i) => rows.reduce((t, r) => t + r.cells[i], 0));
+    const MIN = 5;                               // movements / day to get a row of its own
+    const shown = S.al ? rows.filter(r => r.p === S.al) : rows.filter(r => r.total >= MIN && r.p !== '~');
+    const other = rows.filter(r => !shown.includes(r) && r.p !== '~');
+    const tilde = rows.find(r => r.p === '~');
+    const fmt = v => v >= 0.5 ? fmt1(v) : v > 0 ? '<1' : '';
+    const fleet = p => {
+      const f = (R.fleet[S.ap] || {})[p] || [];
+      const base = f.reduce((t, [, n]) => t + n, 0);
+      return base ? f.map(([t, n]) => `${t} ${Math.round(100 * n / base)}%`).join(' · ') : '';
+    };
+    const tr = (label, name, cells, total, extra, cls, pfx) =>
+      `<tr${cls ? ` class="${cls}"` : ''}${pfx ? ` data-al="${pfx}"` : ''}><td>${label}</td><td class="rush-dim">${name}</td>` +
+      cells.map((v, i) => `<td class="${R.order[i] === S.ap ? 'rush-col' : ''}">${fmt(v)}</td>`).join('') +
+      `<td><strong>${fmt(total)}</strong></td><td class="rush-dim">${extra}</td></tr>`;
+    let html = shown.map(r => tr(r.p, esc(R.airlines[r.p] || ''), r.cells, r.total, fleet(r.p), 'rush-click', r.p)).join('');
+    if (!S.al) {
+      if (other.length) {
+        const oc = R.order.map((_, i) => other.reduce((t, r) => t + r.cells[i], 0));
+        html += tr(`${other.length} more`, `under ${MIN} / day each`, oc, sum(oc), '', '', '');
+      }
+      if (tilde) html += tr('other', 'N-numbers · military · untagged', tilde.cells, tilde.total, '', '', '');
+      html += tr('total', '', colTotal, sum(colTotal), '', 'rush-total', '');
+    }
+    const tb = $('rush-co').querySelector('tbody');
+    tb.innerHTML = html || '<tr><td colspan="9" style="color:#555">no data</td></tr>';
+    $('rush-co').querySelectorAll('th.rush-col, td.rush-col').forEach(() => {});
+    $('rush-co').querySelectorAll('thead th[data-ap]').forEach(th => th.classList.toggle('rush-col', th.dataset.ap === S.ap));
+    tb.querySelectorAll('tr.rush-click').forEach(row => row.addEventListener('click', () => {
+      S.al = S.al === row.dataset.al ? '' : row.dataset.al;
+      buildAirlineChips();
+      render();
+    }));
+    $('rush-co-note').textContent = `movements / day · ${S.al ? '' : 'click a row to filter · '}types at ${S.ap}`;
   }
 
   // per-runway near-Lee tallies over the profile days: {rwy → [near, total, below3k]}
@@ -399,16 +377,15 @@ const KANPRush = (() => {
   }
 
   function drawToday(canvas, o) {
-    const W = KANP.contentWidth(canvas.parentElement), H = 150;
+    const W = KANP.contentWidth(canvas.parentElement), H = 140;
     const ctx = KANP.setupCanvas(canvas, W, H);
-    const PAD_L = 30, PAD_R = 6, PAD_T = 6, CELL_H = 14, PAD_B = 18 + CELL_H + 4;
+    const PAD_L = 30, PAD_R = 6, PAD_T = 6, PAD_B = 18;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
     const n = DAY1 - DAY0;
     const bw = plotW / n;
     const x0 = i => PAD_L + (i - DAY0) * bw;
     const max = Math.max(0.5, ...o.prof.slice(DAY0, DAY1)) * 1.1;
     const y = v => PAD_T + plotH - plotH * v / max;
-    // expected arrivals, a soft area
     ctx.beginPath();
     ctx.moveTo(x0(DAY0), y(0));
     for (let i = DAY0; i < DAY1; i++) ctx.lineTo(x0(i) + bw / 2, y(o.prof[i]));
@@ -420,10 +397,8 @@ const KANPRush = (() => {
     ctx.beginPath();
     for (let i = DAY0; i < DAY1; i++) { const px = x0(i) + bw / 2, py = y(o.prof[i]); if (i === DAY0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
     ctx.stroke();
-    // y ticks
     ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     [0, 0.5, 1].forEach(t => { ctx.fillText(fmt1(max * t / 1.1), PAD_L - 4, y(max * t / 1.1)); });
-    // today's arrivals as ticks along the baseline
     const marks = [];
     for (const op of o.arrivals) {
       const t = new Date(op[0] * 1000);
@@ -434,37 +409,24 @@ const KANPRush = (() => {
       ctx.fillRect(px - 0.75, PAD_T + plotH - 16, 1.5, 16);
       marks.push({ x: px, op });
     }
-    // tier cells, one per hour
-    const cellY = PAD_T + plotH + 4;
-    for (let h = 5; h < 23; h++) {
-      const [, c] = TIER[o.tier[h]];
-      ctx.fillStyle = c;
-      ctx.globalAlpha = o.isToday && h < new Date().getHours() ? 0.35 : 0.85;
-      ctx.fillRect(x0(h * 4) + 1, cellY, bw * 4 - 2, CELL_H);
-    }
-    ctx.globalAlpha = 1;
-    // now
     if (o.isToday && o.nowSlot >= DAY0 && o.nowSlot < DAY1) {
       const t = new Date();
       const px = x0((t.getHours() * 60 + t.getMinutes()) / 15);
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(px, PAD_T); ctx.lineTo(px, cellY + CELL_H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px, PAD_T); ctx.lineTo(px, PAD_T + plotH); ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.font = '9px sans-serif'; ctx.textBaseline = 'top';
       ctx.textAlign = t.getHours() < 14 ? 'left' : 'right';
       ctx.fillText('now', px + (t.getHours() < 14 ? 3 : -3), PAD_T);
     }
-    // x labels
     ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (let h = 6; h < 23; h += 2) ctx.fillText(hourLabel(h), x0(h * 4), cellY + CELL_H + 4);
-    canvas._rush = { marks, bw, x0, PAD_L };
+    for (let h = 6; h < 23; h += 2) ctx.fillText(hourLabel(h), x0(h * 4), PAD_T + plotH + 4);
     hoverCanvas(canvas, ev => {
       const i = DAY0 + (ev.x - PAD_L) / bw;
       if (i < DAY0 || i >= DAY1) return null;
-      const slot = Math.floor(i), h = Math.floor(slot / 4);
+      const slot = Math.floor(i);
       const near = marks.filter(m => Math.abs(m.x - ev.x) < 3).map(m => esc(m.op[3] || m.op[5]));
       const actual = o.arrivals.filter(op => { const t = new Date(op[0] * 1000); return t.getHours() * 4 + Math.floor(t.getMinutes() / 15) === slot; }).length;
-      return `<strong>${slotLabel(slot)}</strong> · expected ${fmt1(o.prof[slot])} · today ${actual}` +
-        `<br>${hourLabel(h)}–${hourLabel(h + 1)}: ${TIER[o.tier[h]][0]} · ${fmt1(o.hourly[h])} per 15 min` +
+      return `<strong>${slotLabel(slot)}</strong> · usual ${fmt1(o.prof[slot])} · today ${actual}` +
         (near.length ? `<br>${near.join(' · ')}` : '');
     });
   }
@@ -489,11 +451,12 @@ const KANPRush = (() => {
     } else if (id === 'fold-timetable') {
       sub.textContent = `${regulars().length} regulars`;
     } else if (id === 'fold-load') {
-      const { v, src } = loadSeries(selDays(todayClass()));
-      const { hourly } = tiers(v);
-      let q = 6, b = 6;
-      for (let h = 6; h < 22; h++) { if (hourly[h] < hourly[q]) q = h; if (hourly[h] > hourly[b]) b = h; }
-      sub.textContent = `quietest ${hourLabel(q)}–${hourLabel(q + 1)} · busiest ${hourLabel(b)}–${hourLabel(b + 1)} · ${src.split(' (')[0]}`;
+      const t = series(selDays(todayClass()), d => d.term[S.region]);
+      let lo = 24, hi = 24;
+      for (let i = 24; i < 88; i++) { if (t[i] < t[lo]) lo = i; if (t[i] > t[hi]) hi = i; }
+      const feeds = Object.keys(R.feeds || {});
+      sub.textContent = `${REGION_LABEL[S.region]} · ${fmt1(t[lo])} at ${slotLabel(lo)} to ${fmt1(t[hi])} at ${slotLabel(hi)}` +
+        (feeds.length ? ` · ${feeds.length} frequencies` : '');
     } else if (id === 'fold-day') {
       sub.textContent = S.day || '';
     }
@@ -518,7 +481,6 @@ const KANPRush = (() => {
       height: 210, hover: i => `<strong>${slotLabel(i)}</strong><br>${fmt1(arr[i])} arrivals · ${fmt1(dep[i])} departures<br>per day` });
     renderBanks(days, arr, dep);
     renderGrid(days);
-    renderAirlines(days);
   }
 
   function renderBanks(days, arr, dep) {
@@ -569,27 +531,6 @@ const KANPRush = (() => {
     void days;
     const grid = total.map((row, d) => row.map((v, h) => n[d][h] ? Math.round(10 * v / n[d][h]) / 10 : 0));
     KANP.renderGrid($('rush-grid'), grid, { unit: 'movements / h' });
-  }
-
-  function renderAirlines(days) {
-    const total = sum(apSeries(days, S.ap, '', 'A')) + sum(apSeries(days, S.ap, '', 'D'));
-    const top = R.top[S.ap] || [];
-    const rows = top.map(p => [p, sum(apSeries(days, S.ap, p, 'A')) + sum(apSeries(days, S.ap, p, 'D'))]);
-    const other = total - rows.reduce((x, r) => x + r[1], 0);
-    if (other > 0) rows.push(['other', other]);
-    const max = Math.max(1, ...rows.map(r => r[1]));
-    $('rush-airlines').innerHTML = rows.map(([p, v]) =>
-      `<div class="rwy-row${p !== 'other' ? ' rush-click' : ''}" data-al="${p === 'other' ? '' : p}">` +
-      `<span class="rwy-name" title="${esc(R.airlines[p] || '')}">${p}</span>` +
-      `<span class="rwy-bar"><span style="width:${100 * v / max}%"></span></span>` +
-      `<span class="rwy-pct">${total ? Math.round(100 * v / total) : 0}%</span>` +
-      `<span class="rwy-side">${fmt1(v)} / day${R.airlines[p] ? ' · ' + esc(R.airlines[p]) : ''}</span></div>`
-    ).join('') || '<div class="rwy-side">no airline-coded traffic</div>';
-    $('rush-airlines').querySelectorAll('.rush-click').forEach(el => el.addEventListener('click', () => {
-      S.al = el.dataset.al;
-      buildAirlineChips();
-      render();
-    }));
   }
 
   // --- runway and near Lee ---------------------------------------------
@@ -766,20 +707,6 @@ const KANPRush = (() => {
     $('rush-term-title').textContent = `${meta.airliners ? 'airliners' : 'all aircraft'} below ${meta.ft.toLocaleString()} ft within ${meta.nm} nm of ${REGION_LABEL[S.region].split(' ')[0]} · mean per 15 min · ADS-B count`;
     drawSlots($('rush-term-chart'), { up: [t], colors: [BLUE], height: 160,
       hover: i => `<strong>${slotLabel(i)}</strong><br>${fmt1(t[i])} aircraft` });
-    const wins = [];
-    for (let s = 24; s + 4 <= 88; s++) wins.push({ s, v: (t[s] + t[s + 1] + t[s + 2] + t[s + 3]) / 4 });
-    const pick = (sorted) => {
-      const out = [];
-      for (const w of sorted) {
-        if (out.some(o => Math.abs(o.s - w.s) < 4)) continue;
-        out.push(w);
-        if (out.length === 5) break;
-      }
-      return out.map(w => `${slotLabel(w.s)}–${slotLabel(w.s + 4)} · ${fmt1(w.v)}`).join('<br>');
-    };
-    $('rush-quiet').innerHTML = pick([...wins].sort((a, b) => a.v - b.v));
-    $('rush-busy').innerHTML = pick([...wins].sort((a, b) => b.v - a.v));
-
     const feeds = R.feeds || {};
     const hasFeeds = Object.keys(feeds).length > 0;
     $('rush-atc').style.display = hasFeeds ? '' : 'none';
