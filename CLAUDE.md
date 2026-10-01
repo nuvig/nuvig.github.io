@@ -377,25 +377,39 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   30 / 90 d / all). Every figure is a **mean per covered day**: `cov` is 24 chars per day,
   `1` covered, `0` the collector missed the hour (fewer than `COV_MIN` = 3 distinct aircraft
   in it — the 08-01 and 09-12 outages), `x` the exporter had not reached it yet; a `0`/`x`
-  hour is left out of the mean, never counted as quiet. Sections: tiles → arrivals/departures
-  per 15 min (mirrored, one scale) → **banks** (runs of slots ≥ 1.25× the day's median on a
-  lightly smoothed series; a lone slot at 1.6×) → hour × weekday grid → airline share (click
-  → filter) → **arrival runway** (direction read from the course on final, L/R not resolved;
-  axes calibrated from the data's own course histogram: BWI 33 = 319° true, DCA 01 = 355°,
-  IAD 01 = 002° / 30 = 289°, ADW 01 ≈ 001°, MTN 33 = 315°; each runway's share of arrivals
-  that passed within 5 nm of Lee below 6,000 / 3,000 ft) → **recurring flights** (the observed
-  schedule: a callsign seen on ≥ 4 days at one airport, median time over its last 30
-  sightings, spread = half the IQR, days seen / possible, weekday mask; there is no schedule
-  feed, this is what the sky did) → **airliners near Lee** (unique airliner-type aircraft
-  within 5 nm per hour by the lowest band each reached, one count per aircraft-hour, plus a
-  ±8 nm map of airliner seconds per 0.25 nm cell by band, all days, log scale — the 33L final
-  shows as a streak NE of the field) → **approach-area load** (distinct aircraft per 15 min
-  below 10,000 ft within 25 nm of BWI / DCA / IAD, airliner types only, and every aircraft
-  below 6,000 ft within 15 nm of Lee; quietest / busiest 60-min windows 6a–10p — **a proxy
-  for controller workload, not frequency traffic, and labelled so**) → **frequency load**
-  (hidden until the exporter publishes it: transmissions and airtime per 15 min per recorded
-  feed — 119.7 Potomac Approach · 124.55 Approach/Departure · 119.4 BWI Tower — read from the
-  recorder's per-transmission log, counts only, no audio or text leaves the Pi) → one day.
+  hour is left out of the mean, never counted as quiet. **Layout (rebuilt the same day —
+  Jesse: "so data heavy, bars everywhere, huge tables"): today first, then folds.** The top
+  is airport + airline chips, one result line, and a **Today card**: a 5a–11p strip with the
+  expected arrivals for today's day class as a soft area, today's actual arrivals as ticks
+  (from `days/<today>.json`, so up to an hour behind — the legend says "as of"), a now-line,
+  and an hour row coloured quiet / normal / busy (terciles of the daytime hourly mean of the
+  airport's approach-area count; measured transmissions on 124.55 take over automatically
+  once the exporter publishes them — `loadSeries()`, the legend names the source). Under it
+  three lines: `now → lull/bank/busy · next lull → · next bank →`, `best windows left today →
+  a · b · c` (the quietest remaining 60-min windows), and `BWI landing 33 today (41 of 44) →
+  60% pass within 5 nm of Lee below 6,000 ft, 25% below 3,000 ft` (today's runway from
+  today's ops, else the usual one). Three tiles: arrivals / day · airline share · today so far
+  vs expected by the compile time. Then five `details.rush-fold`s, each with a one-line summary
+  in its header and rendered only when opened (a closed details has no width): **Day profile**
+  (its own days/range chips, the mirrored arrivals/departures chart, **banks** = runs of slots
+  ≥ 1.25× the day's median on a lightly smoothed series, a lone slot at 1.6×, hour × weekday
+  grid, airline share with click → filter) · **Runway and near Lee** (arrival runway share
+  from the course on final, L/R not resolved, axes calibrated from the data's own course
+  histogram: BWI 33 = 319° true, DCA 01 = 355°, IAD 01 = 002° / 30 = 289°, ADW 01 ≈ 001°,
+  MTN 33 = 315°, each runway's share of arrivals within 5 nm of Lee below 6,000 / 3,000 ft;
+  unique airliners within 5 nm per hour by the lowest band each reached; a ±8 nm map of
+  airliner seconds per 0.25 nm cell by band, all days, log scale — the 33L final shows as a
+  streak NE of the field) · **Timetable** (the regulars: callsigns with spread ≤ 15 min seen
+  on ≥ 60 % of their days, grouped by hour; the full sortable recurring table — a callsign
+  seen on ≥ 4 days, median time over its last 30 sightings — in a sub-fold; there is no
+  schedule feed, this is what the sky did) · **Approach-area load** (distinct aircraft per
+  15 min below 10,000 ft within 25 nm of BWI / DCA / IAD, airliner types only, and every
+  aircraft below 6,000 ft within 15 nm of Lee; quietest / busiest windows; **a proxy for
+  controller workload, not frequency traffic, labelled so**; the measured per-feed
+  transmissions chart appears here too once exported) · **One day** (date picker, every op
+  of that day as a strip and a table). No centroid-style "where the jets are" sentence: a
+  centroid over every runway's flow said "N" for a stream that is NE on 33 and E on 15 — the
+  map shows it instead.
   **Callsign caveat:** a day file carried one callsign per aircraft (the last seen) until the
   exporter started writing `flights` history (2026-10-01, `cs_hist`), so before that a
   turnaround's arrival carries its departing flight number — airline and timing are right,
