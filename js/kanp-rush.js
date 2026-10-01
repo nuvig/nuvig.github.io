@@ -445,10 +445,10 @@ const KANPRush = (() => {
     ctx.moveTo(cx - Math.sin(rw) * rl, cy + Math.cos(rw) * rl);
     ctx.lineTo(cx + Math.sin(rw) * rl, cy - Math.cos(rw) * rl);
     ctx.stroke();
-    ctx.fillStyle = '#aaa'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('N', cx, 4);
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`${2 * half} nm`, cx, H - 4);
+    ctx.fillStyle = '#aaa'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('N ↑', 6, 4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`${2 * half} nm · ${R.lee_nm} nm ring`, cx, H - 4);
     for (const ap of R.order) {
       const a = R.airports[ap];
       const east = (a.lon - SITE.tracker.lon) * 60 * Math.cos(SITE.tracker.lat * Math.PI / 180);
