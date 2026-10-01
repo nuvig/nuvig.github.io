@@ -73,12 +73,14 @@ UTC = datetime.timezone.utc
 # Injectable for --selftest; real transport below.
 def http_json(url):
     _pause()
+    if url.startswith(IEM):
+        return wxa.iem_json(url)      # paced + 429 retry, shared with the heal
     return wxa.fetch(url)
 
 
 def http_text(url):
     _pause()
-    return wxa.fetch_text(url)
+    return wxa.iem_text(url)          # every text fetch here is IEM
 
 
 _last_req = [0.0]
@@ -429,6 +431,7 @@ def main(argv=None):
 def run_selftest():
     import tempfile
     import unittest
+    wxa.IEM_PAUSE_S = 0            # fake transports need no politeness pause
 
     class Fixtures(unittest.TestCase):
         def setUp(self):
