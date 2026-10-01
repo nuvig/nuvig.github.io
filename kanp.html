@@ -383,6 +383,23 @@
       padding: 0 5px; font-size: 10px; margin-left: 4px;
     }
 
+    /* ---- airline traffic tab ---- */
+    .rush-chips { flex-wrap: wrap; }
+    .rush-sw {
+      display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+      margin-right: 6px; vertical-align: middle;
+    }
+    .rush-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #888; margin-top: 6px; }
+    .rush-week span { color: #3a3a3a; font-family: monospace; }
+    .rush-week span.on { color: #ccc; }
+    .rush-click { cursor: pointer; }
+    #rush-rec th.on { color: #cfe6ff; }
+    .rush-click:hover .rwy-name { color: #fff; }
+    .rush-list { font-size: 13px; color: #bbb; line-height: 1.7; font-variant-numeric: tabular-nums; }
+    #rush-map { display: block; margin: 8px auto 0; border-radius: 6px; }
+    #rush-day { width: 140px; }
+    .section-title .qr-row { display: inline-flex; margin-left: 10px; vertical-align: middle; }
+
     /* ---- settings ---- */
     .settings-panel {
       background: #1a1a1a;
@@ -433,6 +450,7 @@
     <button class="tab-btn" data-tab="tab-live">Live</button>
     <button class="tab-btn active" data-tab="tab-history">History Map</button>
     <button class="tab-btn" data-tab="tab-study">Traffic Study</button>
+    <button class="tab-btn" data-tab="tab-rush">Airline Traffic</button>
   </div>
 
   <!-- ======================= LIVE TAB ======================= -->
@@ -1014,13 +1032,142 @@
     </div>
   </div>
 
+  <!-- ======================= AIRLINE TRAFFIC TAB ======================= -->
+  <div id="tab-rush" class="tab-panel">
+    <div class="filter-bar" id="rush-filters">
+      <div class="filter-field"><label>Airport</label><div class="qr-row rush-chips" id="rush-ap"></div></div>
+      <div class="filter-field" id="rush-al-field"><label>Airline</label><div class="qr-row rush-chips" id="rush-al"></div></div>
+      <div class="filter-field"><label>Days</label><div class="qr-row rush-chips" id="rush-cls"></div></div>
+      <div class="filter-field"><label>Range</label><div class="qr-row rush-chips" id="rush-range"></div></div>
+    </div>
+    <div class="result-line" id="rush-result">Loading…</div>
+    <div class="result-line" id="rush-cs-note" style="font-size:11px;color:#555;margin-top:-4px"></div>
+
+    <div id="rush-body" style="display:none">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="num" id="rt-arr">–</div><div class="lbl">arrivals / day</div></div>
+        <div class="stat-card"><div class="num" id="rt-dep">–</div><div class="lbl">departures / day</div></div>
+        <div class="stat-card"><div class="num" id="rt-peak">–</div><div class="lbl" id="rt-peak-lbl">busiest 15 min</div></div>
+        <div class="stat-card"><div class="num" id="rt-bank">–</div><div class="lbl" id="rt-bank-lbl">first arrival bank</div></div>
+        <div class="stat-card"><div class="num" id="rt-share">–</div><div class="lbl" id="rt-share-lbl">airline share</div></div>
+        <div class="stat-card"><div class="num" id="rt-days">–</div><div class="lbl">days</div></div>
+      </div>
+
+      <div class="section-title">Arrivals and departures per 15 min
+        <span class="rush-legend" style="display:inline-flex;margin-left:10px;font-weight:400"><span><span class="rush-sw" style="background:#3987e5"></span>arrivals</span><span><span class="rush-sw" style="background:#d95926"></span>departures</span></span>
+      </div>
+      <div class="card"><canvas id="rush-mirror" class="chart" style="height:230px"></canvas></div>
+
+      <div class="section-title">Banks</div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="rush-banks">
+          <thead><tr><th>Window</th><th>Kind</th><th>Per day</th><th>Peak 15 min</th><th>Airlines</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-title">Movements by hour × weekday <span style="font-weight:400;color:#555;font-size:12px">· per day, range only</span></div>
+          <div class="card">
+            <canvas id="rush-grid" class="chart" style="height:168px"></canvas>
+            <div class="heatmap-legend"><span>Less</span><div class="legend-gradient"></div><span>More</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="section-title">Airlines <span style="font-weight:400;color:#555;font-size:12px">· movements / day · click to filter</span></div>
+          <div class="card" id="rush-airlines"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Arrival runway <span style="font-weight:400;color:#555;font-size:12px" title="runway direction read from the course flown on final; L/R not resolved">· from the final-approach course</span></div>
+      <div class="card">
+        <div id="rush-rwys"></div>
+        <canvas id="rush-rwy-chart" class="chart" style="height:150px;margin-top:8px"></canvas>
+      </div>
+
+      <div class="section-title">Recurring flights
+        <span id="rush-rec-count" style="font-weight:400;color:#555;font-size:12px"></span>
+        <span class="qr-row" id="rush-kind"></span>
+      </div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="rush-rec">
+          <thead><tr><th data-k="cs">Callsign</th><th>Kind</th><th data-k="time" title="median over the last 30 sightings">Time</th><th data-k="spread" title="half the interquartile range">Spread</th><th data-k="days" title="days seen / days between first and last sighting">Days</th><th>Type</th><th>Week</th><th data-k="last">Last</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button class="btn secondary" id="rush-rec-more" style="margin-top:8px;display:none">Show all</button>
+      </div>
+
+      <div class="section-title">Airliners near Lee <span style="font-weight:400;color:#555;font-size:12px">· within 5 nm of KANP</span></div>
+      <div class="result-line" id="rush-lee-line"></div>
+      <div class="two-col">
+        <div>
+          <div class="card">
+            <canvas id="rush-lee-chart" class="chart" style="height:170px"></canvas>
+            <div id="rush-lee-legend" class="rush-legend"></div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="qr-row rush-chips" id="rush-band"></div>
+            <canvas id="rush-map" class="chart" title="airliner time per cell, all compiled days, north up"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">Approach-area load
+        <span class="qr-row" id="rush-region"></span>
+      </div>
+      <div class="result-line" id="rush-term-title" title="aircraft counted from ADS-B — a proxy for controller workload, not frequency traffic"></div>
+      <div class="card"><canvas id="rush-term-chart" class="chart" style="height:170px"></canvas></div>
+      <div class="two-col">
+        <div>
+          <div class="section-title">Quietest hours <span style="font-weight:400;color:#555;font-size:12px">· 6a–10p</span></div>
+          <div class="card rush-list" id="rush-quiet"></div>
+        </div>
+        <div>
+          <div class="section-title">Busiest hours</div>
+          <div class="card rush-list" id="rush-busy"></div>
+        </div>
+      </div>
+      <div id="rush-atc" style="display:none">
+        <div class="section-title">Frequency load <span class="qr-row" id="rush-feed"></span></div>
+        <div class="result-line" id="rush-atc-title"></div>
+        <div class="card"><canvas id="rush-atc-chart" class="chart" style="height:170px"></canvas></div>
+      </div>
+      <div class="result-line" id="rush-atc-none">frequency load → not exported yet</div>
+
+      <div class="section-title">One day</div>
+      <div class="filter-bar">
+        <div class="filter-field"><label>Date</label>
+          <div class="qr-row">
+            <button type="button" class="qr-step" id="rush-day-prev" title="Previous day">‹</button>
+            <input type="date" id="rush-day">
+            <button type="button" class="qr-step" id="rush-day-next" title="Next day">›</button>
+          </div>
+        </div>
+        <button class="btn" id="rush-day-load">Load</button>
+      </div>
+      <div class="result-line" id="rush-day-result"></div>
+      <div class="card" style="overflow-x:auto">
+        <canvas id="rush-day-strip" class="chart" style="height:90px"></canvas>
+        <table class="ac-table" id="rush-day-table">
+          <thead><tr><th>Time</th><th>Callsign</th><th>Kind</th><th>RWY</th><th>Type</th><th title="lowest altitude within 5 nm of KANP on that flight">Near Lee</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="rush-day-more" style="font-size:11px;color:#555;margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="js/site-config.js"></script>
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js?v=2"></script>
-  <script src="js/kanp.js?v=8"></script>
+  <script src="js/kanp.js?v=9"></script>
   <script src="js/kanp-history.js?v=6"></script>
   <script src="js/kanp-study.js"></script>
+  <script src="js/kanp-rush.js?v=1"></script>
   <script src="js/kanp-ops.js?v=1"></script>
   <script src="js/kanp-climb.js"></script>
   <script src="js/kanp-final.js"></script>

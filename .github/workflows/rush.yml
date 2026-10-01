@@ -1,0 +1,69 @@
+# Airline Traffic compile — the rush-hour data behind kanp.html's Airline
+# Traffic tab. scripts/build_rush.py reads the Pi exporter's per-day snapshots
+# on the traffic-data branch (every airline movement at BWI / DCA / IAD /
+# ADW / MTN, the low airliners near Lee, the approach-area load, and the
+# recorder's per-frequency transmission counts once the exporter publishes
+# them) and compiles them into one small tree.
+#
+# Published to the `rush-data` branch as a SINGLE force-pushed commit that
+# carries the whole tree forward (the notam-data pattern): the previous
+# commit is checked out first, the script recompiles only the days whose
+# source changed (today, yesterday, anything heal.py re-exported), and the
+# result replaces the branch. Nothing on main grows.
+#
+# The page reads rush.json over raw.githubusercontent.com (CORS-open), like
+# js/kanp-static.js does for traffic-data.
+
+name: Airline traffic
+
+on:
+  schedule:
+    - cron: '8 * * * *'    # hourly, clear of wxarchive :18, wx3dsnap :38, notamarchive :48
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rush
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the rush-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git ls-remote --exit-code --heads origin rush-data >/dev/null 2>&1; then
+            git clone -q --depth 1 --branch rush-data \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" rush
+            rm -rf rush/.git
+          else
+            echo "no rush-data branch yet — compiling from scratch"
+            mkdir -p rush
+          fi
+
+      # A day that fails to download is skipped this run and retried next
+      # hour (its compiled file stays absent, so it stays due).
+      - name: Compile
+        run: python3 scripts/build_rush.py --out rush || echo "::warning::build_rush.py reported problems (see the log); publishing what it wrote"
+
+      - name: Publish to the rush-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd rush
+          if [ ! -f rush.json ]; then echo "nothing written"; exit 0; fi
+          git init -q -b rush-data
+          git config user.name  "wx-archive[bot]"
+          git config user.email "wx-archive[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "rush: compile $(date -u +'%Y-%m-%d %H:%MZ')"
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" \
+            rush-data

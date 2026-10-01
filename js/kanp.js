@@ -24,7 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // (e.g. leaflet-heat throws on a zero-width map container when the page
   // loads in a hidden/background pane).
   [initTabs, initApiSettings, initLive,
-   () => KANPHistory.init(), () => KANPStudy.init()].forEach(step => {
+   () => KANPHistory.init(), () => KANPStudy.init(),
+   () => KANPRush.init()].forEach(step => {
     try { step(); } catch (e) { console.error('[KANP] init step failed:', e); }
   });
 });
@@ -45,6 +46,7 @@ function initTabs() {
     // A hidden panel has no layout box, so anything sized from its width was
     // drawn at the fallback width. Re-measure now that the panel is visible.
     if (btn.dataset.tab === 'tab-history') KANPHistory.onShow();
+    if (btn.dataset.tab === 'tab-rush') KANPRush.onShow();
     if (btn.dataset.tab === 'tab-live') {
       if (window._liveMap) window._liveMap.invalidateSize();
       renderTemporalGrid();
