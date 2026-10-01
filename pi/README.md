@@ -92,7 +92,11 @@ Pi on your LAN (mixed content). Two ways in, both supported by the page:
 **1. GitHub snapshots (built in — recommended).** `exporter.py` publishes
 per-day JSON files to the repo's `traffic-data` branch every hour; the page
 automatically falls back to them whenever the Pi API isn't reachable. Data is
-up to an hour stale. Tracks are shape-simplified (Douglas-Peucker, tolerance
+up to an hour stale. Beside the day files it writes `v2/atc/<day>.json` when
+`atc.py` has logged transmissions — per feed, counts and airtime seconds per
+15-minute slot, nothing else (no clips, no text) — and marks every callsign a
+hex used during the day on its track (`flights`), which the site's Airline
+Traffic tab reads through `scripts/build_rush.py`. Tracks are shape-simplified (Douglas-Peucker, tolerance
 `KANP_SIMPLIFY_NM`, default 0.03 nm) — straight legs collapse to a few points
 while turns stay crisp, so the snapshots render the same as the live API.
 Inside the near-poll ring (`KANP_NEAR_RADIUS_NM`) the tolerance is

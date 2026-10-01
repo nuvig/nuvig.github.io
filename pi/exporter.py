@@ -18,7 +18,30 @@ Output layout (branch traffic-data):
   v2/summary.json          available days + totals + freshness (each day entry
                            carries "stats": 1 once its stats sidecar exists)
   v2/days/YYYY-MM-DD.json  decimated per-day tracks (same point tuple as the
-                           live API: [ts, lat, lon, alt, gs, on_ground])
+                           live API: [ts, lat, lon, alt, gs, on_ground]).
+                           A track carries one `flight` (the last callsign
+                           seen that day) and, since 2026-10-01, `flights`:
+                           [[ts, callsign], ...] — every callsign the hex
+                           used, stamped when first seen — on any track
+                           whose callsign changed. The day file says
+                           "cs_hist": 1 when it was written by this version,
+                           so a reader can tell "one callsign all day" from
+                           "history not recorded". Without it a jet that
+                           lands as SWA123 and leaves as SWA456 reads SWA456
+                           both ways (scripts/build_rush.py cares).
+  v2/atc/YYYY-MM-DD.json   frequency load from the ATC recorder (pi/atc.py):
+                           per feed, transmissions and airtime seconds per
+                           15-minute local slot — { date, generated, feeds:
+                           { mount: { label, freq, n: [96], s: [96] } } }.
+                           Counts only: no audio, no clip paths, no text
+                           ever leaves the Pi (LiveATC's terms forbid
+                           republishing the recordings; a tally of how busy
+                           a frequency was is not one). Today and yesterday
+                           are rewritten every run, older days once; the
+                           recorder purges its clips after
+                           KANP_ATC_RETENTION_DAYS but this export persists.
+                           summary.json marks each day entry "atc": 1 when
+                           its file exists. Read by scripts/build_rush.py.
   v2/stats/YYYY-MM-DD.json per-day aggregate stats sidecar (a few hundred KB
                            at most vs ~10 MB for the day file). Lets the site
                            build the Traffic Study / heat-grid aggregates
@@ -88,6 +111,9 @@ GC_INTERVAL_S = int(os.environ.get("KANP_GC_INTERVAL_S", gitutil.DEFAULT_INTERVA
 V2_DIR = os.path.join(EXPORT_DIR, "v2")
 DAYS_DIR = os.path.join(V2_DIR, "days")
 STATS_DIR = os.path.join(V2_DIR, "stats")
+ATC_OUT_DIR = os.path.join(V2_DIR, "atc")
+# The ATC recorder's clip/log tree (pi/atc.py, same env var) — read-only here.
+ATC_DIR = os.environ.get("KANP_ATC_DIR", "/var/lib/kanp/atc")
 
 # --- stats-sidecar constants (mirrors of the site's JS — keep in sync) ------
 # Field center, as the collector uses (env mirror of SITE.tracker.lat/lon).
@@ -262,6 +288,7 @@ def export_day(db, day_str):
     kept = 0
     cur = None      # current track's metadata dict
     buf = None      # current aircraft's raw [ts,lat,lon,alt,gs,og] fixes
+    hist = None     # [[ts, callsign], ...] — each callsign when first seen
 
     def flush():
         nonlocal kept
@@ -272,6 +299,8 @@ def export_day(db, day_str):
              round(p[4], 1) if p[4] is not None else None, p[5]]
             for p in simplify_track(buf, SIMPLIFY_NM, NEAR)
         ]
+        if len(hist) > 1:
+            cur["flights"] = hist
         kept += len(cur["points"])
         tracks.append(cur)
 
@@ -282,8 +311,11 @@ def export_day(db, day_str):
                    "type": r["type"], "descr": r["descr"],
                    "military": r["military"], "points": []}
             buf = []
+            hist = []
         if r["flight"]:
             cur["flight"] = r["flight"]
+            if not hist or hist[-1][1] != r["flight"]:
+                hist.append([r["ts"], r["flight"]])
         buf.append([r["ts"], r["lat"], r["lon"], r["alt"], r["gs"], r["on_ground"]])
     flush()
 
@@ -294,6 +326,7 @@ def export_day(db, day_str):
         "simplify_nm": SIMPLIFY_NM,
         "simplify_near_nm": SIMPLIFY_NEAR_NM,
         "near_nm": NEAR_RADIUS_NM,
+        "cs_hist": 1,
         "total_points": total,
         "points": kept,
         "tracks": tracks,
@@ -308,6 +341,106 @@ def export_day(db, day_str):
         "points": kept,
         "total_points": total,
     }
+
+
+def atc_feeds():
+    """{mount: {label, freq}} — feeds.json as atc.py writes it, else the
+    mount directories that exist (label = mount, no frequency)."""
+    feeds = {}
+    try:
+        with open(os.path.join(ATC_DIR, "feeds.json")) as f:
+            for fd in json.load(f):
+                if fd.get("mount"):
+                    feeds[fd["mount"]] = {"label": fd.get("label") or fd["mount"],
+                                          "freq": fd.get("freq") or ""}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    try:
+        for name in os.listdir(ATC_DIR):
+            if os.path.isdir(os.path.join(ATC_DIR, name)) and name not in feeds:
+                feeds[name] = {"label": name, "freq": ""}
+    except OSError:
+        pass
+    return feeds
+
+
+def atc_load_for_day(day_str, feeds):
+    """Per-feed transmissions (n) and airtime seconds (s) per 15-minute local
+    slot, read from each feed's <mount>/<day>.jsonl. Only the stamp and the
+    duration of each record are used. None when no feed logged that day."""
+    out = {}
+    for mount, meta in feeds.items():
+        path = os.path.join(ATC_DIR, mount, f"{day_str}.jsonl")
+        if not os.path.isfile(path):
+            continue
+        n = [0] * 96
+        sec = [0.0] * 96
+        try:
+            with open(path) as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue          # a line mid-rewrite — skip it
+                    ts = rec.get("ts")
+                    if not isinstance(ts, (int, float)):
+                        continue
+                    lt = datetime.datetime.fromtimestamp(ts)
+                    if lt.strftime("%Y-%m-%d") != day_str:
+                        continue
+                    slot = lt.hour * 4 + lt.minute // 15
+                    n[slot] += 1
+                    dur = rec.get("dur")
+                    if isinstance(dur, (int, float)) and dur > 0:
+                        sec[slot] += dur
+        except OSError:
+            continue
+        out[mount] = {"label": meta["label"], "freq": meta["freq"],
+                      "n": n, "s": [int(round(x)) for x in sec]}
+    return out or None
+
+
+def export_atc():
+    """Write v2/atc/<day>.json for every day a feed logged. Today and
+    yesterday are rewritten each run (they are still being recorded); older
+    days are written once and then left alone — the recorder purges its
+    logs after KANP_ATC_RETENTION_DAYS, the export is what persists.
+    Returns the set of days that have a file."""
+    feeds = atc_feeds()
+    if not feeds:
+        return set()
+    os.makedirs(ATC_OUT_DIR, exist_ok=True)
+    today = datetime.date.today().isoformat()
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    logged = set()
+    for mount in feeds:
+        try:
+            for entry in os.listdir(os.path.join(ATC_DIR, mount)):
+                if entry.endswith(".jsonl") and len(entry) == 16:
+                    logged.add(entry[:10])
+        except OSError:
+            continue
+    written = 0
+    for day in sorted(logged):
+        path = os.path.join(ATC_OUT_DIR, f"{day}.json")
+        if os.path.exists(path) and day not in (today, yesterday):
+            continue
+        load = atc_load_for_day(day, feeds)
+        if not load:
+            continue
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"date": day,
+                       "generated": int(datetime.datetime.now().timestamp()),
+                       "feeds": load}, f, separators=(",", ":"))
+        os.replace(tmp, path)
+        written += 1
+    if written:
+        log(f"atc load: wrote {written} day(s) for {len(feeds)} feed(s)")
+    try:
+        return {f[:-5] for f in os.listdir(ATC_OUT_DIR) if f.endswith(".json")}
+    except OSError:
+        return set()
 
 
 def update_site_traffic():
@@ -430,6 +563,11 @@ def main():
             })
         except (json.JSONDecodeError, KeyError):
             continue
+
+    atc_days = export_atc()
+    for d in days:
+        if d["date"] in atc_days:
+            d["atc"] = 1
 
     newest = db.execute("SELECT MAX(ts) FROM positions").fetchone()[0]
     # Disk and DB size ride along so changelog.html's data-health panel and

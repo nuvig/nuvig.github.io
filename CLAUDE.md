@@ -365,6 +365,49 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   interpolated straight segments (approximate, not evidentiary), only ADS-B-equipped aircraft
   appear, and altitudes are barometric. Keep them.
 - `js/kanp-static.js` — GitHub-snapshot fallback data source (see Data flow).
+- `js/kanp-rush.js` — **Airline Traffic tab** (2026-10-01, fourth tab, `#rush`): when the
+  airliners come and go at BWI · DCA · IAD · ADW · MTN, and what that means at Lee. Reads
+  **one document, `rush.json` on the `rush-data` branch** (`SITE.tracker.rushBase`;
+  localStorage `kanp_rush_base` overrides it), compiled hourly by
+  `.github/workflows/rush.yml` → **`scripts/build_rush.py`** (stdlib) from the traffic-data
+  day files — the notam-data pattern: one force-pushed commit, the tree is the state, nothing
+  on main grows; `days/YYYY-MM-DD.json` beside it holds every op of a day for the tab's "One
+  day" view. Chips: airport · airline (the airport's top prefixes, `top`) · days (weekdays /
+  Sat / Sun / all — US federal holidays are `hol`, kept out of the weekday mean) · range (7 /
+  30 / 90 d / all). Every figure is a **mean per covered day**: `cov` is 24 chars per day,
+  `1` covered, `0` the collector missed the hour (fewer than `COV_MIN` = 3 distinct aircraft
+  in it — the 08-01 and 09-12 outages), `x` the exporter had not reached it yet; a `0`/`x`
+  hour is left out of the mean, never counted as quiet. Sections: tiles → arrivals/departures
+  per 15 min (mirrored, one scale) → **banks** (runs of slots ≥ 1.25× the day's median on a
+  lightly smoothed series; a lone slot at 1.6×) → hour × weekday grid → airline share (click
+  → filter) → **arrival runway** (direction read from the course on final, L/R not resolved;
+  axes calibrated from the data's own course histogram: BWI 33 = 319° true, DCA 01 = 355°,
+  IAD 01 = 002° / 30 = 289°, ADW 01 ≈ 001°, MTN 33 = 315°; each runway's share of arrivals
+  that passed within 5 nm of Lee below 6,000 / 3,000 ft) → **recurring flights** (the observed
+  schedule: a callsign seen on ≥ 4 days at one airport, median time over its last 30
+  sightings, spread = half the IQR, days seen / possible, weekday mask; there is no schedule
+  feed, this is what the sky did) → **airliners near Lee** (unique airliner-type aircraft
+  within 5 nm per hour by the lowest band each reached, one count per aircraft-hour, plus a
+  ±8 nm map of airliner seconds per 0.25 nm cell by band, all days, log scale — the 33L final
+  shows as a streak NE of the field) → **approach-area load** (distinct aircraft per 15 min
+  below 10,000 ft within 25 nm of BWI / DCA / IAD, airliner types only, and every aircraft
+  below 6,000 ft within 15 nm of Lee; quietest / busiest 60-min windows 6a–10p — **a proxy
+  for controller workload, not frequency traffic, and labelled so**) → **frequency load**
+  (hidden until the exporter publishes it: transmissions and airtime per 15 min per recorded
+  feed — 119.7 Potomac Approach · 124.55 Approach/Departure · 119.4 BWI Tower — read from the
+  recorder's per-transmission log, counts only, no audio or text leaves the Pi) → one day.
+  **Callsign caveat:** a day file carried one callsign per aircraft (the last seen) until the
+  exporter started writing `flights` history (2026-10-01, `cs_hist`), so before that a
+  turnaround's arrival carries its departing flight number — airline and timing are right,
+  the number is not; `rush.json`'s `cs_hist_from` is the first exact day and the tab says so
+  under the result line. Ops attribution: a track splits into flights at a 10-min gap or a
+  5-min ground dwell; a flight whose last fix is within 3 nm of an airport and below field
+  elevation + 1,500 ft (or on the ground) after having been > 5 nm out is an arrival there
+  (stamped at the first ground fix, else the last fix), the mirror for a departure. Checked
+  against two real days: BWI 313 / 290, DCA 465 / 454, IAD 492 / 513 per day. Shapes are in
+  the script's docstring; `--selftest` covers attribution, runway reads, coverage, the
+  schedule and the encodings (96-slot series are base-62 strings, `slot_alphabet`).
+  `window.KANPRush._data()` for headless checks.
 
 The climb / final / pattern sub-tools mirror `kanp-ops.js` detection logic — if you change how a
 field contact is classified there, check all four (`kanp-conflict.js` is about aircraft pairs, not
@@ -1503,7 +1546,14 @@ Pi is the sole pipeline: `collector.py` polls the public ADS-B feeds every 3 s �
 `/api/tracks`, `/api/stats`, `/api/aircraft`, `/api/export.csv`, `/api/site-traffic`, `/api/atc/*`.
 `exporter.py` (systemd timer — hourly in the repo unit, but the real Pi runs it every 15 min via a
 local `override.conf` drop-in) pushes simplified per-day JSON snapshots to the **`traffic-data` branch** (single amended commit;
-`tracks/index.json` lists days). Track simplification is Douglas-Peucker in a local tangent plane
+`tracks/index.json` lists days). **Since 2026-10-01 it also writes** (a) `flights: [[ts, callsign], …]` on
+any track whose callsign changed during the day, with a top-level `"cs_hist": 1` so a reader can
+tell "one callsign all day" from "history not recorded", and (b) `v2/atc/YYYY-MM-DD.json` — per
+recorded feed, transmissions and airtime seconds per 15-minute slot, read from `pi/atc.py`'s
+`<mount>/<day>.jsonl` (timestamps and durations only; the recorder's purge does not touch the
+export; `summary.json` marks the day `"atc": 1`). Both feed `scripts/build_rush.py`. The exporter
+runs as `kanp` under `ProtectSystem=strict` with `ReadWritePaths=/var/lib/kanp`, which is where the
+ATC stick is mounted — `KANP_ATC_DIR` is the one env var both scripts read. Track simplification is Douglas-Peucker in a local tangent plane
 (`pi/trackutil.py`), shared by the exporter and the API; point tuples are
 `[ts, lat, lon, alt, gs, on_ground]` everywhere. **Inside the collector's 1 s
 near-poll ring (`KANP_NEAR_RADIUS_NM`, 5 nm) the tolerance is its own**

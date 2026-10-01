@@ -60,6 +60,12 @@ const SITE = {
     // URL of this repo's traffic-data branch).
     snapshotBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2',
 
+    // Where the Airline Traffic compile lives (rush.json on the rush-data
+    // branch, written hourly by .github/workflows/rush.yml →
+    // scripts/build_rush.py from the snapshots above). localStorage
+    // `kanp_rush_base` overrides it for a local copy.
+    rushBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/rush-data',
+
     // Prefix for localStorage keys. Changing it discards saved settings
     // (API base, observed-aircraft notes) on visitors' browsers.
     storagePrefix: 'kanp',

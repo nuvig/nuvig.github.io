@@ -22,7 +22,7 @@ into the repo on a schedule.
 
 **Flight tracker**
 
-- `kanp.html` — ADS-B traffic within 60 nm of KANP, three tabs:
+- `kanp.html` — ADS-B traffic within 60 nm of KANP, four tabs:
   - *Live* — current traffic, altitude-colored trails, heatmap.
   - *History Map* — any archived day's tracks, filtered by time, altitude,
     aircraft class and KANP operation (pattern laps, departures, arrivals by
@@ -30,6 +30,12 @@ into the repo on a schedule.
   - *Traffic Study* — hour × day grids, histograms, type/operator breakdowns,
     and five sub-tools: climb-out comparison, straight-in precision, pattern
     shape, proximity events, runway ops counts.
+  - *Airline Traffic* — arrivals and departures per 15 min at BWI / DCA /
+    IAD / ADW / MTN by airline and day class, arrival banks, runway in use,
+    the observed schedule (recurring callsigns), airliners low near Lee,
+    approach-area load, and (once the Pi exports it) transmissions per
+    15 min on the recorded frequencies. Reads `rush.json` from the
+    `rush-data` branch, compiled hourly by `scripts/build_rush.py`.
 
 **Weather** (KANP / DC area)
 
@@ -106,7 +112,10 @@ into the repo on a schedule.
 - `pi/exporter.py` pushes simplified per-day JSON to the `traffic-data`
   branch (one amended commit; `tracks/index.json` lists days). Tracks are
   Douglas-Peucker simplified except inside the 5 nm ring, where every fix is
-  kept.
+  kept. It also publishes per-day frequency-load counts from the ATC
+  recorder's log (transmissions and airtime per 15 min — never audio or text).
+- `.github/workflows/rush.yml` → `scripts/build_rush.py` compiles those
+  snapshots into the Airline Traffic tab's `rush-data` branch every hour.
 - The page tries the Pi first and falls back to the GitHub snapshots
   (`js/kanp-static.js`), which is what happens off the LAN. Snapshots are up
   to an hour stale.
