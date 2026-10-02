@@ -180,16 +180,20 @@ const KANPClimb = (() => {
             ? KANP.RWY.names[0] : KANP.RWY.names[1];
         }
 
-        // distance at GRAD_AT ft of gain (linear interpolation)
-        let dAt = null;
+        // distance and time at GRAD_AT ft of gain (linear interpolation) —
+        // gradient is gain over ground, rate is gain over the climb's own
+        // clock, both from the same fixes
+        let dAt = null, tAt = null;
         for (let i = 1; i < prof.length; i++) {
           if (prof[i].gain >= GRAD_AT && prof[i - 1].gain < GRAD_AT) {
             const a0 = prof[i - 1], a1 = prof[i];
             const f = (GRAD_AT - a0.gain) / (a1.gain - a0.gain || 1);
             dAt = a0.d + f * (a1.d - a0.d);
+            tAt = (a0.ts + f * (a1.ts - a0.ts)) - prof[0].ts;
             break;
           }
         }
+        const sane = dAt != null && dAt >= 0.2;
 
         profiles.push({
           ts: prof[0].ts, hex: t.hex, reg: t.reg || t.hex,
@@ -197,7 +201,8 @@ const KANPClimb = (() => {
           // < 0.2 nm to 500 ft (>2,500 ft/nm) is beyond any piston single —
           // a baro glitch or coverage gap near liftoff, not a real gradient
           points: prof, distTo500: dAt,
-          grad: dAt && dAt >= 0.2 ? GRAD_AT / dAt : null,
+          grad: sane ? GRAD_AT / dAt : null,
+          rate: sane && tAt > 0 ? GRAD_AT / (tAt / 60) : null,
           avgGs: gsN ? gsSum / gsN : null,
         });
       }
@@ -254,13 +259,16 @@ const KANPClimb = (() => {
     for (const p of last.profiles) {
       if (p.grad == null) continue;
       let e = byReg.get(p.reg);
-      if (!e) byReg.set(p.reg, e = { reg: p.reg, hex: p.hex, type: p.type, grads: [] });
+      if (!e) byReg.set(p.reg, e = { reg: p.reg, hex: p.hex, type: p.type, grads: [], rates: [] });
       e.grads.push(p.grad);
+      if (p.rate != null) e.rates.push(p.rate);
     }
     const rows = [...byReg.values()].map(e => {
       const v = e.grads.slice().sort((a, b) => a - b);
+      const r = e.rates.slice().sort((a, b) => a - b);
       return { ...e, n: v.length, median: v[Math.floor(v.length / 2)],
-               best: v[v.length - 1], worst: v[0] };
+               best: v[v.length - 1], worst: v[0],
+               medRate: r.length ? r[Math.floor(r.length / 2)] : null };
     }).sort((a, b) => b.median - a.median);
 
     const tbody = document.querySelector('#climb-rank tbody');
@@ -278,6 +286,7 @@ const KANPClimb = (() => {
         Math.round(e.median).toLocaleString(),
         Math.round(e.best).toLocaleString(),
         Math.round(e.worst).toLocaleString(),
+        e.medRate != null ? Math.round(e.medRate).toLocaleString() : '—',
       ].map(c => `<td>${c}</td>`).join('');
       tr.addEventListener('click', ev => {
         if (ev.target.closest('a')) return;   // let the globe link work
@@ -380,7 +389,8 @@ const KANPClimb = (() => {
         ctx.beginPath(); ctx.moveTo(PAD_L + 8, y); ctx.lineTo(PAD_L + 26, y); ctx.stroke();
         ctx.fillStyle = '#ccc';
         ctx.fillText(`${p.reg} · ${fmtTs(p.ts)}` +
-          (p.grad ? ` · ${Math.round(p.grad)} ft/nm` : ''), PAD_L + 31, y);
+          (p.grad ? ` · ${Math.round(p.grad)} ft/nm` : '') +
+          (p.rate ? ` · ${Math.round(p.rate)} fpm` : ''), PAD_L + 31, y);
         y += 15;
       }
     }
@@ -419,6 +429,7 @@ const KANPClimb = (() => {
     tip.innerHTML = `<strong>${p.reg}</strong>${p.type ? ' · ' + p.type : ''}` +
       `${p.rwy ? ' · RWY ' + p.rwy : ''}<br>${fmtTs(p.ts, true)}` +
       (p.grad ? `<br>${Math.round(p.grad)} ft/nm to ${GRAD_AT} ft` : '') +
+      (p.rate ? ` · ${Math.round(p.rate)} fpm` : '') +
       (p.avgGs ? ` · ${Math.round(p.avgGs)} kt avg` : '');
     tip.style.display = 'block';
     const r = tip.getBoundingClientRect();
@@ -433,15 +444,16 @@ const KANPClimb = (() => {
       const v = arr.filter(x => x != null).sort((a, b) => a - b);
       return v.length ? v[Math.floor(v.length / 2)] : null;
     };
-    const mine = profiles.filter(isHighlighted).map(p => p.grad);
-    const rest = profiles.filter(p => !isHighlighted(p)).map(p => p.grad);
+    const mineP = profiles.filter(isHighlighted), restP = profiles.filter(p => !isHighlighted(p));
     const n = highlightNeedle();
-    const f = v => v == null ? '—' : `${Math.round(v)} ft/nm`;
+    const f = ps => {
+      const g = med(ps.map(p => p.grad)), r = med(ps.map(p => p.rate));
+      return `${g == null ? '—' : Math.round(g) + ' ft/nm'} · ${r == null ? '—' : Math.round(r) + ' fpm'}`;
+    };
     el.textContent = n
-      ? `${n}: median ${f(med(mine))} over ${mine.length} climb-out(s) · ` +
-        `everyone else: median ${f(med(rest))} over ${rest.length}`
-      : `median gradient: ${f(med(rest))} over ${rest.length} climb-outs ` +
-        `(type a reg above to highlight)`;
+      ? `${n} → ${f(mineP)} · ${mineP.length} climb-out(s) · ` +
+        `everyone else → ${f(restP)} · ${restP.length}`
+      : `median → ${f(restP)} · ${restP.length} climb-outs`;
   }
 
   function renderTable() {
@@ -457,6 +469,7 @@ const KANPClimb = (() => {
         p.type || '—',
         p.rwy ? `RWY ${p.rwy}` : '—',
         p.grad ? Math.round(p.grad).toLocaleString() : '—',
+        p.rate ? Math.round(p.rate).toLocaleString() : '—',
         p.distTo500 ? p.distTo500.toFixed(2) : '—',
         p.avgGs ? Math.round(p.avgGs) : '—',
       ].map(c => `<td>${c}</td>`).join('');
