@@ -366,6 +366,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   ground fix at all the origin is the lowest-altitude fix in the contact. **`min climbs`
   chips** (1/2/3/5/10, `kanp_climb_min` in localStorage) hide aircraft and types with fewer
   climbs from both fleet tables and say `N hidden` — a short range makes one-climb rows.
+  **Layout under the chart (2026-10-09, Jesse):** the chart, the `min climbs` chips and the
+  per-reg ranking are open; **By type and the Departures table are collapsed `details.rush-fold`s**
+  ("hide departures table. its huge and unhelpful, cant even see the graph while hovering").
 - `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Ranks approaches by lateral
   precision and glidepath angle, working in the shared runway frame (`KANP.runwayFrame` in `kanp.js`):
   `along` = nm from the field along the extended centerline, + on the approach side; signed `cross`

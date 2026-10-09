@@ -829,16 +829,6 @@
           <button class="mini-btn" data-min="10">10</button>
         </span>
       </div>
-      <div class="section-title">By type <span style="font-weight:400;color:#555;font-size:12px">· median over every climb of the type · best rate first · <span id="climb-types-note"></span></span></div>
-      <div class="card" style="overflow-x:auto">
-        <table class="ac-table" id="climb-types">
-          <thead><tr>
-            <th>Type</th><th>Aircraft</th><th>Climbs</th><th>Median (ft/nm)</th><th>Median (fpm)</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
       <div class="section-title">Ranking by aircraft <span style="font-weight:400;color:#555;font-size:12px">· best median climb gradient first · click a row to highlight that aircraft on the chart · <span id="climb-rank-note"></span></span></div>
       <div class="card" style="overflow-x:auto">
         <table class="ac-table" id="climb-rank">
@@ -850,16 +840,30 @@
         </table>
       </div>
 
-      <div class="section-title">Departures <span style="font-weight:400;color:#555;font-size:12px">· hover a row to highlight its curve · gradient and rate measured to 500 ft above liftoff</span></div>
-      <div class="card" style="overflow-x:auto">
-        <table class="ac-table" id="climb-table">
-          <thead><tr>
-            <th>Time</th><th>Reg</th><th>Type</th><th>RWY</th>
-            <th>Gradient (ft/nm)</th><th>Rate (fpm)</th><th>nm to 500 ft</th><th>Avg GS (kt)</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <details class="rush-fold">
+        <summary>By type <span class="sub">· median over every climb of the type · best rate first · <span id="climb-types-note"></span></span></summary>
+        <div class="card" style="overflow-x:auto">
+          <table class="ac-table" id="climb-types">
+            <thead><tr>
+              <th>Type</th><th>Aircraft</th><th>Climbs</th><th>Median (ft/nm)</th><th>Median (fpm)</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+
+      <details class="rush-fold">
+        <summary>Departures <span class="sub">· every climb · hover a row to highlight its curve</span></summary>
+        <div class="card" style="overflow-x:auto">
+          <table class="ac-table" id="climb-table">
+            <thead><tr>
+              <th>Time</th><th>Reg</th><th>Type</th><th>RWY</th>
+              <th>Gradient (ft/nm)</th><th>Rate (fpm)</th><th>nm to 500 ft</th><th>Avg GS (kt)</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
     </div>
 
     <!-- ---- straight-in comparison ---- -->
