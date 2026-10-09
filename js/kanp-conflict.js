@@ -45,7 +45,6 @@ const KANPConflict = (() => {
     const btn = document.getElementById('conflict-load');
     if (!btn) return;
     btn.addEventListener('click', () => run());
-    KANPStudy.register(run);
     document.getElementById('conflict-play').addEventListener('click', togglePlay);
     document.getElementById('conflict-scrub').addEventListener('input', onScrub);
   });

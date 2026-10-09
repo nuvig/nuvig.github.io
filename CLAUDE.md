@@ -331,12 +331,13 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `js/kanp-study.js` — stats (hour×day grids, histograms, type/operator breakdowns).
   **Run study drives the whole tab (2026-10-01):** it fetches the stats and **one shared
   near-field track set** (10 nm / 4,500 ft, ground included — `KANPStudy.data()`, keyed on the
-  filter bar) and then runs every registered sub-tool (`KANPStudy.register(fn)`: ops, climb,
-  final, pattern, conflict) off that set, each clipped to its own box by `KANPStudy.clip()` —
-  the same clip the server used to apply per fetch, so results are unchanged (checked on
-  2026-09-30: 108 ops / 38 climbs / 2 finals / 30 legs / 3 events, old and new). A sub-tool's
-  own button re-analyses the shared set without a fetch (a RWY or threshold change), fetching
-  only when the filters moved; the conflict tool's "whole 60 nm" mode is still its own fetch.
+  filter bar). **The sub-tools stay behind their own Analyze buttons** (ops, climb, final,
+  pattern, conflict) — for one day Run study auto-ran all five and Jesse asked why
+  (2026-10-09: "did i ask for that?"); don't bring that back. Each button reads the shared set,
+  clipped to its own box by `KANPStudy.clip()` — the same clip the server used to apply per
+  fetch, so results are unchanged (checked on 2026-09-30: 108 ops / 38 climbs / 2 finals /
+  30 legs / 3 events, old and new) — and fetches only when the filters moved; the conflict
+  tool's "whole 60 nm" mode is still its own fetch.
   The result line reads `Loading analysis…` (amber, pulsing) and then, green with a glow,
   `N unique aircraft · N position reports · <range>` — **no `via GitHub snapshot` / age on this
   tab** (Jesse's call); the Live/History heat-grid labels keep theirs.
@@ -358,6 +359,13 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   `renderChart()` stops the loop first. **Why some curves are smooth and others staircases:**
   altitude encoder resolution — N6289U (M20P), the PA23, RV7, DA40 report in 25 ft steps, most
   of the C172/PA-28 training fleet in 100 ft; not a data-rate difference (all ~2 s near the field).
+  **Liftoff anchor (2026-10-09):** some transponders never set on-ground (N3383A), so the
+  profile used to start at the last fix under the 600 ft gate and drew the climb beginning
+  500–900 ft up at 0 nm (and a 1,914 ft/nm "gradient"). `onGround()` now also takes a fix
+  rolling ≤ `TAXI_KT` 25 kt as a ground report (for the baseline and the origin), and with no
+  ground fix at all the origin is the lowest-altitude fix in the contact. **`min climbs`
+  chips** (1/2/3/5/10, `kanp_climb_min` in localStorage) hide aircraft and types with fewer
+  climbs from both fleet tables and say `N hidden` — a short range makes one-climb rows.
 - `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Ranks approaches by lateral
   precision and glidepath angle, working in the shared runway frame (`KANP.runwayFrame` in `kanp.js`):
   `along` = nm from the field along the extended centerline, + on the approach side; signed `cross`

@@ -66,7 +66,6 @@ const KANPPattern = (() => {
     const btn = document.getElementById('pattern-load');
     if (!btn) return;
     btn.addEventListener('click', () => run());
-    KANPStudy.register(run);
     document.getElementById('pattern-rwy')
       .addEventListener('change', () => { if (last) run(); });
     document.getElementById('pattern-reg')

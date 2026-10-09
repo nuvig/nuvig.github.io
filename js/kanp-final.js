@@ -33,7 +33,6 @@ const KANPFinal = (() => {
     const btn = document.getElementById('final-load');
     if (!btn) return;
     btn.addEventListener('click', () => run());
-    KANPStudy.register(run);
     document.getElementById('final-rwy')
       .addEventListener('change', () => { if (last) run(); });
     window.addEventListener('resize', () => { if (last) renderChart(); });

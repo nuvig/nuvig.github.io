@@ -34,15 +34,25 @@ const KANPClimb = (() => {
   let staticLayer = null;   // offscreen copy of the chart without the glow line
   let avgLine = null;       // { pts: [[x, y]…], color } — smoothed mean of the highlighted reg
   let animId = null;        // rAF handle for the breathing glow
+  let minClimbs = +localStorage.getItem('kanp_climb_min') || 1;   // ranking filter
 
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('climb-load');
     if (!btn) return;
     btn.addEventListener('click', () => run());
-    KANPStudy.register(run);
     window.addEventListener('resize', () => { if (last) renderChart(); });
     document.getElementById('climb-reg')
       .addEventListener('input', () => { if (last) renderAll(); });
+    document.querySelectorAll('#climb-min .mini-btn').forEach(b => {
+      b.classList.toggle('on', +b.dataset.min === minClimbs);
+      b.addEventListener('click', () => {
+        minClimbs = +b.dataset.min;
+        localStorage.setItem('kanp_climb_min', minClimbs);
+        document.querySelectorAll('#climb-min .mini-btn').forEach(x =>
+          x.classList.toggle('on', x === b));
+        if (last) { renderRank(); renderTypes(); }
+      });
+    });
     const canvas = document.getElementById('climb-chart');
     canvas.addEventListener('mousemove', onHover);
     canvas.addEventListener('mouseleave', () => setHover(null));
@@ -132,10 +142,12 @@ const KANPClimb = (() => {
         // liftoff reference altitude: this aircraft's own on-ground reports
         // in the field contact, else the hourly field pressure-altitude
         // estimate, else the lowest reported alt in the contact
+        // Some transponders never set the on-ground flag (N3383A's, for one),
+        // so a fix rolling slower than TAXI_KT counts as a ground report too.
         let base = null;
         const gAlts = [];
         for (let k = s.i0; k <= s.i1; k++) {
-          if (pts[k][5] === 1 && pts[k][3] != null) gAlts.push(pts[k][3]);
+          if (onGround(pts[k]) && pts[k][3] != null) gAlts.push(pts[k][3]);
         }
         if (gAlts.length) {
           gAlts.sort((a, b) => a - b);
@@ -153,9 +165,19 @@ const KANPClimb = (() => {
         // follow the climb from the liftoff point: the last on-ground fix in
         // the contact if one was received, else the last at-field point —
         // this also anchors the distance origin at the actual liftoff
-        let start = s.i1;
+        // With no ground fix at all, the last at-field fix is the top of the
+        // 600 ft gate, not the runway — that drew the climb starting 500 ft
+        // up at 0 nm. Fall back to the lowest-altitude fix in the contact.
+        let start = -1;
         for (let k = s.i1; k >= s.i0; k--) {
-          if (pts[k][5] === 1) { start = k; break; }
+          if (onGround(pts[k])) { start = k; break; }
+        }
+        if (start < 0) {
+          let lo = null;
+          for (let k = s.i0; k <= s.i1; k++) {
+            if (pts[k][3] != null && (lo == null || pts[k][3] < lo)) { lo = pts[k][3]; start = k; }
+          }
+          if (start < 0) start = s.i1;
         }
         const prof = [];
         let dist = 0, maxGain = 0, gsSum = 0, gsN = 0;
@@ -215,6 +237,11 @@ const KANPClimb = (() => {
     return profiles;
   }
 
+  const TAXI_KT = 25;
+  function onGround(p) {
+    return p[5] === 1 || (p[4] != null && p[4] <= TAXI_KT);
+  }
+
   function isAway(p) {
     if (p[5] === 1) return false;
     return KANP.distNm(p[1], p[2]) > NEAR_NM ||
@@ -271,10 +298,14 @@ const KANPClimb = (() => {
       if (p.rate != null) e.rates.push(p.rate);
     }
     const med = a => { const v = a.slice().sort((x, y) => x - y); return v.length ? v[Math.floor(v.length / 2)] : null; };
-    const rows = [...byType.values()].map(e => ({
+    const all = [...byType.values()].map(e => ({
       type: e.type, n: e.regs.size, climbs: e.grads.length,
       grad: med(e.grads), rate: med(e.rates),
-    })).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+    }));
+    const rows = all.filter(e => e.climbs >= minClimbs)
+      .sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+    document.getElementById('climb-types-note').textContent =
+      all.length - rows.length ? `${all.length - rows.length} hidden` : '';
     const tbody = document.querySelector('#climb-types tbody');
     tbody.innerHTML = '';
     rows.forEach(e => {
@@ -381,7 +412,9 @@ const KANPClimb = (() => {
       return { ...e, n: v.length, median: v[Math.floor(v.length / 2)],
                best: v[v.length - 1], worst: v[0],
                medRate: r.length ? r[Math.floor(r.length / 2)] : null };
-    }).sort((a, b) => b.median - a.median);
+    }).filter(e => e.n >= minClimbs).sort((a, b) => b.median - a.median);
+    document.getElementById('climb-rank-note').textContent =
+      byReg.size - rows.length ? `${byReg.size - rows.length} hidden` : '';
 
     const tbody = document.querySelector('#climb-rank tbody');
     tbody.innerHTML = '';

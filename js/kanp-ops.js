@@ -34,7 +34,6 @@ const KANPOps = (() => {
     const btn = document.getElementById('ops-load');
     if (!btn) return;
     btn.addEventListener('click', () => run());
-    KANPStudy.register(run);
     window.addEventListener('resize', () => { if (lastOps) render(lastOps); });
   });
 

@@ -9,12 +9,14 @@ const KANPStudy = (() => {
   // Run study fetches the tracks once (10 nm / 4,500 ft around the field, the
   // union of what the sub-tools below need) and every sub-tool reads that
   // one set, clipped to its own box — so everything on the tab describes the
-  // same aircraft the headline counts. Keyed on the filter bar so a sub-tool
-  // button after a filter change refetches rather than analysing stale data.
+  // same aircraft the headline counts. The sub-tools stay behind their own
+  // Analyze buttons (Jesse, 2026-10-09: Run study is not supposed to expand
+  // them all); they just no longer fetch. Keyed on the filter bar so a
+  // sub-tool button after a filter change refetches rather than analysing
+  // stale data.
   const NEAR = { max_dist: 10, max_alt: 4500 };
   const DENSE_POINTS = 250_000;           // mirrors kanp-static.js / server.py
   let shared = null;                      // { key, promise }
-  const analyzers = [];                   // sub-tools run after Run study
   let gridMetric = 'ac';                    // 'ac' | 'samples'
   let sortKey = 'samples', sortDesc = true; // aircraft table sort
 
@@ -89,8 +91,6 @@ const KANPStudy = (() => {
     });
   }
 
-  function register(fn) { analyzers.push(fn); }
-
   const fmtRange = (s, e) => {
     const a = new Date(s * 1000), b = new Date(e * 1000);
     const day = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -112,11 +112,6 @@ const KANPStudy = (() => {
       const [stats, d] = await Promise.all([KANP.getStats(lastParams), data(true)]);
       lastStats = stats;
       render(stats);
-      out.textContent = 'Analyzing…';
-      await new Promise(r => setTimeout(r));   // let the status paint
-      for (const fn of analyzers) {
-        try { await fn(d); } catch (e) { console.warn('[KANP] study sub-tool failed:', e); }
-      }
       out.className = 'result-line done';
       out.textContent =
         `${Number(stats.totals.aircraft).toLocaleString()} unique aircraft · ` +
@@ -316,5 +311,5 @@ const KANPStudy = (() => {
     return a >= 1000 ? `${(a / 1000).toFixed(1)}k` : String(a);
   }
 
-  return { init, data, clip, register };
+  return { init, data, clip };
 })();
