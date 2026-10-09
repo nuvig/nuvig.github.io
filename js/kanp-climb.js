@@ -31,6 +31,9 @@ const KANPClimb = (() => {
 
   let last = null;          // { profiles, hoverIdx } for re-render
   let plotGeom = null;      // screen-space geometry for hover hit-testing
+  let staticLayer = null;   // offscreen copy of the chart without the glow line
+  let avgLine = null;       // { pts: [[x, y]…], color } — smoothed mean of the highlighted reg
+  let animId = null;        // rAF handle for the breathing glow
 
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('climb-load');
@@ -55,6 +58,7 @@ const KANPClimb = (() => {
       const profiles = extract(d);
       last = { profiles, hoverIdx: null };
       if (!profiles.length) {
+        stopGlow();
         document.getElementById('climb-out').style.display = 'none';
         out.textContent = 'No departures with usable climb data in this range.';
         return;
@@ -248,8 +252,116 @@ const KANPClimb = (() => {
   function renderAll() {
     renderChart();
     renderRank();
+    renderTypes();
     renderTable();
     renderSummary();
+  }
+
+  // by type: median gradient and rate over every climb of that type —
+  // the fleet comparison (which airplanes climb better), best rate first
+  function renderTypes() {
+    const byType = new Map();
+    for (const p of last.profiles) {
+      if (p.grad == null) continue;
+      const k = p.type || '—';
+      let e = byType.get(k);
+      if (!e) byType.set(k, e = { type: k, regs: new Set(), grads: [], rates: [] });
+      e.regs.add(p.reg);
+      e.grads.push(p.grad);
+      if (p.rate != null) e.rates.push(p.rate);
+    }
+    const med = a => { const v = a.slice().sort((x, y) => x - y); return v.length ? v[Math.floor(v.length / 2)] : null; };
+    const rows = [...byType.values()].map(e => ({
+      type: e.type, n: e.regs.size, climbs: e.grads.length,
+      grad: med(e.grads), rate: med(e.rates),
+    })).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+    const tbody = document.querySelector('#climb-types tbody');
+    tbody.innerHTML = '';
+    rows.forEach(e => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = [
+        e.type, e.n, e.climbs,
+        Math.round(e.grad).toLocaleString(),
+        e.rate != null ? Math.round(e.rate).toLocaleString() : '—',
+      ].map(c => `<td>${c}</td>`).join('');
+      tbody.appendChild(tr);
+    });
+  }
+
+  // smoothed mean curve of the highlighted reg's climbs: gain sampled on a
+  // 0.05 nm grid wherever at least a third of its climbs reach, then a
+  // 5-point moving average. One line for the airplane, not one per flight.
+  function meanCurve(profiles, X, Y, maxD) {
+    const STEP = 0.05;
+    const n = profiles.length;
+    if (!n) return null;
+    const raw = [];
+    for (let d = 0; d <= maxD + 1e-9; d += STEP) {
+      let sum = 0, cnt = 0;
+      for (const p of profiles) {
+        const pts = p.points;
+        if (d < pts[0].d || d > pts[pts.length - 1].d) continue;
+        for (let i = 1; i < pts.length; i++) {
+          if (pts[i].d >= d) {
+            const a = pts[i - 1], b = pts[i];
+            const f = b.d > a.d ? (d - a.d) / (b.d - a.d) : 0;
+            sum += a.gain + f * (b.gain - a.gain); cnt++;
+            break;
+          }
+        }
+      }
+      if (cnt < Math.max(1, Math.ceil(n / 3))) { if (raw.length) break; else continue; }
+      raw.push([d, sum / cnt]);
+    }
+    if (raw.length < 3) return null;
+    const sm = raw.map(([d], i) => {
+      let s = 0, c = 0;
+      for (let j = Math.max(0, i - 2); j <= Math.min(raw.length - 1, i + 2); j++) { s += raw[j][1]; c++; }
+      return [X(d), Y(s / c)];
+    });
+    return sm;
+  }
+
+  function stopGlow() {
+    if (animId != null) { cancelAnimationFrame(animId); animId = null; }
+  }
+
+  // the breathing glow: blit the static chart, then the mean line with a
+  // shadow whose blur and alpha ride a slow sine — only runs while a reg is
+  // highlighted, and stops when the section is hidden or the data changes
+  function paintGlow() {
+    animId = null;
+    const canvas = document.getElementById('climb-chart');
+    if (!avgLine || !staticLayer || !canvas.isConnected ||
+        document.getElementById('climb-out').style.display === 'none') return;
+    if (canvas.offsetParent === null) {          // tab or section hidden: idle, recheck later
+      setTimeout(() => { if (avgLine && animId == null) animId = requestAnimationFrame(paintGlow); }, 500);
+      return;
+    }
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(staticLayer, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const t = performance.now() / 1000;
+    const b = 0.5 + 0.5 * Math.sin(t * Math.PI / 1.1);   // ~2.2 s breath
+    ctx.save();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = avgLine.color;
+    ctx.shadowColor = avgLine.color;
+    ctx.shadowBlur = 6 + 14 * b;
+    ctx.globalAlpha = 0.7 + 0.3 * b;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    avgLine.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+    animId = requestAnimationFrame(paintGlow);
   }
 
   // per-aircraft ranking: median gradient across each tail number's climbs,
@@ -298,6 +410,7 @@ const KANPClimb = (() => {
   }
 
   function renderChart() {
+    stopGlow();
     const canvas = document.getElementById('climb-chart');
     const W = KANP.contentWidth(canvas.parentElement);
     const H = 320;
@@ -393,6 +506,26 @@ const KANPClimb = (() => {
           (p.rate ? ` · ${Math.round(p.rate)} fpm` : ''), PAD_L + 31, y);
         y += 15;
       }
+    }
+
+    // mean curve of the highlighted airplane, drawn breathing on top
+    avgLine = null;
+    const mine = profiles.filter((_, i) => hi[i]);
+    const pts = mine.length >= 2 ? meanCurve(mine, X, Y, maxD) : null;
+    if (pts) {
+      // one colour for the airplane: its first climb's, or white when the
+      // highlight matches more than one reg
+      const regs = new Set(mine.map(p => p.reg));
+      avgLine = { pts, color: regs.size === 1 ? colorOf.get(profiles.findIndex((_, i) => hi[i])) : '#fff' };
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#999';
+      ctx.fillText(`glow → ${[...regs][0]}${regs.size > 1 ? ' +' : ''} mean of ${mine.length}`, W - PAD_R - 4, PAD_T + plotH - 4);
+      staticLayer = document.createElement('canvas');
+      staticLayer.width = canvas.width; staticLayer.height = canvas.height;
+      staticLayer.getContext('2d').drawImage(canvas, 0, 0);
+      animId = requestAnimationFrame(paintGlow);
     }
   }
 

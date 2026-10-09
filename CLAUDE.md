@@ -347,6 +347,17 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
 - `js/kanp-climb.js` — Traffic Study sub-tool: climb-out comparison. Extracts the initial climb from
   each departure and plots altitude gained vs distance from liftoff (density-altitude comparisons).
   Altitudes are ADS-B barometric — fine for day-to-day gradient comparison, not true geometric gradient.
+  **Rate beside gradient (2026-10-02/09):** each climb carries `grad` (ft/nm, gain over ground
+  to `GRAD_AT` 500 ft) and `rate` (fpm, the same gain over the climb's own timestamps — never
+  gradient × GS), in the departures table, hover, summary, the per-reg ranking and a **By type**
+  table (median per ICAO type, best rate first — the fleet comparison Jesse asked for). **The
+  highlighted reg gets a smoothed mean curve** (`meanCurve()`: gain on a 0.05 nm grid where ≥ ⅓
+  of its climbs reach, 5-point moving average) drawn breathing — `paintGlow()` blits a cached
+  offscreen copy of the chart and strokes the line with a sine-driven shadowBlur/alpha under
+  rAF, only while a reg is highlighted, idling (500 ms recheck) while the tab is hidden; any
+  `renderChart()` stops the loop first. **Why some curves are smooth and others staircases:**
+  altitude encoder resolution — N6289U (M20P), the PA23, RV7, DA40 report in 25 ft steps, most
+  of the C172/PA-28 training fleet in 100 ft; not a data-rate difference (all ~2 s near the field).
 - `js/kanp-final.js` — Traffic Study sub-tool: straight-in comparison. Ranks approaches by lateral
   precision and glidepath angle, working in the shared runway frame (`KANP.runwayFrame` in `kanp.js`):
   `along` = nm from the field along the extended centerline, + on the approach side; signed `cross`

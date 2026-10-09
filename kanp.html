@@ -818,6 +818,16 @@
         <canvas id="climb-chart" class="chart" style="height:320px"></canvas>
         <div style="font-size:12px;color:#888;margin-top:8px" id="climb-summary"></div>
       </div>
+      <div class="section-title">By type <span style="font-weight:400;color:#555;font-size:12px">· median over every climb of the type · best rate first</span></div>
+      <div class="card" style="overflow-x:auto">
+        <table class="ac-table" id="climb-types">
+          <thead><tr>
+            <th>Type</th><th>Aircraft</th><th>Climbs</th><th>Median (ft/nm)</th><th>Median (fpm)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <div class="section-title">Ranking by aircraft <span style="font-weight:400;color:#555;font-size:12px">· best median climb gradient first · click a row to highlight that aircraft on the chart</span></div>
       <div class="card" style="overflow-x:auto">
         <table class="ac-table" id="climb-rank">
@@ -1209,7 +1219,7 @@
   <script src="js/kanp-study.js?v=1"></script>
   <script src="js/kanp-rush.js?v=3"></script>
   <script src="js/kanp-ops.js?v=2"></script>
-  <script src="js/kanp-climb.js?v=2"></script>
+  <script src="js/kanp-climb.js?v=3"></script>
   <script src="js/kanp-final.js?v=1"></script>
   <script src="js/kanp-pattern.js?v=1"></script>
   <script src="js/kanp-conflict.js?v=3"></script>
