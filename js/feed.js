@@ -110,6 +110,8 @@ const STREAMS = {
               on: 'kanp · changelog' },
   notam:    { name: 'notam',    color: '#22c55e', what: 'NOTAM archive run: every NOTAM in the country first seen by that run, and the ones that left the system — one line per run' ,
               on: 'notam' },
+  sfc:      { name: 'sfc',      color: '#e2e8f0', what: 'WPC surface analysis: every coded front, trough, high and low, at its valid time' ,
+              on: 'surface' },
 };
 
 /* Chip tooltip: what the record is, then the pages that read it. Every stream
@@ -344,6 +346,37 @@ function tfrRows(doc, path) {
   }
 }
 
+/* A surface analysis: its counts, and the deepest low — the one thing a
+   reader scans a chart for. */
+function sfcOne(a) {
+  const nf = a.fronts.filter((f) => f.k !== 'trof').length, nt = a.fronts.length - nf;
+  let deep = null;
+  for (const c of a.lows || []) if (!deep || c[0] < deep[0]) deep = c;
+  const ll = (c) => `${Math.abs(c[1]).toFixed(1)}${c[1] < 0 ? 'S' : 'N'} ${Math.abs(c[2]).toFixed(1)}${c[2] < 0 ? 'W' : 'E'}`;
+  return [`valid ${pad(new Date(a.t * 1000).getUTCHours())}Z`, `${(a.highs || []).length} H`, `${(a.lows || []).length} L`,
+    `${nf} front${nf === 1 ? '' : 's'}`, `${nt} trough${nt === 1 ? '' : 's'}`,
+    deep ? `deepest L ${deep[0]} hPa ${ll(deep)}` : null, a.hr ? null : '1° bulletin'].filter(Boolean).join(' · ');
+}
+
+function sfcText(a) {
+  const ll = (la, lo) => `${Math.abs(la).toFixed(1)}${la < 0 ? 'S' : 'N'} ${Math.abs(lo).toFixed(1)}${lo < 0 ? 'W' : 'E'}`;
+  const names = { cold: 'COLD', warm: 'WARM', stnry: 'STNRY', ocfnt: 'OCFNT', trof: 'TROF' };
+  const lines = [`VALID ${new Date(a.t * 1000).toISOString().slice(0, 16)}Z${a.i ? ` · issued ${new Date(a.i * 1000).toISOString().slice(11, 16)}Z` : ''}${a.hr ? '' : ' · whole-degree bulletin'}`];
+  for (const [key, L] of [['highs', 'H'], ['lows', 'L']]) {
+    for (const c of a[key] || []) lines.push(`${L} ${c[0]} hPa  ${ll(c[1], c[2])}`);
+  }
+  for (const f of a.fronts || []) lines.push(`${names[f.k] || f.k.toUpperCase()}${f.s ? ` ${f.s}` : ''}  ${f.p.map((p) => ll(p[0], p[1])).join(' → ')}`);
+  return lines.join('\n');
+}
+
+function sfcRows(doc, path) {
+  if (!doc || !doc.analyses) return;
+  for (const a of doc.analyses) {
+    add({ t: a.t, clock: 'own', stream: 'sfc', src: 'WPC', one: sfcOne(a), text: sfcText(a), rec: a,
+          bytes: JSON.stringify(a).length, path, tag: a.bf ? 'healed' : null });
+  }
+}
+
 function raobRows(doc, path) {
   if (!doc || !doc.soundings) return;
   for (const s of doc.soundings) {
@@ -369,7 +402,7 @@ function catalogDays(idx) {
   const set = new Set();
   for (const k of ['obs_days', 'fieldobs_days', 'grid_days', 'taf_days',
                    'alert_days', 'model_days', 'forecast_days', 'pirep_days',
-                   'airsig_days', 'tfr_days', 'raob_days', 'aloft_days']) {
+                   'airsig_days', 'tfr_days', 'raob_days', 'aloft_days', 'sfc_days']) {
     for (const d of idx[k] || []) set.add(d);
   }
   for (const days of Object.values(idx.station_days || {})) for (const d of days) set.add(d);
@@ -410,7 +443,7 @@ const DAY_STREAMS = [
   ['obs', 'obs_days'], ['fieldobs', 'fieldobs_days'], ['taf', 'taf_days'], ['grid', 'grid_days'],
   ['forecast', 'forecast_days'], ['model', 'model_days'], ['alerts', 'alert_days'],
   ['pirep', 'pirep_days'], ['airsig', 'airsig_days'], ['tfr', 'tfr_days'], ['raob', 'raob_days'],
-  ['aloft', 'aloft_days'],
+  ['aloft', 'aloft_days'], ['sfc', 'sfc_days'],
 ];
 const ringOn = (ids, date) => ids.filter((id) => has((IDX.station_days || {})[id], date));
 
@@ -428,7 +461,7 @@ async function loadDay(date) {
   const all = await Promise.all(
     DAY_STREAMS.map(([s, k]) => (has(IDX[k], date) ? WXA.day(s, date) : Promise.resolve(null)))
       .concat(ringIds.map((id) => WXA.station(id, date))));
-  const [obs, fobs, taf, grid, fc, model, alerts, pirep, airsig, tfr, raob, aloft] = all;
+  const [obs, fobs, taf, grid, fc, model, alerts, pirep, airsig, tfr, raob, aloft, sfc] = all;
   const st = all.slice(DAY_STREAMS.length);
 
   metarRows(obs, `obs/${date}.json`);
@@ -444,6 +477,7 @@ async function loadDay(date) {
   tfrRows(tfr, `tfr/${date}.json`);
   raobRows(raob, `raob/${date}.json`);
   snapRows(aloft, 'aloft', `aloft/${date}.json`, aloftOne);
+  sfcRows(sfc, `sfc/${date}.json`);
 
   const afds = (IDX.afd || []).filter((a) => dayOf(a.t) === date);
   await Promise.all(afds.map(async (a) => afdRow(await WXA.json(a.p), a.p)));

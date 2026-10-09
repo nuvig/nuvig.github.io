@@ -37,7 +37,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   plus each page's own `#back-link` to `/`. Don't reintroduce a shared bar without being asked.
   **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among
   five weather pages (weather, discussion, skew-t, wx3d, almanac, in that order; page list lives
-  in the script), injected under each page's title. It replaced those pages' ad-hoc subtitle links
+  in the script), injected under each page's title. **`surface.html` was added as a sixth slot
+  2026-10-08** when the page shipped (a weather product, in the family) — pull it if unwanted. It replaced those pages' ad-hoc subtitle links
   (weather.html keeps its non-weather tracker/air-lab links). **METAR Sky (`sky.html`) was pulled
   out of the strip the same day at Jesse's request** — it carries no `wxnav.js` script tag and
   doesn't appear in `PAGES`. Keep it scoped to the remaining weather family — it is not a site nav
@@ -118,7 +119,9 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   station in the source column — the badge names the record type, never an archive-internal
   name like "ring") · `taf` · `afd` · `pirep` · `airsig` (G-AIRMETs and SIGMETs) · `tfr` ·
   `raob` · `aloft` · `forecast` · `grid` · `model` · `alert` · `tracker` (the Pi exporter's
-  `summary.json`). Reads **only** `WXA` plus that one tracker document — no weather API of
+  `summary.json`) — plus `notam` (2026-09-12, below) and **`sfc` (2026-10-08: one line per WPC
+  surface analysis at its valid time, `H · L · fronts · troughs · deepest L`; the expansion lists
+  every feature as lat/lon)**. Reads **only** `WXA` plus that one tracker document — no weather API of
   its own, same rule as the almanac. Rules worth keeping:
   **Two kinds of timestamp, never merged.** `grid`/`forecast`/`model`/`aloft` snapshots stamp
   `t` when the archiver wrote them, `alerts` stamp `seen`, `airsig`/`tfr` items stamp `first`,
@@ -1363,6 +1366,37 @@ concepts; to relink, add the tools.html card back.
   **Unlinked 2026-09-29, same day it shipped** (Jesse: "storm log and afd clutter the website") —
   no tools.html card, no JSON-LD entry, not in `wxnav.js`; reachable by URL and the sitemap.
   `window.AFD_DEBUG` for headless checks.
+- `surface.html` + `js/surface.js` — Surface Analysis (2026-10-08): WPC's coded surface bulletin
+  (`data/wx/sfc/`, the `sfc` stream below) drawn on the dark CARTO Leaflet base by a canvas layer
+  (`SfcCanvas`) with WMO symbology — cold/warm/stationary/occluded fronts with pips every 22 px
+  along a Catmull-Rom spline through the coded vertices, troughs dashed orange, H/L letters with
+  the central pressure, the field as a white ring. **The bulletin codes vertices only, no
+  direction**, so the pip side is a heuristic (`frontSide()`): a front with a low within 110 nm
+  of one end moves cyclonically about it, so pips point LEFT walking away from the low; otherwise
+  the cold side is the side of the front's chord whose normal points most west-and-north. Checked
+  against WPC's own chart for 2026-10-08 21Z (every front, pip direction and H/L matched); the
+  WPC chart fold under the map (`archives/sfc/YYYY/usfntsfcYYYYMMDDHH.gif`, fetched only while
+  open) is the authority. Scrubber (‹ › · play · newest · ← → space) over every loaded analysis,
+  8 days first, "Load 7 more days"; `#t=<epoch>` deep-links and loads back to that day (≤ 60).
+  Chips (persist in `surface_opts`): `trails` = the previous 4 analyses as fading ghosts, `low
+  tracks` = each low chained back 48 h (`matchCentre`: within 40 kt·dt + 60 nm and 2 hPa·dt + 4,
+  scored distance + 15·|Δp| — a looser match had a high "moving N 80 kt"), `stations` = WMO
+  station models at zoom ≥ 8 (the ring's fields are 10–30 nm apart) from the archived METARs
+  nearest the valid time (±45 min): cover circle, barb with feathers 90° clockwise of the staff,
+  °F temp/dew, SLP tenths, a present-weather glyph — day files loaded on demand. Hover → tooltip:
+  distance/bearing from KANP, which side of the front the field is on, the front's motion
+  (`frontMotion()`: each vertex's normal displacement from the matched previous front, vertices
+  landing on the previous front's *ends* ignored because WPC trims and extends coded ends, median
+  for speed, mean vector for direction, its component toward KANP as the closing speed → "KANP in
+  ~N h"; > 70 kt = no match). `matchFront` uses the **median** vertex distance (< 200 nm) — a mean
+  let a long stationary front "move 78 kt". **At KANP** card: nearest front / next of another
+  kind / trough / nearest low and high with their 3 h change, and the KNAK ob at the valid time
+  (SLP, 3 h tendency against the ob 3 h earlier, wind, temp/dew, sky). **Barograph**: KNAK SLP
+  over the loaded window (`fieldobs/` day files, gaps > 1.5 h broken), a tick per analysis along
+  the top coloured when a front is within 60 nm, click → that analysis. Folds: Features (nearest
+  first, row click pans) and the WPC chart. Live poll every 5 min re-reads today's day file when
+  `latest.sfc.t` moves. In `wxnav.js` (sixth slot), on tools.html and in the feed (`sfc` pill).
+  Reads only `WXA` plus the WPC image. `window.SURFACE_DEBUG` for headless checks.
 - `.github/workflows/wxarchive.yml` + `scripts/wxarchive.py` — hourly Action that archives the
   site's weather history into `data/wx/` on `main` (stdlib only; the workflow commits, no Pi
   involved). **Day-forward: one file per stream per local day, never rewritten**, so history
@@ -1446,6 +1480,21 @@ concepts; to relink, add the tools.html card back.
   `pireps` (last 12 h), `airsig` and `tfrs` (in effect at the last run), `raob` (newest
   sounding) and `aloft` (last snap); `index.json` lists `*_days` for each plus `raob_station`,
   `region`, `aloft_levels`. Shapes are in the `wxarchive.py` docstring.
+  **`sfc/` (2026-10-08): WPC's coded surface bulletin.** `snapshot_sfc()` reads the eight
+  `wpc.ncep.noaa.gov/discussions/codsusHH_hr` pages — the newest 0.1° bulletin per synoptic
+  hour, so one run covers 24 h and a 2.4 h-late run misses nothing — and `parse_codsus()` turns
+  `HIGHS 1018 2640581 …` / `COLD 4750622 4420644 …` into `{t, i, hr, highs:[[mb, lat, lon]],
+  lows, fronts:[{k: cold|warm|stnry|ocfnt|trof, p:[[lat, lon]]}]}` (7/6-digit tokens are tenths,
+  4/5-digit the whole-degree ASUS01 bulletin IEM also files under the pil; IEM's copies wrap at
+  70 columns; the valid time's year is the issuance line's, rolled back when the valid time lands
+  > 2 days after issuance). One entry per valid time, in the local day file of the valid time
+  (`sfc_merge`: 0.1° beats 1°, a later issuance beats an earlier one). `latest.json` carries
+  `sfc` (the newest analysis), `index.json` `sfc_days`. `wxbackfill.py --streams sfc` fills from
+  IEM (`cgi-bin/afos/retrieve.py?pil=CODSUS&sdate&edate`, sdate inclusive / edate exclusive /
+  UTC, a week per request, both resolutions and every retransmission in one text, filed by local
+  day, tagged `bf`, never over a live entry) — run 2026-10-08 back to 2026-05-01: 1,277 analyses,
+  ~50 KB/day, 7.5 MB. `--selftest` covers the parser, the merge and the backfill. Read by
+  `surface.html`, the feed and the changelog health panel.
   **A failing step never blocks the commit** (2026-09-02): the workflow runs the archiver with
   `|| echo ::warning`, because one upstream blip (aviationweather.gov handed the PIREP fetch an
   empty body) made the script exit 1 and the commit step was skipped, throwing away every
