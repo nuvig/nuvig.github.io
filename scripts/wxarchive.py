@@ -52,6 +52,10 @@ Output layout (data/wx/):
                                    hght, tmpc, dwpc, drct, sknt]]}], miss}
   aloft/YYYY-MM-DD.json            {date, field, snaps:[{t, t0, n, lev, hgt, dir,
                                    spd, tmp, sfc}]} — GFS winds/temps aloft
+  sfc/YYYY-MM-DD.json              {date, analyses:[{t, i, hr, highs:[[mb, lat,
+                                   lon]], lows:[…], fronts:[{k, p:[[lat, lon]]}]}]}
+                                   — WPC's coded surface analysis every 3 h,
+                                   filed under the local day of its valid time
 
 METAR day files may also carry "nh": hours of that day neither the NWS API nor
 IEM has an observation for, i.e. hours the station never reported. It is a
@@ -123,6 +127,7 @@ AIRSIG_DIR = os.path.join(WX, "airsig")
 TFR_DIR = os.path.join(WX, "tfr")
 RAOB_DIR = os.path.join(WX, "raob")
 ALOFT_DIR = os.path.join(WX, "aloft")
+SFC_DIR = os.path.join(WX, "sfc")
 
 # The airfield the aviation streams describe (KANP), its TAF neighbours (KANP
 # has no TAF of its own), and how far ahead each hourly snapshot reaches.
@@ -186,6 +191,13 @@ RAOB_STATION = os.environ.get("WX_RAOB", "KIAD")
 # GFS winds/temps aloft archived at the field, per pressure level.
 ALOFT_LEVELS = [int(v) for v in os.environ.get("WX_ALOFT_LEVELS", "925,850,700,500").split(",") if v]
 ALOFT_HOURS = int(os.environ.get("WX_ALOFT_HOURS", "12"))
+# WPC's coded surface bulletin (ASUS02 KWBC, pil CODSUS, high resolution:
+# pressure centres and frontal vertices to 0.1°), analysed every 3 h. WPC
+# keeps the newest bulletin per synoptic hour at codsusHH_hr, so eight small
+# pages cover the last 24 h and a run that fires 2.4 h late misses nothing.
+# IEM files the same bulletins under the pil; wxbackfill.py reads those.
+SFC_URL = os.environ.get("WX_SFC", "https://www.wpc.ncep.noaa.gov/discussions/codsus{hh}_hr")
+SFC_PIL = "CODSUS"
 
 
 def log(msg):
@@ -1408,6 +1420,184 @@ def snapshot_aloft():
     return True
 
 
+# ---------------------------------------------------------------------------
+# sfc — WPC's coded surface bulletin: the surface analysis as numbers
+# ---------------------------------------------------------------------------
+
+SFC_FRONTS = {"COLD": "cold", "WARM": "warm", "STNRY": "stnry", "OCFNT": "ocfnt",
+              "TROF": "trof"}
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    "JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split())}
+_TZ_OFF = {"UTC": 0, "GMT": 0, "Z": 0, "EST": -5, "EDT": -4, "CST": -6, "CDT": -5,
+           "MST": -7, "MDT": -6, "PST": -8, "PDT": -7, "AKST": -9, "AKDT": -8,
+           "HST": -10}
+_VALID_RE = re.compile(r"^VALID\s+(\d{2})(\d{2})(\d{2})Z?\s*$")
+_ISSUED_RE = re.compile(r"^(\d{1,2})(\d{2})\s+(AM|PM)\s+([A-Z]{1,4})\s+[A-Z]{3}\s+"
+                        r"([A-Z]{3})\s+(\d{1,2})\s+(\d{4})\s*$")
+
+
+def sfc_coord(tok):
+    """'4121195' -> (41.2, -119.5) and '389950' -> (38.9, -95.0) in the
+    high-resolution bulletin (latitude in tenths, three digits, then the
+    longitude in tenths); '6693' / '26100' -> (66.0, -93.0) / (26.0, -100.0)
+    in the whole-degree one. Everything WPC codes is west longitude. None
+    when the token is not a coordinate. Pure."""
+    if not tok.isdigit():
+        return None
+    n = len(tok)
+    if n in (6, 7):
+        return int(tok[:3]) / 10.0, -int(tok[3:]) / 10.0
+    if n in (4, 5):
+        return float(tok[:2]), -float(tok[2:])
+    return None
+
+
+def parse_codsus(text):
+    """One CODSUS bulletin -> {t, i, hr, highs, lows, fronts}, or None when
+    it holds no analysis. Pure.
+
+      t       valid time (epoch) — the year is the issuance line's
+      i       issuance time (epoch) when the bulletin carries one, else None
+      hr      1 for the 0.1° bulletin, 0 for the whole-degree one
+      highs   [[mb, lat, lon], ...]   lows   the same
+      fronts  [{k: cold|warm|stnry|ocfnt|trof, p: [[lat, lon], ...]}, ...]
+              (an unknown keyword is kept lower-cased rather than dropped;
+              a strength qualifier, should WPC ever code one, lands in s)
+
+    IEM's copies wrap at ~70 columns: a line of nothing but digits continues
+    the record above it."""
+    valid = issued = None
+    recs = []
+    for raw in text.replace("\r", "").split("\n"):
+        s = raw.strip()
+        if not s:
+            continue
+        m = _VALID_RE.match(s)
+        if m:
+            valid = tuple(int(x) for x in m.groups())
+            continue
+        m = _ISSUED_RE.match(s)
+        if m and m.group(5) in _MONTHS and m.group(4) in _TZ_OFF:
+            hh = int(m.group(1)) % 12 + (12 if m.group(3) == "PM" else 0)
+            tz = datetime.timezone(datetime.timedelta(hours=_TZ_OFF[m.group(4)]))
+            try:
+                issued = int(datetime.datetime(
+                    int(m.group(7)), _MONTHS[m.group(5)], int(m.group(6)),
+                    hh, int(m.group(2)), tzinfo=tz).timestamp())
+            except ValueError:
+                pass
+            continue
+        toks = s.split()
+        if toks[0].isalpha() and toks[0].isupper() and len(toks) > 1 and toks[-1].isdigit():
+            recs.append([toks[0], toks[1:]])
+        elif recs and all(t.isdigit() for t in toks):
+            recs[-1][1] += toks                       # wrapped continuation
+    if not valid:
+        return None
+    mm, dd, hh = valid
+    year = datetime.datetime.fromtimestamp(
+        issued if issued is not None else time.time(), datetime.timezone.utc).year
+    try:
+        t = datetime.datetime(year, mm, dd, hh, tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+    # a 21Z Dec 31 analysis is issued at 2235Z Dec 31, but the 00Z Jan 1 one
+    # at 0135Z Jan 1: the year on the issuance line belongs to the issuance
+    if issued is not None and t.timestamp() - issued > 2 * 86400:
+        t = t.replace(year=year - 1)
+    out = {"t": int(t.timestamp()), "i": issued, "hr": 0,
+           "highs": [], "lows": [], "fronts": []}
+    for head, toks in recs:
+        if head in ("HIGHS", "LOWS"):
+            key = head.lower()
+            i = 0
+            while i + 1 < len(toks):
+                c = sfc_coord(toks[i + 1])
+                if c is None or not toks[i].isdigit():
+                    i += 1                            # resync on a stray token
+                    continue
+                out[key].append([int(toks[i]), c[0], c[1]])
+                if len(toks[i + 1]) >= 6:
+                    out["hr"] = 1
+                i += 2
+        else:
+            f = {"k": SFC_FRONTS.get(head, head.lower()), "p": []}
+            qual = [x for x in toks if x.isalpha()]
+            if qual:
+                f["s"] = qual[0]
+            for tok in toks:
+                c = sfc_coord(tok)
+                if c is None:
+                    continue
+                f["p"].append([c[0], c[1]])
+                if len(tok) >= 6:
+                    out["hr"] = 1
+            if f["p"]:
+                out["fronts"].append(f)
+    if not (out["highs"] or out["lows"] or out["fronts"]):
+        return None
+    return out
+
+
+def sfc_merge(doc, rec, protect_live=False):
+    """Put one analysis in a day doc, one entry per valid time: the 0.1°
+    bulletin beats the whole-degree one, a later issuance of the same
+    resolution beats an earlier one, and with protect_live a backfilled copy
+    never displaces an entry the live archiver captured. True when the doc
+    changed. Pure."""
+    arr = doc.setdefault("analyses", [])
+    for i, ex in enumerate(arr):
+        if ex["t"] != rec["t"]:
+            continue
+        if protect_live and not ex.get("bf"):
+            return False
+        if (rec.get("hr", 0), rec.get("i") or 0) <= (ex.get("hr", 0), ex.get("i") or 0):
+            return False
+        arr[i] = rec
+        return True
+    arr.append(rec)
+    arr.sort(key=lambda a: a["t"])
+    return True
+
+
+def sfc_day(t, tz=None):
+    """The local day an analysis is filed under — that of its valid time."""
+    return f"{datetime.datetime.fromtimestamp(t, tz or local_now().tzinfo):%Y-%m-%d}"
+
+
+def snapshot_sfc():
+    """WPC's surface analysis, every 3 h. The eight codsusHH_hr pages are
+    the newest bulletin per synoptic hour, so one run collects every
+    analysis of the last 24 h; a page that fails to fetch or parse is
+    logged and the rest still land. Filed under the local day of each
+    valid time, one entry per valid time."""
+    tz = local_now().tzinfo
+    docs, dirty = {}, set()
+    seen = added = 0
+    for hh in range(0, 24, 3):
+        url = SFC_URL.format(hh=f"{hh:02d}")
+        try:
+            rec = parse_codsus(fetch_text(url))
+        except (urllib.error.URLError, OSError) as e:
+            log(f"sfc {hh:02d}Z: {e}")
+            continue
+        if not rec:
+            log(f"sfc {hh:02d}Z: no analysis in the bulletin")
+            continue
+        seen += 1
+        day = sfc_day(rec["t"], tz)
+        if day not in docs:
+            docs[day] = read_json(os.path.join(SFC_DIR, day + ".json"),
+                                  {"date": day, "analyses": []})
+        if sfc_merge(docs[day], rec):
+            dirty.add(day)
+            added += 1
+    for day in sorted(dirty):
+        write_json(os.path.join(SFC_DIR, day + ".json"), docs[day])
+    log(f"sfc: {seen} bulletin(s) read, {added} new analysis(es)")
+    return added
+
+
 # what this run saw in effect, for latest.json (day files keep first/last)
 _NOW = {}
 
@@ -1474,6 +1664,11 @@ def write_latest():
             raob = dict(snd[-1], station=RAOB_STATION)
             break
     aloft = read_json(os.path.join(ALOFT_DIR, today + ".json"), {})
+    sfc = None
+    for day in (yday, today):
+        for a in read_json(os.path.join(SFC_DIR, day + ".json"), {}).get("analyses") or []:
+            if sfc is None or a["t"] > sfc["t"]:
+                sfc = a
     write_json(os.path.join(WX, "latest.json"), {
         "t": int(now.timestamp()),
         "office": OFFICE, "station": OBS_STATION, "point": POINT, "field": FIELD,
@@ -1496,6 +1691,8 @@ def write_latest():
         "tfrs": _NOW["tfrs"],
         "raob": raob,
         "aloft": last(aloft, "snaps"),
+        # WPC's newest surface analysis (fronts, highs, lows) — surface.html
+        "sfc": sfc,
     })
     log("latest.json written")
 
@@ -1594,6 +1791,7 @@ def build_index():
         "tfr_days": listing(TFR_DIR),
         "raob_days": raob_days,
         "aloft_days": listing(ALOFT_DIR),
+        "sfc_days": listing(SFC_DIR),
         "raob_station": RAOB_STATION,
         "region": REGION,
         "aloft_levels": ALOFT_LEVELS,
@@ -1608,7 +1806,7 @@ def main():
     for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
                  archive_stations, snapshot_grid, archive_tafs, snapshot_alerts,
                  snapshot_model, snapshot_pireps, snapshot_airsig, snapshot_tfrs,
-                 snapshot_raob, snapshot_aloft, heal_metars, heal_tafs):
+                 snapshot_raob, snapshot_aloft, snapshot_sfc, heal_metars, heal_tafs):
         try:
             step()
         except (urllib.error.URLError, OSError, KeyError, ValueError,

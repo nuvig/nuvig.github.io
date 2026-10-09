@@ -21,6 +21,9 @@ the past for the streams where a trustworthy public archive exists:
                            Opt-in via --streams: less battle-tested.
   raob  IAD soundings      IEM RAOB archive (00Z/12Z), same shape the hourly
                            archiver writes. Opt-in via --streams.
+  sfc   WPC surface anal.  IEM text-product archive (pil CODSUS): every coded
+                           surface bulletin, parsed like the hourly archiver
+                           parses WPC's own pages. Opt-in via --streams.
 
 Deliberately NOT backfillable — no public archive preserves what was
 *predicted* at the time, and substituting later data would poison the
@@ -371,9 +374,64 @@ def backfill_raob(since, until, dry):
     return added
 
 
+# ---------------------------------------------------------------------------
+# sfc — IEM's copy of WPC's coded surface bulletin (pil CODSUS)
+# ---------------------------------------------------------------------------
+
+def sfc_range_url(sdate, edate):
+    return (f"{IEM}/cgi-bin/afos/retrieve.py?pil={wxa.SFC_PIL}"
+            f"&sdate={sdate:%Y-%m-%d}&edate={edate:%Y-%m-%d}&limit=9999&fmt=text")
+
+
+def backfill_sfc(since, until, dry):
+    """Every bulletin IEM holds for the range, a week per request. IEM files
+    both the 0.1° (ASUS02) and whole-degree (ASUS01) bulletins under the one
+    pil, plus every retransmission; sfc_merge keeps the best per valid time.
+    sdate is inclusive and edate exclusive, both UTC — the local day of each
+    analysis decides which file it lands in, so the fetch runs two days past
+    the range and the evening analyses of the last day are in it."""
+    tz = wxa.local_now().tzinfo
+    lo, hi = f"{since}", f"{until}"
+    docs, before = {}, {}
+    d = since
+    while d <= until:
+        e = min(until, d + datetime.timedelta(days=6))
+        try:
+            text = http_text(sfc_range_url(d, e + datetime.timedelta(days=2)))
+        except (urllib.error.URLError, OSError) as err:
+            wxa.log(f"sfc {d} .. {e}: {err}")
+            d = e + datetime.timedelta(days=1)
+            continue
+        for prod in text.split("\x01"):
+            rec = wxa.parse_codsus(prod)
+            if not rec:
+                continue
+            day = local_day(rec["t"], tz)
+            if not lo <= day <= hi:
+                continue
+            if day not in docs:
+                docs[day] = wxa.read_json(os.path.join(wxa.SFC_DIR, day + ".json"),
+                                          {"date": day, "analyses": []})
+                before[day] = len(docs[day]["analyses"])
+            wxa.sfc_merge(docs[day], dict(rec, bf=1), protect_live=True)
+        d = e + datetime.timedelta(days=1)
+    added = 0
+    for day in sorted(docs):
+        n = len(docs[day]["analyses"]) - before[day]
+        if n <= 0:
+            continue
+        mark_bf(docs[day], n)
+        if not dry:
+            wxa.write_json(os.path.join(wxa.SFC_DIR, day + ".json"), docs[day])
+        added += n
+    wxa.log(f"sfc: {added} analysis(es) backfilled")
+    return added
+
+
 STREAMS = {"obs": backfill_obs, "fieldobs": backfill_fieldobs,
            "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model,
-           "stations": backfill_stations, "raob": backfill_raob}
+           "stations": backfill_stations, "raob": backfill_raob,
+           "sfc": backfill_sfc}
 
 
 def main(argv=None):
@@ -382,7 +440,7 @@ def main(argv=None):
     ap.add_argument("--since", help="first local day, YYYY-MM-DD")
     ap.add_argument("--until", help="last local day (default: yesterday)")
     ap.add_argument("--streams", default="obs,fieldobs,stations,afd,taf",
-                    help="comma list of obs,fieldobs,stations,afd,taf,model,raob "
+                    help="comma list of obs,fieldobs,stations,afd,taf,model,raob,sfc "
                          "(default: obs,fieldobs,stations,afd,taf)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and report, write nothing")
@@ -441,7 +499,7 @@ def run_selftest():
                           ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "FIELDOBS_DIR",
                            "GRID_DIR", "TAF_DIR", "ALERT_DIR", "MODEL_DIR",
                            "STATIONS_DIR", "PIREP_DIR", "AIRSIG_DIR", "TFR_DIR",
-                           "RAOB_DIR", "ALOFT_DIR")}
+                           "RAOB_DIR", "ALOFT_DIR", "SFC_DIR")}
             wxa.WX = root
             for k in list(self.saved)[1:]:
                 setattr(wxa, k, os.path.join(root, k[:-4].lower()))
@@ -790,6 +848,90 @@ def run_selftest():
             self.assertEqual(wxa.merge_active(doc, "items", items[:1], 100), (0, True))
             self.assertEqual(doc["items"][0]["last"], 100)
             self.assertEqual(doc["items"][1]["last"], 99)
+
+        def test_codsus_parses_both_resolutions(self):
+            hr = ("\x01\n846 \nASUS02 KWBC 090000\nCODSUS\n \n"
+                  "CODED SURFACE FRONTAL POSITIONS\n"
+                  "NWS WEATHER PREDICTION CENTER COLLEGE PARK MD\n"
+                  "935 PM EDT THU OCT 08 2026\n \nVALID 100900Z\n"
+                  "HIGHS 1018 2640581 1026 4151400 1035\n4160232\n"
+                  "LOWS 998 7941637 1010 3680546\n"
+                  "COLD 4750622 4420644 3970701\n"
+                  "STNRY 3850950 4000974\nTROF 3411147 3271128 3281104\n \n$$\n")
+            a = wxa.parse_codsus(hr)
+            self.assertEqual(a["t"], int(datetime.datetime(2026, 10, 9, 0, tzinfo=UTC).timestamp()))
+            self.assertEqual(a["i"], int(datetime.datetime(2026, 10, 9, 1, 35, tzinfo=UTC).timestamp()))
+            self.assertEqual(a["hr"], 1)
+            self.assertEqual(a["highs"], [[1018, 26.4, -58.1], [1026, 41.5, -140.0], [1035, 41.6, -23.2]])
+            self.assertEqual(a["lows"][0], [998, 79.4, -163.7])
+            self.assertEqual([f["k"] for f in a["fronts"]], ["cold", "stnry", "trof"])
+            self.assertEqual(a["fronts"][0]["p"][1], [44.2, -64.4])
+            lo = ("CODED SURFACE FRONTAL POSITIONS\n635 PM EDT THU OCT 08 2026\n"
+                  "VALID 100821Z\nHIGHS 1018 45117 1012 26100 1018 6693\n"
+                  "LOWS 998 5476\nOCFNT 7977 7975 7872\n$$\n")
+            b = wxa.parse_codsus(lo)
+            self.assertEqual(b["hr"], 0)
+            self.assertEqual(b["highs"], [[1018, 45.0, -117.0], [1012, 26.0, -100.0], [1018, 66.0, -93.0]])
+            self.assertEqual(b["lows"], [[998, 54.0, -76.0]])
+            self.assertEqual(b["fronts"][0], {"k": "ocfnt", "p": [[79.0, -77.0], [79.0, -75.0], [78.0, -72.0]]})
+            # the year on the issuance line is the issuance's: a 21Z Dec 31
+            # analysis issued at 10:35 PM EST Dec 31 2026 keeps 2026, and
+            # the same analysis issued after midnight on Jan 1 2027 rolls back
+            roll = "1035 PM EST THU DEC 31 2026\nVALID 123121Z\nLOWS 998 5476\n"
+            self.assertEqual(wxa.parse_codsus(roll)["t"],
+                             int(datetime.datetime(2026, 12, 31, 21, tzinfo=UTC).timestamp()))
+            late = "135 AM EST FRI JAN 01 2027\nVALID 123121Z\nLOWS 998 5476\n"
+            self.assertEqual(wxa.parse_codsus(late)["t"],
+                             int(datetime.datetime(2026, 12, 31, 21, tzinfo=UTC).timestamp()))
+            self.assertIsNone(wxa.parse_codsus("ASUS02 KWBC 090000\nCODSUS\n$$\n"))
+
+        def test_sfc_merge_prefers_hires_and_protects_live(self):
+            doc = {"date": "d", "analyses": []}
+            lo = {"t": 100, "i": 5, "hr": 0, "highs": [], "lows": [[998, 1, -1]], "fronts": []}
+            hi = dict(lo, hr=1, i=4)
+            self.assertTrue(wxa.sfc_merge(doc, dict(lo)))
+            self.assertTrue(wxa.sfc_merge(doc, dict(hi)))        # 0.1° beats whole-degree
+            self.assertFalse(wxa.sfc_merge(doc, dict(lo, i=9)))  # however fresh
+            self.assertTrue(wxa.sfc_merge(doc, dict(hi, i=6)))   # a later issuance wins
+            self.assertFalse(wxa.sfc_merge(doc, dict(hi, i=7, bf=1), protect_live=True))
+            self.assertTrue(wxa.sfc_merge(doc, dict(hi, t=200, bf=1), protect_live=True))
+            self.assertEqual([a["t"] for a in doc["analyses"]], [100, 200])
+            self.assertEqual(doc["analyses"][0]["i"], 6)
+
+        def test_backfill_sfc_files_by_local_day(self):
+            # one request a week, both resolutions in it, filed by the local
+            # day of the valid time (00Z Oct 9 is the evening of Oct 8 EDT)
+            text = ("\x01\nASUS01 KWBC 082235\nCODSUS\n635 PM EDT THU OCT 08 2026\n"
+                    "VALID 100821Z\nLOWS 998 5476\nCOLD 4868 4369\n$$\n"
+                    "\x01\nASUS02 KWBC 082100\nCODSUS\n635 PM EDT THU OCT 08 2026\n"
+                    "VALID 100821Z\nLOWS 998 5440757\nCOLD 4750622 4420644\n$$\n"
+                    "\x01\nASUS02 KWBC 090000\nCODSUS\n935 PM EDT THU OCT 08 2026\n"
+                    "VALID 100900Z\nLOWS 998 5440757\n$$\n"
+                    "\x01\nASUS02 KWBC 090300\nCODSUS\n1235 AM EDT FRI OCT 09 2026\n"
+                    "VALID 100903Z\nLOWS 997 5440757\n$$\n")
+            calls = []
+            global http_text
+            saved = http_text
+            http_text = lambda url: (calls.append(url), text)[1]
+            try:
+                n = backfill_sfc(datetime.date(2026, 10, 8), datetime.date(2026, 10, 8), False)
+            finally:
+                http_text = saved
+            # 21Z, 00Z and 03Z: the 03Z Oct 9 analysis is 11 PM EDT Oct 8
+            self.assertEqual(n, 3)
+            self.assertEqual(len(calls), 1)
+            self.assertIn("sdate=2026-10-08&edate=2026-10-10", calls[0])
+            doc = wxa.read_json(os.path.join(wxa.SFC_DIR, "2026-10-08.json"), {})
+            self.assertEqual([a["t"] for a in doc["analyses"]],
+                             [int(datetime.datetime(2026, 10, 8, 21, tzinfo=UTC).timestamp()),
+                              int(datetime.datetime(2026, 10, 9, 0, tzinfo=UTC).timestamp()),
+                              int(datetime.datetime(2026, 10, 9, 3, tzinfo=UTC).timestamp())])
+            self.assertEqual(doc["analyses"][0]["hr"], 1)        # the 0.1° copy won
+            self.assertEqual(doc["bf"]["n"], 3)
+            self.assertFalse(os.path.exists(os.path.join(wxa.SFC_DIR, "2026-10-09.json")))
+            wxa.build_index()
+            idx = wxa.read_json(os.path.join(wxa.WX, "index.json"), {})
+            self.assertEqual(idx["sfc_days"], ["2026-10-08"])
 
         def test_pirep_entry_decodes_bands(self):
             p = {"obsTime": 1, "rawOb": "UA /OV DCA/TM 0100/FL050/TP C172/TB LGT CHOP/IC NEG",

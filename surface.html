@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Surface Analysis — WPC fronts and pressure centres, every 3 h, archived</title>
+  <meta name="description" content="The WPC surface analysis drawn from its coded bulletin: cold, warm, stationary and occluded fronts, troughs, highs and lows on a dark map, every 3 hours, with a time scrubber over months of archived analyses, station plots, a KNAK barograph and the nearest front to KANP.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/surface.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/surface.html">
+  <meta property="og:title" content="Surface Analysis — fronts and pressure centres, every 3 h">
+  <meta property="og:description" content="WPC's surface analysis drawn from its coded bulletin on a dark map, scrubbable through months of archived analyses, with station plots and the nearest front to KANP.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 6px 18px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+    .status-bar .warn { color: #f59e0b; }
+
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card h2 .sub { font-size: 12px; font-weight: 400; color: #777; }
+    .card.tight { padding: 12px 14px; }
+
+    /* ---- time bar ---- */
+    .tbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .tbar .when { font-size: 13px; color: #ddd; font-variant-numeric: tabular-nums; min-width: 230px; }
+    .tbar .when .z { color: #4a9eff; font-weight: 600; }
+    .tbar .when .lo { color: #888; }
+    .tbar .when .age { color: #666; }
+    .tbar input[type=range] { flex: 1 1 220px; min-width: 160px; accent-color: #4a9eff; }
+    .tbar button, .chip {
+      background: #222; color: #bbb; border: 1px solid #3a3a3a; border-radius: 6px;
+      font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer; line-height: 1.4;
+    }
+    .tbar button:hover, .chip:hover { border-color: #4a9eff; color: #fff; }
+    .tbar button:disabled { opacity: 0.4; cursor: default; }
+    .tbar button.step { padding: 3px 8px; font-weight: 700; }
+    .chip.on { background: #1d3557; color: #fff; border-color: #4a9eff; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ---- map ---- */
+    #map-wrap { position: relative; }
+    #map { height: 560px; border-radius: 8px; background: #111; border: 1px solid #2a2a2a; }
+    @media (max-width: 700px) { #map { height: 420px; } }
+    .leaflet-container { font-family: inherit; font-size: 12px; }
+    .leaflet-bar a { background: #1a1a1a; color: #ccc; border-bottom-color: #333; }
+    .leaflet-bar a:hover { background: #2a2a2a; color: #fff; }
+    .leaflet-control-attribution { background: #111c !important; color: #666 !important; }
+    .leaflet-control-attribution a { color: #888 !important; }
+    #tip {
+      position: absolute; z-index: 900; pointer-events: none; display: none;
+      background: #111e; color: #ddd; border: 1px solid #444; border-radius: 6px;
+      padding: 5px 8px; font-size: 12px; line-height: 1.4; max-width: 260px;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    #tip b { color: #fff; }
+    .legend { display: flex; gap: 4px 14px; align-items: center; font-size: 11.5px; color: #777; margin-top: 8px; flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 4px; }
+    .legend i.dash { border-top-style: dashed; }
+    .legend .hl { font-weight: 800; font-size: 13px; }
+
+    /* ---- label → value ---- */
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13.5px; }
+    .kv .k { color: #777; }
+    .kv .v { color: #ddd; font-variant-numeric: tabular-nums; }
+    .kv .v .f { color: #777; }
+    .kv .v .cold { color: #4a9eff; } .kv .v .warm { color: #ef4444; } .kv .v .stnry { color: #c084fc; }
+    .kv .v .ocfnt { color: #c084fc; } .kv .v .trof { color: #f0883e; }
+    .kv .v .warn { color: #f59e0b; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; }
+    @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+
+    /* ---- barograph ---- */
+    #baro { width: 100%; height: 170px; display: block; cursor: crosshair; }
+    .baro-read { font-size: 12px; color: #888; margin-top: 4px; min-height: 16px; font-variant-numeric: tabular-nums; }
+
+    /* ---- folds ---- */
+    details.fold summary { cursor: pointer; color: #bbb; font-size: 14px; font-weight: 600; list-style: none; }
+    details.fold summary::-webkit-details-marker { display: none; }
+    details.fold summary::before { content: '▸ '; color: #666; }
+    details.fold[open] summary::before { content: '▾ '; }
+    details.fold summary .sub { font-size: 12px; font-weight: 400; color: #777; margin-left: 8px; }
+    #chart-img { max-width: 100%; margin-top: 10px; border-radius: 6px; background: #fff; display: block; }
+    #chart-img[hidden] { display: none; }
+    .note { font-size: 12px; color: #777; margin: 8px 0 0; }
+    .note a { color: #7da7d9; text-decoration: none; }
+    .note a:hover { text-decoration: underline; }
+
+    table.t { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; margin-top: 10px; }
+    table.t th { text-align: left; color: #777; font-weight: 500; padding: 4px 8px 4px 0; border-bottom: 1px solid #2a2a2a; }
+    table.t td { padding: 4px 8px 4px 0; border-bottom: 1px solid #222; color: #ccc; }
+    table.t tr.sel td { color: #fff; background: #1d2a3a; }
+    table.t tr:hover td { background: #222; cursor: pointer; }
+
+    .more { display: flex; gap: 10px; align-items: center; margin: 14px 0; font-size: 13px; color: #777; }
+    .more button { background: #222; color: #bbb; border: 1px solid #3a3a3a; border-radius: 6px; font: inherit; padding: 5px 12px; cursor: pointer; }
+    .more button:hover { border-color: #4a9eff; color: #fff; }
+    .more button:disabled { opacity: 0.4; cursor: default; }
+    .empty-note { color: #777; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Surface Analysis</h1>
+  <p class="subtitle">WPC fronts and pressure centres, every 3 h · archived since <span id="since">—</span></p>
+
+  <div class="status-bar" id="status"><span>Loading the archive…</span></div>
+
+  <section class="card tight" id="map-card">
+    <div class="tbar">
+      <button class="step" id="prev" title="previous analysis (←)">‹</button>
+      <input type="range" id="scrub" min="0" max="0" value="0" aria-label="analysis">
+      <button class="step" id="next" title="next analysis (→)">›</button>
+      <button id="play" title="play (space)">▶</button>
+      <button id="now" title="newest analysis">newest</button>
+      <span class="when" id="when">—</span>
+      <span class="chips">
+        <button class="chip" id="chip-trails" title="the previous 12 h of analyses as fading ghosts">trails</button>
+        <button class="chip" id="chip-tracks" title="where each low has been over the last 48 h">low tracks</button>
+        <button class="chip" id="chip-stations" title="station plots from the archived METARs — zoom in">stations</button>
+      </span>
+    </div>
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div id="tip"></div>
+    </div>
+    <div class="legend">
+      <span><i style="border-color:#4a9eff"></i>cold</span>
+      <span><i style="border-color:#ef4444"></i>warm</span>
+      <span><i style="border-color:#c084fc"></i>occluded</span>
+      <span><i style="border-color:#4a9eff;border-image:linear-gradient(90deg,#4a9eff 50%,#ef4444 50%) 1"></i>stationary</span>
+      <span><i class="dash" style="border-color:#f0883e"></i>trough</span>
+      <span><span class="hl" style="color:#5aa9ff">H</span> <span class="hl" style="color:#f05252">L</span> hPa</span>
+      <span>pips → direction of motion</span>
+      <span>○ KANP</span>
+    </div>
+  </section>
+
+  <section class="card" id="kanp-card">
+    <h2>At KANP <span class="sub" id="kanp-sub"></span></h2>
+    <div class="cols">
+      <div class="kv" id="kv-fronts"></div>
+      <div class="kv" id="kv-field"></div>
+    </div>
+  </section>
+
+  <section class="card" id="baro-card" hidden>
+    <h2>Barograph <span class="sub" id="baro-sub">KNAK · sea-level pressure · ticks = a front within 60 nm</span></h2>
+    <canvas id="baro"></canvas>
+    <div class="baro-read" id="baro-read"></div>
+  </section>
+
+  <details class="card fold" id="feat-fold">
+    <summary>Features <span class="sub" id="feat-sub"></span></summary>
+    <div id="feat-list"></div>
+  </details>
+
+  <details class="card fold" id="chart-fold">
+    <summary>WPC chart <span class="sub" id="chart-sub"></span></summary>
+    <img id="chart-img" alt="WPC surface analysis chart" hidden>
+    <p class="note" id="chart-note"></p>
+  </details>
+
+  <div class="more">
+    <button id="more">Load 7 more days</button>
+    <span id="more-note"></span>
+  </div>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <footer>
+    <p>Source → WPC coded surface bulletin (ASUS02 KWBC, 0.1°) · every 3 h · archived hourly, GitHub Action ·
+      raw data → <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx/sfc">data/wx/sfc</a> ·
+      station plots → archived METARs · °true</p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/wx-archive.js?v=2"></script>
+  <script src="js/surface.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/wxnav.js?v=6" defer></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

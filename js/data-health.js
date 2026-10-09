@@ -332,6 +332,11 @@
       { label: 'Winds aloft', short: 'aloft', note: 'GFS · snapshot each run',
         age: age(latest.aloft && latest.aloft.t), okH: 2.5, lateH: 6,
         days: idx.aloft_days, fill: false },
+      // WPC's analysis is valid on the synoptic hour and issued ~1.5 h later;
+      // a run 2.4 h after that is the usual lag, so "late" starts past 9 h.
+      { label: 'Surface analysis', short: 'sfc', note: 'WPC · every 3 h',
+        age: age(latest.sfc && latest.sfc.t), okH: 6, lateH: 9,
+        days: idx.sfc_days, fill: true },
     ];
 
     let rows = '';
