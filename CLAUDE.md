@@ -354,8 +354,10 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   table (median per ICAO type, best rate first — the fleet comparison Jesse asked for). **The
   highlighted reg gets a smoothed mean curve** (`meanCurve()`: gain on a 0.05 nm grid where ≥ ⅓
   of its climbs reach, 5-point moving average) drawn breathing — `paintGlow()` blits a cached
-  offscreen copy of the chart and strokes the line with a sine-driven shadowBlur/alpha under
-  rAF, only while a reg is highlighted, idling (500 ms recheck) while the tab is hidden; any
+  offscreen copy of the chart and strokes a **1.4 px line over a faint 5 px halo stroke** whose
+  alpha rides a sine, plus a small white point of light running liftoff → top every ~3 s, under
+  rAF (Jesse 2026-10-09: the first cut, a 3.5 px line with a 20 px shadowBlur, was "too thick";
+  shadows blur into a band — use a wide low-alpha stroke, not shadowBlur), only while a reg is highlighted, idling (500 ms recheck) while the tab is hidden; any
   `renderChart()` stops the loop first. **Why some curves are smooth and others staircases:**
   altitude encoder resolution — N6289U (M20P), the PA23, RV7, DA40 report in 25 ft steps, most
   of the C172/PA-28 training fleet in 100 ft; not a data-rate difference (all ~2 s near the field).

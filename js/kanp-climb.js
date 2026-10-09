@@ -376,21 +376,30 @@ const KANPClimb = (() => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const t = performance.now() / 1000;
     const b = 0.5 + 0.5 * Math.sin(t * Math.PI / 1.1);   // ~2.2 s breath
+    const pts = avgLine.pts;
     ctx.save();
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.strokeStyle = avgLine.color;
-    ctx.shadowColor = avgLine.color;
-    ctx.shadowBlur = 6 + 14 * b;
-    ctx.globalAlpha = 0.7 + 0.3 * b;
-    ctx.lineWidth = 3.5;
+    // a thin line over a faint halo that breathes (a wide low-alpha stroke,
+    // not a shadow — shadows blur out to a thick band)
     ctx.beginPath();
-    avgLine.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.strokeStyle = avgLine.color;
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.08 + 0.12 * b;
     ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.4;
+    ctx.globalAlpha = 0.75 + 0.25 * b;
     ctx.stroke();
+    // a point of light running along it, liftoff → top, every ~3 s
+    const u = (t % 3) / 3;
+    const k = u * (pts.length - 1), i0 = Math.floor(k), f = k - i0;
+    const p0 = pts[i0], p1 = pts[Math.min(pts.length - 1, i0 + 1)];
+    const px = p0[0] + f * (p1[0] - p0[0]), py = p0[1] + f * (p1[1] - p0[1]);
+    ctx.globalAlpha = 0.9;
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(px, py, 1.8, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     animId = requestAnimationFrame(paintGlow);
   }
