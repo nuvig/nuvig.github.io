@@ -24,6 +24,8 @@ the past for the streams where a trustworthy public archive exists:
   sfc   WPC surface anal.  IEM text-product archive (pil CODSUS): every coded
                            surface bulletin, parsed like the hourly archiver
                            parses WPC's own pages. Opt-in via --streams.
+  mos   GFS/NAM MOS        IEM MOS archive — every run as issued, so this is
+                           what was predicted at the time. Opt-in via --streams.
 
 Deliberately NOT backfillable — no public archive preserves what was
 *predicted* at the time, and substituting later data would poison the
@@ -428,10 +430,40 @@ def backfill_sfc(since, until, dry):
     return added
 
 
+def backfill_mos(since, until, dry):
+    """Every GFS/NAM MOS run IEM holds for the range, per station and model,
+    a month per request. Runs are filed by the local day of their runtime and
+    tagged bf; a live-captured run is never replaced."""
+    utc = datetime.timezone.utc
+    total = 0
+    for station in wxa.MOS_STATIONS:
+        for model in wxa.MOS_MODELS:
+            got = 0
+            d = since
+            while d <= until:
+                e = min(until, d + datetime.timedelta(days=30))
+                # local days run up to 5 h past UTC midnight: pad both ends
+                sts = datetime.datetime.combine(d, datetime.time(), utc) - datetime.timedelta(hours=6)
+                ets = datetime.datetime.combine(e, datetime.time(23, 59), utc) + datetime.timedelta(hours=6)
+                try:
+                    runs = wxa.parse_mos(http_json(wxa.mos_url(station, model, sts, ets)), model)
+                except (urllib.error.URLError, OSError, ValueError) as err:
+                    wxa.log(f"mos {station} {model} {d} .. {e}: {err}")
+                    d = e + datetime.timedelta(days=1)
+                    continue
+                tz = wxa.local_now().tzinfo
+                runs = [r for r in runs if f"{since}" <= local_day(r["t"], tz) <= f"{until}"]
+                got += wxa.mos_store(station, runs, bf=True, dry=dry)
+                d = e + datetime.timedelta(days=1)
+            wxa.log(f"mos {station} {model}: {got} run(s) backfilled")
+            total += got
+    return total
+
+
 STREAMS = {"obs": backfill_obs, "fieldobs": backfill_fieldobs,
            "afd": backfill_afd, "taf": backfill_taf, "model": backfill_model,
            "stations": backfill_stations, "raob": backfill_raob,
-           "sfc": backfill_sfc}
+           "sfc": backfill_sfc, "mos": backfill_mos}
 
 
 def main(argv=None):
@@ -440,7 +472,7 @@ def main(argv=None):
     ap.add_argument("--since", help="first local day, YYYY-MM-DD")
     ap.add_argument("--until", help="last local day (default: yesterday)")
     ap.add_argument("--streams", default="obs,fieldobs,stations,afd,taf",
-                    help="comma list of obs,fieldobs,stations,afd,taf,model,raob,sfc "
+                    help="comma list of obs,fieldobs,stations,afd,taf,model,raob,sfc,mos "
                          "(default: obs,fieldobs,stations,afd,taf)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and report, write nothing")
@@ -499,7 +531,7 @@ def run_selftest():
                           ("WX", "AFD_DIR", "FC_DIR", "OBS_DIR", "FIELDOBS_DIR",
                            "GRID_DIR", "TAF_DIR", "ALERT_DIR", "MODEL_DIR",
                            "STATIONS_DIR", "PIREP_DIR", "AIRSIG_DIR", "TFR_DIR",
-                           "RAOB_DIR", "ALOFT_DIR", "SFC_DIR")}
+                           "RAOB_DIR", "ALOFT_DIR", "SFC_DIR", "MOS_DIR")}
             wxa.WX = root
             for k in list(self.saved)[1:]:
                 setattr(wxa, k, os.path.join(root, k[:-4].lower()))
@@ -943,6 +975,69 @@ def run_selftest():
             self.assertEqual(e["ic"], [["NEG", None, None, None]])
             self.assertEqual(e["wind"], [270, 15])
             self.assertEqual(e["fl"], 50)
+
+        def test_parse_mos_shapes_and_units(self):
+            # IEM record JSON: ISO times, NaN for empty, wdr in tens in one run
+            # and in degrees in the other, a column in upper case
+            data = [
+                {"station": "KBWI", "model": "GFS", "runtime": "2026-10-12T12:00:00.000Z",
+                 "ftime": "2026-10-12T18:00:00.000Z", "tmp": 64.0, "dpt": 58.0,
+                 "wdr": 32.0, "wsp": 12.0, "cig": 5.0, "vis": 7.0, "p06": 20.0,
+                 "CLD": "BK", "obv": "N"},
+                {"station": "KBWI", "model": "GFS", "runtime": "2026-10-12T12:00:00.000Z",
+                 "ftime": "2026-10-12T15:00:00.000Z", "tmp": 61.0, "dpt": float("nan"),
+                 "wdr": 30.0, "wsp": 9.0, "cig": 4.0, "vis": 6.0, "p06": None,
+                 "cld": "OV", "obv": "BR"},
+                {"station": "KBWI", "model": "GFS", "runtime": "2026-10-12 18:00:00+00:00",
+                 "ftime": "2026-10-12 21:00:00+00:00", "tmp": 66, "wdr": 310, "wsp": 10},
+                {"runtime": "junk", "ftime": "2026-10-12T21:00Z", "tmp": 1},
+            ]
+            runs = wxa.parse_mos(data, "GFS")
+            self.assertEqual(len(runs), 2)
+            r0 = runs[0]
+            self.assertEqual(r0["t"], int(datetime.datetime(2026, 10, 12, 12, tzinfo=UTC).timestamp()))
+            self.assertEqual([x[0] for x in r0["f"]], sorted(x[0] for x in r0["f"]))
+            self.assertEqual(r0["f"][0][1:], [61, None, 300, 9, 4, 6, None, "OV", "BR"])
+            self.assertEqual(r0["f"][1][3], 320)
+            self.assertEqual(runs[1]["f"][0][3], 310)       # already degrees
+            self.assertEqual(wxa.parse_mos({"data": data[:1]}, "NAM")[0]["m"], "NAM")
+            self.assertEqual(wxa.mos_time(1791800000000), 1791800000)
+
+        def test_mos_store_by_local_day_and_protects_live(self):
+            t = int(datetime.datetime(2026, 10, 13, 0, tzinfo=UTC).timestamp())  # 8 PM EDT Oct 12
+            live = {"m": "GFS", "t": t, "f": [[t + 3600 * 6, 60, 50, 300, 8, 7, 7, 10, "CL", "N"]]}
+            self.assertEqual(wxa.mos_store("KBWI", [live]), 1)
+            path = os.path.join(wxa.MOS_DIR, "KBWI", "2026-10-12.json")
+            bf = {"m": "GFS", "t": t, "f": live["f"] * 2}
+            self.assertEqual(wxa.mos_store("KBWI", [bf], bf=True), 0)   # live kept
+            longer = {"m": "GFS", "t": t, "f": live["f"] + [[t + 3600 * 9] + [None] * 9]}
+            self.assertEqual(wxa.mos_store("KBWI", [longer]), 1)        # live, more rows
+            doc = wxa.read_json(path, {})
+            self.assertEqual(len(doc["runs"][0]["f"]), 2)
+            self.assertEqual(doc["cols"][0], "ft")
+            wxa.build_index()
+            idx = wxa.read_json(os.path.join(wxa.WX, "index.json"), {})
+            self.assertEqual(idx["mos_days"], {"KBWI": ["2026-10-12"]})
+
+        def test_backfill_mos_requests_and_tags(self):
+            t = int(datetime.datetime(2026, 10, 1, 12, tzinfo=UTC).timestamp())
+            iso = lambda e: datetime.datetime.fromtimestamp(e, UTC).isoformat()
+            calls = []
+            global http_json
+            saved = http_json, wxa.MOS_STATIONS, wxa.MOS_MODELS
+            http_json = lambda url: (calls.append(url), [
+                {"runtime": iso(t), "ftime": iso(t + 6 * 3600), "tmp": 70, "wdr": 18, "wsp": 5}])[1]
+            wxa.MOS_STATIONS, wxa.MOS_MODELS = ["KDCA"], ["GFS"]
+            try:
+                n = backfill_mos(datetime.date(2026, 10, 1), datetime.date(2026, 10, 1), False)
+            finally:
+                http_json, wxa.MOS_STATIONS, wxa.MOS_MODELS = saved
+            self.assertEqual(n, 1)
+            self.assertEqual(len(calls), 1)
+            self.assertIn("station=KDCA&model=GFS&sts=2026-09-30T18:00:00Z", calls[0])
+            doc = wxa.read_json(os.path.join(wxa.MOS_DIR, "KDCA", "2026-10-01.json"), {})
+            self.assertEqual(doc["runs"][0]["bf"], 1)
+            self.assertEqual(doc["runs"][0]["f"][0][3], 180)
 
     Fixtures.saved_tz = wxa.local_now().tzinfo
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures)

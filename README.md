@@ -54,6 +54,10 @@ into the repo on a schedule.
   troughs, highs, lows) drawn with WMO symbology on a dark map every 3 h,
   scrubbable through the archive; trails, low tracks, station plots, a KNAK
   barograph, and the nearest front to KANP with its motion.
+- `verify.html` — Forecast Verification: GFS/NAM MOS, TAFs and the NWS grid
+  scored against METARs by lead time (category, IFR CSI, wind, temp, PoP
+  Brier) with persistence as the baseline, a category timeline, and the
+  latest MOS bulletin decoded.
 - `sky.html` — METAR Sky: the current observation painted as a scene.
 
 **Atmosphere and performance**
@@ -132,7 +136,7 @@ current and whose collector sections describe the retired Node collector.
 hourly and commits `data/wx/` on `main`: METARs for KDCA, KNAK and the local
 ring of fields, TAFs, every LWX discussion, the NWS forecast and hourly grid,
 alerts, GFS point data, PIREPs, AIRMETs/SIGMETs, TFRs, KIAD soundings, winds
-aloft, WPC's coded surface analysis. One file per stream per day, never rewritten; METARs and TAFs the live
+aloft, WPC's coded surface analysis, GFS/NAM MOS. One file per stream per day, never rewritten; METARs and TAFs the live
 API dropped are healed from IEM. `data/wx/latest.json` is the current state of
 every stream in one document, and `js/wx-archive.js` is the page-side reader.
 `scripts/wxbackfill.py` fills history by hand.

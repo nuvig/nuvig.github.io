@@ -496,3 +496,23 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   first, row click pans) and the WPC chart. Live poll every 5 min re-reads today's day file when
   `latest.sfc.t` moves. In `wxnav.js` (sixth slot), on tools.html and in the feed (`sfc` pill).
   Reads only `WXA` plus the WPC image. `window.SURFACE_DEBUG` for headless checks.
+- `verify.html` + `js/verify.js` — Forecast Verification (2026-10-13): GFS/NAM **MOS**, the
+  **TAFs** and the **NWS grid** scored against the METARs that verified them, all from `data/wx/`
+  (via `WXA`; MOS is the `mos/<ID>/` stream, see wx-archive.md). Stations KNAK (field) · KBWI ·
+  KDCA · KMTN; each shows the products that exist there — TAFs at KBWI/KDCA/KMTN, the grid only at
+  KNAK (it is the KANP point, verified on KNAK like discussion.html's aviation rows), MOS wherever
+  IEM has equations (KNAK may have none — the page then says "no archive"). Window 7/30/90 d, lead
+  bands 0–6 … 48–72 h, all in the URL (`?st=&w=&lead=`). Every forecast expands to
+  (issue, valid hour) records; a record with a METAR within ±30 min of its valid hour is one pair,
+  binned by lead hour 0–71 (`score()`), and bands/chart buckets are sums of those. **Lead = valid −
+  issue; MOS has only a model run time, so issue = run + 4 h** (`MOS_ISSUE_DELAY`). TAF: the
+  prevailing FM/FROM group with BECMG changes merged; TEMPO/PROB are not scored; raw (`bf`)
+  issuances go through `TafTac`. MOS ceiling/vis are **category codes** (MAV/MET tables in
+  `mosCat()`), so category comes from the codes, never invented values. Metrics: exact category,
+  IFR-or-lower CSI (POD/FAR in the cell tooltip), wind speed MAE + bias, direction MAE (obs ≥ 6 kt),
+  temp MAE + bias °F, PoP Brier on the 6 h window ending 00/06/12/18Z (MOS P06; grid = max hourly
+  PoP in the window; observed = precip wx or a P-group > 0 in ≥ 4 obs). **Persistence** (the ob at
+  v − L forecasts v) is scored alongside as the floor. Cards: scorecard (best of the real products
+  bold), metric-by-lead chart (3 h buckets, one axis, hover), 7-day category strip (newest forecast
+  in the lead band; MOS projections hold 3 h), latest MOS run decoded. `window.VERIFY_DEBUG` exposes
+  state and the pure decoders. Tested with synthetic MOS fixtures before the stream had data.

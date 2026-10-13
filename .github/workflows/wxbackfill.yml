@@ -17,7 +17,7 @@ on:
         required: false
         default: ''
       streams:
-        description: 'Streams: obs,fieldobs,stations,afd,taf (+model, opt-in)'
+        description: 'Streams: obs,fieldobs,stations,afd,taf (+model,raob,sfc,mos opt-in)'
         required: false
         default: 'obs,fieldobs,stations,afd,taf'
 

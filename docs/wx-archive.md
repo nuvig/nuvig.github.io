@@ -100,6 +100,19 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   day, tagged `bf`, never over a live entry) — run 2026-10-08 back to 2026-05-01: 1,277 analyses,
   ~50 KB/day, 7.5 MB. `--selftest` covers the parser, the merge and the backfill. Read by
   `surface.html`, the feed and the changelog health panel.
+  **`mos/` (2026-10-13): GFS (MAV) and NAM (MET) MOS** for `WX_MOS` (KNAK · KBWI · KDCA ·
+  KMTN — the field plus the TAF sites, so MOS and TAF verify on the same METARs), models
+  `WX_MOS_MODELS`. Source is IEM's MOS archive (`cgi-bin/request/mos.py?station&model&sts&ets&
+  format=json`), which keeps every run as issued — so unlike `grid/` this **is** backfillable
+  (`wxbackfill.py --streams mos`). `snapshot_mos()` asks only for a station × model whose newest
+  run on disk is older than one cycle + 5 h, so a run with everything current makes no request.
+  Day files `mos/<ID>/YYYY-MM-DD.json` = `{date, station, cols, runs:[{m, t, f:[[ft, tmp, dpt, wdr,
+  wsp, cig, vis, p06, cld, obv]]}]}`, filed by the local day of the run; `cols` names the row
+  slots; units are the bulletin's (°F, kt, °true, **cig/vis are MOS category codes**). IEM stores
+  `wdr` ×10 (degrees); a run that still looks like tens is scaled (`parse_mos()`). A station MOS
+  has no equations for returns nothing and is logged. `index.json` carries `mos_days`
+  (station → days) and `mos_models`. Read by `verify.html`. `--selftest` covers parse, merge
+  (live never replaced by `bf`), filing and the backfill request.
   **A failing step never blocks the commit** (2026-09-02): the workflow runs the archiver with
   `|| echo ::warning`, because one upstream blip (aviationweather.gov handed the PIREP fetch an
   empty body) made the script exit 1 and the commit step was skipped, throwing away every

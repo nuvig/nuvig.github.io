@@ -56,6 +56,10 @@ Output layout (data/wx/):
                                    lon]], lows:[…], fronts:[{k, p:[[lat, lon]]}]}]}
                                    — WPC's coded surface analysis every 3 h,
                                    filed under the local day of its valid time
+  mos/<ID>/YYYY-MM-DD.json         {date, station, cols, runs:[{m, t, f:[[ft,
+                                   tmp, dpt, wdr, wsp, cig, vis, p06, cld,
+                                   obv]]}]} — GFS/NAM MOS from IEM, filed under
+                                   the local day of the run (t = runtime UTC)
 
 METAR day files may also carry "nh": hours of that day neither the NWS API nor
 IEM has an observation for, i.e. hours the station never reported. It is a
@@ -128,6 +132,7 @@ TFR_DIR = os.path.join(WX, "tfr")
 RAOB_DIR = os.path.join(WX, "raob")
 ALOFT_DIR = os.path.join(WX, "aloft")
 SFC_DIR = os.path.join(WX, "sfc")
+MOS_DIR = os.path.join(WX, "mos")
 
 # The airfield the aviation streams describe (KANP), its TAF neighbours (KANP
 # has no TAF of its own), and how far ahead each hourly snapshot reaches.
@@ -198,6 +203,24 @@ ALOFT_HOURS = int(os.environ.get("WX_ALOFT_HOURS", "12"))
 # IEM files the same bulletins under the pil; wxbackfill.py reads those.
 SFC_URL = os.environ.get("WX_SFC", "https://www.wpc.ncep.noaa.gov/discussions/codsus{hh}_hr")
 SFC_PIL = "CODSUS"
+# MOS — Model Output Statistics: the station-point text guidance NWS derives
+# from a raw model run by regressing its output against years of that
+# station's own METARs (GFS -> "MAV", NAM -> "MET"). Not a forecaster's
+# product, not the raw model. IEM archives every run, so unlike the grid it
+# is backfillable. Stations: the field's sensor (KNAK — skipped if MOS has
+# no equation for it) plus the TAF sites, so MOS and TAF verify on the same
+# METARs.
+MOS_STATIONS = [s for s in os.environ.get(
+    "WX_MOS", "KNAK,KBWI,KDCA,KMTN").split(",") if s.strip()]
+MOS_MODELS = [s for s in os.environ.get("WX_MOS_MODELS", "GFS,NAM").split(",") if s.strip()]
+# hours between runs; a run is looked for once the newest on disk is older
+# than one cycle plus MOS_LATE_H (the text goes out ~3-4 h after the cycle)
+MOS_CYCLE_H = {"GFS": 6, "NAM": 12}
+MOS_LATE_H = 5
+# per-projection columns kept, in this order (ft = valid time, epoch s).
+# Units are the bulletin's: tmp/dpt degF, wdr deg true, wsp kt, cig/vis the
+# MOS category codes (1 = lowest), p06 %, cld CL/FW/SC/BK/OV, obv N/BR/FG/HZ
+MOS_COLS = ["ft", "tmp", "dpt", "wdr", "wsp", "cig", "vis", "p06", "cld", "obv"]
 
 
 def log(msg):
@@ -1598,6 +1621,161 @@ def snapshot_sfc():
     return added
 
 
+# ---------------------------------------------------------------------------
+# MOS — GFS/NAM station guidance from IEM's archive, one file per station per
+# local day of the model run. Shared with wxbackfill.py.
+# ---------------------------------------------------------------------------
+
+def mos_url(station, model, sts, ets):
+    """IEM's MOS request service: every run whose runtime is in [sts, ets]."""
+    return (f"{IEM}/cgi-bin/request/mos.py?station={station}&model={model}"
+            f"&sts={sts:%Y-%m-%dT%H:%M:%SZ}&ets={ets:%Y-%m-%dT%H:%M:%SZ}&format=json")
+
+
+def mos_time(v):
+    """IEM timestamps: ISO text (with or without zone, T or space) or epoch
+    ms/s. Always UTC. None when unreadable."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return int(v / 1000 if v > 1e11 else v)
+    s = str(v).strip().replace(" ", "T").replace("Z", "+00:00")
+    try:
+        d = datetime.datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            d = datetime.datetime.fromisoformat(s[:19])
+        except ValueError:
+            return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    return int(d.timestamp())
+
+
+def _mos_num(v):
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else int(round(f))      # NaN -> None
+
+
+def _mos_str(v):
+    v = None if v is None else str(v).strip().upper()
+    return v if v and v not in ("NAN", "NONE", "M") else None
+
+
+def parse_mos(data, model):
+    """IEM's JSON (a list of records; also tolerates {"data": [...]}) ->
+    [{m, t, f: [[ft, tmp, dpt, wdr, wsp, cig, vis, p06, cld, obv], ...]}],
+    one entry per run, rows by valid time. Column names are matched
+    case-insensitively. Wind direction is the bulletin's tens of degrees in
+    the text product; IEM documents storing it x10 (degrees). A run whose
+    every direction is <= 36 with any not a multiple of 10 is still in tens
+    and is scaled here."""
+    rows = data.get("data") if isinstance(data, dict) else data
+    runs = {}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        r = {str(k).lower(): v for k, v in r.items()}
+        t, ft = mos_time(r.get("runtime")), mos_time(r.get("ftime"))
+        if t is None or ft is None or ft <= t:
+            continue
+        row = [ft] + [_mos_num(r.get(k)) for k in ("tmp", "dpt", "wdr", "wsp",
+                                                   "cig", "vis", "p06")]
+        row += [_mos_str(r.get("cld")), _mos_str(r.get("obv"))]
+        if all(x is None for x in row[1:]):
+            continue
+        runs.setdefault(t, {})[ft] = row
+    out = []
+    for t in sorted(runs):
+        f = [runs[t][k] for k in sorted(runs[t])]
+        dirs = [x[3] for x in f if x[3]]
+        if dirs and max(dirs) <= 36 and any(d % 10 for d in dirs):
+            for x in f:
+                if x[3] is not None:
+                    x[3] *= 10
+        out.append({"m": model, "t": t, "f": f})
+    return out
+
+
+def mos_merge(doc, run, protect_live=False):
+    """Insert or replace one run (keyed by model + runtime). A run with more
+    projections wins; with protect_live a live-captured run is never replaced
+    by a backfilled one. Returns True when the doc changed."""
+    for i, cur in enumerate(doc["runs"]):
+        if cur["m"] == run["m"] and cur["t"] == run["t"]:
+            if protect_live and not cur.get("bf"):
+                return False
+            if len(run["f"]) <= len(cur["f"]):
+                return False
+            doc["runs"][i] = run
+            return True
+    doc["runs"].append(run)
+    doc["runs"].sort(key=lambda r: (r["t"], r["m"]))
+    return True
+
+
+def mos_store(station, runs, bf=False, dry=False):
+    """File runs under the local day of their runtime. Returns runs added."""
+    tz = local_now().tzinfo
+    docs, added = {}, 0
+    for run in runs:
+        day = f"{datetime.datetime.fromtimestamp(run['t'], tz):%Y-%m-%d}"
+        if day not in docs:
+            docs[day] = read_json(os.path.join(MOS_DIR, station, day + ".json"),
+                                  {"date": day, "station": station,
+                                   "cols": MOS_COLS, "runs": []})
+        if bf:
+            run = dict(run, bf=1)
+        if mos_merge(docs[day], run, protect_live=bf):
+            docs[day]["_dirty"] = True
+            added += 1
+    for day, doc in docs.items():
+        if doc.pop("_dirty", False) and not dry:
+            write_json(os.path.join(MOS_DIR, station, day + ".json"), doc)
+    return added
+
+
+def newest_mos(station, model, now):
+    best = 0
+    for back in range(3):
+        day = f"{now - datetime.timedelta(days=back):%Y-%m-%d}"
+        for r in read_json(os.path.join(MOS_DIR, station, day + ".json"), {}).get("runs") or []:
+            if r["m"] == model:
+                best = max(best, r["t"])
+    return best
+
+
+def snapshot_mos():
+    """Each station x model is fetched only when a run newer than the one on
+    disk should exist by now, so a run with everything current makes no
+    requests. A station MOS has no equations for returns nothing and is
+    logged, never fatal."""
+    now = local_now()
+    nowt = int(now.timestamp())
+    utc = datetime.timezone.utc
+    for station in MOS_STATIONS:
+        for model in MOS_MODELS:
+            cyc = MOS_CYCLE_H.get(model, 6)
+            have = newest_mos(station, model, now)
+            if have and nowt - have < (cyc + MOS_LATE_H) * 3600:
+                continue
+            sts = datetime.datetime.fromtimestamp(max(have + 60, nowt - 36 * 3600), utc)
+            ets = datetime.datetime.fromtimestamp(nowt, utc)
+            try:
+                runs = parse_mos(iem_json(mos_url(station, model, sts, ets)), model)
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                log(f"mos {station} {model}: {e}")
+                continue
+            n = mos_store(station, runs)
+            log(f"mos {station} {model}: {n} run(s)" if runs else
+                f"mos {station} {model}: none published")
+
+
 # what this run saw in effect, for latest.json (day files keep first/last)
 _NOW = {}
 
@@ -1764,6 +1942,12 @@ def build_index():
         hours["fieldobs"] = fieldobs_hours
     hours["stations"] = station_hours
     # a raob day file that holds only `miss` bookkeeping is not a day
+    # MOS: station -> days, only stations with runs on disk
+    mos_days = {}
+    for station in sorted(os.listdir(MOS_DIR) if os.path.isdir(MOS_DIR) else []):
+        days = listing(os.path.join(MOS_DIR, station))
+        if days:
+            mos_days[station] = days
     raob_days = [d for d in listing(RAOB_DIR)
                  if read_json(os.path.join(RAOB_DIR, d + ".json"), {}).get("soundings")]
     write_json(os.path.join(WX, "index.json"), {
@@ -1792,6 +1976,8 @@ def build_index():
         "raob_days": raob_days,
         "aloft_days": listing(ALOFT_DIR),
         "sfc_days": listing(SFC_DIR),
+        "mos_days": mos_days,
+        "mos_models": MOS_MODELS,
         "raob_station": RAOB_STATION,
         "region": REGION,
         "aloft_levels": ALOFT_LEVELS,
@@ -1806,7 +1992,8 @@ def main():
     for step in (archive_afds, snapshot_forecast, archive_obs, archive_field_obs,
                  archive_stations, snapshot_grid, archive_tafs, snapshot_alerts,
                  snapshot_model, snapshot_pireps, snapshot_airsig, snapshot_tfrs,
-                 snapshot_raob, snapshot_aloft, snapshot_sfc, heal_metars, heal_tafs):
+                 snapshot_raob, snapshot_aloft, snapshot_sfc, snapshot_mos, heal_metars,
+                 heal_tafs):
         try:
             step()
         except (urllib.error.URLError, OSError, KeyError, ValueError,

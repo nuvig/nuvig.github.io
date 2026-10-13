@@ -38,7 +38,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   **One requested exception (2026-08-29): `js/wxnav.js`** — a one-line cross-link strip among
   five weather pages (weather, discussion, skew-t, wx3d, almanac, in that order; page list lives
   in the script), injected under each page's title. **`surface.html` was added as a sixth slot
-  2026-10-08** when the page shipped (a weather product, in the family) — pull it if unwanted. It replaced those pages' ad-hoc subtitle links
+  2026-10-08** when the page shipped (a weather product, in the family) — pull it if unwanted. **`verify.html` (Forecast Verification) took a seventh slot 2026-10-13** on the same basis. It replaced those pages' ad-hoc subtitle links
   (weather.html keeps its non-weather tracker/air-lab links). **METAR Sky (`sky.html`) was pulled
   out of the strip the same day at Jesse's request** — it carries no `wxnav.js` script tag and
   doesn't appear in `PAGES`. Keep it scoped to the remaining weather family — it is not a site nav

@@ -6,7 +6,7 @@
    limits, no per-page fetch logic, and history for free.
 
    Streams: afd · forecast · obs · fieldobs · stations · grid · taf · alerts ·
-   model (obs is the station the DC forecast is verified against, KDCA;
+   model · mos/<ID> (obs is the station the DC forecast is verified against, KDCA;
    fieldobs is the airfield's own sensor, KNAK; stations/<ID>/ is every other
    METAR-reporting field in the local ring, same day-file shape as obs)
    (see CLAUDE.md and the docstring in scripts/wxarchive.py for shapes).

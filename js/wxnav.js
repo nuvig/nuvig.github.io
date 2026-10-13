@@ -15,6 +15,7 @@
     ['wx3d.html', 'Air Above'],
     ['almanac.html', 'Almanac'],
     ['surface.html', 'Surface'],
+    ['verify.html', 'Verify'],
   ];
   const here = location.pathname.split('/').pop() || 'index.html';
   const nav = document.createElement('nav');

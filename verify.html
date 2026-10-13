@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forecast Verification — MOS, TAF and NWS grid vs METAR</title>
+  <meta name="description" content="How accurate the forecasts around Annapolis are: GFS and NAM MOS, the terminal forecasts and the NWS hourly grid, scored hour by hour against the METARs that verified them.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://jesselevine.net/verify.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/verify.html">
+  <meta property="og:title" content="Forecast Verification — MOS · TAF · grid vs METAR">
+  <meta property="og:description" content="GFS/NAM MOS, TAFs and the NWS grid scored against METARs: flight category, IFR, wind, temperature, PoP, by lead time.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <style>
+    body { max-width: 1000px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+
+    /* series: categorical slots 1-3, dark steps (validated all-pairs) */
+    :root { --s-gfs: #3987e5; --s-nam: #d95926; --s-third: #199e70; }
+
+    .tbar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 0 0 12px; font-size: 13px; }
+    .tbar .lbl { color: #666; margin-right: 2px; }
+    .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      background: #1a1a1a; color: #aaa; border: 1px solid #333; border-radius: 6px;
+      padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .chip:hover { border-color: #4a9eff; color: #fff; }
+    .chip.on { background: #1d3557; color: #fff; border-color: #4a9eff; }
+    .chip:disabled, .chip.on:disabled { opacity: 0.4; cursor: default; background: #1a1a1a; border-color: #333; color: #777; }
+
+    .status-bar {
+      display: flex; gap: 6px 18px; flex-wrap: wrap; padding: 8px 12px; background: #1a1a1a;
+      border: 1px solid #333; border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card h2 .sub { font-size: 12px; font-weight: 400; color: #777; }
+
+    .tbl-wrap { overflow-x: auto; }
+    table.sc { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+    table.sc th, table.sc td { padding: 6px 8px; text-align: right; border-bottom: 1px solid #262626; white-space: nowrap; }
+    table.sc th { color: #888; font-weight: 500; font-size: 12px; }
+    table.sc th:first-child, table.sc td:first-child { text-align: left; }
+    table.sc td.best { color: #fff; font-weight: 700; }
+    table.sc td .sm { color: #777; font-size: 11px; margin-left: 4px; }
+    table.sc td.na { color: #444; }
+    .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+    /* lead chart */
+    #lead-chart { position: relative; overflow-x: auto; }
+    #lead-chart svg { display: block; width: 100%; min-width: 560px; height: auto; overflow: visible; }
+    #lead-chart .ax { stroke: #333; }
+    #lead-chart .grid { stroke: #232323; }
+    #lead-chart text { fill: #777; font-size: 11px; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #aaa; margin: 6px 0 0; }
+    .tip {
+      position: absolute; pointer-events: none; background: #0d0d0d; border: 1px solid #444;
+      border-radius: 6px; padding: 6px 9px; font-size: 12px; color: #ccc; white-space: nowrap;
+      display: none; z-index: 5; font-variant-numeric: tabular-nums;
+    }
+    .tip b { color: #fff; }
+
+    /* category strip */
+    #strip { position: relative; overflow-x: auto; }
+    .strip-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+    .strip-row .nm { flex: none; width: 76px; font-size: 12px; color: #aaa; text-align: right; }
+    .strip-row .cells { display: flex; gap: 0; flex: none; }
+    .strip-row .c { width: 4px; height: 16px; background: #1f1f1f; }
+    .strip-row .c.day0 { box-shadow: inset 1px 0 0 #000; }
+    .strip-days { display: flex; margin-left: 84px; font-size: 11px; color: #666; }
+    .strip-days span { flex: none; width: 96px; overflow: hidden; }
+    .cat-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: #888; }
+
+    /* MOS bulletin */
+    table.mos { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+    table.mos th, table.mos td { padding: 3px 6px; text-align: center; border-bottom: 1px solid #222; white-space: nowrap; }
+    table.mos th { color: #888; font-weight: 500; text-align: left; position: sticky; left: 0; background: #1a1a1a; }
+    table.mos tr.hd td { color: #aaa; }
+    table.mos tr.day td { color: #666; font-size: 11px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+
+    dl.key { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; margin: 0; }
+    dl.key dt { color: #aaa; }
+    dl.key dd { margin: 0; color: #888; }
+    .err { color: #ef4444; }
+    .muted { color: #666; font-size: 13px; }
+    @media (max-width: 600px) {
+      body { padding: 0 16px 40px; }
+      .strip-row .nm { width: 52px; }
+      .strip-days { margin-left: 60px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Forecast Verification</h1>
+  <p class="subtitle">MOS · TAF · NWS grid vs METAR</p>
+
+  <div class="tbar">
+    <span><span class="lbl">station</span> <span class="chips" id="st-chips"></span></span>
+    <span><span class="lbl">window</span> <span class="chips" id="win-chips"></span></span>
+    <span><span class="lbl">lead</span> <span class="chips" id="lead-chips"></span></span>
+  </div>
+  <div class="status-bar" id="status">Loading archive…</div>
+
+  <div class="card">
+    <h2>Scorecard <span class="sub" id="sc-sub"></span></h2>
+    <div class="tbl-wrap" id="scorecard"></div>
+  </div>
+
+  <div class="card">
+    <h2>Error by lead time <span class="sub" id="lead-sub"></span></h2>
+    <div class="chips" id="metric-chips" style="margin-bottom:8px"></div>
+    <div id="lead-chart"><div class="tip" id="lead-tip"></div></div>
+    <div class="legend" id="lead-legend"></div>
+  </div>
+
+  <div class="card">
+    <h2>Flight category · last 7 days <span class="sub" id="strip-sub"></span></h2>
+    <div id="strip"></div>
+    <div class="cat-legend" id="cat-legend"></div>
+  </div>
+
+  <div class="card">
+    <h2>Latest MOS <span class="sub" id="mos-sub"></span></h2>
+    <div class="chips" id="mos-chips" style="margin-bottom:8px"></div>
+    <div class="tbl-wrap" id="mos-table"></div>
+  </div>
+
+  <div class="card">
+    <h2>Key</h2>
+    <dl class="key">
+      <dt>MOS</dt><dd>Model Output Statistics — raw GFS (MAV) / NAM (MET) output corrected by per-station regression on past METARs</dd>
+      <dt>TAF</dt><dd>NWS LWX terminal forecast · prevailing + BECMG groups; TEMPO/PROB not scored</dd>
+      <dt>Grid</dt><dd>NWS hourly grid at KANP · scored on KNAK</dd>
+      <dt>Lead</dt><dd>valid time − issue time · MOS issue = run + 4 h</dd>
+      <dt>Category</dt><dd>exact VFR/MVFR/IFR/LIFR match</dd>
+      <dt>IFR CSI</dt><dd>IFR-or-lower · hits ÷ (hits + misses + false alarms) · POD / FAR on hover</dd>
+      <dt>Wind dir</dt><dd>observed ≥ 6 kt</dd>
+      <dt>PoP Brier</dt><dd>6 h precip ending 00/06/12/18Z · 0 = perfect, 0.25 = coin flip</dd>
+      <dt>Verifying ob</dt><dd>METAR nearest the valid hour, ±30 min</dd>
+    </dl>
+  </div>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <footer>
+    <p>MOS → IEM MOS archive · TAF → NWS IWXXM / IEM · grid → api.weather.gov · METAR → NWS / IEM ·
+      raw data → <a href="https://github.com/nuvig/nuvig.github.io/tree/main/data/wx">data/wx</a> · °true</p>
+  </footer>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/wx-archive.js?v=2"></script>
+  <script src="js/taf-tac.js?v=1"></script>
+  <script src="js/verify.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/wxnav.js?v=7" defer></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
