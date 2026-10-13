@@ -66,6 +66,12 @@ const SITE = {
     // `kanp_rush_base` overrides it for a local copy.
     rushBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/rush-data',
 
+    // Where the Notables compile lives (notables.json on the notables-data
+    // branch, written hourly by .github/workflows/notables.yml →
+    // scripts/build_notables.py). localStorage `kanp_notables_base`
+    // overrides it.
+    notablesBase: 'https://raw.githubusercontent.com/nuvig/nuvig.github.io/notables-data',
+
     // Prefix for localStorage keys. Changing it discards saved settings
     // (API base, observed-aircraft notes) on visitors' browsers.
     storagePrefix: 'kanp',

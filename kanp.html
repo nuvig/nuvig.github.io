@@ -66,6 +66,7 @@
       font-family: inherit;
     }
     .tab-btn:hover { color: #ccc; }
+    @media (max-width: 480px) { .tab-btn { padding: 8px 7px; font-size: 13px; } }
     .tab-btn.active {
       color: #fff;
       border-bottom-color: #4a9eff;
@@ -388,6 +389,21 @@
       padding: 0 5px; font-size: 10px; margin-left: 4px;
     }
 
+    /* ---- notables tab ---- */
+    .nb-day { font-size: 13px; font-weight: 600; color: #ccc; margin: 16px 2px 4px; }
+    .nb-day .sub { font-weight: 400; color: #555; margin-left: 6px; }
+    #nb-list .ac-table { table-layout: fixed; min-width: 640px; }
+    #nb-list .ac-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+    #nb-list .ac-table td.nb-cs { color: #ddd; }
+    #nb-list .nb-tag {
+      border-radius: 3px; padding: 0 5px; font-size: 10px; margin-right: 3px;
+      background: #1d2a3a; color: #9cc8f5;
+    }
+    #nb-list .nb-tag.vip { background: #3d2a10; color: #f0c040; }
+    #nb-list .nb-tag.lee { background: #13301f; color: #7fd9a3; }
+    #nb-list .nb-near { color: #f0c040; }
+    #nb-more { margin: 10px 0; }
+
     /* ---- airline traffic tab ---- */
     .rush-chips { flex-wrap: wrap; }
     .rush-sw {
@@ -483,6 +499,7 @@
     <button class="tab-btn active" data-tab="tab-history">History Map</button>
     <button class="tab-btn" data-tab="tab-study">Traffic Study</button>
     <button class="tab-btn" data-tab="tab-rush">Airline Traffic</button>
+    <button class="tab-btn" data-tab="tab-notables">Notables</button>
   </div>
 
   <!-- ======================= LIVE TAB ======================= -->
@@ -1089,6 +1106,18 @@
     </div>
   </div>
 
+  <!-- ========================== NOTABLES TAB ========================== -->
+  <div id="tab-notables" class="tab-panel">
+    <div class="filter-bar">
+      <div class="filter-field"><label>Kind</label><div class="qr-row rush-chips" id="nb-kind"></div></div>
+      <div class="filter-field"><label>Within</label><div class="qr-row rush-chips" id="nb-near"></div></div>
+      <div class="filter-field"><label>Range</label><div class="qr-row rush-chips" id="nb-range"></div></div>
+    </div>
+    <div class="result-line" id="nb-result">Loading…</div>
+    <div id="nb-list"></div>
+    <button class="btn" id="nb-more" style="display:none">More</button>
+  </div>
+
   <!-- ======================= AIRLINE TRAFFIC TAB ======================= -->
   <div id="tab-rush" class="tab-panel">
     <div class="filter-bar" id="rush-filters">
@@ -1233,6 +1262,7 @@
   <script src="js/kanp-history.js?v=6"></script>
   <script src="js/kanp-study.js?v=2"></script>
   <script src="js/kanp-rush.js?v=3"></script>
+  <script src="js/kanp-notables.js?v=1"></script>
   <script src="js/kanp-ops.js?v=3"></script>
   <script src="js/kanp-climb.js?v=5"></script>
   <script src="js/kanp-final.js?v=2"></script>

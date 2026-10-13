@@ -22,7 +22,7 @@ into the repo on a schedule.
 
 **Flight tracker**
 
-- `kanp.html` — ADS-B traffic within 60 nm of KANP, four tabs:
+- `kanp.html` — ADS-B traffic within 60 nm of KANP, five tabs:
   - *Live* — current traffic, altitude-colored trails, heatmap.
   - *History Map* — any archived day's tracks, filtered by time, altitude,
     aircraft class and KANP operation (pattern laps, departures, arrivals by
@@ -36,6 +36,12 @@ into the repo on a schedule.
     approach-area load, and (once the Pi exports it) transmissions per
     15 min on the recorded frequencies. Reads `rush.json` from the
     `rush-data` branch, compiled hourly by `scripts/build_rush.py`.
+  - *Notables* — VIP callsigns (AF1 / AF2 / EXEC1F, VC-25, E-4B), foreign
+    military by ICAO address block, rare military types, warbirds,
+    one-airframe types, helicopter / military / first-time visitors at Lee,
+    and airliners low near the field, with closest approach to KANP. Reads
+    `notables.json` from the `notables-data` branch, compiled hourly by
+    `scripts/build_notables.py`.
 
 **Weather** (KANP / DC area)
 
@@ -124,6 +130,8 @@ into the repo on a schedule.
   recorder's log (transmissions and airtime per 15 min — never audio or text).
 - `.github/workflows/rush.yml` → `scripts/build_rush.py` compiles those
   snapshots into the Airline Traffic tab's `rush-data` branch every hour.
+- `.github/workflows/notables.yml` → `scripts/build_notables.py` does the
+  same for the Notables tab's `notables-data` branch.
 - The page tries the Pi first and falls back to the GitHub snapshots
   (`js/kanp-static.js`), which is what happens off the LAN. Snapshots are up
   to an hour stale.

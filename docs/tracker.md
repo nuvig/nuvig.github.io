@@ -4,7 +4,7 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
 
 ### Flight tracker
 
-`kanp.html` — three tabs: Live / History Map / Traffic Study. Scripts load in dependency order
+`kanp.html` — five tabs: Live / History Map / Traffic Study / Airline Traffic / Notables. Scripts load in dependency order
 (`site-config` → leaflet → `kanp-static` → `kanp` → the rest).
 
 - `js/kanp.js` — shared utils + Live tab (trails, heatmap, localStorage), plus `KANP.apiBase()` /
@@ -193,6 +193,26 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   the script's docstring; `--selftest` covers attribution, runway reads, coverage, the
   schedule and the encodings (96-slot series are base-62 strings, `slot_alphabet`).
   `window.KANPRush._data()` for headless checks.
+- `js/kanp-notables.js` — **Notables tab** (2026-10-13, fifth tab, `#notables`): the tracks
+  worth a look, newest first, grouped by day — time · callsign · type · tag · closest approach
+  to KANP · reg · ADS-B Exchange trace link. Chips: kind (counts follow the other chips) ·
+  within (any / 20 / 5 / 1 nm) · range (7 d / 30 d / all). Reads **`notables.json` on the
+  `notables-data` branch** (`SITE.tracker.notablesBase`, with a hard-coded fallback because
+  `site-config.js` is unversioned; localStorage `kanp_notables_base` overrides), compiled
+  hourly by `.github/workflows/notables.yml` (:28) → **`scripts/build_notables.py`** (stdlib,
+  imports `build_rush.py` for fetching / geometry / airliner list; same per-day incremental +
+  force-pushed single commit as rush-data). Kinds and rules live in the script's docstring:
+  `vip` (AF1/AF2/EXEC1F/EXEC2F, US-serial military 747s, `VIP_REGS` names VC-25 / E-4B),
+  `state` (military flag + ICAO address in a non-US block → country from `ICAO_BLOCKS`;
+  **use the address block, not the callsign** — KAF001 is South Korea's 747-8, KAF3209 is
+  Kuwait's C-17; `US_CS` drops US callsigns on mis-coded addresses), `mil` (`MIL_TYPES`;
+  E-2 / P-3 / MQ-4C left out as Pax River's daily traffic), `warbird` (`WARBIRD_TYPES`;
+  Stearman / T-6 / T-34 / Cub left out — daily ride flights), `rare` (one airframe of the
+  type in the whole archive; the closest pass stands for it), `lee` (field contact by the
+  ops gates: helicopter, military, or first visit once ≥ 14 archived days precede it),
+  `low` (airliner / large military < 2,000 ft within 2 nm, no field contact). Altitudes
+  above 60,000 ft are decoding glitches and read as unknown. `--selftest` covers each kind.
+  `window.KANPNotables._data()` for headless checks.
 
 The climb / final / pattern sub-tools mirror `kanp-ops.js` detection logic — if you change how a
 field contact is classified there, check all four (`kanp-conflict.js` is about aircraft pairs, not
