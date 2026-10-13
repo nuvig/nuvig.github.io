@@ -210,8 +210,20 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   Stearman / T-6 / T-34 / Cub left out — daily ride flights), `rare` (one airframe of the
   type in the whole archive; the closest pass stands for it), `lee` (field contact by the
   ops gates: helicopter, military, or first visit once ≥ 14 archived days precede it),
-  `low` (airliner / large military < 2,000 ft within 2 nm, no field contact). Altitudes
-  above 60,000 ft are decoding glitches and read as unknown. `--selftest` covers each kind.
+  `low` (airliner / large military < 2,000 ft within 2 nm, no field contact), `hold`
+  (≥ 2 full circles in a 12 nm box: airliners tagged *hold*, large military / civil jets
+  *orbit*; Pax River's T-38 / T-6 / T-45 turns excluded). Altitudes above 60,000 ft are
+  decoding glitches and read as unknown. **Records** (2026-10-13, card above the list,
+  follows the range chip; each row opens to the top 5): highest, fastest, longest hold
+  (airliners), most circles (fixed-wing / helicopter), most Lee pattern laps in one session,
+  longest aloft, busiest day at Lee — from per-day leaders (`tops` in notables.json,
+  `records()` in the script). **The raw feed lies, so every record is validated**: altitude
+  must be held ±200 ft for a minute (airliners capped 45,000, helicopters 20,000, > 45,000
+  needs ≥ 250 kt — unchecked, a CRJ "flew" 52,600 and a C-130 126,400); speed is the
+  reported gs (median of 5) confirmed by position over two back-to-back 60–300 s stretches
+  (unchecked, 787s read 715 kt from position noise and a garbled P28R 924 kt); circles are
+  signed heading change so S-turns cancel; Lee laps run liftoff → last touchdown and break at
+  a stop > 10 min. `--selftest` covers each kind and record.
   `window.KANPNotables._data()` for headless checks.
 
 The climb / final / pattern sub-tools mirror `kanp-ops.js` detection logic — if you change how a

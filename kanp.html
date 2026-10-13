@@ -403,7 +403,28 @@
     #nb-list .nb-tag.lee { background: #13301f; color: #7fd9a3; }
     #nb-list .nb-near { color: #f0c040; }
     #nb-more { margin: 10px 0; }
-
+    details.nb-rec { border-bottom: 1px solid #2a2a2a; }
+    details.nb-rec:last-child { border-bottom: none; }
+    details.nb-rec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
+    details.nb-rec > summary::-webkit-details-marker { display: none; }
+    details.nb-rec > summary::before { content: '▸'; color: #555; width: 14px; flex: 0 0 14px; font-size: 11px; }
+    details[open].nb-rec > summary::before { content: '▾'; }
+    .nb-rec-l { flex: 0 0 170px; font-size: 12px; color: #888; }
+    table.ac-table.nb-rec-t { table-layout: fixed; width: auto; }
+    .nb-rec-t col.c-v { width: 150px; } .nb-rec-t col.c-cs { width: 96px; }
+    .nb-rec-t col.c-t { width: 56px; } .nb-rec-t col.c-d { width: 64px; } .nb-rec-t col.c-tr { width: 44px; }
+    .nb-rec-t td { border-bottom: none !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 8px; }
+    .nb-rec-t td.v { color: #fff; font-variant-numeric: tabular-nums; }
+    .nb-rec-t td.d { color: #888; }
+    details.nb-rec > table { margin-left: 184px; }
+    details.nb-rec > table td.v { color: #aaa; }
+    @media (max-width: 600px) {
+      details.nb-rec > summary { flex-wrap: wrap; }
+      .nb-rec-l { flex-basis: calc(100% - 14px); }
+      details.nb-rec > table { margin-left: 14px; }
+      .nb-rec-t col.c-v { width: 128px; } .nb-rec-t col.c-cs { width: 86px; }
+      .nb-rec-t col.c-tr, .nb-rec-t td.tr { display: none; }
+    }
     /* ---- airline traffic tab ---- */
     .rush-chips { flex-wrap: wrap; }
     .rush-sw {
@@ -1114,6 +1135,8 @@
       <div class="filter-field"><label>Range</label><div class="qr-row rush-chips" id="nb-range"></div></div>
     </div>
     <div class="result-line" id="nb-result">Loading…</div>
+    <div class="section-title">Records</div>
+    <div class="card" id="nb-records" style="padding:6px 10px;overflow-x:auto"></div>
     <div id="nb-list"></div>
     <button class="btn" id="nb-more" style="display:none">More</button>
   </div>
@@ -1262,7 +1285,7 @@
   <script src="js/kanp-history.js?v=6"></script>
   <script src="js/kanp-study.js?v=2"></script>
   <script src="js/kanp-rush.js?v=3"></script>
-  <script src="js/kanp-notables.js?v=1"></script>
+  <script src="js/kanp-notables.js?v=2"></script>
   <script src="js/kanp-ops.js?v=3"></script>
   <script src="js/kanp-climb.js?v=5"></script>
   <script src="js/kanp-final.js?v=2"></script>

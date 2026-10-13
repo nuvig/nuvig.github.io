@@ -32,6 +32,14 @@ Kinds (an event can carry several):
            (only once the archive has FIRST_MIN_DAYS days before it)
   low      airliner or large military aircraft below LOW_FT within LOW_NM of
            KANP without touching the field
+  hold     ≥ HOLD_LAPS full circles in one loiter (see records() `circ`) by
+           an airliner (al = 1, a hold) or a large military / civil jet (an
+           orbit); ts is when the circling began
+
+Records (records()): highest, fastest, most circles (fixed-wing and
+helicopter), longest aloft, most Lee pattern laps in one session — each
+day keeps its TOP_N leaders, with the checks that keep the feed's
+altitude / speed glitches out spelled out in records().
 
 A day file (days/YYYY-MM-DD.json):
 
@@ -43,19 +51,25 @@ A day file (days/YYYY-MM-DD.json):
   inv  {type: [hex, …] | 0}      airframes per type that day (0 = more than
                                   INV_MAX, never rare)
   fld  [hex, …]                  every airframe with a field contact
+  top  {alt|gs|circ|circh|aloft|laps: [{v, ts, h, r, c, t, n, m, dur?, cd?}]}
+                                  the day's leaders (dur minutes, cd nm from
+                                  KANP to the circles' centre)
 
 An event:
 
   {ts, h hex, r reg, c callsign, t type, n description, m military 0/1,
    d nm closest to KANP, a ft at that point (barometric, null unknown),
    g 1 on the ground there, k [kinds], lbl name for vip, cty country,
-   why "heli" / "mil" / "new" for lee}
+   why "heli" / "mil" / "new" for lee, la ft lowest for low,
+   hl laps / hm minutes / hd nm centre from KANP / al for hold}
 
 notables.json (what the page reads): generated, v, days [dates compiled],
-ev [event, …] newest first, counts {kind: n}.
+ev [event, …] newest first, counts {kind: n}, tops {date: {record: top 3,
+busy: aircraft with a Lee field contact}}.
 """
 import argparse
 import datetime as dt
+import math
 import os
 import re
 import sys
@@ -66,13 +80,23 @@ import build_rush as BR  # noqa: E402
 
 SRC = os.environ.get(
     "NOTABLES_SRC", "https://raw.githubusercontent.com/nuvig/nuvig.github.io/traffic-data/v2")
-VERSION = 1
+VERSION = 2
 KANP_LAT, KANP_LON = BR.KANP_LAT, BR.KANP_LON
 
 OPS_NEAR_NM, OPS_LOW_FT = 0.8, 600   # mirror of SITE.tracker.opsGates
 LOW_NM, LOW_FT = 2.0, 2000
 FIRST_MIN_DAYS = 14
 INV_MAX = 3
+TOP_N = 5            # per-day leaders kept per record
+GAP_S = 300          # a longer gap (or a ground fix) ends a flight episode
+HOLD_LAPS = 2.0      # full circles in one loiter that make a jet's hold notable
+CIRC_BOX_NM = 12     # a loiter's circles must fit in a box this size …
+CIRC_MAX_S = 10800   # … within this long
+LAP_GAP_S = 480      # Lee pattern laps: contacts this close …
+LAP_NM, LAP_FT = 3.0, 1800   # … with every fix between inside this,
+LAP_STOP_S = 600             # … and no stop at the field longer than this
+LARGE_MIL = {"C17", "C5M", "C130", "C30J", "K35R", "B762", "P8", "E6", "B1", "B52",
+             "V22", "H47", "H53S", "B752", "B737", "GLF5"}
 
 VIP_CS = re.compile(r"^(AF1|AF2|EXEC1F|EXEC2F)$")
 US_SERIAL = re.compile(r"^\d{2}-\d{4,5}$")
@@ -199,13 +223,175 @@ def summarize(track):
             "contact": contact, "low": low}
 
 
+def _held(p, i, j):
+    """Fix i's altitude held within 200 ft for ≥ 60 s around it."""
+    a = p[i][3]
+    lo = hi = i
+    while lo > 0 and p[lo - 1][3] is not None and abs(p[lo - 1][3] - a) <= 200:
+        lo -= 1
+    while hi < j - 1 and p[hi + 1][3] is not None and abs(p[hi + 1][3] - a) <= 200:
+        hi += 1
+    return hi - lo >= 2 and p[hi][0] - p[lo][0] >= 60
+
+
+def records(track, heli):
+    """Per-track record candidates, each robust to the feed's glitches:
+
+    alt   highest altitude held (±200 ft) for a minute over ≥ 3 fixes;
+          airliners capped at 45,000, helicopters at 20,000, anything above
+          45,000 must be doing ≥ 250 kt — a decoded altitude can repeat
+    gs    highest reported ground speed (median of 5) that the positions
+          confirm within 10 % over two back-to-back 60–300 s stretches —
+          position noise over a few seconds, lone gs spikes and a garbled
+          track (one P28R "flew" 924 kt) all read 700+ kt otherwise
+    circ  most full circles inside one CIRC_BOX_NM box within CIRC_MAX_S
+          (signed heading change, so a hold or orbit adds up and S-turns
+          cancel; a > 150° jump between fixes is a reversal, not a turn)
+    aloft longest airborne stretch without a GAP_S gap
+    laps  most Lee pattern laps in one session: field contacts (ops gates)
+          ≤ LAP_GAP_S apart with every fix between inside LAP_NM / LAP_FT,
+          no stop at the field longer than LAP_STOP_S
+    """
+    p = track["points"]
+    n = len(p)
+    ty = (track.get("type") or "").strip()
+    cap = 20000 if heli else 45000 if BR.is_airliner(ty) else ALT_MAX
+    K = math.cos(math.radians(KANP_LAT))
+    P = [((q[2] - KANP_LON) * 60 * K, (q[1] - KANP_LAT) * 60) for q in p]
+    dist = lambda a, b: math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1])
+    out = {}
+
+    best = None
+    for i in range(n):
+        a = p[i][3]
+        if a is None or p[i][5] or a > cap or (best and a <= best[0]):
+            continue
+        if a > 45000 and (p[i][4] is None or p[i][4] < 250):
+            continue
+        if _held(p, i, n):
+            best = (a, p[i][0])
+    if best:
+        out["alt"] = best
+
+    best = None
+
+    def win(i):
+        """First fix ≥ 60 s after i, if it is within 300 s and airborne."""
+        j = i + 1
+        while j < n and p[j][0] - p[i][0] < 60:
+            j += 1
+        return j if j < n and p[j][0] - p[i][0] <= 300 and not p[j][5] else None
+    for i in range(2, n - 2):
+        g = [p[k][4] for k in range(i - 2, i + 3)]
+        if None in g or p[i][5]:
+            continue
+        gm = sorted(g)[2]
+        if gm > 1000 or (best and gm <= best[0]):
+            continue
+        # two back-to-back minute-plus stretches must both fly that speed
+        j = win(i)
+        k = win(j) if j else None
+        if k is None:
+            continue
+        v1 = dist(i, j) / (p[j][0] - p[i][0]) * 3600
+        v2 = dist(j, k) / (p[k][0] - p[j][0]) * 3600
+        if abs(v1 - gm) <= 0.1 * gm and abs(v2 - gm) <= 0.1 * gm:
+            best = (round(gm), p[i][0])
+    if best:
+        out["gs"] = best
+
+    # flight episodes
+    eps, cur = [], []
+    for i in range(n):
+        if p[i][5] or (cur and p[i][0] - p[cur[-1]][0] > GAP_S):
+            if len(cur) > 1:
+                eps.append(cur)
+            cur = []
+            if p[i][5]:
+                continue
+        cur.append(i)
+    if len(cur) > 1:
+        eps.append(cur)
+    if eps:
+        e = max(eps, key=lambda e: p[e[-1]][0] - p[e[0]][0])
+        if p[e[-1]][0] > p[e[0]][0]:
+            out["aloft"] = (p[e[-1]][0] - p[e[0]][0], p[e[0]][0])
+
+    best = None
+    tau = 2 * math.pi
+    for ep in eps:
+        H, last = [], ep[0]
+        for i in ep[1:]:
+            if dist(i, last) < 0.05:
+                continue
+            H.append((math.atan2(P[i][1] - P[last][1], P[i][0] - P[last][0]), last))
+            last = i
+        if len(H) < 4:
+            continue
+        cum, idx = [0.0], [H[0][1]]
+        for k in range(1, len(H)):
+            dh = (H[k][0] - H[k - 1][0] + math.pi) % tau - math.pi
+            cum.append(cum[-1] + (dh if abs(dh) <= 2.6 else 0.0))
+            idx.append(H[k][1])
+        if max(cum) - min(cum) < tau * 1.5:
+            continue
+        for a in range(len(cum)):
+            x0 = x1 = P[idx[a]][0]
+            y0 = y1 = P[idx[a]][1]
+            for b in range(a + 1, len(cum)):
+                q = P[idx[b]]
+                x0, x1, y0, y1 = min(x0, q[0]), max(x1, q[0]), min(y0, q[1]), max(y1, q[1])
+                if (x1 - x0 > CIRC_BOX_NM or y1 - y0 > CIRC_BOX_NM
+                        or p[idx[b]][0] - p[idx[a]][0] > CIRC_MAX_S):
+                    break
+                c = abs(cum[b] - cum[a]) / tau
+                if c >= 1.5 and (best is None or c > best[0]):
+                    best = (round(c, 1), p[idx[a]][0], p[idx[b]][0],
+                            round(math.hypot((x0 + x1) / 2, (y0 + y1) / 2), 1))
+    if best:
+        out["circ"] = best
+
+    contacts, cur = [], None
+    for i, q in enumerate(p):
+        at = (math.hypot(*P[i]) <= OPS_NEAR_NM
+              and (q[5] == 1 or (q[3] is not None and q[3] <= OPS_LOW_FT)))
+        if at:
+            cur = [cur[0], i] if cur else [i, i]
+        elif cur:
+            contacts.append(cur)
+            cur = None
+    if cur:
+        contacts.append(cur)
+    best, run = None, None
+    for c in contacts:
+        if run and p[run[-1][1]][0] - p[run[-1][0]][0] <= LAP_STOP_S \
+                and p[c[0]][0] - p[run[-1][1]][0] <= LAP_GAP_S and all(
+                math.hypot(*P[k]) <= LAP_NM and (p[k][3] is None or p[k][3] <= LAP_FT)
+                for k in range(run[-1][1] + 1, c[0])):
+            run.append(c)
+        else:
+            run = [c]
+        if len(run) >= 3 and (best is None or len(run) - 1 > best[0]):
+            best = (len(run) - 1, p[run[0][1]][0], p[run[-1][0]][0])   # liftoff → last touchdown
+    if best:
+        out["laps"] = best
+    return out
+
+
+def _push(tops, key, val, entry):
+    lst = tops.setdefault(key, [])
+    lst.append(dict(entry, v=val))
+    lst.sort(key=lambda e: -e["v"])
+    del lst[TOP_N:]
+
+
 def compile_day(day):
     inv = {}
     for t in day["tracks"]:
         ty = (t.get("type") or "").strip()
         if ty:
             inv.setdefault(ty, set()).add(t["hex"])
-    ev, fld = [], []
+    ev, fld, tops = [], [], {}
     for t in day["tracks"]:
         if not t.get("points"):
             continue
@@ -230,6 +416,33 @@ def compile_day(day):
         rare_cand = bool(ty) and len(inv.get(ty, ())) == 1
         heli = ty in HELI_TYPES
         s = summarize(t)
+        rec = records(t, heli)
+        who = {"h": t["hex"], "r": reg, "t": ty, "n": (t.get("descr") or "").strip(), "m": mil}
+
+        def lead(key, val, ts, **kw):
+            _push(tops, key, val, dict(who, ts=ts, c=display_cs(t, ts, css), **kw))
+        if "alt" in rec:
+            lead("alt", rec["alt"][0], rec["alt"][1])
+        if "gs" in rec:
+            lead("gs", rec["gs"][0], rec["gs"][1])
+        if "aloft" in rec:
+            lead("aloft", round(rec["aloft"][0] / 60), rec["aloft"][1])
+        if "circ" in rec:
+            c = rec["circ"]
+            lead("circh" if heli else "circ", c[0], c[1], dur=round((c[2] - c[1]) / 60), cd=c[3])
+        if "laps" in rec:
+            lp = rec["laps"]
+            lead("laps", lp[0], lp[1], dur=round((lp[2] - lp[1]) / 60))
+        # holds: airliners, large military, civil jets / turboprops; not
+        # Pax River's T-38 / T-6 / T-45 test and training turns
+        jet = (BR.is_airliner(ty) or (mil and ty in LARGE_MIL)
+               or (not mil and "gs" in rec and rec["gs"][0] >= 250))
+        if "circ" in rec and not heli and jet and rec["circ"][0] >= HOLD_LAPS:
+            kinds.append("hold")
+            c = rec["circ"]
+            extra.update(hl=c[0], hm=round((c[2] - c[1]) / 60), hts=c[1], hd=c[3])
+            if BR.is_airliner(ty):
+                extra["al"] = 1      # a hold proper; anything else circling is an orbit
         if s["contact"]:
             fld.append(t["hex"])
             if heli or mil:
@@ -246,6 +459,8 @@ def compile_day(day):
         ts = s["ts"]
         if "low" in kinds:
             ts = s["low"][1]
+        elif "hold" in kinds and len(kinds) == 1:
+            ts = extra["hts"]
         e = {"ts": ts, "h": t["hex"], "r": reg, "c": vip_cs or display_cs(t, ts, css),
              "t": ty, "n": (t.get("descr") or "").strip(), "m": mil, "d": s["d"], "a": s["a"],
              "g": s["g"], "k": kinds}
@@ -256,10 +471,12 @@ def compile_day(day):
         if rare_cand:
             e["rc"] = 1
         e.update(extra)
+        e.pop("hts", None)
         ev.append(e)
     return {
         "date": day["date"],
         "ev": ev,
+        "top": tops,
         "inv": {ty: (sorted(h) if len(h) <= INV_MAX else 0) for ty, h in inv.items()},
         "fld": sorted(set(fld)),
     }
@@ -322,6 +539,10 @@ def aggregate(days):
         "first_min_days": FIRST_MIN_DAYS,
         "counts": counts,
         "ev": out,
+        # per-day record leaders (top 3) and aircraft with a Lee field
+        # contact — the page ranks them over whatever range is selected
+        "tops": {r["date"]: dict({k: v[:3] for k, v in (r.get("top") or {}).items()},
+                                 busy=len(r["fld"])) for r in days},
     }
 
 
@@ -442,6 +663,48 @@ def selftest():
     assert len([e for e in rare if e["t"] == "ZZZZ"]) == 1
     assert agg["counts"]["vip"] == 20
     assert country_of("3c0000") == "Germany" and country_of("ae0001") is None
+
+    # records: a jet holding 3 laps 30 nm out, with an altitude glitch and a
+    # gs spike; a C172 flying 4 laps at Lee
+    def circle(t, clat, clon, r_nm, laps, per_lap_s, alt, gs, step=10):
+        pts = []
+        for k in range(int(laps * per_lap_s / step) + 1):
+            th = 2 * math.pi * k * step / per_lap_s
+            pts.append([t + k * step, clat + r_nm / 60 * math.sin(th),
+                        clon + r_nm / 60 * math.cos(th) / math.cos(math.radians(clat)),
+                        alt, gs, 0])
+        return pts
+    hold = circle(t0, 39.3, -76.2, 2.0, 3.2, 2 * math.pi * 2.0 / 240 * 3600, 12000, 240)
+    hold[5][3] = 126400                       # lone decoded-altitude glitch
+    hold[9][4] = hold[10][4] = 5781           # gs spike, two fixes
+    cruise = line(t0, 38.5, -77.6, 41000, 39.5, -75.6, 41000, 120, 7)   # ≈ 480 kt
+    for q in cruise:
+        q[4] = None
+    for k in range(40, 50):                   # 10 fixes reporting 480 kt
+        cruise[k][4] = 480
+    lap = []
+    t = t0
+    for _ in range(5):                        # 5 circuits, then a full stop
+        lap += [[t, KANP_LAT, KANP_LON, 300, 70, 0]]
+        lap += circle(t + 10, KANP_LAT + 0.012, KANP_LON, 0.7, 1, 240, 1000, 80, 20)[1:-1]
+        t += 260
+    lap += [[t, KANP_LAT, KANP_LON, None, 5, 1]]
+    day2 = {"date": "2026-09-30", "tracks": [
+        tr("a00010", "SWA1447", "B738", hold, reg="N8570W"),
+        tr("a00011", "GLF1", "GLF6", cruise, reg="N650X"),
+        tr("a00012", "N24787", "C172", lap, reg="N24787")]}
+    r2 = compile_day(day2)
+    top = r2["top"]
+    h = next(e for e in r2["ev"] if e["h"] == "a00010")
+    assert "hold" in h["k"] and h["hl"] >= 3.0 and h["hd"] > 20 and h["al"] == 1, h
+    assert any(e["h"] == "a00010" and e["v"] >= 3.0 for e in top["circ"]), top["circ"]
+    assert top["alt"][0]["v"] == 41000, top["alt"]          # not 126,400
+    assert all(e["v"] < 1000 for e in top["gs"]), top["gs"]  # not 5,781
+    assert top["gs"][0]["v"] == 480 and top["gs"][0]["h"] == "a00011", top["gs"]
+    assert top["laps"][0]["v"] == 5 and top["laps"][0]["h"] == "a00012", top["laps"]
+    assert "hold" not in next(e for e in r2["ev"] if e["h"] == "a00012")["k"]
+    agg2 = aggregate([r2])
+    assert agg2["tops"]["2026-09-30"]["busy"] == 1 and agg2["tops"]["2026-09-30"]["laps"]
     BR.log("selftest ok")
     return 0
 

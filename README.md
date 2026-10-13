@@ -38,8 +38,11 @@ into the repo on a schedule.
     `rush-data` branch, compiled hourly by `scripts/build_rush.py`.
   - *Notables* — VIP callsigns (AF1 / AF2 / EXEC1F, VC-25, E-4B), foreign
     military by ICAO address block, rare military types, warbirds,
-    one-airframe types, helicopter / military / first-time visitors at Lee,
-    and airliners low near the field, with closest approach to KANP. Reads
+    one-airframe types, airliner holds and jet orbits, helicopter / military /
+    first-time visitors at Lee, and airliners low near the field, with
+    closest approach to KANP; plus records (highest, fastest, longest hold,
+    most circles, most Lee pattern laps in a session, longest aloft,
+    busiest day at Lee). Reads
     `notables.json` from the `notables-data` branch, compiled hourly by
     `scripts/build_notables.py`.
 
