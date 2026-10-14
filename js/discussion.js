@@ -24,7 +24,7 @@ const LOG_DEPTH = 6;        // AFD issuances to load for the change log
 const CHECK_MS = 10 * 60 * 1000;
 /* Printed in the footer so a stale deploy is visible at a glance.
    Keep in step with the ?v= cache-buster on this file in discussion.html. */
-const DISC_VER = 43;
+const DISC_VER = 44;
 
 const $ = (id) => document.getElementById(id);
 
@@ -502,7 +502,7 @@ async function loadPastDays() {
 
 /* Latest NWS daily forecast for DC, kept around so the headline engine can
    quote the official numbers instead of re-deriving them from the model. */
-const FC = { days: null, periods: [], at: 0 };
+const FC = { days: null, periods: [], at: 0, qpf: null };
 
 async function loadDrift() {
   let fcUrl = localStorage.getItem('dcwx_fc_url');
@@ -524,6 +524,7 @@ async function loadDrift() {
   FC.days = days;
   FC.periods = fc.properties.periods || [];
   FC.at = Date.now();
+  FC.qpf = await loadQpf(fcUrl).catch(() => null);   // optional — tile falls back to the GFS
   const now = Date.now();
   let snaps = [];
   try { snaps = JSON.parse(localStorage.getItem(DRIFT_KEY)) || []; } catch (e) { /* reset */ }
@@ -544,6 +545,30 @@ async function loadDrift() {
     while (snaps.length > 10) snaps.shift();
     localStorage.setItem(DRIFT_KEY, JSON.stringify(snaps));
   }
+}
+
+/* NWS grid QPF (mm per validTime span, usually 6 h) summed into local days,
+   inches — the "how much" next to the daily forecast's "how likely". Spans
+   that straddle midnight are split by the hour. */
+async function loadQpf(fcUrl) {
+  const g = await fetchJSON(fcUrl.replace(/\/forecast$/, ''));
+  const q = g.properties && g.properties.quantitativePrecipitation;
+  if (!q || !Array.isArray(q.values)) return null;
+  const mm = /mm$/.test(q.uom || 'mm');
+  const out = {};
+  for (const v of q.values) {
+    const [start, dur] = String(v.validTime).split('/');
+    const t0 = Date.parse(start);
+    const m = (dur || '').match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?)?$/);
+    if (!Number.isFinite(t0) || !m || v.value == null) continue;
+    const hrs = (+(m[1] || 0)) * 24 + (+(m[2] || 0)) || 1;
+    const per = (mm ? v.value / 25.4 : v.value) / hrs;
+    for (let h = 0; h < hrs; h++) {
+      const k = localDay(t0 + h * 3600000);
+      out[k] = (out[k] || 0) + per;
+    }
+  }
+  return out;
 }
 
 function fmtDay(dateStr) {
@@ -3372,25 +3397,44 @@ function buildStories(s) {
 function headlineStats(s) {
   const now = Date.now();
   const tiles = [];
+  /* High and low share one tile. */
   const hot = daytimeHigh(s);
-  if (hot && hot.f != null) {
-    const hix = s ? peakHeatIndex(s, hot.key) : null;
+  const lo = upcomingLow(s);
+  const hiOk = hot && hot.f != null, loOk = lo && lo.f != null;
+  if (hiOk || loOk) {
+    const hix = hiOk && s ? peakHeatIndex(s, hot.key) : null;
+    const gfs = (hiOk && hot.src === 'GFS') || (loOk && lo.src === 'GFS');
     tiles.push({
-      lab: `High ${hot.label}`,
-      val: `${hot.f}°`,
-      sub: hix && hix.hi - hot.f >= 4 ? `feels like ${Math.round(hix.hi)}°` : hot.src,
+      lab: hiOk && loOk ? 'High / Low' : hiOk ? 'High' : 'Low',
+      val: [hiOk ? `${hot.f}°` : null, loOk ? `${lo.f}°` : null].filter(Boolean).join(' / '),
+      sub: hix && hix.hi - hot.f >= 4 ? `feels like ${Math.round(hix.hi)}°`
+        : [hiOk ? hot.label : null, loOk ? lo.label : null].filter(Boolean).join(' / ') + (gfs ? ' · GFS' : ''),
     });
   }
-  const lo = upcomingLow(s);
-  if (lo && lo.f != null) tiles.push({ lab: `Low ${lo.label}`, val: `${lo.f}°`, sub: lo.src });
 
-  const fd = (FC.days && FC.days[localDay(now)]) || null;
+  /* Precip: chance shades the tile left→right, amount fills dots bottom→top
+     (√-scaled, 1″ ≈ halfway). Amount is today's NWS QPF, else the GFS. */
+  const today = localDay(now);
+  const fd = (FC.days && FC.days[today]) || null;
   const eps = s ? precipEpisodes(s, s.now) : [];
   const total = eps.reduce((a, e) => a + e.total, 0) / 25.4;
+  const pop = fd && fd.pop != null ? fd.pop : null;
+  let amt = FC.qpf ? FC.qpf[today] || 0 : null, amtSrc = 'NWS';
+  if (amt == null && eps.length) {
+    amt = eps.filter((e) => localDay(e.t0) === today).reduce((a, e) => a + e.total, 0) / 25.4;
+    amtSrc = 'GFS';
+  }
+  const amtTxt = amt != null && amt >= 0.005 ? `${amt.toFixed(2)}″` : null;
+  const fillH = amt != null && amt >= 0.005 ? Math.max(5, Math.min(50, 50 * Math.sqrt(amt))) : 0;
   tiles.push({
     lab: 'Precip',
-    val: fd && fd.pop != null ? `${fd.pop}%` : eps.length ? `${total.toFixed(2)}″` : 'none',
-    sub: eps.length ? `~${total.toFixed(2)}″ from ${clockPhrase(eps[0].t0)}` : 'nothing in the model',
+    val: pop != null ? `${pop}%` : amtTxt || (eps.length ? `${total.toFixed(2)}″` : 'none'),
+    sub: amt != null ? `${amt.toFixed(2)}″ today · ${amtSrc}`
+      : eps.length ? `~${total.toFixed(2)}″ from ${clockPhrase(eps[0].t0)}` : 'nothing in the model',
+    cls: 'pp',
+    bg: `<span class="pp-pop" style="width:${pop || 0}%"></span>` +
+      `<span class="pp-qpf" style="height:${fillH.toFixed(1)}%"></span>`,
+    title: [pop != null ? `${pop}% chance` : null, amtTxt ? `${amtTxt} expected today` : null].filter(Boolean).join(' · '),
   });
 
   if (s) {
@@ -3946,7 +3990,7 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
   $('hl-title').innerHTML = anchoredHtml(lead.headline, lead.anchors);
   $('hl-deck').innerHTML = anchoredHtml(lead.deck, lead.anchors);
   $('hl-why').innerHTML = lead.why
-    ? `<span class="lab">The driver · ${esc(OFFICE)}</span>${esc(lead.why)}`
+    ? `<span class="lab">Why · ${esc(lead.whySrc || OFFICE)}</span>${esc(lead.why)}`
     : '';
   $('hl-stamp').textContent =
     `as of ${fmtTime(new Date(), { hour: 'numeric', minute: '2-digit' })} · GFS + NWS ${OFFICE}`;
@@ -3970,7 +4014,8 @@ function renderHeadline(lead, tiles, alsos, keyMsgs, atmosSeries) {
     }).join('');
 
   $('hl-stats').innerHTML = tiles.map((t) =>
-    `<div class="hl-stat"><div class="lab">${esc(t.lab)}</div><div class="val">${esc(t.val)}</div>` +
+    `<div class="hl-stat${t.cls ? ' ' + t.cls : ''}"${t.title ? ` title="${esc(t.title)}"` : ''}>${t.bg || ''}` +
+    `<div class="lab">${esc(t.lab)}</div><div class="val">${esc(t.val)}</div>` +
     `${t.sub ? `<div class="sub">${esc(t.sub)}</div>` : ''}</div>`).join('');
 
   const changed = afdWhatChanged();
@@ -4165,6 +4210,10 @@ function buildHeadline() {
 
     /* The driver: what the office says is doing the work behind the lead. */
     lead.why = whyFor(lead.day || localDay(Date.now()), hazardReFor(lead.key || 'quiet'));
+    if (!lead.why && s) {              // no matching AFD block — the model's nearest feature
+      const mech = mechanismAt(s.now);
+      if (mech) { lead.why = mech.text.charAt(0).toUpperCase() + mech.text.slice(1) + '.'; lead.whySrc = 'GFS'; }
+    }
 
     /* When the lead opens a multi-day stretch, say so — one clause of arc. */
     const phases = weekPhases(weekAhead());

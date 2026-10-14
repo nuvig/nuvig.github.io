@@ -151,7 +151,11 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   (`driverSentence()`: driver terms + motion verbs score it, model-chat is docked, naming more of
   the block's days wins ties — so "a surface low develops near the VA Tidewater" beats the
   Friday-lull sentence for a Fri–Sat block). The lead story renders that sentence as
-  "The driver · LWX"; **"The week"** (7 forecast chips + one driver row per block, `renderWeek()`)
+  "Why · LWX" right under the deck (no matching block → `mechanismAt()` nearest front/low,
+  "Why · GFS"). Numbers row: one **High / Low** tile; the **Precip** tile is shaded left→right
+  by today's PoP and dot-filled bottom→top by today's QPF (NWS grid `quantitativePrecipitation`
+  off the forecast URL, `loadQpf()`, summed into local days; GFS fallback), √-scaled so 1″ ≈
+  halfway. **"The week"** (7 forecast chips + one driver row per block, `renderWeek()`)
   carries the coming days. Stories reach the **full 7-day forecast** — per-day
   `fcstorm:`/`fcwinter:`/`fcwind:` keys so two storm days both surface, a flattened lead-time
   penalty instead of the old +60 h cutoff — with decks honest about the ~2-day GFS window ("Past
