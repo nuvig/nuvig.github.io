@@ -63,6 +63,7 @@ DOMAINS = {
 FORECAST_DAYS = 3
 MODEL = "gfs_seamless"
 TIMEOUT = 60
+RETRY_WAITS = [10, 30, 90]   # seconds between attempts (4 tries total)
 
 # How much precision each variable keeps. Everything unlisted becomes an int:
 # a cloud cover of 47.31 % and a wind direction of 213.7° are false precision,
@@ -129,9 +130,24 @@ def build_url(lats, lons, variables):
 
 
 def fetch(url):
+    """GET + parse JSON, retrying transient failures. Open-Meteo intermittently
+    stalls the TLS handshake from Actions runners (Oct 2026: about half the
+    hourly runs died on one); a retry a few seconds later goes through."""
     req = urllib.request.Request(url, headers={"User-Agent": "jesselevine.net wx3d snapshot"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        return json.loads(r.read().decode("utf-8"))
+    for attempt, wait in enumerate(RETRY_WAITS + [None], 1):
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if wait is None or not (e.code == 429 or e.code >= 500):
+                raise
+            err = f"HTTP {e.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if wait is None:
+                raise
+            err = str(getattr(e, "reason", e))
+        print(f"  attempt {attempt} failed ({err}); retrying in {wait}s", file=sys.stderr)
+        time.sleep(wait)
 
 
 def trim(hourly, variables):
