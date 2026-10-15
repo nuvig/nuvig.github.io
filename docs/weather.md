@@ -518,5 +518,8 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   PoP in the window; observed = precip wx or a P-group > 0 in ≥ 4 obs). **Persistence** (the ob at
   v − L forecasts v) is scored alongside as the floor. Cards: scorecard (best of the real products
   bold), metric-by-lead chart (3 h buckets, one axis, hover), 7-day category strip (newest forecast
-  in the lead band; MOS projections hold 3 h), latest MOS run decoded. `window.VERIFY_DEBUG` exposes
+  in the lead band; MOS projections hold 3 h), latest MOS run decoded. **Regime split** (2026-10-15, `?rg=ts|dry`): every pair is
+  also scored under its valid day's regime — a **thunder day** is a local day with TS/VCTS in any
+  METAR at the station *or* KDCA (`tsDays`; KDCA always consulted because KNAK is AUTO and has
+  never reported TS). Scorecard + lead chart follow the `days` chip; strip and MOS don't. `window.VERIFY_DEBUG` exposes
   state and the pure decoders. Tested with synthetic MOS fixtures before the stream had data.

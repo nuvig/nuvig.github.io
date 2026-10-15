@@ -108,6 +108,7 @@
     <span><span class="lbl">station</span> <span class="chips" id="st-chips"></span></span>
     <span><span class="lbl">window</span> <span class="chips" id="win-chips"></span></span>
     <span><span class="lbl">lead</span> <span class="chips" id="lead-chips"></span></span>
+    <span><span class="lbl">days</span> <span class="chips" id="reg-chips"></span></span>
   </div>
   <div class="status-bar" id="status">Loading archive…</div>
 
@@ -146,6 +147,7 @@
       <dt>IFR CSI</dt><dd>IFR-or-lower · hits ÷ (hits + misses + false alarms) · POD / FAR on hover</dd>
       <dt>Wind dir</dt><dd>observed ≥ 6 kt</dd>
       <dt>PoP Brier</dt><dd>6 h precip ending 00/06/12/18Z · 0 = perfect, 0.25 = coin flip</dd>
+      <dt>Thunder day</dt><dd>TS / VCTS in any METAR that local day · station or KDCA</dd>
       <dt>Verifying ob</dt><dd>METAR nearest the valid hour, ±30 min</dd>
     </dl>
   </div>
@@ -160,7 +162,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
-  <script src="js/verify.js?v=1"></script>
+  <script src="js/verify.js?v=2"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=7" defer></script>

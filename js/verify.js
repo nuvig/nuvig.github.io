@@ -38,6 +38,15 @@ const BANDS = [
 ];
 const WINDOWS = [7, 30, 90];
 const STATIONS = ['KNAK', 'KBWI', 'KDCA', 'KMTN'];
+/* Regime split: a local day is a thunder day when TS/VCTS is in any METAR
+   that day at the station or at KDCA (the archive's main stream). KDCA is
+   always consulted because KNAK is AUTO without lightning detection — it has
+   never reported TS — and convection is a regional call, not a point one. */
+const REGIMES = [
+  { k: 'all', label: 'all' },
+  { k: 'ts', label: 'thunder' },
+  { k: 'dry', label: 'no thunder' },
+];
 const BUCKET_H = 3;                      // lead-chart resolution
 const NBUCKET = 72 / BUCKET_H;
 
@@ -62,7 +71,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 /* ------------------------------------------------------------------ state */
 
 const S = {
-  st: 'KBWI', win: 30, band: '6', metric: 'cat', mosModel: 'GFS',
+  st: 'KBWI', win: 30, band: '6', metric: 'cat', mosModel: 'GFS', reg: 'all',
   idx: null, gen: 0,
 };
 
@@ -71,10 +80,12 @@ const S = {
   if (STATIONS.includes(q.get('st'))) S.st = q.get('st');
   if (WINDOWS.includes(+q.get('w'))) S.win = +q.get('w');
   if (BANDS.some((b) => b.k === q.get('lead'))) S.band = q.get('lead');
+  if (REGIMES.some((r) => r.k === q.get('rg'))) S.reg = q.get('rg');
 })();
 
 function writeUrl() {
   const q = new URLSearchParams({ st: S.st, w: S.win, lead: S.band });
+  if (S.reg !== 'all') q.set('rg', S.reg);
   history.replaceState(null, '', `${location.pathname}?${q}`);
 }
 
@@ -136,6 +147,7 @@ function parseMetar(raw) {
   const pg = raw.match(/\bP(\d{4})\b/);
   o.precip = /(?:^|\s)[+-]?(?:VC)?(?:TS|SH|FZ)?(?:RA|DZ|SN|PL|GS|GR|UP)/.test(body)
     || /(?:^|\s)[+-]?TS/.test(body) || !!(pg && +pg[1] > 0);
+  o.ts = /(?:^|\s)(?:[+-]|VC)?TS/.test(body);
   o.hasVis = o.visSM != null;
   o.cat = catOf(o.visSM, o.ceilFt);
   return o;
@@ -236,11 +248,12 @@ async function loadStation(st, win) {
   const gridOn = st === idx.field_station;
 
   const want = (cond, path) => (cond ? WXA.json(path) : Promise.resolve(null));
-  const [obsDocs, mosDocs, tafDocs, gridDocs] = await Promise.all([
+  const [obsDocs, mosDocs, tafDocs, gridDocs, tsDocs] = await Promise.all([
     Promise.all(dayList(win, 1).map((d) => want(has(obsDays, d), `${obsName}/${d}.json`))),
     Promise.all(fcDays.map((d) => want(has(mosDays, d), `mos/${st}/${d}.json`))),
     Promise.all(fcDays.map((d) => want(tafOn && has(idx.taf_days, d), `taf/${d}.json`))),
     Promise.all(fcDays.map((d) => want(gridOn && has(idx.grid_days, d), `grid/${d}.json`))),
+    Promise.all(dayList(win, 1).map((d) => want(obsName !== 'obs' && has(idx.obs_days, d), `obs/${d}.json`))),
   ]);
 
   /* observations, time-sorted */
@@ -253,6 +266,14 @@ async function loadStation(st, win) {
     }
   }
   obs.sort((a, b) => a.t - b.t);
+
+  /* thunder days, local date */
+  const tsDays = new Set(obs.filter((o) => o.ts).map((o) => localDay(o.t)));
+  for (const doc of tsDocs) {
+    for (const [t, raw] of (doc && doc.metars) || []) {
+      if (/(?:^|\s)(?:[+-]|VC)?TS/.test(raw.split(' RMK')[0])) tsDays.add(localDay(t));
+    }
+  }
 
   /* forecasts: {p, iss, v, cat, spd, dir, tF, pop} */
   const fc = [];
@@ -309,7 +330,7 @@ async function loadStation(st, win) {
 
   const [y0, m0, d0] = days[0].split('-').map(Number);
   const from = Date.UTC(y0, m0 - 1, d0) / 1000 + 4 * H;   // ~local midnight (EDT/EST)
-  return { st, days, obs, fc, counts, latestMos, from, tafOn, gridOn, obsName };
+  return { st, days, obs, fc, counts, latestMos, from, tafOn, gridOn, obsName, tsDays };
 }
 
 /* -------------------------------------------------------------- matching */
@@ -378,12 +399,19 @@ const METRICS = {
     val: (a) => (a.bN >= 10 ? a.br / a.bN : null), fmt: (x) => x.toFixed(3) },
 };
 
-/* Every pair scored once, into its product's per-lead-hour accumulator
-   (0..71); bands and chart buckets are sums of those. */
+/* Every pair scored into its product's per-lead-hour accumulator (0..71)
+   under 'all' and under its valid day's regime; bands and chart buckets are
+   sums of those. */
 function score(D) {
   const now = Date.now() / 1000;
-  const byLead = {};
-  const ensure = (p) => (byLead[p] || (byLead[p] = Array.from({ length: 72 }, acc)));
+  const out = Object.fromEntries(REGIMES.map((r) => [r.k, { byLead: {}, hours: 0, days: new Set() }]));
+  const regOf = new Map();
+  const reg = (v) => {
+    if (!regOf.has(v)) regOf.set(v, D.tsDays.has(localDay(v)) ? 'ts' : 'dry');
+    return regOf.get(v);
+  };
+  const ensure = (k, p) => (out[k].byLead[p] || (out[k].byLead[p] = Array.from({ length: 72 }, acc)));
+  const add = (p, L, f, o, w) => { addPair(ensure('all', p)[L], f, o, w); addPair(ensure(reg(f.v), p)[L], f, o, w); };
   const wetCache = new Map();
   const wet = (v) => {
     if (!wetCache.has(v)) wetCache.set(v, new Date(v * 1000).getUTCHours() % 6 === 0 ? precip6(D.obs, v) : null);
@@ -397,20 +425,20 @@ function score(D) {
     const o = nearestOb(D.obs, f.v);
     if (!o) continue;
     verifying.add(f.v);
-    addPair(ensure(f.p)[L], f, o, wet(f.v));
+    add(f.p, L, f, o, wet(f.v));
   }
   /* persistence: the ob at v − L forecasts v, for every verifying hour */
-  const pers = ensure('pers');
   for (const v of verifying) {
     const o = nearestOb(D.obs, v);
+    for (const k of ['all', reg(v)]) { out[k].hours++; out[k].days.add(localDay(v)); }
     for (let L = 1; L < 72; L++) {
       const p = nearestOb(D.obs, v - L * H);
       if (!p) continue;
-      addPair(pers[L], { cat: p.hasVis ? p.cat : null, spd: p.spd, dir: p.spd ? p.dir : null,
+      add('pers', L, { v, cat: p.hasVis ? p.cat : null, spd: p.spd, dir: p.spd ? p.dir : null,
         tF: p.tC == null ? null : cToF(p.tC), pop: null }, o, null);
     }
   }
-  return { byLead, hours: verifying.size };
+  return out;
 }
 
 function bandAcc(arr, band) {
@@ -435,6 +463,11 @@ function renderControls() {
     (k) => { S.win = +k; run(); });
   chips($('lead-chips'), BANDS.map((b) => ({ k: b.k, label: b.label })), S.band,
     (k) => { S.band = k; render(); });
+  chips($('reg-chips'), REGIMES.map((r) => {
+    const n = RA ? RA[r.k].days.size : null;
+    return { k: r.k, label: n == null || r.k === 'all' ? r.label : `${r.label} ${n}`,
+      title: r.k === 'all' ? '' : `${n ?? '—'} days verified` };
+  }), S.reg, (k) => { S.reg = k; R = RA[k]; render(); });
   chips($('metric-chips'), Object.entries(METRICS).map(([k, m]) => ({ k, label: m.label })), S.metric,
     (k) => { S.metric = k; renderLead(); });
 }
@@ -447,12 +480,13 @@ function productsFor(D) {
   return ps;
 }
 
-let D = null, R = null;
+let D = null, RA = null, R = null;            // RA: all regimes · R: the shown one
 
 function renderStatus() {
   const c = D.counts;
   const parts = [`<span><b>${esc(D.st)}</b>${D.st === S.idx.field_station ? ` · ${esc(SITE.airport.id)} field` : ''}</span>`,
     `<span>${S.win} d</span>`, `<span>hours verified <b>${R.hours}</b></span>`,
+    `<span>thunder days <b>${RA.ts.days.size}</b></span>`,
     `<span>METARs <b>${D.obs.length}</b></span>`,
     `<span>MOS runs <b>${c.gfs + c.nam}</b></span>`];
   if (D.tafOn) parts.push(`<span>TAFs <b>${c.taf}</b></span>`);
@@ -462,7 +496,7 @@ function renderStatus() {
 
 function renderScorecard() {
   const band = BANDS.find((b) => b.k === S.band);
-  $('sc-sub').textContent = `lead ${band.label}`;
+  $('sc-sub').textContent = `lead ${band.label}${regSub()}`;
   const prods = productsFor(D).filter((p) => R.byLead[p]).concat('pers');
   const rows = prods.map((p) => ({ p, a: R.byLead[p] ? bandAcc(R.byLead[p], band) : acc() }));
   const keys = Object.keys(METRICS);
@@ -499,6 +533,7 @@ function renderScorecard() {
   $('scorecard').innerHTML = h;
 }
 
+const regSub = () => (S.reg === 'all' ? '' : ` · ${REGIMES.find((r) => r.k === S.reg).label} days`);
 const sgn = (x) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1);
 const swatch = (p) => PRODUCTS[p].dash
   ? '<span class="sw" style="background:repeating-linear-gradient(90deg,#8a8a8a 0 3px,transparent 3px 5px)"></span>'
@@ -518,7 +553,7 @@ function renderLead() {
   const all = series.flatMap((s) => s.pts.map((q) => q.y)).filter((y) => y != null);
   const box = $('lead-chart');
   box.querySelector('svg')?.remove();
-  $('lead-sub').textContent = `${m.label}${m.better === 'hi' ? ' · higher is better' : ' · lower is better'}`;
+  $('lead-sub').textContent = `${m.label}${m.better === 'hi' ? ' · higher is better' : ' · lower is better'}${regSub()}`;
   if (!all.length) {
     box.insertAdjacentHTML('afterbegin', '<svg viewBox="0 0 700 40"><text x="0" y="24">not enough pairs</text></svg>');
     $('lead-legend').innerHTML = '';
@@ -711,7 +746,8 @@ async function run() {
     const d = await loadStation(S.st, S.win);
     if (gen !== S.gen) return;
     D = d;
-    R = score(D);
+    RA = score(D);
+    R = RA[S.reg];
     render();
   } catch (e) {
     $('status').innerHTML = `<span class="err">${esc(e.message || e)}</span>`;
@@ -721,6 +757,6 @@ async function run() {
 (async function init() {
   S.idx = await WXA.index();
   if (!S.idx) { $('status').innerHTML = '<span class="err">archive index unavailable</span>'; return; }
-  window.VERIFY_DEBUG = { S, get D() { return D; }, get R() { return R; }, expandTaf, mosCat, parseMetar };
+  window.VERIFY_DEBUG = { S, get D() { return D; }, get R() { return R; }, get RA() { return RA; }, expandTaf, mosCat, parseMetar };
   run();
 })();
