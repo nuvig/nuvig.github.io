@@ -73,7 +73,7 @@
 // Tracker: aircraft seen today, from the Pi exporter's GitHub snapshot summary
 (async () => {
   const el = document.getElementById('tracker-teaser');
-  if (!el) return;
+  if (!el || el.textContent.trim()) return; // a static note (outage) wins
   try {
     const res = await fetch(`${SITE.tracker.snapshotBase}/summary.json`,
       { cache: 'no-cache' });
