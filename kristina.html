@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kristina, chill</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <!-- Self-contained personal page (like zoey/glow): no shared CSS/JS. Unlinked, noindex. -->
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --bg1: #1b2432;
+      --bg2: #2d3a52;
+      --ink: #eef2f8;
+      --soft: #9fb0c8;
+      --accent: #8fd3c7;
+      --glow: rgba(143, 211, 199, .35);
+    }
+    html, body { margin: 0; height: 100%; }
+    body {
+      min-height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 20px;
+      background: linear-gradient(160deg, var(--bg1), var(--bg2));
+      color: var(--ink);
+      font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+      text-align: center;
+    }
+    .orb {
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #c9f0e8, var(--accent) 55%, #4f9a8e);
+      box-shadow: 0 0 60px var(--glow);
+      animation: breathe 8s ease-in-out infinite;
+    }
+    @keyframes breathe {
+      0%, 100% { transform: scale(.82); box-shadow: 0 0 30px var(--glow); }
+      50%      { transform: scale(1);   box-shadow: 0 0 90px var(--glow); }
+    }
+    .cue {
+      margin: 18px 0 0;
+      color: var(--soft);
+      font-size: 14px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 42px 0 0;
+      font-size: clamp(40px, 9vw, 72px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -1px;
+    }
+    .sub { margin: 14px 0 0; font-size: clamp(18px, 3.5vw, 24px); color: var(--soft); }
+
+    .status {
+      margin: 40px 0 0;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px; color: var(--soft);
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 0 var(--glow);
+      animation: ping 2s infinite;
+    }
+    @keyframes ping {
+      0%   { box-shadow: 0 0 0 0 var(--glow); }
+      70%  { box-shadow: 0 0 0 10px rgba(0,0,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+    }
+
+    button {
+      margin-top: 28px;
+      font: inherit; font-size: 16px;
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid var(--soft);
+      border-radius: 999px;
+      padding: 10px 22px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    #answer { margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="orb" aria-hidden="true"></div>
+  <p class="cue" id="cue">breathe in</p>
+
+  <h1>Kristina, chill.</h1>
+  <p class="sub">He's working on shit.</p>
+
+  <div class="status"><span class="dot"></span> status → working on shit</div>
+
+  <button id="ask">is he done yet?</button>
+  <p id="answer"></p>
+
+  <script>
+    // Breathing cue follows the orb's 8 s cycle.
+    const cue = document.getElementById('cue');
+    const tick = () => {
+      const t = (performance.now() / 1000) % 8;
+      cue.textContent = t < 4 ? 'breathe in' : 'breathe out';
+      requestAnimationFrame(tick);
+    };
+    tick();
+
+    const answers = ['no', 'no', 'not yet', 'no', 'almost (no)', 'still no', 'no, chill', 'soon™'];
+    let n = 0;
+    document.getElementById('ask').onclick = () => {
+      document.getElementById('answer').textContent = answers[n++ % answers.length];
+    };
+  </script>
+</body>
+</html>

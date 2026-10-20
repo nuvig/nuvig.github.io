@@ -24,7 +24,7 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   model winds are also true). Never magnetic.
 - `css/main.css` is the shared stylesheet (dark theme, CSS vars, 760 px max-width). Every page uses
   it except the self-contained toys/SDR/personal pages (`bubbles.html`, `glow.html`, `ctaf.html`,
-  `scanner.html`, `fugue.html`, `mural.html`, `watercycle.html`, `zoey.html`).
+  `scanner.html`, `fugue.html`, `mural.html`, `watercycle.html`, `zoey.html`, `kristina.html`).
 - **Cache-busting is manual**: assets are referenced as `js/foo.js?v=N` / `css/main.css?v=N`.
   When you change a file that already carries a `?v=`, bump the number in every page referencing it
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
@@ -76,7 +76,7 @@ A new page, pipeline or script gets an entry in the matching doc.
 | Doc | Covers |
 |---|---|
 | `docs/site.md` | index, tools, sitemap, changelog, feed, 404 |
-| `docs/toys.md` | bubbles, slime, fireworks, glow, watercycle, fugue, mural, zoey |
+| `docs/toys.md` | bubbles, slime, fireworks, glow, watercycle, fugue, mural, zoey, kristina |
 | `docs/tracker.md` | kanp.html tabs (`js/kanp*.js`), tracker data flow |
 | `docs/explainers.md` | procedures, aircraft, alternates, power, eights, instruments, airlab, pressure, storm, tunnel, skew-t, knowledge, sfra, terps, sequencing; knowledge-map build |
 | `docs/notam.md` | notam.html, notamarchive, locations build |

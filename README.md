@@ -107,7 +107,7 @@ into the repo on a schedule.
 - `afd.html` — LWX Discussions: the archived forecast discussions as a corpus.
 - `sky2.html`, `wxai.html`, `terps.html` — successors and drafts.
 - `fireworks.html`, `glow.html`, `watercycle.html`, `slime.html`,
-  `bubbles.html`, `fugue.html`, `mural.html`, `zoey.html` — toys and personal
+  `bubbles.html`, `fugue.html`, `mural.html`, `zoey.html`, `kristina.html` — toys and personal
   pages, self-contained.
 
 **Radio** (need a backend on the LAN or the SDR box; no public fallback)
