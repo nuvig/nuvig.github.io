@@ -156,7 +156,7 @@ RandomizedDelaySec=60
 EOF
 systemctl daemon-reload
 systemctl restart kanp-export.timer
-if git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if sudo -u kanp -H git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "publishing: export clone already in place"
 else
   TOKEN="${1:-}"                 # curl … | sudo bash -s -- <token>  skips the prompt
@@ -189,7 +189,7 @@ echo "sd card: swap off · journal capped 100 MB · root $(df -h / | awk 'NR==2{
 
 # 6. export + verify -----------------------------------------------------------
 EXPORT_OK=0; ERR=""
-if git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if sudo -u kanp -H git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   sleep 20                      # let the collector store something first
   START=$(date +%s)
   if systemctl start kanp-export.service; then EXPORT_OK=1; else
@@ -216,7 +216,7 @@ if [ "$DB_AGE" -lt 180 ] && [ -n "$API" ] && { [ "$EXPORT_OK" = 1 ] && [ "$PUB_A
   echo "ALL GOOD — collecting and publishing from the flash drive."
   exit 0
 fi
-if [ "$DB_AGE" -lt 180 ] && [ -n "$API" ] && ! git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if [ "$DB_AGE" -lt 180 ] && [ -n "$API" ] && ! sudo -u kanp -H git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "COLLECTING, NOT PUBLISHING — rerun with a GitHub token to publish."
   exit 0
 fi
