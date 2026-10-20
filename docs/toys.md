@@ -2,6 +2,7 @@
 
 Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" references to other areas point there. Index: CLAUDE.md → Docs.
 
+- `celebrate.html` — one-off page marking the tracker's return after the 2026-10-14 Pi SD-card failure (down 10-14 20:20 local, rebuilt 10-20). Confetti canvas; Down/Back/Gap are hardcoded, Archive and Snapshot lines read `summary.json` from `SITE.tracker.snapshotBase` live (amber dot + "export pending" while the newest snapshot is over 2 h old). Loads `site-config.js` only; `noindex`, unlinked, not in the sitemap.
 - `bubbles.html` — standalone `noindex` toy, self-contained, unlinked from navigation.
 - `slime.html` — Slime Simulator: a full-screen slime slab (wobbly rim inset a few px from the
   viewport edge) with four slime types, each with distinct physics/texture/sound: glossy (viscous,

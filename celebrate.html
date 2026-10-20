@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Back</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: radial-gradient(ellipse at 50% 0%, #16202c 0%, #0b0f14 60%, #070a0e 100%);
+      color: #e5e5e5;
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      min-height: 100vh; min-height: 100dvh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      overflow-x: hidden;
+    }
+    #confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; pointer-events: none; z-index: 0; }
+    main { position: relative; z-index: 1; width: 100%; max-width: 560px; padding: 48px 16px 24px; }
+    h1 {
+      margin: 0; font-size: clamp(64px, 18vw, 140px); line-height: .9; font-weight: 900;
+      letter-spacing: -.04em; color: #fff; text-align: center;
+      text-shadow: 0 0 40px rgba(74,158,255,.45);
+      animation: pop .7s cubic-bezier(.2,1.6,.4,1) both;
+    }
+    h1 span { color: #4a9eff; }
+    @keyframes pop { from { transform: scale(.6); opacity: 0 } to { transform: none; opacity: 1 } }
+    .sub { text-align: center; color: #8fa3c0; margin: 14px 0 34px; font-size: 15px; }
+    dl {
+      display: grid; grid-template-columns: max-content 1fr; gap: 10px 18px; margin: 0;
+      font-size: 16px; font-variant-numeric: tabular-nums;
+    }
+    dt { color: #888; }
+    dd { margin: 0; color: #e5e5e5; }
+    dd.big { font-size: 28px; font-weight: 700; color: #fff; line-height: 1.1; }
+    .live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #3ddc84; margin-right: 7px; vertical-align: 1px; animation: pulse 1.6s ease-in-out infinite; }
+    .live.stale { background: #e0a030; animation: none; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(61,220,132,.6) } 50% { box-shadow: 0 0 0 7px rgba(61,220,132,0) } }
+    .links { margin-top: 36px; text-align: center; font-size: 15px; }
+    .links a { color: #4a9eff; text-decoration: none; margin: 0 10px; }
+    .links a:hover { text-decoration: underline; }
+    .hint { text-align: center; color: #555; font-size: 12px; margin-top: 28px; }
+    #back-link { position: fixed; top: 12px; left: 16px; z-index: 2; color: #4a9eff; text-decoration: none; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <a id="back-link" href="/">← Home</a>
+  <canvas id="confetti"></canvas>
+  <main>
+    <h1>BACK<span>.</span></h1>
+    <p class="sub">KANP tracker · Pi rebuilt, data restored</p>
+    <dl>
+      <dt>Down</dt><dd id="down">2026-10-14 20:20</dd>
+      <dt>Back</dt><dd id="back">2026-10-20</dd>
+      <dt>Gap</dt><dd class="big" id="gap">6 days</dd>
+      <dt>Archive</dt><dd id="archive">…</dd>
+      <dt>Snapshot</dt><dd id="snap">…</dd>
+    </dl>
+    <div class="links">
+      <a href="kanp.html">Tracker →</a>
+      <a href="feed.html">Feed →</a>
+    </div>
+    <p class="hint">tap for more confetti</p>
+  </main>
+
+  <script src="js/site-config.js"></script>
+  <script>
+  (() => {
+    'use strict';
+    const TZ = SITE.weather.timeZone;
+    const DOWN = new Date('2026-10-15T00:20:25Z'); // last snapshot the old card wrote
+    const BACK = new Date('2026-10-20T23:30:00Z'); // rebuilt Pi online
+
+    const parts = d => Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d).map(p => [p.type, p.value]));
+    const day = d => { const p = parts(d); return `${p.year}-${p.month}-${p.day}`; };
+    const stamp = d => { const p = parts(d); return `${day(d)} ${p.hour}:${p.minute}`; };
+
+    document.getElementById('down').textContent = stamp(DOWN);
+    document.getElementById('back').textContent = day(BACK);
+    document.getElementById('gap').textContent = `${Math.round((BACK - DOWN) / 864e5)} days`;
+
+    const nf = new Intl.NumberFormat('en-US');
+    const compact = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : nf.format(n);
+
+    fetch(SITE.tracker.snapshotBase + '/summary.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(s => {
+        const days = s.days || [];
+        const pts = days.reduce((a, d) => a + (d.points || 0), 0);
+        const ac = days.reduce((a, d) => a + (d.aircraft || 0), 0);
+        document.getElementById('archive').textContent =
+          `${days.length} days · ${compact(pts)} positions · ${compact(ac)} aircraft-days · since ${days[0] ? days[0].date : '—'}`;
+        const gen = new Date(s.generated * 1000);
+        const ageMin = Math.round((Date.now() - gen) / 6e4);
+        const fresh = ageMin < 120;
+        const age = ageMin < 60 ? `${ageMin} min` : ageMin < 2880 ? `${Math.round(ageMin / 60)} h` : `${Math.round(ageMin / 1440)} d`;
+        document.getElementById('snap').innerHTML =
+          `<span class="live${fresh ? '' : ' stale'}"></span>${stamp(gen)} · ${age} old${fresh ? '' : ' · export pending'}`;
+        if (fresh) burst(220);
+      })
+      .catch(() => {
+        document.getElementById('archive').textContent = 'summary unavailable';
+        document.getElementById('snap').textContent = 'summary unavailable';
+      });
+
+    // Confetti
+    const cv = document.getElementById('confetti');
+    const cx = cv.getContext('2d');
+    const COLORS = ['#4a9eff', '#3ddc84', '#ffd166', '#ff6b8a', '#c084fc', '#ffffff'];
+    let W, H, bits = [];
+    function size() { W = cv.width = innerWidth * devicePixelRatio; H = cv.height = innerHeight * devicePixelRatio; }
+    addEventListener('resize', size); size();
+    function burst(n, x, y) {
+      const ox = x == null ? W / 2 : x * devicePixelRatio;
+      const oy = y == null ? H * 0.35 : y * devicePixelRatio;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, v = (6 + Math.random() * 14) * devicePixelRatio;
+        bits.push({
+          x: ox, y: oy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 6 * devicePixelRatio,
+          w: (6 + Math.random() * 6) * devicePixelRatio, h: (3 + Math.random() * 4) * devicePixelRatio,
+          r: Math.random() * Math.PI, vr: (Math.random() - .5) * .3,
+          c: COLORS[(Math.random() * COLORS.length) | 0], life: 1, decay: .004 + Math.random() * .006,
+        });
+      }
+    }
+    function tick() {
+      cx.clearRect(0, 0, W, H);
+      const g = .35 * devicePixelRatio;
+      bits = bits.filter(p => p.life > 0 && p.y < H + 40);
+      for (const p of bits) {
+        p.vy += g; p.vx *= .985; p.vy *= .985; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= p.decay;
+        cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.5));
+        cx.fillStyle = p.c; cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * (0.4 + 0.6 * Math.abs(Math.cos(p.r * 2))));
+        cx.restore();
+      }
+      requestAnimationFrame(tick);
+    }
+    tick();
+    burst(260);
+    setTimeout(() => burst(160, innerWidth * 0.2, innerHeight * 0.3), 500);
+    setTimeout(() => burst(160, innerWidth * 0.8, innerHeight * 0.3), 900);
+    addEventListener('pointerdown', e => burst(140, e.clientX, e.clientY));
+  })();
+  </script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
