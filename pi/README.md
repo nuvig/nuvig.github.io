@@ -6,6 +6,16 @@ SQLite database and serves them as a filterable API for
 
 ## Install
 
+Fresh Pi (Raspberry Pi OS Lite, a blank USB flash drive plugged in for the data):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nuvig/nuvig.github.io/main/pi/bootstrap.sh | sudo bash
+```
+
+`bootstrap.sh` formats the drive, mounts it at `/var/lib/kanp`, installs the
+services, sets up the `traffic-data` push (it asks for a GitHub token) and
+prints a verdict. To deploy an update on a running box:
+
 ```bash
 git clone https://github.com/nuvig/nuvig.github.io.git
 cd nuvig.github.io

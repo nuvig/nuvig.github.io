@@ -80,6 +80,17 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   `/var/lib/kanp/atc`** — the recorder's default dir, so the hardened unit needs no change;
   a `/mnt/atc` + `ReadWritePaths` drop-in was tried first and the recorder still could not
   write; `nofail` in fstab; ~186 MB/day for three feeds, 45-day retention ≈ 8.4 GB).
+  **`pi/bootstrap.sh`** (2026-10-20, after the SD card died on 10-14 with bad blocks) is the
+  one-line fresh-Pi install (`curl … | sudo bash`, URL in its header): finds the one blank
+  USB flash drive, formats it ext4 `kanp-data` and mounts it **at `/var/lib/kanp`**, so the
+  DB, WAL, export clone and ATC clips all live off the card (a drive holding anything but
+  FAT/exFAT/blank or `kanp-data` is refused by name, never wiped; the old `kanp-atc` stick
+  mounts inside it); clones the repo to `/opt/kanp-src` and runs `install.sh`; prompts on
+  the tty for a fine-grained GitHub token (Contents R/W on this repo) and clones
+  `traffic-data` for the exporter, with the 15-min export timer override the old Pi had;
+  swap off and journald capped; then exports once and prints ALL GOOD / COLLECTING, NOT
+  PUBLISHING / NOT FIXED. Run it through `ssh -t` so the token prompt has a terminal.
+  dump1090-fa and the OpenSky feeder are not part of it.
   **`pi/recover.sh`** is the one-line repair for a stale-snapshot day (`curl … | sudo bash`,
   URL in its header): sets retention, mounts the stick and repoints the recorder, restarts
   the units, runs an export (re-cloning the traffic-data checkout if the push fails — a push
