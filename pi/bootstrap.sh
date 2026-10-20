@@ -161,8 +161,8 @@ if git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 else
   TOKEN="${1:-}"                 # curl … | sudo bash -s -- <token>  skips the prompt
   if [ -z "$TOKEN" ] && [ -e "$TTY" ]; then
-    printf 'GitHub token for the traffic-data push (typing is hidden; Enter to skip): ' > "$TTY"
-    IFS= read -rs TOKEN < "$TTY"; echo > "$TTY"
+    printf "Paste the GitHub token, then press Enter (Enter alone skips): " > "$TTY"
+    IFS= read -r TOKEN < "$TTY"
   fi
   TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
   if [ -n "$TOKEN" ]; then
