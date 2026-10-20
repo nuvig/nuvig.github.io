@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kristina, chill</title>
+  <title>Kristina, chill™</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <!-- Self-contained personal page (like zoey/glow): no shared CSS/JS. Unlinked, noindex. -->
@@ -83,19 +83,40 @@
     }
     button:hover { border-color: var(--accent); color: var(--accent); }
     #answer { margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: var(--accent); }
+
+    sup { font-size: .45em; vertical-align: super; color: var(--accent); margin-left: 2px; }
+    .fine { margin: 30px 0 0; font-size: 11px; color: var(--soft); opacity: .7; }
+
+    /* Floating ™ field. */
+    #tm { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+    #tm span {
+      position: absolute; bottom: -40px;
+      color: var(--accent); opacity: 0;
+      font-weight: 700;
+      animation: rise linear infinite;
+    }
+    @keyframes rise {
+      0%   { transform: translateY(0) rotate(0deg); opacity: 0; }
+      10%  { opacity: .18; }
+      90%  { opacity: .18; }
+      100% { transform: translateY(-110vh) rotate(25deg); opacity: 0; }
+    }
   </style>
 </head>
 <body>
+  <div id="tm" aria-hidden="true"></div>
   <div class="orb" aria-hidden="true"></div>
   <p class="cue" id="cue">breathe in</p>
 
-  <h1>Kristina, chill.</h1>
-  <p class="sub">He's working on shit.</p>
+  <h1>Kristina<sup>™</sup>, chill<sup>™</sup>.</h1>
+  <p class="sub">He's working on shit<sup>™</sup>.</p>
 
-  <div class="status"><span class="dot"></span> status → working on shit</div>
+  <div class="status"><span class="dot"></span> status™ → working on shit™</div>
 
-  <button id="ask">is he done yet?</button>
+  <button id="ask">is he done yet?™</button>
   <p id="answer"></p>
+
+  <p class="fine">™ and ® are trademarks of He's Working On Shit™. Chill™ is a registered state of mind. All rights reserved™.</p>
 
   <script>
     // Breathing cue follows the orb's 8 s cycle.
@@ -107,11 +128,28 @@
     };
     tick();
 
-    const answers = ['no', 'no', 'not yet', 'no', 'almost (no)', 'still no', 'no, chill', 'soon™'];
+    const answers = ['no™', 'no™', 'not yet™', 'soon™', 'almost™ (no™)', 'still no™',
+      'no™, chill™', 'soon™™', 'he said soon™', 'soon™ is a trademark of no™',
+      '™™™™™™', 'ok but actually no™'];
     let n = 0;
     document.getElementById('ask').onclick = () => {
       document.getElementById('answer').textContent = answers[n++ % answers.length];
+      for (let i = 0; i < 6; i++) spawnTM(true);
     };
+
+    // Background ™ field: slow drift up, a burst on each click.
+    const field = document.getElementById('tm');
+    function spawnTM(burst) {
+      const el = document.createElement('span');
+      el.textContent = '™';
+      el.style.left = Math.random() * 100 + 'vw';
+      el.style.fontSize = (burst ? 28 : 14) + Math.random() * 30 + 'px';
+      el.style.animationDuration = (burst ? 6 : 14) + Math.random() * 10 + 's';
+      field.appendChild(el);
+      el.addEventListener('animationiteration', () => el.remove());
+    }
+    for (let i = 0; i < 14; i++) setTimeout(() => spawnTM(false), i * 900);
+    setInterval(() => spawnTM(false), 1200);
   </script>
 </body>
 </html>

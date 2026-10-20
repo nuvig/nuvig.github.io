@@ -81,6 +81,7 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   page — change them together. **Unlinked** (indexable, no `noindex`); the manifest is currently
   empty and the page shows its own how-to.
 - `kristina.html` — single-screen personal page: breathing orb with an in/out cue on an 8 s
-  cycle, a status line, and an "is he done yet?" button that cycles through no. Self-contained;
+  cycle, a status line, and an "is he done yet?" button that cycles through no. ™ is the running
+  joke — on every line, a floating ™ field behind the page, a burst per click. Self-contained;
   **unlinked and `noindex`**.
 
