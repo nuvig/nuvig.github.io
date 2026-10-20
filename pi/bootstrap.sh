@@ -26,6 +26,7 @@
 # repository nuvig/nuvig.github.io only → Contents: Read and write
 # (+ Administration: Read-only for the visitor-stats line, optional).
 # Skip the prompt (Enter) and the Pi collects but does not publish; rerun later.
+# Or pass the token visibly:  curl … | sudo bash -s -- github_pat_…
 set -u
 
 REPO=nuvig/nuvig.github.io
@@ -158,8 +159,8 @@ systemctl restart kanp-export.timer
 if git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "publishing: export clone already in place"
 else
-  TOKEN=""
-  if [ -e "$TTY" ]; then
+  TOKEN="${1:-}"                 # curl … | sudo bash -s -- <token>  skips the prompt
+  if [ -z "$TOKEN" ] && [ -e "$TTY" ]; then
     printf 'GitHub token for the traffic-data push (typing is hidden; Enter to skip): ' > "$TTY"
     IFS= read -rs TOKEN < "$TTY"; echo > "$TTY"
   fi
