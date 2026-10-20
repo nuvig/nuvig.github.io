@@ -156,15 +156,29 @@ RandomizedDelaySec=60
 EOF
 systemctl daemon-reload
 systemctl restart kanp-export.timer
-if sudo -u kanp -H git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+HAVE_CLONE=0
+sudo -u kanp -H git -C "$EXPORT" rev-parse --is-inside-work-tree >/dev/null 2>&1 && HAVE_CLONE=1
+TOKEN="${1:-}"                 # curl … | sudo bash -s -- <token>  skips the prompt
+if [ -z "$TOKEN" ] && [ -e "$TTY" ]; then
+  if [ "$HAVE_CLONE" = 1 ]; then
+    printf "Paste a NEW GitHub token to replace the one in use (Enter alone keeps it): " > "$TTY"
+  else
+    printf "Paste the GitHub token, then press Enter (Enter alone skips): " > "$TTY"
+  fi
+  IFS= read -r TOKEN < "$TTY"
+fi
+TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
+if [ "$HAVE_CLONE" = 1 ] && [ -n "$TOKEN" ]; then
+  sudo -u kanp -H git -C "$EXPORT" remote set-url origin "https://$TOKEN@github.com/$REPO.git"
+  if sudo -u kanp -H git -C "$EXPORT" ls-remote -q --heads origin traffic-data >/dev/null 2>/tmp/kanp-ls.err; then
+    echo "publishing: token replaced"
+  else
+    echo "publishing: new token REJECTED by GitHub — $(sed 's/'"$TOKEN"'/<token>/g' /tmp/kanp-ls.err | tail -1)"
+  fi
+  rm -f /tmp/kanp-ls.err
+elif [ "$HAVE_CLONE" = 1 ]; then
   echo "publishing: export clone already in place"
 else
-  TOKEN="${1:-}"                 # curl … | sudo bash -s -- <token>  skips the prompt
-  if [ -z "$TOKEN" ] && [ -e "$TTY" ]; then
-    printf "Paste the GitHub token, then press Enter (Enter alone skips): " > "$TTY"
-    IFS= read -r TOKEN < "$TTY"
-  fi
-  TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
   if [ -n "$TOKEN" ]; then
     rm -rf "$EXPORT"
     if sudo -u kanp -H git clone -q --branch traffic-data --depth 1 "https://$TOKEN@github.com/$REPO.git" "$EXPORT" 2>/tmp/kanp-clone.err; then
