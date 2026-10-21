@@ -260,6 +260,78 @@ const KANPHistory = (() => {
     map.invalidateSize();
   }
 
+  // ---- SID overlay: the coded initial turns off SID_RWY, to compare with
+  // departure tracks. Runway transition + common route of every RNAV SID off
+  // that runway, from the Procedure Explorer's CIFP build (data/procedures/).
+  // Simple geometry: runway → climb stub on the leg's heading (~400 ft/nm to
+  // its altitude) → straight lines fix to fix. Courses in the build are
+  // magnetic; doc.mv converts (west negative, true = mag + mv).
+  const SID_APT = 'KBWI', SID_RWY = 'RW28';
+  const SID_COLORS = ['#4a9eff', '#f0b45a', '#52d273', '#e06ad4', '#ff7057', '#4fd8cf'];
+
+  function destPoint([lat, lon], brgT, nm) {
+    const R = 3440.065, d = nm / R, b = brgT * Math.PI / 180;
+    const p1 = lat * Math.PI / 180, l1 = lon * Math.PI / 180;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+    const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1),
+                               Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return [p2 * 180 / Math.PI, l2 * 180 / Math.PI];
+  }
+
+  async function loadSidOverlay(group) {
+    let doc;
+    try {
+      const r = await fetch(`data/procedures/apt/${SID_APT}.json`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      doc = await r.json();
+    } catch (e) { console.warn('[KANP] SID overlay:', e.message); return; }
+
+    const mv = doc.mv || 0;
+    const rws = doc.rw || [];
+    const thr = rws.find(r => r[0] === SID_RWY);
+    if (!thr) return;
+    const num = +SID_RWY.slice(2, 4);
+    const recip = 'RW' + String((num + 17) % 36 + 1).padStart(2, '0');
+    const far = rws.find(r => r[0].startsWith(recip));        // departure end
+    const depEnd = far ? [far[1], far[2]] : [thr[1], thr[2]];
+
+    const sids = (doc.procs || []).filter(p =>
+      p.type === 'SID' && !p.co && /RNAV/.test(p.name || '') &&
+      (p.trans || []).some(t => t.k === 'runway' && t.t === SID_RWY));
+    const labelled = new Set();
+
+    sids.forEach((p, i) => {
+      const color = SID_COLORS[i % SID_COLORS.length];
+      const rwy = p.trans.find(t => t.k === 'runway' && t.t === SID_RWY);
+      const common = p.trans.find(t => t.k === 'common');
+      const legs = [...rwy.legs, ...(common ? common.legs : [])];
+      const pts = [[thr[1], thr[2]], depEnd];
+      let cur = depEnd;
+      for (const lg of legs) {
+        if (lg[1] == null) {                   // VA/CA: no fix, climb on a heading
+          const crs = lg[9] != null ? (lg[9] + mv + 360) % 360 : ((thr[3] || 0) + mv + 360) % 360;
+          const alt = typeof lg[6] === 'number' ? lg[6] : null;
+          const nm = alt != null ? Math.max(1, Math.min(20, (alt - (doc.elev || 0)) / 400)) : 3;
+          cur = destPoint(cur, crs, nm);
+          pts.push(cur);
+          continue;
+        }
+        const fp = [lg[1], lg[2]];
+        if (fp[0] === cur[0] && fp[1] === cur[1]) continue;   // IF repeating the last fix
+        pts.push(fp); cur = fp;
+        if (lg[0] && !labelled.has(lg[0])) {
+          labelled.add(lg[0]);
+          L.circleMarker(fp, { radius: 3, color: '#fff', weight: 1, fillColor: '#fff', fillOpacity: 0.9 })
+            .bindTooltip(lg[0], { permanent: true, direction: 'right', offset: [4, 0], className: 'sid-fix' })
+            .addTo(group);
+        }
+      }
+      L.polyline(pts, { color, weight: 2, opacity: 0.85 })
+        .bindTooltip(`${p.name || p.id} · ${SID_RWY}`, { sticky: true })
+        .addTo(group);
+    });
+  }
+
   function initMap() {
     map = L.map('hist-map').setView([KANP.LAT, KANP.LON], 8);  // ~60 nm radius in view
 
@@ -269,6 +341,9 @@ const KANPHistory = (() => {
 
     trackCanvas = new TrackCanvas().addTo(map);
     overlays['Tracks'] = trackCanvas;
+    const sidLayer = L.layerGroup().addTo(map);
+    overlays[`${SID_APT.replace(/^K/, '')} ${SID_RWY} RNAV SIDs`] = sidLayer;
+    loadSidOverlay(sidLayer);
     const layersCtl = L.control.layers(bases, overlays, { position: 'topright' }).addTo(map);
     KANP.addOpacitySliders(layersCtl, overlays);
 
