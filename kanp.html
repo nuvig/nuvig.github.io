@@ -140,6 +140,10 @@
       flex: 1; max-width: 140px; height: 10px; border-radius: 3px;
       background: linear-gradient(to right, #1a1a2e, #0077b6, #00b4d8, #90e0ef, #f0c040, #ef4444);
     }
+    .legend-hatch {
+      width: 22px; height: 10px; border-radius: 3px; margin-left: 6px;
+      background: repeating-linear-gradient(135deg, #555 0 1px, #111 1px 4px);
+    }
 
     /* ---- filter bar ---- */
     .filter-bar {
@@ -704,6 +708,7 @@
       <canvas id="hist-grid" class="chart" style="height:168px;display:none"></canvas>
       <div class="heatmap-legend">
         <span>Less</span><div class="legend-gradient"></div><span>More</span>
+        <span class="legend-hatch"></span><span>Outage</span>
         <span style="margin-left:auto" id="hist-grid-label"></span>
       </div>
     </div>
@@ -1281,8 +1286,8 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/vendor/leaflet-heat.js"></script>
   <script src="js/kanp-static.js?v=2"></script>
-  <script src="js/kanp.js?v=9"></script>
-  <script src="js/kanp-history.js?v=6"></script>
+  <script src="js/kanp.js?v=10"></script>
+  <script src="js/kanp-history.js?v=7"></script>
   <script src="js/kanp-study.js?v=2"></script>
   <script src="js/kanp-rush.js?v=3"></script>
   <script src="js/kanp-notables.js?v=2"></script>

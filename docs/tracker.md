@@ -18,7 +18,12 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
 - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD
   overlays, and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
   left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
-  Live grid and Study grid don't set it).
+  Live grid and Study grid don't set it). Its `markOutage` flag (2026-10-21) hatches the hours the
+  collector missed: `KANP.outageMask` marks a cell with fewer than `KANP.COV_MIN` (3) distinct
+  aircraft in the all-traffic grid — the quietest real hour runs 20+, same rule as
+  `scripts/build_rush.py` — except hours not yet ended at the snapshot's generated time (in
+  progress / unpublished, not missing). The mask comes from the all-traffic grid and is drawn on the
+  GA and KANP-only metrics too; the hover tooltip reads "outage" on a hatched cell.
   **Filter bar (reworked 2026-09-05):** the range is a chip row on its own full-width row
   (`.qr-field`, under From / To / Hours / Days — Jesse's order, 2026-09-05; the whole History bar sits *below* the map, also his call) — chip width grows with the range (`flex-grow` =
   1 + log₂ hours, set in `initFilterBar`, so 1 h is a stub and 30 d / 1 y stretch) — plus ‹ ›

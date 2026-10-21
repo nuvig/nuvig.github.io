@@ -210,13 +210,14 @@ const KANPHistory = (() => {
       labelId: 'hist-grid-label', titleId: 'hist-grid-title',
       titleAll: 'Past 7 days', titleGa: 'Past 7 days, GA traffic',
       titleKanp: 'Past 7 days, KANP traffic only',
-      range: weekRange, markNow: true,
+      range: weekRange, markNow: true, markOutage: true,
     });
     try {
       const { start, end } = weekRange();
       const s = await KANP.getStats({ start, end });
       weekPanel.setAll({
         grid: s.grid_unique_aircraft,
+        until: s.snapshot_generated || null,
         label: `${Number(s.totals.aircraft).toLocaleString()} aircraft · ${KANP.sourceLabel(s)}`,
       });
     } catch (e) {

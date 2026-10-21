@@ -699,14 +699,18 @@ KANP.renderGrid = function (canvas, grid, opts = {}) {
   const cellW = (W - PAD_L) / 24;
   const cellH = (H - PAD_T - PAD_B) / 7;
   const maxVal = Math.max(1, ...grid.flat());
+  const outage = opts.outage || null;        // 7×24 mask, see KANP.outageMask
 
-  attachGridHover(canvas, { grid, PAD_L, PAD_T, cellW, cellH,
+  attachGridHover(canvas, { grid, outage, PAD_L, PAD_T, cellW, cellH,
                             unit: opts.unit || 'aircraft' });
 
   for (let d = 0; d < 7; d++) {
     for (let h = 0; h < 24; h++) {
+      const x = PAD_L + h * cellW + 1, y = PAD_T + d * cellH + 1;
+      const w = cellW - 2, hh = cellH - 2;
+      if (outage && outage[d][h]) { hatchCell(ctx, x, y, w, hh); continue; }
       ctx.fillStyle = heatColor(grid[d][h] / maxVal);
-      ctx.fillRect(PAD_L + h * cellW + 1, PAD_T + d * cellH + 1, cellW - 2, cellH - 2);
+      ctx.fillRect(x, y, w, hh);
     }
   }
 
@@ -780,7 +784,7 @@ function attachGridHover(canvas, geom) {
     const tip = gridTip();
     tip.innerHTML =
       `<strong>${DAYS_FULL[d]} ${hr(h)}–${hr((h + 1) % 24)}</strong><br>` +
-      `${v.toLocaleString()} ${g.unit}`;
+      (g.outage && g.outage[d][h] ? 'outage' : `${v.toLocaleString()} ${g.unit}`);
     tip.style.display = 'block';
     // keep the tooltip on-screen near the pointer
     const r = tip.getBoundingClientRect();
@@ -869,6 +873,7 @@ KANP.initHeatPanel = function (cfg) {
   const toggle = canvas.closest('.tab-panel').querySelector('[data-heat-toggle]');
 
   let metric = 'all';
+  let outage = null;             // from the all-traffic grid, drawn on every metric
   const data = {};
   const pending = {};
   const titleFor = m => cfg[KANP.HEAT_METRICS[m].titleKey] + ' — hour of day × day of week';
@@ -881,7 +886,7 @@ KANP.initHeatPanel = function (cfg) {
     canvas.style.display = 'block';
     label.textContent = d.label;
     KANP.renderGrid(canvas, d.grid,
-      { unit: KANP.HEAT_METRICS[metric].unit, now: cfg.markNow });
+      { unit: KANP.HEAT_METRICS[metric].unit, now: cfg.markNow, outage });
   };
 
   const select = async btn => {
@@ -913,9 +918,54 @@ KANP.initHeatPanel = function (cfg) {
     btn.addEventListener('click', () => select(btn)));
 
   return {
-    setAll(d) { data.all = d; if (metric === 'all') paint(); },
+    setAll(d) {
+      data.all = d;
+      outage = cfg.markOutage ? KANP.outageMask(d.grid, { until: d.until }) : null;
+      if (metric === 'all') paint();
+    },
     render() { if (data[metric]) paint(); },
   };
+};
+
+// Diagonal hatching for a grid cell the collector missed (KANP.outageMask) —
+// distinct from the near-black of a quiet hour.
+function hatchCell(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let o = -h; o < w; o += 4) {
+    ctx.moveTo(x + o, y + h);
+    ctx.lineTo(x + o + h, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 7×24 mask of the hours the collector missed, for a trailing-7-days grid of
+// distinct aircraft. Every hour of the week sees traffic here — the quietest,
+// ~3 a.m., still runs 20+ aircraft — so fewer than COV_MIN is an outage, not a
+// quiet hour (the rule scripts/build_rush.py uses too). An hour that had not
+// ended when the data did (`until`: the snapshot's generated time; now for the
+// Pi API) is in progress or not yet published, not missing, and stays unmasked.
+KANP.COV_MIN = 3;
+KANP.outageMask = function (grid, opts = {}) {
+  const now = new Date();
+  const until = opts.until ? opts.until * 1000 : now.getTime();
+  const today = (now.getDay() + 6) % 7;
+  return grid.map((row, d) => row.map((v, h) => {
+    if (v >= KANP.COV_MIN) return false;
+    // the most recent local hour this cell stands for
+    let t = new Date(now.getFullYear(), now.getMonth(),
+                     now.getDate() - ((today - d + 7) % 7), h);
+    if (t > now) t = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7, h);
+    return t.getTime() + 3_600_000 <= until;
+  }));
 };
 
 function heatColor(t) {
