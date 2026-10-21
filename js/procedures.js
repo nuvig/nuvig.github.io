@@ -1628,19 +1628,34 @@ const L_FIX = 0, L_LAT = 1, L_LON = 2, L_PT = 3, L_TURN = 4, L_ADESC = 5,
     const fromHash = await loadHash();
     if (!fromHash) {
       const home = 'KBWI';
+      const TEST_RWY = 'RW28';
       $('apt-search').value = home;
       const doc = await loadAirport(home, true);
-      // first visit: draw something rather than an empty map — the STAR with
-      // the most transitions shows the enroute feeds funneling into the field
+      // first visit: draw something rather than an empty map. Testing default
+      // (2026-10-21): every RNAV SID off RW28 — its RW28 runway transition
+      // plus the common and enroute transitions. Falls back to the STAR with
+      // the most transitions (the enroute feeds funneling into the field).
       if (doc) {
         const cands = doc.procs.filter(p => !p.co && p.trans && p.trans.length);
-        const best = cands.filter(p => p.type === 'STAR')
-          .sort((a, b) => b.trans.length - a.trans.length)[0] || cands[0];
-        if (best) {
-          best.trans.forEach((t, i) => setTrans(doc.id, best.id, i, true));
+        const sids = cands.filter(p => p.type === 'SID' && /RNAV/.test(p.name || '') &&
+          p.trans.some(t => t.k === 'runway' && t.t === TEST_RWY));
+        if (sids.length) {
+          for (const p of sids)
+            p.trans.forEach((t, i) => {
+              if (t.k !== 'runway' || t.t === TEST_RWY) setTrans(doc.id, p.id, i, true);
+            });
           buildTree(doc);
           redraw();
-          fitToSelection(doc.id, best.id);
+          fitToSelection(doc.id, sids[0].id);
+        } else {
+          const best = cands.filter(p => p.type === 'STAR')
+            .sort((a, b) => b.trans.length - a.trans.length)[0] || cands[0];
+          if (best) {
+            best.trans.forEach((t, i) => setTrans(doc.id, best.id, i, true));
+            buildTree(doc);
+            redraw();
+            fitToSelection(doc.id, best.id);
+          }
         }
       }
     }

@@ -4,7 +4,11 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
 
 ### Aviation explainers (self-contained, no backend)
 
-- `procedures.html` + `js/procedures.js` — Procedure Explorer: overlays any US SID/STAR/IAP on Leaflet
+- `procedures.html` + `js/procedures.js` — Procedure Explorer: overlays any US SID/STAR/IAP on Leaflet.
+  **First-visit default (testing, 2026-10-21, Jesse's request):** every RNAV SID off KBWI RW28 —
+  the RW28 runway transition plus common and enroute transitions (`TEST_RWY` in `boot()`); the old
+  default (the STAR with the most transitions) is the fallback. A URL hash (`#apt=…&sel=…`)
+  still overrides it.
   (sectional/TAC/IFR layers) with a custom canvas 3D altitude view, transition-by-transition selection,
   a leg-by-leg table (courses shown °true = chart magnetic + station mv), flow animation, shareable
   `#apt=…&sel=…` links, and an embedded FAA-plate viewer (iframe on
