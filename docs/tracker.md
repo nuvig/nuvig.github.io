@@ -16,10 +16,7 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   matching the collector) and every 60 s against snapshots (`POLL_MS`, which only change hourly).
   KANP = 38.9422, -76.5684, 60 nm radius (from `SITE.tracker`).
 - `js/kanp-history.js` — altitude-colored historical tracks on a canvas layer, FAA VFR + NEXRAD
-  overlays, a **BWI RW28 RNAV SID overlay** (2026-10-21, on by default, in the layers control —
-  `SID_APT` / `SID_RWY`; runway transition + common route of every RNAV SID off that runway from
-  `data/procedures/apt/KBWI.json`, simple fix-to-fix geometry with a climb stub for the VA leg,
-  so Jesse can compare coded initial turns with departure tracks), and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
+  overlays, and the trailing-7-days heat grid (its `markNow` flag draws a "now" line in today's row —
   left of it fresh data, right of it week-old; only meaningful for trailing windows, so the 60-day
   Live grid and Study grid don't set it). Its `markOutage` flag (2026-10-21) hatches the hours the
   collector missed: `KANP.outageMask` marks a cell with fewer than `KANP.COV_MIN` (3) distinct
