@@ -270,6 +270,24 @@ concepts; to relink, add the tools.html card back.
   previous leg's null lat/lon made the geo math read 0°N 0°E and the leg sequenced instantly, which
   hit every missed approach.
 
+- `radar.html` + `js/radar.js` — US NAS Radar: every radar site a public source places on the map —
+  FAA terminal (ASR-9 / terminal Mode S) and en route (ATCBI-6 / en route Mode S / ARSR) surveillance
+  sites, the 45 TDWRs and the 156 operational WSR-88Ds — as Leaflet circle markers with nominal-range
+  rings (ASR 60 nm, ARSR 200, ARSR-4 250, TDWR 48, WSR-88D 124), per-kind toggles, an ID/name filter,
+  a "covering KANP" list (sites whose ring contains `SITE.airport`), a sortable table and `#ID` deep
+  links. Data: `data/radar.json` from `python3 scripts/build_radar.py --atc … --nws … --pyart …`
+  (stdlib; inputs are three public GitHub repos cloned beside this one — see the script docstring):
+  **open-air-data/atc-radar** (the FAA Mode S site-assignment file of 2010-03-03, plus RadioReference
+  rows that add the primary type/range for ~10 sites), **danielway/nexrad**
+  (`operational-radar-sites.csv`, an NWS `radar_sites` GeoServer snapshot audited weekly, 156 sites;
+  decommissioned/test KBIX/KCRI/KLIX/KOUN excluded there), **ARM-DOE/pyart** (`NEXRAD_LOCATIONS`,
+  TDWR rows only; TJUA is the San Juan WSR-88D, not a TDWR). Known gaps, stated in the page footer:
+  the FAA file is beacon assignments, so ASR-11/ASR-8 sites without Mode S and the CARSR upgrades
+  are absent, and ATCBI-6 rows don't name the co-located primary. Canadian ATCBI-6C rows are dropped;
+  the Bahamas/Turks/Guantánamo JSS sites that feed Miami Center stay. The FAA's own NASR 28-day
+  subscription now ships a `RDR` (radar) CSV group — the authoritative replacement when faa.gov is
+  reachable from the build environment (it isn't from web sessions).
+
 ## Knowledge map build pipeline
 
 `data/knowledge/*.md` is the **source of truth** — one Markdown file per domain (`aero`, `air`, `emerg`,

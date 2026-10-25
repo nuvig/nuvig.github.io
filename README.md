@@ -96,6 +96,9 @@ into the repo on a schedule.
 
 - `knowledge.html` — expandable concept graph of the airplane knowledge
   domains.
+- `radar.html` — US NAS Radar: FAA terminal/en route surveillance radars,
+  TDWRs and WSR-88Ds on one map with nominal range rings and a site table;
+  `data/radar.json` from `scripts/build_radar.py`.
 
 **Reachable by URL, not linked from the hub**
 
@@ -173,6 +176,7 @@ Built by script, committed, never hand-edited.
 | `data/wx3d/terrain*.json` | `scripts/build_wx3d_terrain.py` | only to re-site |
 | `data/sfra/asrs.json` | `scripts/build_sfra_reports.py` from ASRS CSV exports | by hand |
 | `data/zoey.json` | `scripts/build_zoey.py` | when photos change |
+| `data/radar.json` | `scripts/build_radar.py` from three public GitHub mirrors (atc-radar, danielway/nexrad, pyart) | by hand |
 
 ## Development
 

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>US NAS Radar — every surveillance, TDWR and WSR-88D site</title>
+  <meta name="description" content="Every radar site in the US National Airspace System on one map: FAA terminal and en route surveillance radars, the 45 TDWRs and the operational WSR-88D network, with nominal ranges, filters and a site table.">
+  <link rel="canonical" href="https://jesselevine.net/radar.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/radar.html">
+  <meta property="og:title" content="US NAS Radar">
+  <meta property="og:description" content="FAA surveillance radars, TDWRs and WSR-88Ds on one map, with nominal ranges.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <link rel="stylesheet" href="css/main.css?v=3">
+  <link rel="stylesheet" href="js/vendor/leaflet.css">
+  <style>
+    body { max-width: 1100px; padding-bottom: 40px; }
+    #back-link { display: inline-block; margin-top: 16px; font-size: 14px; text-decoration: none; color: #666; }
+    #back-link:hover { color: #ccc; }
+    .subtitle { color: #666; margin: 4px 0 12px; font-size: 14px; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+      padding: 8px 12px; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-bar b { color: #ccc; font-weight: 600; }
+    .status-bar .sp { flex: 1; }
+
+    #controls { display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; font-size: 12.5px; }
+    .chip {
+      background: #1a1a1a; border: 1px solid #333; color: #999; border-radius: 999px;
+      padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums;
+    }
+    .chip i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c, #888); opacity: 0.35; }
+    .chip:hover { border-color: #555; color: #ccc; }
+    .chip.on { background: #222; border-color: var(--c, #3987e5); color: #ddd; }
+    .chip.on i { opacity: 1; }
+    .chip .n { color: #666; }
+    .chip.on .n { color: #999; }
+    #q {
+      background: #141414; border: 1px solid #333; color: #ddd; border-radius: 6px;
+      padding: 4px 9px; font-size: 12.5px; font-family: inherit; width: 180px;
+    }
+    #q:focus { outline: none; border-color: #4a9eff; }
+    #controls .sp { flex: 1; }
+
+    #radar-map { height: 68vh; min-height: 420px; border: 1px solid #2a2a2a; border-radius: 10px; background: #0b0b0b; }
+    .leaflet-container { font-family: inherit; }
+    .leaflet-popup-content-wrapper { background: #141414; color: #ddd; border: 1px solid #333; border-radius: 8px; box-shadow: 0 4px 18px rgba(0,0,0,.6); }
+    .leaflet-popup-tip { background: #141414; }
+    .leaflet-popup-content { margin: 10px 14px; font-size: 12.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+    .pop h4 { margin: 0 0 4px; font-size: 14px; color: #f0f0f0; }
+    .pop h4 small { color: #888; font-weight: 400; margin-left: 6px; }
+    .pop .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; }
+    .pop .kv span { color: #777; }
+    .pop .kv b { color: #ddd; font-weight: 500; }
+    .pop a { color: #4a9eff; text-decoration: none; }
+    .leaflet-control-attribution { background: rgba(10,10,10,.75); color: #666; }
+    .leaflet-control-attribution a { color: #888; }
+    .leaflet-bar a { background: #1a1a1a; color: #ccc; border-color: #333; }
+    .leaflet-bar a:hover { background: #262626; }
+    .leaflet-control-layers { background: #141414; color: #ccc; border: 1px solid #333; }
+    .leaflet-control-layers-toggle { background-color: #1a1a1a; filter: invert(0.85); }
+    .leaflet-control-layers label { font-size: 12px; }
+    .home-btn { font-size: 11px !important; font-weight: 600; letter-spacing: .02em; width: auto !important; padding: 0 7px; }
+
+    .card { margin-top: 14px; }
+    .card h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 15px; margin: 0 0 8px; }
+    .card h2 .sub { font-size: 12px; font-weight: 400; color: #666; }
+    #cover { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    #cover .row { display: grid; grid-template-columns: 10px 58px minmax(0,1fr) 110px 64px; gap: 10px; align-items: center; padding: 3px 0; border-top: 1px solid #1f1f1f; cursor: pointer; }
+    #cover .row:first-child { border-top: 0; }
+    #cover .row:hover { background: #161616; }
+    #cover i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--c); }
+    #cover .id { color: #ddd; font-weight: 600; }
+    #cover .nm { color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #cover .ty { color: #777; }
+    #cover .d { color: #bbb; text-align: right; }
+
+    .tbl-wrap { overflow-x: auto; }
+    table.sites { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    table.sites th, table.sites td { padding: 4px 8px; text-align: left; white-space: nowrap; border-top: 1px solid #1f1f1f; }
+    table.sites th { color: #777; font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; border-top: 0; user-select: none; }
+    table.sites th.on { color: #ccc; }
+    table.sites td.id { color: #ddd; font-weight: 600; }
+    table.sites td.nm { color: #aaa; white-space: normal; min-width: 160px; }
+    table.sites td.ty, table.sites td.n { color: #888; }
+    table.sites tr.r { cursor: pointer; }
+    table.sites tr.r:hover td { background: #161616; }
+    table.sites tr.sel td { background: #1c2533; }
+    table.sites i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--c); margin-right: 6px; vertical-align: 0; }
+    .more { margin-top: 8px; font-size: 12.5px; }
+    .more button { background: #1a1a1a; border: 1px solid #333; color: #999; border-radius: 6px; padding: 3px 10px; font-family: inherit; font-size: 12px; cursor: pointer; }
+    .more button:hover { border-color: #555; color: #ccc; }
+
+    footer p { font-size: 12px; color: #666; line-height: 1.7; }
+    footer a { color: #7da7d9; text-decoration: none; }
+    footer a:hover { color: #4a9eff; text-decoration: underline; }
+
+    @media (max-width: 760px) {
+      #radar-map { height: 60vh; }
+      #q { width: 100%; }
+      #cover .row { grid-template-columns: 10px 50px minmax(0,1fr) 56px; }
+      #cover .ty { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <h1>US NAS Radar</h1>
+  <p class="subtitle">FAA surveillance radars, TDWRs and WSR-88Ds · nominal ranges</p>
+
+  <div class="status-bar" id="status">
+    <span>Sites <b id="n-total">—</b></span>
+    <span>Shown <b id="n-shown">—</b></span>
+    <span class="sp"></span>
+    <span id="built"></span>
+  </div>
+
+  <div id="controls">
+    <button class="chip on" data-cat="term" style="--c:#4a9eff"><i></i>Terminal · ASR <span class="n" data-n="term"></span></button>
+    <button class="chip on" data-cat="enr" style="--c:#f0a030"><i></i>En route · ARSR <span class="n" data-n="enr"></span></button>
+    <button class="chip on" data-cat="tdwr" style="--c:#34d399"><i></i>TDWR <span class="n" data-n="tdwr"></span></button>
+    <button class="chip on" data-cat="nexrad" style="--c:#c084fc"><i></i>WSR-88D <span class="n" data-n="nexrad"></span></button>
+    <button class="chip on" id="rings" style="--c:#aaa"><i></i>Rings</button>
+    <span class="sp"></span>
+    <input id="q" type="search" placeholder="ID or site" autocomplete="off" spellcheck="false">
+  </div>
+
+  <div id="radar-map"></div>
+
+  <div class="card">
+    <h2>Covering <span id="home-id">KANP</span> <span class="sub">nominal range reaches the field · distance to site</span></h2>
+    <div id="cover"></div>
+  </div>
+
+  <div class="card">
+    <h2>Sites <span class="sub" id="tbl-sub"></span></h2>
+    <div class="tbl-wrap">
+      <table class="sites" id="tbl">
+        <thead><tr>
+          <th data-k="id">ID</th><th data-k="name">Site</th><th data-k="cat">Kind</th>
+          <th data-k="pri">Primary</th><th data-k="bcn">Beacon</th><th data-k="rng">Range</th>
+          <th data-k="elev">Elev</th><th data-k="lat">Lat</th><th data-k="lon">Lon</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="more" id="more"></div>
+  </div>
+
+  <footer>
+    <p>Surveillance sites → <a href="https://github.com/open-air-data/atc-radar">FAA Mode S site file, Mar 2010</a> (ASR-9 / terminal Mode S / ATCBI-6 beacon sites; primary type where RadioReference names it) ·
+      WSR-88D → <a href="https://github.com/danielway/nexrad">NWS radar_sites</a>, <span id="nws-date"></span> ·
+      TDWR → <a href="https://github.com/ARM-DOE/pyart">Py-ART</a> ·
+      not in source → ASR-11 / ASR-8 sites without Mode S, CARSR upgrades ·
+      ranges → ASR 60 nm · ARSR 200 nm (ARSR-4 250) · TDWR 48 nm · WSR-88D 124 nm ·
+      build → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/scripts/build_radar.py">build_radar.py</a> ·
+      data → <a href="https://github.com/nuvig/nuvig.github.io/blob/main/data/radar.json">radar.json</a></p>
+  </footer>
+
+  <a id="back-link" href="/tools.html">&larr; Aviation tools</a>
+
+  <script src="js/site-config.js"></script>
+  <script src="js/vendor/leaflet.js"></script>
+  <script src="js/radar.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>
