@@ -240,11 +240,15 @@
     #plate-close:hover { color:#fff; }
     #plate-frame { flex:1; border:none; background:#2a2e33; }
 
-    #howto { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
+    #howto, #changelog { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
       padding:12px 16px; font-size:13px; color:#888; line-height:1.55; }
     #howto b { color:#bbb; }
-    #howto summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
-    #howto[open] summary { margin-bottom:6px; }
+    #howto summary, #changelog summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
+    #howto[open] summary, #changelog[open] summary { margin-bottom:6px; }
+    .cl-row { display:flex; gap:12px; padding:2px 0; }
+    .cl-date { flex:0 0 92px; color:#666; font-variant-numeric:tabular-nums; }
+    .cl-row a { color:#bbb; text-decoration:none; }
+    .cl-row a:hover { color:#fff; }
 
     #explorer[hidden], .nv[hidden] { display:none !important; }
     /* view tabs */
@@ -519,6 +523,11 @@
     </div>
   </div>
 
+  <details id="changelog">
+    <summary>Changelog</summary>
+    <div id="cl-list"></div>
+  </details>
+
   <div id="plate-modal">
     <div id="plate-box">
       <div id="plate-bar">
@@ -539,6 +548,7 @@
   <script src="js/site-config.js"></script>
   <script src="js/procedures.js?v=10"></script>
   <script src="js/procedures-national.js?v=2"></script>
+  <script src="js/procedures-changelog.js?v=1"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

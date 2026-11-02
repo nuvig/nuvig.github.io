@@ -7,6 +7,13 @@ Run on the PC whenever a new AIRAC cycle drops (28 days):
     python scripts/build_procedures.py                         # downloads current cycle
     python scripts/build_procedures.py FAACIFP18               # local CIFP, download metafile
     python scripts/build_procedures.py FAACIFP18 metafile.xml  # both local
+    python scripts/build_procedures.py --if-new                # exit 0 untouched when index.json
+                                                               # is already this cycle, or the FAA
+                                                               # has not posted its CIFP yet (404)
+
+.github/workflows/procedures.yml runs the --if-new form every Friday and
+commits what it writes, so a new cycle lands on main the day after it turns
+effective; the PC commands above still work for a by-hand run.
 
 Output:
     data/procedures/index.json        {effective, built, cycle, apts:[[icao, name,
@@ -29,7 +36,7 @@ Leg array layout (mirrored in js/procedures.js decodeLeg()):
 
 Stdlib only — no pip installs.
 """
-import io, json, os, re, sys, urllib.request, zipfile
+import io, json, os, re, sys, urllib.error, urllib.request, zipfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import date, timedelta
@@ -535,15 +542,33 @@ def build(lines):
 # ---------------------------------------------------------------- write
 
 def main():
-    if len(sys.argv) > 1:
-        with open(sys.argv[1], encoding='ascii', errors='replace') as fh:
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if_new = '--if-new' in sys.argv
+    if if_new and not args:
+        cyc = current_cycle_date()
+        try:
+            with open(os.path.join(OUT, 'index.json'), encoding='utf-8') as fh:
+                have = json.load(fh).get('effective')
+        except (OSError, ValueError):
+            have = None
+        if have == f'{cyc:%Y-%m-%d}':
+            print(f'already at cycle {dtpp_cycle_label(cyc)} (effective {have}); nothing to do')
+            return
+    if args:
+        with open(args[0], encoding='ascii', errors='replace') as fh:
             lines = fh.read().splitlines()
         cyc = current_cycle_date()   # assume the local file is the current cycle
     else:
-        lines, cyc = download_cifp()
+        try:
+            lines, cyc = download_cifp()
+        except urllib.error.HTTPError as e:
+            if if_new and e.code == 404:
+                print(f'not posted yet: {e.url}; nothing to do')
+                return
+            raise
     cycle = dtpp_cycle_label(cyc)
-    if len(sys.argv) > 2:
-        with open(sys.argv[2], 'rb') as fh:
+    if len(args) > 1:
+        with open(args[1], 'rb') as fh:
             meta_xml = fh.read()
     else:
         meta_xml = download_metafile(cycle)

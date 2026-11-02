@@ -12,7 +12,10 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   the next is effective, so `dtppCycle()` advances the built cycle in 28-day steps at view time,
   mirrored by `dtpp_cycle_label()` in the builder). Data: `data/procedures/` (`index.json` + ~3,180
   per-airport JSON files), regenerated each 28-day AIRAC cycle by `python scripts/build_procedures.py`
-  (downloads FAA CIFP **and the d-TPP chart metafile**, stdlib only). The builder matches charts to
+  (downloads FAA CIFP **and the d-TPP chart metafile**, stdlib only; `--if-new` makes it a no-op
+  while `index.json` already holds the current cycle or the FAA hasn't posted the CIFP yet, 404).
+  aeronav.faa.gov is unreachable from the web-session containers, so a cycle gets built on the PC.
+  The builder matches charts to
   CIFP codings (DP/STAR via `<faanfd18>`, IAPs by parsing chart titles into candidate ARINC idents);
   published plates with no public CIFP coding (many VOR/NDB/TACAN full procedures, visuals, most
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
@@ -40,7 +43,13 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   Both files come from **`python scripts/build_procedure_metrics.py`** (stdlib, no downloads;
   reads the committed airport files and the previous cycle out of git history — the newest
   commit of `index.json` with a different `cycle`), so **each cycle is two commands**:
-  `build_procedures.py` then `build_procedure_metrics.py`, and commit all three outputs. Column
+  `build_procedures.py` then `build_procedure_metrics.py`, and commit all three outputs. A
+  skipped cycle just widens the diff: the "This cycle" header shows the two cycle numbers it
+  compares. **Changelog** (2026-11-02): a
+  collapsed `<details id="changelog">` under the views, filled by `js/procedures-changelog.js` on
+  first open — the commits on main touching `procedures.html`, the two scripts and
+  `data/procedures/index.json` (so cycle builds appear), GitHub API like `pagever.js`, one request
+  per path, merged by sha, 6 h localStorage cache, `procedures:` message prefixes stripped. Column
   meanings are in that script's docstring; two of them are honest approximations and say so in
   the table tooltips — a SID's `grad` is measured over the straight line from the departure end
   to the first at-or-above fix (the shortest possible path, so a ceiling on the gradient, and

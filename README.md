@@ -85,8 +85,8 @@ into the repo on a schedule.
 **Cockpit and procedures**
 
 - `procedures.html` — Procedure Explorer: any US SID/STAR/IAP on a map with a
-  3-D altitude view, leg table, FAA plate, plus a nationwide query view and a
-  cycle-to-cycle diff.
+  3-D altitude view, leg table, FAA plate, plus a nationwide query view, a
+  cycle-to-cycle diff and a page changelog.
 - `notam.html` — NOTAM Hub: every active NOTAM in the country, archived hourly,
   counted, mapped, searchable, with a decoder.
 - `sfra.html` — The DC SFRA from a KANP seat: rings, FRZ, gates, decision tree,
