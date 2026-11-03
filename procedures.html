@@ -240,15 +240,11 @@
     #plate-close:hover { color:#fff; }
     #plate-frame { flex:1; border:none; background:#2a2e33; }
 
-    #howto, #changelog { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
+    #howto { margin-top:14px; background:#141414; border:1px solid #2c2c2c; border-radius:8px;
       padding:12px 16px; font-size:13px; color:#888; line-height:1.55; }
     #howto b { color:#bbb; }
-    #howto summary, #changelog summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
-    #howto[open] summary, #changelog[open] summary { margin-bottom:6px; }
-    .cl-row { display:flex; gap:12px; padding:2px 0; }
-    .cl-date { flex:0 0 92px; color:#666; font-variant-numeric:tabular-nums; }
-    .cl-row a { color:#bbb; text-decoration:none; }
-    .cl-row a:hover { color:#fff; }
+    #howto summary { cursor:pointer; color:#bbb; font-weight:600; outline:none; user-select:none; }
+    #howto[open] summary { margin-bottom:6px; }
 
     #explorer[hidden], .nv[hidden] { display:none !important; }
     /* view tabs */
@@ -314,6 +310,7 @@
     table.res th.num { text-align:right; }
     table.res tr.clk { cursor:pointer; }
     table.res tr.clk:hover td { background:#1a2028; color:#fff; }
+    table.res tr.on td { background:#1d3352; color:#fff; }
     table.res td .apt { color:#e8e8e8; font-weight:600; }
     table.res td .st { color:#666; margin-left:4px; font-size:11px; }
     table.res td .co { color:#6b7c93; font-size:10px; border:1px solid #33404f; border-radius:3px; padding:0 3px; margin-left:5px; }
@@ -354,7 +351,7 @@
   <div id="modes">
     <button data-view="explorer" class="on">Explorer</button>
     <button data-view="national">Nationwide</button>
-    <button data-view="changes">This cycle</button>
+    <button data-view="changes">Changelog</button>
   </div>
 
   <div id="national" class="nv" hidden>
@@ -424,6 +421,7 @@
   </div>
 
   <div id="changes" class="nv" hidden>
+    <div class="box"><div class="tbl-wrap"><table class="res" id="chg-cycles"></table></div></div>
     <div class="tiles" id="chg-tiles"></div>
     <div class="box">
       <div class="fbar">
@@ -516,17 +514,12 @@
         (many VOR/NDB/TACAN full procedures, visuals, most military fields), so they can't be drawn — but the plate is real.
         The <b>leg table</b> lists each selected transition fix-by-fix; courses there are <b>&deg;true</b>
         (chart courses are magnetic — the local variation is applied).
-        <b>Nationwide</b> queries every coded procedure at once; <b>This cycle</b> diffs the current AIRAC cycle
-        against the last one, leg by leg.
+        <b>Nationwide</b> queries every coded procedure at once; <b>Changelog</b> diffs each AIRAC cycle
+        against the one before, leg by leg — pick the cycle in its table.
         Data: FAA CIFP + d-TPP, for situational awareness only — <b>not for navigation</b>.
       </details>
     </div>
   </div>
-
-  <details id="changelog">
-    <summary>Changelog</summary>
-    <div id="cl-list"></div>
-  </details>
 
   <div id="plate-modal">
     <div id="plate-box">
@@ -547,8 +540,7 @@
   <script src="js/vendor/leaflet.js"></script>
   <script src="js/site-config.js"></script>
   <script src="js/procedures.js?v=10"></script>
-  <script src="js/procedures-national.js?v=2"></script>
-  <script src="js/procedures-changelog.js?v=1"></script>
+  <script src="js/procedures-national.js?v=3"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/pagever.js?v=1" defer></script>

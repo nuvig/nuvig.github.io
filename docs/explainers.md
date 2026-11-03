@@ -41,20 +41,23 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   for a day — Jesse: too big, and the PR inset sat on Florida), by-kind / by-state bars
   that filter on click, a one-measure histogram (VPA, FAF→MAP, FAF altitude, missed climb-to,
   SID climb, STAR descent, top constraint, length, transitions, legs, fixes — single hue, dashed
-  median), a sortable table and the most-shared fixes; **This cycle** — `changes.json`, the diff
+  median), a sortable table and the most-shared fixes; **Changelog** (the "This cycle" tab until
+  2026-11-03, when Jesse asked for a changelog that "expresses changes between cycles") — a table
+  of every cycle diff on file (`cycles.json`, counts only, newest first; a row click loads that
+  cycle's `changes/{cycle}.json`, `#cycle=NNNN` in the hash) over the diff
   against the previous AIRAC cycle: added, withdrawn, and changed leg by leg (altitudes, speeds,
   angles, courses ≥ 1°, fixes, transitions; a renumbered SID/STAR is paired with its successor as
   one "revised from" entry, and tenth-of-a-degree course shifts are magvar noise, dropped).
   Both files come from **`python scripts/build_procedure_metrics.py`** (stdlib, no downloads;
   reads the committed airport files and the previous cycle out of git history — the newest
   commit of `index.json` with a different `cycle`), so **each cycle is two commands**:
-  `build_procedures.py` then `build_procedure_metrics.py`, and commit all three outputs. A
-  skipped cycle just widens the diff: the "This cycle" header shows the two cycle numbers it
-  compares. **Changelog** (2026-11-02): a
-  collapsed `<details id="changelog">` under the views, filled by `js/procedures-changelog.js` on
-  first open — the commits on main touching `procedures.html`, the two scripts and
-  `data/procedures/index.json` (so cycle builds appear), GitHub API like `pagever.js`, one request
-  per path, merged by sha, 6 h localStorage cache, `procedures:` message prefixes stripped. Column
+  `build_procedures.py` then `build_procedure_metrics.py`, and commit all of `data/procedures`
+  (the metrics script also writes `changes/{cycle}.json`, which later cycles never overwrite, and
+  regenerates `cycles.json` from that directory). A skipped cycle just widens that cycle's diff
+  (2610 was never built, so 2611's row reads "vs 2609"). `--to REV` backfills the diff for the
+  cycle committed at REV against the one before it (how 2609's was made). The first cycle on
+  file, 2607, has no diff. (A commit-history changelog shipped for a day on 2026-11-02 and was
+  replaced the next: not what was wanted.) Column
   meanings are in that script's docstring; two of them are honest approximations and say so in
   the table tooltips — a SID's `grad` is measured over the straight line from the departure end
   to the first at-or-above fix (the shortest possible path, so a ceiling on the gradient, and

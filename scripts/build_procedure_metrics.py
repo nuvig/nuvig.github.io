@@ -3,13 +3,21 @@
 Reads the committed per-airport files in data/procedures/apt/ (no downloads)
 and writes:
 
-    data/procedures/metrics.json   one row per coded procedure in the country
-    data/procedures/changes.json   what this cycle added / withdrew / edited
+    data/procedures/metrics.json         one row per coded procedure in the country
+    data/procedures/changes.json         what this cycle added / withdrew / edited
+    data/procedures/changes/{cycle}.json the same diff, kept per cycle (never overwritten
+                                         by a later cycle) — the changelog's history
+    data/procedures/cycles.json          one line per diff on file, newest first: counts
+                                         only, what the changelog view lists
 
 Run after build_procedures.py each cycle:
 
     python scripts/build_procedure_metrics.py            # prev = last committed cycle
     python scripts/build_procedure_metrics.py --prev REV # diff against a git revision
+    python scripts/build_procedure_metrics.py --to REV   # backfill: diff the cycle committed
+                                                         # at REV against the one before it
+                                                         # (writes changes/{cycle}.json and
+                                                         # cycles.json only)
 
 metrics.json:
     {cycle, effective, built, cols:[...], rows:[[...],...],
@@ -386,6 +394,7 @@ def diff_proc(a, b):
 def build_changes(old_docs, old_index, new_docs, new_index, kinds):
     out = {'from': {'cycle': old_index.get('cycle'), 'effective': old_index.get('effective')},
            'to': {'cycle': new_index.get('cycle'), 'effective': new_index.get('effective')},
+           'built': new_index.get('built'),
            'apts_added': [], 'apts_removed': [], 'added': [], 'removed': [], 'changed': []}
     counts = {'added': Counter(), 'removed': Counter(), 'changed': Counter()}
     for icao in sorted(set(old_docs) | set(new_docs)):
@@ -467,9 +476,9 @@ def load_tree_git(rev):
     index = json.loads(git('show', '%s:data/procedures/index.json' % rev).decode('utf-8'))
     return docs, index
 
-def previous_cycle_rev(cur_cycle):
-    """Newest commit whose index.json belongs to a different cycle."""
-    revs = git('log', '--format=%H', '--', 'data/procedures/index.json').decode().split()
+def previous_cycle_rev(cur_cycle, start='HEAD'):
+    """Newest commit at or before start whose index.json belongs to a different cycle."""
+    revs = git('log', '--format=%H', start, '--', 'data/procedures/index.json').decode().split()
     for r in revs:
         try:
             idx = json.loads(git('show', '%s:data/procedures/index.json' % r).decode('utf-8'))
@@ -479,32 +488,59 @@ def previous_cycle_rev(cur_cycle):
             return r, idx.get('cycle')
     return None, None
 
+def rebuild_cycles():
+    """cycles.json: every diff in changes/, counts only, newest first."""
+    rows = []
+    for f in glob.glob(os.path.join(PDIR, 'changes', '*.json')):
+        with open(f, encoding='utf-8') as fh:
+            c = json.load(fh)
+        rows.append({'from': c['from'], 'to': c['to'], 'built': c.get('built'),
+                     'added': len(c['added']), 'removed': len(c['removed']),
+                     'changed': len(c['changed']), 'apts_added': len(c['apts_added']),
+                     'apts_removed': len(c['apts_removed']), 'counts': c['counts']})
+    rows.sort(key=lambda r: r['to']['cycle'] or '', reverse=True)
+    with open(os.path.join(PDIR, 'cycles.json'), 'w', encoding='utf-8') as fh:
+        json.dump(rows, fh, separators=(',', ':'), ensure_ascii=False)
+    print('cycles.json: %d cycle diffs on file' % len(rows))
+
+def write_changes(changes, latest):
+    os.makedirs(os.path.join(PDIR, 'changes'), exist_ok=True)
+    paths = [os.path.join(PDIR, 'changes', '%s.json' % changes['to']['cycle'])]
+    if latest:
+        paths.append(os.path.join(PDIR, 'changes.json'))
+    for p in paths:
+        with open(p, 'w', encoding='utf-8') as fh:
+            json.dump(changes, fh, separators=(',', ':'), ensure_ascii=False)
+    print('%s: %s -> %s: added %d, withdrawn %d, changed %d, airports +%d -%d'
+          % (os.path.relpath(paths[0], ROOT), changes['from']['cycle'], changes['to']['cycle'],
+             len(changes['added']), len(changes['removed']), len(changes['changed']),
+             len(changes['apts_added']), len(changes['apts_removed'])))
+    rebuild_cycles()
+
 def main():
-    prev = None
-    if '--prev' in sys.argv:
-        prev = sys.argv[sys.argv.index('--prev') + 1]
-    docs, index = load_tree_fs()
-    metrics = build_metrics(docs, index)
-    with open(os.path.join(PDIR, 'metrics.json'), 'w', encoding='utf-8') as fh:
-        json.dump(metrics, fh, separators=(',', ':'), ensure_ascii=False)
-    print('metrics.json: %d procedures at %d airports, %d shared fixes'
-          % (len(metrics['rows']), len(metrics['apts']), len(metrics['fixes'])))
+    opt = lambda k: sys.argv[sys.argv.index(k) + 1] if k in sys.argv else None
+    prev, to = opt('--prev'), opt('--to')
+    if to:
+        docs, index = load_tree_git(to)
+        metrics = build_metrics(docs, index)   # in memory, only for the kinds
+    else:
+        docs, index = load_tree_fs()
+        metrics = build_metrics(docs, index)
+        with open(os.path.join(PDIR, 'metrics.json'), 'w', encoding='utf-8') as fh:
+            json.dump(metrics, fh, separators=(',', ':'), ensure_ascii=False)
+        print('metrics.json: %d procedures at %d airports, %d shared fixes'
+              % (len(metrics['rows']), len(metrics['apts']), len(metrics['fixes'])))
 
     if not prev:
-        prev, pc = previous_cycle_rev(index.get('cycle'))
+        prev, pc = previous_cycle_rev(index.get('cycle'), to or 'HEAD')
         if not prev:
-            print('no earlier cycle in git history; changes.json not written')
+            print('no earlier cycle in git history; changes not written')
             return
         print('previous cycle %s at %s' % (pc, prev[:10]))
     old_docs, old_index = load_tree_git(prev)
     kinds = {(r[0], r[1]): r[4] for r in metrics['rows']}
     changes = build_changes(old_docs, old_index, docs, index, kinds)
-    with open(os.path.join(PDIR, 'changes.json'), 'w', encoding='utf-8') as fh:
-        json.dump(changes, fh, separators=(',', ':'), ensure_ascii=False)
-    print('changes.json: %s -> %s: added %d, withdrawn %d, changed %d, airports +%d -%d'
-          % (changes['from']['cycle'], changes['to']['cycle'], len(changes['added']),
-             len(changes['removed']), len(changes['changed']),
-             len(changes['apts_added']), len(changes['apts_removed'])))
+    write_changes(changes, latest=not to)
 
 if __name__ == '__main__':
     main()

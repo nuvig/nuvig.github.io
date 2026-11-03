@@ -1,7 +1,8 @@
-// Procedure Explorer — Nationwide and This-cycle views.
+// Procedure Explorer — Nationwide and Changelog views.
 // Reads data/procedures/metrics.json (one row per coded procedure, built by
-// scripts/build_procedure_metrics.py) and changes.json (the diff against the
-// previous AIRAC cycle). Never touches the per-airport files; drawing a row
+// scripts/build_procedure_metrics.py), cycles.json (every AIRAC cycle diff on
+// file, counts only) and changes/{cycle}.json (one diff against the cycle
+// before, leg by leg). Never touches the per-airport files; drawing a row
 // hands off to window.ProcExplorer.open() in procedures.js.
 (() => {
   'use strict';
@@ -15,7 +16,7 @@
   const S = {
     m: null, ix: {}, rows: [], apts: {}, kinds: [], states: [],
     view: 'explorer', filt: {}, hits: [], sort: { col: 'apt', dir: 1 }, shown: 300,
-    changes: null, draws: [],
+    changes: null, cycles: [], cycle: '', draws: [],
   };
 
   // ---------------------------------------------------------------- views
@@ -27,7 +28,7 @@
     $('changes').hidden = v !== 'changes';
     if (v === 'explorer' && window.ProcExplorer) window.ProcExplorer.refresh();
     if (v === 'national') { loadMetrics().then(() => { render(); }); }
-    if (v === 'changes') loadChanges().then(renderChanges);
+    if (v === 'changes') loadCycles().then(() => loadChanges(S.cycle)).then(renderChanges);
     if (push !== false) writeHash();
   }
 
@@ -38,6 +39,7 @@
     const h = readHash();
     for (const k of [...h.keys()]) if (k !== 'apt' && k !== 'sel') h.delete(k);
     if (S.view !== 'explorer') h.set('view', S.view);
+    if (S.view === 'changes' && S.cycle) h.set('cycle', S.cycle);
     if (S.view === 'national') {
       const f = S.filt;
       if (f.type) h.set('t', f.type);
@@ -56,7 +58,8 @@
   }
 
   // ---------------------------------------------------------------- data
-  let metricsP = null, changesP = null;
+  let metricsP = null, cyclesP = null;
+  const changesP = {};
   function loadMetrics() {
     if (metricsP) return metricsP;
     $('nat-count').textContent = 'Loading…';
@@ -79,11 +82,18 @@
     }).catch(() => { $('nat-count').textContent = 'Could not load data/procedures/metrics.json'; });
     return metricsP;
   }
-  function loadChanges() {
-    if (changesP) return changesP;
-    changesP = fetch('data/procedures/changes.json').then(r => r.ok ? r.json() : null)
-      .then(c => { S.changes = c; }).catch(() => { S.changes = null; });
-    return changesP;
+  // cycles.json lists every cycle diff on file (counts only); changes/{cycle}.json
+  // is one diff in full, changes.json the newest of them.
+  function loadCycles() {
+    if (cyclesP) return cyclesP;
+    cyclesP = fetch('data/procedures/cycles.json').then(r => r.ok ? r.json() : [])
+      .then(c => { S.cycles = Array.isArray(c) ? c : []; }).catch(() => { S.cycles = []; });
+    return cyclesP;
+  }
+  function loadChanges(cycle) {
+    const url = cycle ? `data/procedures/changes/${encodeURIComponent(cycle)}.json` : 'data/procedures/changes.json';
+    if (!changesP[url]) changesP[url] = fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+    return changesP[url].then(c => { S.changes = c; });
   }
   const col = (r, c) => r[S.ix[c]];
   const stOf = r => (S.apts[col(r, 'apt')] || [])[1] || '';
@@ -495,6 +505,21 @@
   }
   function renderChanges() {
     const c = S.changes;
+    const cur = c ? c.to.cycle : '';
+    $('chg-cycles').innerHTML = S.cycles.length
+      ? '<tr><th>Cycle</th><th>Effective</th><th class="num">Added</th><th class="num">Withdrawn</th><th class="num">Changed</th><th>vs</th></tr>' +
+        S.cycles.map(r => `<tr class="clk${r.to.cycle === cur ? ' on' : ''}" data-cycle="${esc(r.to.cycle)}">` +
+          `<td><span class="apt">${esc(r.to.cycle)}</span></td><td>${esc(r.to.effective)}</td>` +
+          `<td class="num">${fmtN(r.added)}</td><td class="num">${fmtN(r.removed)}</td><td class="num">${fmtN(r.changed)}</td>` +
+          `<td style="color:#777">${esc(r.from.cycle)} · eff. ${esc(r.from.effective)}</td></tr>`).join('')
+      : '';
+    $('chg-cycles').onclick = e => {
+      const tr = e.target.closest('tr.clk');
+      if (!tr || tr.dataset.cycle === cur) return;
+      S.cycle = tr.dataset.cycle;
+      writeHash();
+      loadChanges(S.cycle).then(renderChanges);
+    };
     if (!c) {
       $('chg-tiles').innerHTML = '<div class="tile"><div class="v">—</div><div class="l">no previous cycle on file</div></div>';
       return;
@@ -537,6 +562,7 @@
     for (const k of ['vpa', 'grad', 'dg']) if (h.get(k)) f[k] = +h.get(k);
     const so = h.get('sort');
     if (so) { const [c, d] = so.split(':'); S.sort = { col: c, dir: d === 'd' ? -1 : 1 }; }
+    S.cycle = (h.get('cycle') || '').replace(/[^0-9]/g, '');
     setView(view, false);
   }
   window.PROC_NAT_DEBUG = S;
