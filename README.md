@@ -162,13 +162,18 @@ hourly to the `wx3d-data` branch, so page views don't hit the API.
 hourly against the FAA NMS API and force-pushes the `notam-data` branch:
 the whole system by state, a daily new/gone ledger, and aggregates.
 
+**Procedures.** `.github/workflows/procedures.yml` runs
+`scripts/build_procedures.py --if-new` every Friday (the day after an AIRAC
+cycle turns effective) and, when a new cycle came down, `scripts/build_procedure_metrics.py`,
+then commits `data/procedures/` to main.
+
 ## Generated data
 
 Built by script, committed, never hand-edited.
 
 | Output | Script | When |
 |---|---|---|
-| `data/procedures/` | `scripts/build_procedures.py` then `scripts/build_procedure_metrics.py` | each 28-day AIRAC cycle |
+| `data/procedures/` | `scripts/build_procedures.py` then `scripts/build_procedure_metrics.py` | each 28-day AIRAC cycle, by the procedures workflow |
 | `data/notam/locations.json` | `scripts/build_notam_locations.py` | each AIRAC cycle |
 | `data/knowledge.json` | `scripts/build_knowledge.py` from `data/knowledge/*.md` | when the Markdown changes |
 | `data/storms.json` | `scripts/build_storms.py` from `data/wx/` | hourly, by the weather-archive workflow |

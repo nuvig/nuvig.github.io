@@ -1,0 +1,63 @@
+# Procedure data — the FAA CIFP + d-TPP build behind procedures.html.
+# AIRAC cycles turn over on a Thursday every 28 days; this runs every Friday
+# and scripts/build_procedures.py --if-new exits untouched while
+# data/procedures/index.json already holds the current cycle (or the FAA has
+# not posted the new CIFP yet), so most weeks commit nothing. On a new cycle
+# it rewrites the per-airport files, scripts/build_procedure_metrics.py
+# recomputes metrics.json and diffs changes.json against the previous cycle
+# (read out of git history — hence the full checkout), and the three outputs
+# are committed to main, same pattern as wxarchive.yml. The Actions tab's
+# "Run workflow" button runs it on demand; the by-hand PC commands in the two
+# scripts still work.
+
+name: Procedure data
+
+on:
+  schedule:
+    - cron: '23 11 * * 5'   # Fridays 11:23 UTC — the day after a cycle turns effective
+  workflow_dispatch: {}     # manual "run now" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: procedures
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the metrics script finds the previous cycle with git log
+
+      - name: Build the cycle (no-op when already current)
+        run: python3 scripts/build_procedures.py --if-new
+
+      - name: Metrics and cycle diff
+        run: |
+          if git diff --quiet -- data/procedures/index.json; then
+            echo "index.json unchanged — nothing to diff"
+            exit 0
+          fi
+          python3 scripts/build_procedure_metrics.py
+
+      - name: Commit
+        run: |
+          git config user.name  "procedures[bot]"
+          git config user.email "procedures[bot]@users.noreply.github.com"
+          git add data/procedures
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          read -r cycle eff < <(python3 -c "import json; d = json.load(open('data/procedures/index.json')); print(d['cycle'], d['effective'])")
+          git commit -m "procedures: AIRAC cycle ${cycle} (effective ${eff})"
+          # main may have moved while we ran — rebase our one commit and retry
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

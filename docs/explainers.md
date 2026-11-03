@@ -12,10 +12,15 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   the next is effective, so `dtppCycle()` advances the built cycle in 28-day steps at view time,
   mirrored by `dtpp_cycle_label()` in the builder). Data: `data/procedures/` (`index.json` + ~3,180
   per-airport JSON files), regenerated each 28-day AIRAC cycle by `python scripts/build_procedures.py`
-  (downloads FAA CIFP **and the d-TPP chart metafile**, stdlib only; `--if-new` makes it a no-op
-  while `index.json` already holds the current cycle or the FAA hasn't posted the CIFP yet, 404).
-  aeronav.faa.gov is unreachable from the web-session containers, so a cycle gets built on the PC.
-  The builder matches charts to
+  (downloads FAA CIFP **and the d-TPP chart metafile**, stdlib only). **Since 2026-11-03 that runs
+  itself: `.github/workflows/procedures.yml`** (Fridays 11:23Z, the day after a cycle turns effective,
+  plus the Actions "Run workflow" button) calls `build_procedures.py --if-new` — a no-op while
+  `index.json` already holds the current cycle or the FAA hasn't posted the CIFP yet (404) — then
+  `build_procedure_metrics.py` when the index changed, and commits `data/procedures` to main as
+  `procedures[bot]` ("procedures: AIRAC cycle NNNN (effective …)"). The checkout is full-depth
+  because the metrics script reads the previous cycle from git log. aeronav.faa.gov is unreachable
+  from the web-session containers, so the Action (or the PC) is where a cycle gets built. The
+  builder matches charts to
   CIFP codings (DP/STAR via `<faanfd18>`, IAPs by parsing chart titles into candidate ARINC idents);
   published plates with no public CIFP coding (many VOR/NDB/TACAN full procedures, visuals, most
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
