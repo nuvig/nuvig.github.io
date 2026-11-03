@@ -412,24 +412,40 @@ def build_changes(old_docs, old_index, new_docs, new_index, kinds):
         pn = {p['id']: p for p in n.get('procs') or []}
         # a SID/STAR revision renumbers (CONLE5 -> CONLE6): pair it as one change
         base = lambda pid: re.sub(r'\d+$', '', pid)
-        revised = {}
+        paired = {}   # new ident -> (old ident, revised?)
         for pid, p in po.items():
             if pid in pn or p['type'] == 'APP':
                 continue
             succ = [q for q in pn if q not in po and base(q) == base(pid)
                     and pn[q]['type'] == p['type']]
             if len(succ) == 1:
-                revised[succ[0]] = pid
+                paired[succ[0]] = (pid, True)
+        # coding withdrawn while the plate lives on: the chart-only entry the
+        # builder makes takes its ident from the title (VOR RWY 24 -> V24), not
+        # the CIFP's (S24) — pair them so it reads as a withdrawal, not an add
         for pid, p in po.items():
-            if pid not in pn and pid not in revised.values():
+            if pid in pn or p.get('co'):
+                continue
+            name = p.get('name') or pid
+            succ = [q for q in pn if q not in po and q not in paired and pn[q].get('co')
+                    and pn[q]['type'] == p['type'] and (pn[q].get('name') or q) == name]
+            if len(succ) == 1:
+                paired[succ[0]] = (pid, False)
+        gone = {old for old, _ in paired.values()}
+        for pid, p in po.items():
+            if pid not in pn and pid not in gone:
                 out['removed'].append([icao, pid, p.get('name') or pid, p['type'],
                                        app_kind(p) if p['type'] == 'APP' else None])
                 counts['removed'][p['type']] += 1
         for pid, p in pn.items():
             k = kinds.get((icao, pid))
-            if pid in revised:
-                notes = ['revised from ' + revised[pid]] + [n for n in diff_proc(po[revised[pid]], p)
-                                                            if not n.startswith('renamed from')]
+            if pid in paired:
+                old, revised = paired[pid]
+                notes = diff_proc(po[old], p)
+                if revised:
+                    notes = ['revised from ' + old] + [n for n in notes if not n.startswith('renamed from')]
+                else:
+                    notes.insert(1, 'was ' + old)
                 out['changed'].append([icao, pid, p.get('name') or pid, p['type'], k, notes[:12]])
                 counts['changed'][p['type']] += 1
             elif pid not in po:
@@ -445,14 +461,64 @@ def build_changes(old_docs, old_index, new_docs, new_index, kinds):
 
 # ---------------------------------------------------------------- io
 
+def is_deleted(pdf):
+    return (pdf or '').upper().startswith('DELETED')
+
+def scrub_deleted(docs):
+    """Undo what a withdrawn d-TPP chart (useraction D, pdf DELETED_JOB.PDF)
+    left in a tree built before build_procedures.py learned to skip them
+    (2026-11-03): a plate-only entry that is really a cancellation (a dead
+    "VOR RWY 24" that read as newly added), dead plate refs on coded
+    procedures, dead variants / continuation pages / airport-level charts.
+    Applied to every tree read here, so history diffs clean. Returns the
+    number of entries dropped."""
+    n = 0
+    for d in docs.values():
+        keep = []
+        for p in d.get('procs') or []:
+            ch = p.get('chart')
+            if ch and is_deleted(ch.get('p')):
+                if p.get('co'):
+                    n += 1
+                    continue
+                live = [v for v in ch.get('v') or [] if not is_deleted(v.get('p'))]
+                if live:
+                    ch = dict(live[0])
+                    if live[1:]:
+                        ch['v'] = live[1:]
+                    p['chart'] = ch
+                else:
+                    del p['chart']
+                    ch = None
+            if ch:
+                for k in ('v', 'c'):
+                    if k in ch:
+                        ch[k] = [x for x in ch[k] if not is_deleted(x.get('p') if isinstance(x, dict) else x)]
+                        if not ch[k]:
+                            del ch[k]
+            keep.append(p)
+        d['procs'] = keep
+        tpp = d.get('tpp')
+        if tpp and tpp.get('apt'):
+            tpp['apt'] = [a for a in tpp['apt'] if not is_deleted(a[1])]
+    return n
+
+def in_index(docs, index):
+    """Only the airports index.json lists: a file an older build left behind
+    (3I2, dropped in 2609, lingered until 2026-11-03) is not in the cycle."""
+    ids = {r[0] for r in index['apts']}
+    return {k: v for k, v in docs.items() if k in ids}
+
 def load_tree_fs():
     docs = {}
     for f in glob.glob(os.path.join(PDIR, 'apt', '*.json')):
         with open(f, encoding='utf-8') as fh:
             d = json.load(fh)
         docs[d['id']] = d
+    scrub_deleted(docs)
     with open(os.path.join(PDIR, 'index.json'), encoding='utf-8') as fh:
-        return docs, json.load(fh)
+        index = json.load(fh)
+    return in_index(docs, index), index
 
 def git(*args, **kw):
     return subprocess.run(['git', *args], cwd=ROOT, capture_output=True, check=True, **kw).stdout
@@ -473,8 +539,9 @@ def load_tree_git(rev):
         d = json.loads(body.decode('utf-8'))
         docs[d['id']] = d
         i = nl + 1 + size + 1
+    scrub_deleted(docs)
     index = json.loads(git('show', '%s:data/procedures/index.json' % rev).decode('utf-8'))
-    return docs, index
+    return in_index(docs, index), index
 
 def previous_cycle_rev(cur_cycle, start='HEAD'):
     """Newest commit at or before start whose index.json belongs to a different cycle."""

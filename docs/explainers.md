@@ -24,7 +24,13 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   CIFP codings (DP/STAR via `<faanfd18>`, IAPs by parsing chart titles into candidate ARINC idents);
   published plates with no public CIFP coding (many VOR/NDB/TACAN full procedures, visuals, most
   military fields — e.g. KGED VOR RWY 22) become `co:1` chart-only entries with empty `trans`, so
-  a procedure "missing" from the map is usually FAA coding absence, not a bug. **Leg-array layout is
+  a procedure "missing" from the map is usually FAA coding absence, not a bug. **A chart withdrawn
+  this cycle stays in the metafile one last time** (`useraction` D, pdf `DELETED_JOB.PDF`, no file
+  behind it); the builder skips those since 2026-11-03 — before that they became plate-only
+  entries, so a cancelled VOR approach read as a *new* one in the cycle diff (Jesse caught it:
+  "no way they adding new VOR IAPs"). `build_procedure_metrics.py` scrubs the same leftovers out
+  of every tree it reads (`scrub_deleted()`), so the older cycles in git diff clean, and the 2611
+  apt files were scrubbed in place the same day. **Leg-array layout is
   documented in that script and mirrored in `procedures.js` `decodeLeg()` — change both together.**
   Navaid and enroute-fix idents collide nationally (NDB `RU` is in NC and TX; KRUQ's NDB approach
   drew its final from Texas until 2026-09-12), so the builder keeps every position per ident and
@@ -47,7 +53,10 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   cycle's `changes/{cycle}.json`, `#cycle=NNNN` in the hash) over the diff
   against the previous AIRAC cycle: added, withdrawn, and changed leg by leg (altitudes, speeds,
   angles, courses ≥ 1°, fixes, transitions; a renumbered SID/STAR is paired with its successor as
-  one "revised from" entry, and tenth-of-a-degree course shifts are magvar noise, dropped).
+  one "revised from" entry; a coding withdrawn while its plate lives on is paired with the
+  chart-only entry that replaces it — same chart title, new title-derived ident, "coding withdrawn
+  (plate only) · was S24" — rather than a withdrawal plus an addition; and tenth-of-a-degree course
+  shifts are magvar noise, dropped). A cycle selector sits in the filter bar beside the table.
   Both files come from **`python scripts/build_procedure_metrics.py`** (stdlib, no downloads;
   reads the committed airport files and the previous cycle out of git history — the newest
   commit of `index.json` with a different `cycle`), so **each cycle is two commands**:

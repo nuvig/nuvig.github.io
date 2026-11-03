@@ -513,13 +513,18 @@
           `<td class="num">${fmtN(r.added)}</td><td class="num">${fmtN(r.removed)}</td><td class="num">${fmtN(r.changed)}</td>` +
           `<td style="color:#777">${esc(r.from.cycle)} · eff. ${esc(r.from.effective)}</td></tr>`).join('')
       : '';
-    $('chg-cycles').onclick = e => {
-      const tr = e.target.closest('tr.clk');
-      if (!tr || tr.dataset.cycle === cur) return;
-      S.cycle = tr.dataset.cycle;
+    const pick = cycle => {
+      if (!cycle || cycle === cur) return;
+      S.cycle = cycle;
       writeHash();
       loadChanges(S.cycle).then(renderChanges);
     };
+    $('chg-cycles').onclick = e => { const tr = e.target.closest('tr.clk'); if (tr) pick(tr.dataset.cycle); };
+    const sel = $('cf-cycle');
+    sel.hidden = !S.cycles.length;
+    sel.innerHTML = S.cycles.map(r => `<option value="${esc(r.to.cycle)}">${esc(r.to.cycle)} · eff. ${esc(r.to.effective)}</option>`).join('');
+    sel.value = cur;
+    sel.onchange = () => pick(sel.value);
     if (!c) {
       $('chg-tiles').innerHTML = '<div class="tile"><div class="v">—</div><div class="l">no previous cycle on file</div></div>';
       return;

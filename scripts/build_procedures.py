@@ -263,7 +263,7 @@ def parse_dtpp(xml_bytes, cifp_airports):
     """
     root = ET.fromstring(xml_bytes)
     out = {}
-    skipped = 0
+    skipped = deleted = 0
     for st_el in root:
         st = st_el.get('ID') or ''
         for city_el in st_el:
@@ -279,6 +279,15 @@ def parse_dtpp(xml_bytes, cifp_airports):
                 by_base = {}
                 for rec in apt_el.findall('record'):
                     d = {c.tag: (c.text or '').strip() for c in rec}
+                    # A chart withdrawn this cycle stays in the metafile one
+                    # last time as useraction D with pdf DELETED_JOB.PDF (no
+                    # file behind it). Skip it: through 2611 these became
+                    # plate-only entries, so a cancelled VOR approach read as
+                    # a newly added one in the cycle diff.
+                    if d.get('useraction', '').upper() == 'D' or \
+                       d.get('pdf_name', '').upper().startswith('DELETED'):
+                        deleted += 1
+                        continue
                     name = d.get('chart_name', '')
                     m = re.search(r',?\s*CONT\.(\d+)$', name)
                     if m:
@@ -293,7 +302,8 @@ def parse_dtpp(xml_bytes, cifp_airports):
                         ch['f18'] = d['faanfd18']
                     by_base[(d['chart_code'], name)] = ch
                     entry['charts'].append(ch)
-    print(f'd-TPP metafile: {len(out)} airports matched, {skipped} not in CIFP')
+    print(f'd-TPP metafile: {len(out)} airports matched, {skipped} not in CIFP, '
+          f'{deleted} withdrawn charts skipped')
     return out
 
 def chart_ref(ch):
@@ -608,6 +618,16 @@ def main():
         n = lambda t: sum(1 for p in procs if p['type'] == t)
         index.append([apt, a['name'], a['lat'], a['lon'], n('SID'), n('STAR'), n('APP'),
                       entry['city'] if entry else '', entry['st'] if entry else ''])
+
+    # an airport that dropped out of the cycle leaves a stale file behind
+    # otherwise (3I2 lingered from 2607 to 2611 and stayed in the metrics)
+    written = {row[0] + '.json' for row in index}
+    stale = [f for f in os.listdir(os.path.join(OUT, 'apt'))
+             if f.endswith('.json') and f not in written]
+    for f in stale:
+        os.remove(os.path.join(OUT, 'apt', f))
+    if stale:
+        print(f'{len(stale)} stale airport files removed: {" ".join(sorted(stale))}')
 
     meta = {'effective': f'{cyc:%Y-%m-%d}' if cyc else None,
             'built': f'{date.today():%Y-%m-%d}', 'cycle': cycle, 'apts': index}
