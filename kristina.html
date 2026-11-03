@@ -17,15 +17,17 @@
       --accent: #8fd3c7;
       --glow: rgba(143, 211, 199, .35);
     }
-    html, body { margin: 0; height: 100%; }
+    html, body { margin: 0; }
     body {
-      min-height: 100%;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 32px 20px;
       background: linear-gradient(160deg, var(--bg1), var(--bg2));
       color: var(--ink);
       font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
       text-align: center;
+    }
+    section {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 20px;
     }
     .orb {
       width: 160px; height: 160px;
@@ -86,6 +88,71 @@
 
     sup { font-size: .45em; vertical-align: super; color: var(--accent); margin-left: 2px; }
     .fine { margin: 30px 0 0; font-size: 11px; color: var(--soft); opacity: .7; }
+    .down {
+      margin: 36px 0 0; font-size: 13px; color: var(--soft); text-decoration: none;
+      letter-spacing: 2px; text-transform: uppercase;
+      animation: bob 2s ease-in-out infinite;
+    }
+    @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+    /* — Fire — */
+    #fire {
+      background: linear-gradient(180deg, #2a0b06, #6b1409 60%, #a3240c);
+      color: #fff3e6;
+      position: relative; overflow: hidden;
+    }
+    #fire .flames {
+      position: absolute; left: 0; right: 0; bottom: -10px; height: 42vh;
+      display: flex; align-items: flex-end; justify-content: space-around;
+      pointer-events: none;
+    }
+    #fire .flames i {
+      display: block; width: 9vw; height: 100%;
+      background: radial-gradient(ellipse at 50% 100%, #ffe08a 0%, #ff9a1f 30%, #e8420e 60%, transparent 80%);
+      border-radius: 50% 50% 20% 20%;
+      transform-origin: 50% 100%;
+      animation: flicker 1.1s ease-in-out infinite alternate;
+      filter: blur(6px);
+      opacity: .9;
+    }
+    @keyframes flicker {
+      0%   { transform: scaleY(.75) scaleX(.9)  skewX(-4deg); }
+      100% { transform: scaleY(1.15) scaleX(1.1) skewX(5deg); }
+    }
+    #fire h2 {
+      position: relative;
+      margin: 0;
+      font-size: clamp(38px, 10vw, 92px);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -1px;
+      text-transform: uppercase;
+      text-shadow: 0 0 24px rgba(255, 120, 30, .8);
+      animation: shake 3s infinite;
+    }
+    #fire h2 sup { color: #ffd27a; }
+    @keyframes shake {
+      0%, 92%, 100% { transform: translate(0, 0); }
+      93% { transform: translate(-3px, 1px); }
+      95% { transform: translate(3px, -1px); }
+      97% { transform: translate(-2px, 2px); }
+    }
+    #fire .rule { position: relative; margin: 26px 0 0; font-size: clamp(16px, 3vw, 22px); color: #ffd7b8; }
+    #fire .rule b { color: #ffd27a; }
+    #fire .ext {
+      position: relative;
+      margin-top: 32px;
+      font: inherit; font-size: 16px;
+      color: #fff3e6;
+      background: rgba(0,0,0,.25);
+      border: 1px solid #ffb27a;
+      border-radius: 999px;
+      padding: 10px 22px;
+      cursor: pointer;
+    }
+    #fire .ext:hover { background: rgba(0,0,0,.4); }
+    #fire #extout { position: relative; margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: #ffd27a; }
+    #fire .fine { color: #ffd7b8; }
 
     /* Floating ™ field. */
     #tm { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
@@ -105,6 +172,7 @@
 </head>
 <body>
   <div id="tm" aria-hidden="true"></div>
+  <section id="chill">
   <div class="orb" aria-hidden="true"></div>
   <p class="cue" id="cue">breathe in</p>
 
@@ -117,6 +185,18 @@
   <p id="answer"></p>
 
   <p class="fine">™ and ® are trademarks of He's Working On Shit™. Chill™ is a registered state of mind. All rights reserved™.</p>
+
+  <a class="down" href="#fire">also ↓</a>
+  </section>
+
+  <section id="fire">
+    <div class="flames" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <h2>Stop playing<br>with fire<sup>™</sup></h2>
+    <p class="rule">fire™ → <b>no</b> · playing with it™ → <b>also no</b></p>
+    <button class="ext" id="ext">put it out™</button>
+    <p id="extout"></p>
+    <p class="fine">Fire™ is a registered hazard. Playing With Fire™ is not a licensed activity. Stop™.</p>
+  </section>
 
   <script>
     // Breathing cue follows the orb's 8 s cycle.
@@ -150,6 +230,20 @@
     }
     for (let i = 0; i < 14; i++) setTimeout(() => spawnTM(false), i * 900);
     setInterval(() => spawnTM(false), 1200);
+
+    // Fire section: the button lowers the flames a little, and they come back.
+    const flames = document.querySelector('#fire .flames');
+    const extout = document.getElementById('extout');
+    const extAnswers = ['it is not out™', 'still lit™', 'stop™', 'STOP™', 'she keeps doing it™',
+      'fire™ remains fire™', 'put the fire™ down™', 'no™'];
+    let e = 0, h = 42;
+    document.getElementById('ext').onclick = () => {
+      extout.textContent = extAnswers[e++ % extAnswers.length];
+      h = Math.max(12, h - 8);
+      flames.style.height = h + 'vh';
+      for (let i = 0; i < 6; i++) spawnTM(true);
+    };
+    setInterval(() => { if (h < 42) { h += 2; flames.style.height = h + 'vh'; } }, 1500);
   </script>
 </body>
 </html>

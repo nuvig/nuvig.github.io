@@ -82,6 +82,8 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   empty and the page shows its own how-to.
 - `kristina.html` — single-screen personal page: breathing orb with an in/out cue on an 8 s
   cycle, a status line, and an "is he done yet?" button that cycles through no. ™ is the running
-  joke — on every line, a floating ™ field behind the page, a burst per click. Self-contained;
+  joke — on every line, a floating ™ field behind the page, a burst per click. A second
+  full-height section (`#fire`, linked from the first) says STOP PLAYING WITH FIRE™ over CSS
+  flames; its "put it out" button lowers the flames a step and they grow back. Self-contained;
   **unlinked and `noindex`**.
 
