@@ -100,6 +100,10 @@
 
     .compass-card { display: flex; flex-direction: column; align-items: center; }
     #hero-compass { width: 100%; max-width: 300px; }
+    /* wind streaks over the compass (js/weather.js attachFlow) */
+    .cflow { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+    .cflow svg { max-width: 100%; height: auto; }
+    .cflow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     #hero-wind-line { font-size: 14px; color: #ddd; text-align: center; margin-top: 4px; }
     #hero-rwy-line  { font-size: 12.5px; color: #888; text-align: center; margin-top: 4px; line-height: 1.5; }
     #hero-src-line  { font-size: 11px; color: #555; text-align: center; margin-top: 6px; }
@@ -409,14 +413,15 @@
     field obs → KNAK (USNA, ~3 NM NE; KANP has no sensor) ·
     directions → °true ·
     density altitude → NWS method, humidity included ·
-    page tint → sun at the field + latest KNAK ob
+    page tint → sun at the field + latest KNAK ob ·
+    compass streaks → METAR wind, gust surges
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=7"></script>
+  <script src="js/weather.js?v=8"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=7" defer></script>

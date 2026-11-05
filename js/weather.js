@@ -295,6 +295,130 @@ function compassSVG(airport, metar, size) {
   </svg>`;
 }
 
+/* ============================ compass wind flow ========================== */
+// Streaks drawn over a compass SVG, moving downwind at a rate scaled to the
+// reported wind. A G group surges them to the gust speed every few seconds;
+// VRB wanders the direction; calm draws nothing. Canvas sits on top of the
+// SVG in a .cflow wrapper (same box, viewBox units -112..112).
+// Respects prefers-reduced-motion and skips compasses that are off screen.
+
+const FLOW_OFF = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const flows = new Map();       // key -> flow
+let flowRaf = 0, flowLast = 0;
+const flowIO = 'IntersectionObserver' in window
+  ? new IntersectionObserver((es) => { for (const e of es) if (e.target.__flow) e.target.__flow.vis = e.isIntersecting; })
+  : null;
+
+function compassFlowHTML(svg) {
+  return `<div class="cflow">${svg}<canvas aria-hidden="true"></canvas></div>`;
+}
+
+// Bind (or rebind, after a re-render) the flow for `key` to the canvas in `host`.
+function attachFlow(key, host, wind, big) {
+  const cv = host.querySelector('.cflow canvas');
+  if (!cv) return;
+  const moving = wind && wind.windKt > 0 && (wind.windVrb || wind.windDir != null);
+  if (FLOW_OFF || !moving) { flows.delete(key); return; }
+  let f = flows.get(key);
+  if (!f) {
+    f = { parts: [], g: 0, gT: 0, nextGust: 2 + Math.random() * 4, vrb: Math.random() * 360 };
+    flows.set(key, f);
+  }
+  if (flowIO && f.cv && f.cv !== cv) flowIO.unobserve(f.cv);
+  f.cv = cv; f.ctx = cv.getContext('2d'); f.big = big; f.vis = true; f.px = 0;
+  f.dir = wind.windVrb ? null : wind.windDir;
+  f.kt = Math.min(wind.windKt, 45);
+  f.gust = wind.gustKt && wind.gustKt > wind.windKt ? Math.min(wind.gustKt, 60) : null;
+  const n = round(Math.min(big ? 110 : 40, (big ? 24 : 9) + f.kt * (big ? 3 : 1.1)));
+  while (f.parts.length < n) f.parts.push(newPart(true));
+  f.parts.length = n;
+  cv.__flow = f;
+  if (flowIO) flowIO.observe(cv);
+  if (!flowRaf) { flowLast = performance.now(); flowRaf = requestAnimationFrame(flowTick); }
+}
+
+function newPart(anyAge) {
+  // uniform in the disk between the hub and the rim
+  const r = Math.sqrt(0.06 + Math.random() * 0.88) * 100, a = Math.random() * 2 * Math.PI;
+  const life = 1.6 + Math.random() * 2.2;
+  return { x: r * Math.sin(a), y: -r * Math.cos(a), age: anyAge ? Math.random() * life : 0, life, w: Math.random() - 0.5 };
+}
+
+// gust envelope: 0.7 s rise, 0.5 s hold, 1.4 s fall
+function gustEnv(t) {
+  if (t < 0.7) return Math.sin((t / 0.7) * Math.PI / 2);
+  if (t < 1.2) return 1;
+  if (t < 2.6) return 0.5 + 0.5 * Math.cos(((t - 1.2) / 1.4) * Math.PI);
+  return 0;
+}
+
+function flowTick(now) {
+  const dt = Math.min(0.05, (now - flowLast) / 1000);
+  flowLast = now;
+  for (const [key, f] of flows) {
+    if (!f.cv.isConnected) { flows.delete(key); continue; }
+    if (!f.vis) continue;
+    stepFlow(f, dt);
+  }
+  flowRaf = flows.size ? requestAnimationFrame(flowTick) : 0;
+}
+
+function stepFlow(f, dt) {
+  const cv = f.cv, ctx = f.ctx;
+  const cssW = cv.clientWidth;
+  if (!cssW) return;
+  const dpr = window.devicePixelRatio || 1;
+  const px = round(cssW * dpr);
+  if (px !== f.px) { cv.width = cv.height = px; f.px = px; }
+
+  // gusts
+  if (f.gust) {
+    f.nextGust -= dt;
+    if (f.nextGust <= 0) { f.gT = 0; f.nextGust = 3.5 + Math.random() * 5; }
+    f.gT += dt;
+    f.g = gustEnv(f.gT);
+  } else f.g = 0;
+  const kt = f.kt + ((f.gust || f.kt) - f.kt) * f.g;
+
+  // direction the air is moving toward (°true): from + 180; VRB drifts
+  let from = f.dir;
+  if (from == null) { f.vrb += (Math.sin(performance.now() / 2300) * 22 + (Math.random() - 0.5) * 30) * dt; from = f.vrb; }
+  const to = rad(from + 180);
+  const ux = Math.sin(to), uy = -Math.cos(to);
+  const speed = 3.2 * kt + 6;                    // viewBox units / s
+  const wob = 4 + kt * 0.25 + f.g * 6;           // cross-flow wander
+
+  const s = px / 224;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, px, px);
+  ctx.setTransform(s, 0, 0, s, px / 2, px / 2);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, 99, 0, 2 * Math.PI);
+  ctx.arc(0, 0, f.big ? 22 : 18, 0, 2 * Math.PI, true);
+  ctx.clip();
+  ctx.lineCap = 'round';
+  ctx.lineWidth = (f.big ? 1.3 : 1.6) + f.g * 0.6;
+  const trail = 0.18 + kt * 0.004;               // seconds of motion per streak
+  const lum = round(170 + 70 * f.g);
+  for (let i = 0; i < f.parts.length; i++) {
+    let p = f.parts[i];
+    p.age += dt;
+    const side = Math.sin(p.age * 2.1 + p.w * 9) * wob * p.w;
+    const vx = ux * speed - uy * side, vy = uy * speed + ux * side;
+    p.x += vx * dt; p.y += vy * dt;
+    if (p.age > p.life || p.x * p.x + p.y * p.y > 101 * 101) { p = f.parts[i] = newPart(false); continue; }
+    const k = p.age / p.life;
+    const a = Math.min(1, k * 5, (1 - k) * 4) * ((f.big ? 0.32 : 0.5) + 0.3 * f.g);
+    ctx.strokeStyle = `rgba(${lum - 60},${lum},255,${a.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.moveTo(p.x - vx * trail, p.y - vy * trail);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /* ============================== charts =================================== */
 
 function prepCanvas(canvas) {
@@ -798,7 +922,8 @@ function renderHero() {
     wind = { windDir: round(cur.wind_direction_10m), windKt: round(cur.wind_speed_10m), gustKt: round(cur.wind_gusts_10m) };
     src = `${KANP.metarStation} unavailable — model wind (Open-Meteo) · °true`;
   }
-  $('hero-compass').innerHTML = compassSVG(AIRPORTS[0], wind, 300);
+  $('hero-compass').innerHTML = compassFlowHTML(compassSVG(AIRPORTS[0], wind, 300));
+  attachFlow('hero', $('hero-compass'), wind, true);
   $('hero-src-line').textContent = src || 'no wind data available';
 
   if (wind && wind.windKt != null) {
@@ -1141,10 +1266,11 @@ function renderAirports() {
       <div class="apt-raw">${esc(m.raw)}</div>
       <div class="apt-body">
         <div class="apt-rows">${rows}</div>
-        <div class="apt-compass">${compassSVG(apt, m, 128)}</div>
+        <div class="apt-compass">${compassFlowHTML(compassSVG(apt, m, 128))}</div>
       </div>
       <div class="apt-meta">${rwyMeta} · elev ${apt.elevFt} ft · obs ${ageMin(m.time)} min ago${viaArchive(m)}${apt.obsNote ? `<br>${esc(apt.obsNote)}` : ''}</div>`;
     grid.appendChild(card);
+    attachFlow('apt:' + apt.id, card.querySelector('.apt-compass'), m, false);
   }
 }
 

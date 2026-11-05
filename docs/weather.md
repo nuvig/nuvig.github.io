@@ -31,6 +31,12 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   plus the latest KNAK ob (blue day / indigo night / amber twilight, greyed by an overcast, steel
   for rain, violet for thunder, pale for fog) — alphas are low on purpose and it crossfades between
   two layers so the 5-minute refresh never flashes; cards are opaque so it lives in the margins.
+  **Compass wind streaks** (`attachFlow()`, 2026-11-05): a canvas over the hero compass and each
+  runway card's mini compass draws streaks moving downwind at a rate scaled to the ob's wind
+  (capped 45 kt), surging to the gust value for ~2.6 s every 3.5–8.5 s when there's a G group,
+  wandering when VRB, absent when calm. Flows are keyed (`hero`, `apt:<id>`) so particles survive
+  the 5-minute re-render; off-screen compasses skip frames (IntersectionObserver) and
+  `prefers-reduced-motion` disables it.
   **PIREPs · AIRMETs/SIGMETs · TFRs cards + the ring on the radar map** (2026-09-01): read
   from `latest.json` only (aviationweather.gov / tfr.faa.gov have no CORS), stamped `as of
   HH:MM` and flagged over 3 h old — hourly, never live. PIREP rows: age, nm/°true from the
