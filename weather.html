@@ -104,6 +104,16 @@
     .cflow { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
     .cflow svg { max-width: 100%; height: auto; }
     .cflow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    /* one-time entrance (js/weather.js revealInit) — only added when motion is allowed */
+    .rv { opacity: 0; transform: translateY(12px); }
+    .rv.in { opacity: 1; transform: none;
+      transition: opacity .9s ease, transform 1s cubic-bezier(.2,.7,.2,1); }
+    @media (prefers-reduced-motion: no-preference) {
+      .fly-block { transition: transform .18s ease, border-color .18s ease; }
+      .fly-block:hover, .fly-block.sel { transform: translateY(-2px); }
+      .card { transition: border-color .25s ease; }
+      .card:hover { border-color: #3d3d3d; }
+    }
     #hero-wind-line { font-size: 14px; color: #ddd; text-align: center; margin-top: 4px; }
     #hero-rwy-line  { font-size: 12.5px; color: #888; text-align: center; margin-top: 4px; line-height: 1.5; }
     #hero-src-line  { font-size: 11px; color: #555; text-align: center; margin-top: 6px; }
@@ -414,14 +424,14 @@
     directions → °true ·
     density altitude → NWS method, humidity included ·
     page tint → sun at the field + latest KNAK ob ·
-    compass streaks → METAR wind, gust surges
+    compass trails → METAR wind, gust surges
   </footer>
 
   <script src="js/site-config.js"></script>
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=8"></script>
+  <script src="js/weather.js?v=9"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=7" defer></script>

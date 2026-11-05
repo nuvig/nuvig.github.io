@@ -268,7 +268,7 @@ function compassSVG(airport, metar, size) {
   } else if (hasWind && metar.windVrb) {
     wind = `<circle r="46" fill="none" stroke="#f0c040" stroke-width="1.5" stroke-dasharray="4 5"/>`;
   } else if (hasWind && metar.windDir != null) {
-    wind = `<g transform="rotate(${metar.windDir})">
+    wind = `<g data-wind="${metar.windDir}" transform="rotate(${metar.windDir})">
       <line x1="0" y1="-98" x2="0" y2="-46" stroke="#4a9eff" stroke-width="${big ? 4 : 3.4}" stroke-linecap="round"/>
       <path d="M -8,-52 L 0,-34 L 8,-52 Z" fill="#4a9eff"/>
       <circle cy="-98" r="${big ? 5 : 4}" fill="#4a9eff"/>
@@ -280,7 +280,7 @@ function compassSVG(airport, metar, size) {
     if (metar.windKt === 0) {
       center = `<text y="2" fill="#22c55e" font-size="${big ? 18 : 15}" font-weight="700" text-anchor="middle">CALM</text>`;
     } else {
-      center = `<text y="${big ? -1 : 0}" fill="#fff" font-size="${big ? 26 : 20}" font-weight="700" text-anchor="middle">${metar.windKt}</text>
+      center = `<text data-kt="${metar.windKt}" y="${big ? -1 : 0}" fill="#fff" font-size="${big ? 26 : 20}" font-weight="700" text-anchor="middle">${metar.windKt}</text>
         <text y="${big ? 14 : 13}" fill="#777" font-size="${big ? 10 : 9}" text-anchor="middle">kt${metar.gustKt ? ` G${metar.gustKt}` : ''}</text>`;
     }
   } else {
@@ -296,18 +296,20 @@ function compassSVG(airport, metar, size) {
 }
 
 /* ============================ compass wind flow ========================== */
-// Streaks drawn over a compass SVG, moving downwind at a rate scaled to the
-// reported wind. A G group surges them to the gust speed every few seconds;
-// VRB wanders the direction; calm draws nothing. Canvas sits on top of the
-// SVG in a .cflow wrapper (same box, viewBox units -112..112).
+// Fine tapered trails drawn over a compass SVG, moving downwind at a rate
+// scaled to the reported wind. A G group surges them to the gust speed every
+// few seconds; VRB wanders the direction; calm draws nothing. The canvas sits
+// on top of the SVG in a .cflow wrapper (same box, viewBox units -112..112).
 // Respects prefers-reduced-motion and skips compasses that are off screen.
 
-const FLOW_OFF = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FLOW_OFF = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const flows = new Map();       // key -> flow
 let flowRaf = 0, flowLast = 0;
 const flowIO = 'IntersectionObserver' in window
   ? new IntersectionObserver((es) => { for (const e of es) if (e.target.__flow) e.target.__flow.vis = e.isIntersecting; })
   : null;
+const angDiff = (a, b) => ((b - a + 540) % 360) - 180;   // shortest signed a → b
+const easeIO = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 function compassFlowHTML(svg) {
   return `<div class="cflow">${svg}<canvas aria-hidden="true"></canvas></div>`;
@@ -315,21 +317,23 @@ function compassFlowHTML(svg) {
 
 // Bind (or rebind, after a re-render) the flow for `key` to the canvas in `host`.
 function attachFlow(key, host, wind, big) {
+  swingCompass(key, host);
   const cv = host.querySelector('.cflow canvas');
   if (!cv) return;
   const moving = wind && wind.windKt > 0 && (wind.windVrb || wind.windDir != null);
   if (FLOW_OFF || !moving) { flows.delete(key); return; }
   let f = flows.get(key);
   if (!f) {
-    f = { parts: [], g: 0, gT: 0, nextGust: 2 + Math.random() * 4, vrb: Math.random() * 360 };
+    f = { parts: [], g: 0, gT: 0, nextGust: 2 + Math.random() * 4, vrb: Math.random() * 360, shown: null };
     flows.set(key, f);
   }
   if (flowIO && f.cv && f.cv !== cv) flowIO.unobserve(f.cv);
   f.cv = cv; f.ctx = cv.getContext('2d'); f.big = big; f.vis = true; f.px = 0;
   f.dir = wind.windVrb ? null : wind.windDir;
+  if (f.shown == null) f.shown = f.dir != null ? f.dir : f.vrb;
   f.kt = Math.min(wind.windKt, 45);
   f.gust = wind.gustKt && wind.gustKt > wind.windKt ? Math.min(wind.gustKt, 60) : null;
-  const n = round(Math.min(big ? 110 : 40, (big ? 24 : 9) + f.kt * (big ? 3 : 1.1)));
+  const n = round(Math.min(big ? 70 : 26, (big ? 18 : 7) + f.kt * (big ? 2.2 : 0.9)));
   while (f.parts.length < n) f.parts.push(newPart(true));
   f.parts.length = n;
   cv.__flow = f;
@@ -340,15 +344,16 @@ function attachFlow(key, host, wind, big) {
 function newPart(anyAge) {
   // uniform in the disk between the hub and the rim
   const r = Math.sqrt(0.06 + Math.random() * 0.88) * 100, a = Math.random() * 2 * Math.PI;
-  const life = 1.6 + Math.random() * 2.2;
-  return { x: r * Math.sin(a), y: -r * Math.cos(a), age: anyAge ? Math.random() * life : 0, life, w: Math.random() - 0.5 };
+  const life = 2.2 + Math.random() * 2.4;
+  return { x: r * Math.sin(a), y: -r * Math.cos(a), age: anyAge ? Math.random() * life : 0, life,
+    w: Math.random() - 0.5, h: [] };
 }
 
-// gust envelope: 0.7 s rise, 0.5 s hold, 1.4 s fall
+// gust envelope: 0.8 s rise, 0.5 s hold, 1.6 s fall
 function gustEnv(t) {
-  if (t < 0.7) return Math.sin((t / 0.7) * Math.PI / 2);
-  if (t < 1.2) return 1;
-  if (t < 2.6) return 0.5 + 0.5 * Math.cos(((t - 1.2) / 1.4) * Math.PI);
+  if (t < 0.8) return Math.sin((t / 0.8) * Math.PI / 2);
+  if (t < 1.3) return 1;
+  if (t < 2.9) return 0.5 + 0.5 * Math.cos(((t - 1.3) / 1.6) * Math.PI);
   return 0;
 }
 
@@ -358,12 +363,12 @@ function flowTick(now) {
   for (const [key, f] of flows) {
     if (!f.cv.isConnected) { flows.delete(key); continue; }
     if (!f.vis) continue;
-    stepFlow(f, dt);
+    stepFlow(f, dt, now / 1000);
   }
   flowRaf = flows.size ? requestAnimationFrame(flowTick) : 0;
 }
 
-function stepFlow(f, dt) {
+function stepFlow(f, dt, now) {
   const cv = f.cv, ctx = f.ctx;
   const cssW = cv.clientWidth;
   if (!cssW) return;
@@ -371,22 +376,23 @@ function stepFlow(f, dt) {
   const px = round(cssW * dpr);
   if (px !== f.px) { cv.width = cv.height = px; f.px = px; }
 
-  // gusts
   if (f.gust) {
     f.nextGust -= dt;
-    if (f.nextGust <= 0) { f.gT = 0; f.nextGust = 3.5 + Math.random() * 5; }
+    if (f.nextGust <= 0) { f.gT = 0; f.nextGust = 4 + Math.random() * 5; }
     f.gT += dt;
     f.g = gustEnv(f.gT);
   } else f.g = 0;
   const kt = f.kt + ((f.gust || f.kt) - f.kt) * f.g;
 
-  // direction the air is moving toward (°true): from + 180; VRB drifts
-  let from = f.dir;
-  if (from == null) { f.vrb += (Math.sin(performance.now() / 2300) * 22 + (Math.random() - 0.5) * 30) * dt; from = f.vrb; }
-  const to = rad(from + 180);
+  // wind-from (°true), eased toward a new report the way the arrow swings; VRB drifts
+  if (f.dir == null) f.vrb += (Math.sin(now / 2.3) * 22 + (Math.random() - 0.5) * 30) * dt;
+  const target = f.dir != null ? f.dir : f.vrb;
+  f.shown += angDiff(f.shown, target) * (1 - Math.exp(-dt * 2.2));
+  const to = rad(f.shown + 180);
   const ux = Math.sin(to), uy = -Math.cos(to);
-  const speed = 3.2 * kt + 6;                    // viewBox units / s
-  const wob = 4 + kt * 0.25 + f.g * 6;           // cross-flow wander
+  const speed = 3 * kt + 6;                       // viewBox units / s
+  const wob = 3 + kt * 0.2 + f.g * 5;             // cross-flow wander
+  const keep = 0.32 + kt * 0.006 + f.g * 0.12;    // seconds of trail
 
   const s = px / 224;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -398,25 +404,116 @@ function stepFlow(f, dt) {
   ctx.arc(0, 0, f.big ? 22 : 18, 0, 2 * Math.PI, true);
   ctx.clip();
   ctx.lineCap = 'round';
-  ctx.lineWidth = (f.big ? 1.3 : 1.6) + f.g * 0.6;
-  const trail = 0.18 + kt * 0.004;               // seconds of motion per streak
-  const lum = round(170 + 70 * f.g);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = (f.big ? 1.05 : 1.4) + f.g * 0.35;
+  const base = (f.big ? 0.42 : 0.55) + 0.28 * f.g;
   for (let i = 0; i < f.parts.length; i++) {
     let p = f.parts[i];
     p.age += dt;
-    const side = Math.sin(p.age * 2.1 + p.w * 9) * wob * p.w;
-    const vx = ux * speed - uy * side, vy = uy * speed + ux * side;
-    p.x += vx * dt; p.y += vy * dt;
-    if (p.age > p.life || p.x * p.x + p.y * p.y > 101 * 101) { p = f.parts[i] = newPart(false); continue; }
+    const side = Math.sin(p.age * 1.7 + p.w * 9) * wob * p.w;
+    p.x += (ux * speed - uy * side) * dt;
+    p.y += (uy * speed + ux * side) * dt;
+    if (p.age > p.life || p.x * p.x + p.y * p.y > 104 * 104) { f.parts[i] = newPart(false); continue; }
+    p.h.push(p.x, p.y, now);
+    while (p.h.length > 6 && now - p.h[2] > keep) p.h.splice(0, 3);
+    if (p.h.length < 6) continue;
     const k = p.age / p.life;
-    const a = Math.min(1, k * 5, (1 - k) * 4) * ((f.big ? 0.32 : 0.5) + 0.3 * f.g);
-    ctx.strokeStyle = `rgba(${lum - 60},${lum},255,${a.toFixed(3)})`;
+    const a = Math.min(1, k * 4, (1 - k) * 3) * base;
+    const gr = ctx.createLinearGradient(p.h[0], p.h[1], p.x, p.y);
+    gr.addColorStop(0, 'rgba(206,226,255,0)');
+    gr.addColorStop(1, `rgba(222,236,255,${a.toFixed(3)})`);
+    ctx.strokeStyle = gr;
     ctx.beginPath();
-    ctx.moveTo(p.x - vx * trail, p.y - vy * trail);
-    ctx.lineTo(p.x, p.y);
+    ctx.moveTo(p.h[0], p.h[1]);
+    for (let j = 3; j < p.h.length; j += 3) ctx.lineTo(p.h[j], p.h[j + 1]);
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// A new report swings the arrow to its new heading and rolls the speed figure,
+// instead of the SVG snapping on the 5-minute re-render.
+const swing = new Map();   // key -> { dir, kt, tok }
+function swingCompass(key, host) {
+  const g = host.querySelector('g[data-wind]'), num = host.querySelector('text[data-kt]');
+  const dir = g ? +g.dataset.wind : null, kt = num ? +num.dataset.kt : null;
+  const prev = swing.get(key) || {};
+  const tok = {};
+  swing.set(key, { dir, kt, tok });
+  if (FLOW_OFF) return;
+  const d0 = prev.dir, k0 = prev.kt;
+  const turn = g && d0 != null && dir !== d0 ? angDiff(d0, dir) : 0;
+  const roll = num && k0 != null && kt !== k0;
+  if (!turn && !roll) return;
+  if (turn) g.setAttribute('transform', `rotate(${d0})`);
+  if (roll) num.textContent = k0;
+  const t0 = performance.now(), dur = 1400;
+  const step = (t) => {
+    if (swing.get(key).tok !== tok) return;
+    const e = easeIO(Math.min(1, (t - t0) / dur));
+    if (turn) g.setAttribute('transform', `rotate(${(d0 + turn * e).toFixed(2)})`);
+    if (roll) num.textContent = round(k0 + (kt - k0) * e);
+    if (e < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* ============================== reveal =================================== */
+// One-time entrance: blocks fade up as they first come into view. Work that
+// should play when its block is seen (chart wipes, the flight-window cascade)
+// queues on the block via whenShown().
+
+function revealInit() {
+  if (FLOW_OFF || !('IntersectionObserver' in window)) return;
+  const els = document.querySelectorAll('.status-bar, .hero-grid > .card, body > .section-title, ' +
+    'body > .card, body > .two-col, #airports, #tafs, #arc-fold, #radar-map, .radar-controls');
+  const io = new IntersectionObserver((es) => {
+    let n = 0;
+    for (const e of es) {
+      if (!e.isIntersecting) continue;
+      const el = e.target, delay = n++ * 80;
+      io.unobserve(el);
+      el.style.transitionDelay = delay + 'ms';
+      el.classList.add('in');
+      setTimeout(() => {
+        el.classList.remove('rv', 'in');
+        el.style.transitionDelay = '';
+      }, delay + 900);
+      setTimeout(() => { el.__started = true; (el.__onStart || []).splice(0).forEach((fn) => fn()); }, delay + 120);
+    }
+  }, { threshold: 0.08, rootMargin: '0px 0px -4% 0px' });
+  els.forEach((el) => { el.classList.add('rv'); io.observe(el); });
+  // a jump past a block (End key, anchor, fast fling) never intersects it —
+  // show anything already above the viewport without the entrance
+  let pend = 0;
+  const sweep = () => {
+    pend = 0;
+    for (const el of document.querySelectorAll('.rv:not(.in)')) {
+      if (el.getBoundingClientRect().bottom > 0) continue;
+      io.unobserve(el);
+      el.classList.remove('rv');
+      el.__started = true;
+      (el.__onStart || []).splice(0).forEach((fn) => fn());
+    }
+  };
+  window.addEventListener('scroll', () => { if (!pend) pend = requestAnimationFrame(sweep); }, { passive: true });
+}
+
+// Run fn when el's revealing block starts to appear (now, if it already has).
+function whenShown(el, fn) {
+  const blk = el.closest('.rv');
+  if (!blk || blk.__started) return fn();
+  (blk.__onStart = blk.__onStart || []).push(fn);
+}
+
+function wipeIn(canvas, delay) {
+  if (FLOW_OFF || !canvas.animate) return;
+  canvas.style.clipPath = 'inset(0 100% 0 0)';
+  whenShown(canvas, () => {
+    canvas.style.clipPath = '';
+    canvas.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }],
+      { duration: 1300, delay, easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards' });
+  });
 }
 
 /* ============================== charts =================================== */
@@ -671,6 +768,16 @@ function renderFlyStrip(hours) {
     el.addEventListener('click', show);
     wrap.appendChild(el);
   });
+  if (!state.flyShown && !FLOW_OFF && wrap.animate) {
+    state.flyShown = true;
+    const blocks = [...wrap.children];
+    blocks.forEach((b) => { b.style.opacity = '0'; });
+    whenShown(wrap, () => blocks.forEach((b, i) => {
+      b.style.opacity = '';
+      b.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 650, delay: i * 28, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' });
+    }));
+  }
 }
 
 /* ====================== data loading & rendering ========================= */
@@ -1600,6 +1707,11 @@ function renderCharts() {
   drawDaChart($('chart-da'), state.fly);
   drawTempChart($('chart-temp'), state.fly);
   drawPrecipChart($('chart-precip'), state.fly);
+  if (!state.chartsShown) {
+    state.chartsShown = true;
+    ['chart-wind', 'chart-ceiling', 'chart-da', 'chart-temp', 'chart-precip']
+      .forEach((id, i) => wipeIn($(id), (i % 2) * 120));
+  }
 }
 
 async function loadAll() {
@@ -1662,6 +1774,7 @@ function tickCountdown() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  revealInit();
   initRadar();
   loadAll();
   setInterval(() => { loadAll(); loadRadarFrames(); }, REFRESH_MS);
