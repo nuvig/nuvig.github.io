@@ -108,6 +108,63 @@
     .rv { opacity: 0; transform: translateY(12px); }
     .rv.in { opacity: 1; transform: none;
       transition: opacity .9s ease, transform 1s cubic-bezier(.2,.7,.2,1); }
+
+    /* ---- motion (js/weather.js "page motion"); keyframed bits only when motion is allowed ---- */
+    .status-bar { position: relative; overflow: hidden; }
+    #refresh-line { position: absolute; left: 0; right: 0; bottom: 0; height: 1.5px;
+      background: linear-gradient(90deg, rgba(74,158,255,.15), rgba(74,158,255,.6));
+      transform-origin: left; transform: scaleX(0); pointer-events: none; }
+    .sunarc { display: block; width: 100%; height: auto; margin: -2px 0 6px; overflow: visible; }
+    .sunarc .stars { opacity: 0; transition: opacity 1.5s ease; }
+    .sunarc.night .stars { opacity: 1; }
+    .sunarc .star { fill: #cfd8ff; }
+    .sunarc .halo { transform-box: fill-box; transform-origin: center; }
+    .kv .v.chg, .wx-table td.chg { animation: chg 2.6s ease-out; border-radius: 3px; }
+    @keyframes chg { 0%, 25% { background: rgba(74,158,255,.22); color: #fff; } 100% { background: transparent; } }
+    .wa { display: inline-block; transform: rotate(var(--r)); margin-right: 5px; vertical-align: -1px; line-height: 0; }
+    .fly-block.now { box-shadow: 0 0 0 1px rgba(255,255,255,.55); }
+    .fly-block .prog { position: absolute; left: 3px; right: 3px; top: 2px; height: 2px; border-radius: 1px;
+      background: rgba(17,17,17,.55); transform-origin: left; transform: scaleX(0); transition: transform 1s ease; }
+    .taf-period.now { background: linear-gradient(90deg, rgba(74,158,255,.08), transparent 70%);
+      margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 4px; }
+    .xh-host { position: relative; }
+    .xhair { position: absolute; left: 0; top: 0; width: 1px; background: rgba(220,232,255,.38);
+      pointer-events: none; opacity: 0; transition: opacity .3s ease; }
+    .xhair.on { opacity: 1; }
+    .xhair span { position: absolute; top: 0; left: 6px; white-space: nowrap; font-size: 11px; color: #e6eefc;
+      background: rgba(20,24,32,.88); border: 1px solid #2f3a4a; border-radius: 4px; padding: 1px 6px;
+      font-variant-numeric: tabular-nums; }
+    .xhair.flip span { left: auto; right: 6px; }
+    #radar-tl { display: flex; gap: 3px; margin-top: 8px; }
+    #radar-tl i { flex: 1; height: 4px; border-radius: 2px; background: #2a2a2a; cursor: pointer; }
+    #radar-tl i.fut { background: #3a3222; }
+    #radar-tl i.on { background: #4a9eff; }
+    #radar-tl i.fut.on { background: #f59e0b; }
+    @media (prefers-reduced-motion: no-preference) {
+      :root { interpolate-size: allow-keywords; }
+      details.fold::details-content { height: 0; overflow: clip;
+        transition: height .45s cubic-bezier(.2,.7,.2,1), content-visibility .45s allow-discrete; }
+      details.fold[open]::details-content { height: auto; }
+      .sunarc .halo { animation: halo 3.6s ease-in-out infinite; }
+      @keyframes halo { 0%, 100% { transform: scale(.85); opacity: .8; } 50% { transform: scale(1.25); opacity: 1; } }
+      .sunarc.night .star { animation: twinkle 3.2s ease-in-out infinite; }
+      @keyframes twinkle { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+      .wa svg { animation: drift var(--dur) ease-in-out infinite alternate; }
+      @keyframes drift { from { transform: translateY(2px); opacity: .45; } to { transform: translateY(-2px); opacity: 1; } }
+      .fly-block.now { animation: nowglow 2.8s ease-in-out infinite; }
+      @keyframes nowglow { 0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,.25); } 50% { box-shadow: 0 0 0 1px rgba(255,255,255,.7), 0 0 10px rgba(255,255,255,.12); } }
+      .taf-period.now .catdot { animation: breathe 2.4s ease-in-out infinite; }
+      @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.0); } 50% { box-shadow: 0 0 0 4px rgba(255,255,255,.12); } }
+      .xhair { transition: opacity .3s ease, transform .16s cubic-bezier(.2,.7,.2,1); }
+      #radar-tl i { transition: background .35s ease; }
+      #radar-map .leaflet-tile-pane > .leaflet-layer { transition: opacity .45s ease; }
+      .alert-box:not(.minor) { animation: alertglow 3s ease-in-out infinite; }
+      @keyframes alertglow { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 0 3px rgba(239,68,68,.18); } }
+      .best-tag { background-image: linear-gradient(110deg, transparent 35%, rgba(255,255,255,.6) 50%, transparent 65%);
+        background-size: 250% 100%; background-repeat: no-repeat; animation: sheen 6s ease-in-out infinite; }
+      @keyframes sheen { 0%, 72% { background-position: 150% 0; } 100% { background-position: -60% 0; } }
+      .cat-chip { transition: background-color .6s ease; }
+    }
     @media (prefers-reduced-motion: no-preference) {
       .fly-block { transition: transform .18s ease, border-color .18s ease; }
       .fly-block:hover, .fly-block.sel { transform: translateY(-2px); }
@@ -283,6 +340,7 @@
     <span>Updated <span id="update-time" class="num-mono">—</span></span>
     <span class="faint" id="refresh-count"></span>
     <button class="btn secondary" id="refresh-btn" style="margin-left:auto">Refresh now</button>
+    <div id="refresh-line" aria-hidden="true"></div>
   </div>
 
   <div id="alerts"></div>
@@ -401,6 +459,7 @@
     <span class="sub">every station colored by flight category, labelled with its ceiling in hundreds of feet · rings at 10 &amp; 25 NM from KANP</span>
   </div>
   <div id="radar-map"></div>
+  <div id="radar-tl" aria-hidden="true"></div>
   <div class="radar-controls">
     <button class="btn secondary" id="radar-play">⏸ Pause</button>
     <span id="radar-label" class="num-mono">—</span>
@@ -431,7 +490,7 @@
   <script src="js/wx-archive.js?v=2"></script>
   <script src="js/taf-tac.js?v=1"></script>
   <script src="js/vendor/leaflet.js"></script>
-  <script src="js/weather.js?v=9"></script>
+  <script src="js/weather.js?v=10"></script>
   <script data-goatcounter="https://jesselevine.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
   <script src="js/wxnav.js?v=7" defer></script>

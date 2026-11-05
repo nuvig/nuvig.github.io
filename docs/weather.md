@@ -43,6 +43,21 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   - *Entrance* (`revealInit()`): blocks fade up once as they first scroll into view, staggered;
     `whenShown()` queues the first-render chart wipes (`wipeIn()`, clip-path left→right) and the
     flight-window cascade onto their block. A scroll sweep un-hides anything jumped past.
+  - *Page motion* (the "page motion" block in `weather.js`): `cascade()` slides a list's rows in
+    the first time real data lands (conditions, daylight, aloft, outlook, runway rows, TAF
+    periods, PIREP/AIRMET rows — the last on first open of the fold); `flashChanged()` glows a
+    value that differs from the previous render, so a refresh shows what moved; the daylight
+    card leads with a sun path (`sunArcSVG()`: x = civil dawn → dusk, arc sunrise → sunset,
+    amber twilight on the horizon, sun travels to "now" on first view, stars at night, updated
+    every 30 s); one crosshair glides across all five forecast charts with a per-chart value
+    label and is linked both ways with the flight-window strip (`setCrosshair()`; geometry from
+    `xAxis()` via `canvas.__x`); the strip's current hour is outlined and fills as the hour
+    passes; the in-effect TAF period is tinted with a breathing dot; aloft cells carry a
+    downwind arrow drifting at a rate keyed to speed; radar frames crossfade over a clickable
+    frame timeline (`#radar-tl`, forecast frames amber); a thin line under the status bar
+    drains to the next auto-refresh; severe alerts pulse; the USE tag catches a sheen; the
+    PIREP fold opens with a height transition (`::details-content`, Chromium-only, harmless
+    elsewhere). The crosshair stays under reduced motion (it's interaction); the rest don't.
   **PIREPs · AIRMETs/SIGMETs · TFRs cards + the ring on the radar map** (2026-09-01): read
   from `latest.json` only (aviationweather.gov / tfr.faa.gov have no CORS), stamped `as of
   HH:MM` and flagged over 3 h old — hourly, never live. PIREP rows: age, nm/°true from the

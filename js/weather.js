@@ -466,7 +466,7 @@ function swingCompass(key, host) {
 function revealInit() {
   if (FLOW_OFF || !('IntersectionObserver' in window)) return;
   const els = document.querySelectorAll('.status-bar, .hero-grid > .card, body > .section-title, ' +
-    'body > .card, body > .two-col, #airports, #tafs, #arc-fold, #radar-map, .radar-controls');
+    'body > .card, body > .two-col, #airports, #tafs, #arc-fold, #radar-map, #radar-tl, .radar-controls');
   const io = new IntersectionObserver((es) => {
     let n = 0;
     for (const e of es) {
@@ -516,6 +516,182 @@ function wipeIn(canvas, delay) {
   });
 }
 
+/* ============================ page motion ================================ */
+// Small, data-tied movements. Everything here is skipped under
+// prefers-reduced-motion except the chart crosshair, which is interaction.
+
+// Rows of a list cascade in the first time real data lands in `box`.
+const cascaded = new Set();
+function cascade(box, sel) {
+  if (!box || FLOW_OFF || cascaded.has(box.id) || !box.animate) return;
+  const rows = [...box.querySelectorAll(sel)];
+  if (!rows.length) return;
+  cascaded.add(box.id);
+  rows.forEach((r) => { r.style.opacity = '0'; });
+  const det = box.closest('details');
+  const go = (fn) => (det && !det.open
+    ? det.addEventListener('toggle', function once() { if (det.open) { det.removeEventListener('toggle', once); fn(); } })
+    : whenShown(box, fn));
+  go(() => rows.forEach((r, i) => {
+    r.style.opacity = '';
+    r.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 520, delay: 60 + Math.min(i, 16) * 38, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' });
+  }));
+}
+
+// A value that differs from the previous render glows briefly — on a refresh
+// the eye goes straight to what changed. `pairs` = [[key, element], ...].
+function flashChanged(box, pairs) {
+  const prev = box.__vals, next = new Map();
+  for (const [k, el] of pairs) {
+    const v = el.textContent.trim();
+    next.set(k, v);
+    if (prev && !FLOW_OFF && prev.has(k) && prev.get(k) !== v) el.classList.add('chg');
+  }
+  box.__vals = next;
+}
+const kvPairs = (box) => [...box.querySelectorAll('.kv')].map((r) => [r.querySelector('.k').textContent, r.querySelector('.v')]);
+
+// Thin line under the status bar draining toward the next auto-refresh.
+function restartRefreshLine() {
+  const el = $('refresh-line');
+  if (!el || FLOW_OFF) return;
+  el.style.transition = 'none';
+  el.style.transform = 'scaleX(1)';
+  void el.offsetWidth;
+  el.style.transition = `transform ${REFRESH_MS}ms linear`;
+  el.style.transform = 'scaleX(0)';
+}
+
+/* -------- sun path: civil dawn → civil dusk across the card, sun on its arc -------- */
+const SUNX0 = 14, SUNX1 = 286, SUNY = 58, SUNH = 44;
+function sunArcSVG(s) {
+  if (!s || !s.dawn || !s.dusk || !s.sunrise || !s.sunset) return '';
+  const span = s.dusk - s.dawn;
+  const X = (t) => SUNX0 + ((t - s.dawn) / span) * (SUNX1 - SUNX0);
+  const xr = X(s.sunrise), xs = X(s.sunset);
+  let d = '';
+  for (let i = 0; i <= 48; i++) {
+    const f = i / 48;
+    d += `${i ? 'L' : 'M'}${(xr + f * (xs - xr)).toFixed(1)},${(SUNY - SUNH * Math.sin(Math.PI * f)).toFixed(1)}`;
+  }
+  const stars = [[40, 14], [92, 30], [150, 9], [214, 24], [262, 12], [122, 44]]
+    .map(([x, y], i) => `<circle class="star" cx="${x}" cy="${y}" r="${i % 2 ? 0.9 : 1.2}" style="animation-delay:${(i * 0.7).toFixed(1)}s"/>`).join('');
+  return `<svg class="sunarc" viewBox="0 0 300 70" aria-hidden="true">
+    <defs><radialGradient id="sunglow"><stop offset="0" stop-color="#ffd27a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient></defs>
+    <g class="stars">${stars}</g>
+    <line x1="${SUNX0}" y1="${SUNY}" x2="${SUNX1}" y2="${SUNY}" stroke="#333" stroke-width="1"/>
+    <line x1="${SUNX0}" y1="${SUNY}" x2="${xr.toFixed(1)}" y2="${SUNY}" stroke="#a8673a" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+    <line x1="${xs.toFixed(1)}" y1="${SUNY}" x2="${SUNX1}" y2="${SUNY}" stroke="#a8673a" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+    <path d="${d}" fill="none" stroke="#2c2c2c" stroke-width="1.2" stroke-dasharray="2 3"/>
+    <path class="sun-done" d="${d}" pathLength="1" fill="none" stroke="#e8b45a" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 2" opacity=".75"/>
+    <g class="sun" transform="translate(-50,-50)">
+      <circle class="halo" r="12" fill="url(#sunglow)"/>
+      <circle r="4.2" fill="#ffd27a"/>
+    </g>
+  </svg>`;
+}
+
+// where the sun sits at time t (ms): arc position, horizon glide in twilight, null at night
+function sunAt(s, t) {
+  if (!s || !s.dawn || t < s.dawn || t > s.dusk) return null;
+  const X = (u) => SUNX0 + ((u - s.dawn) / (s.dusk - s.dawn)) * (SUNX1 - SUNX0);
+  if (t < s.sunrise || t > s.sunset) return { x: X(t), y: SUNY, f: t < s.sunrise ? 0 : 1, tw: true };
+  const f = (t - s.sunrise) / (s.sunset - s.sunrise);
+  return { x: X(t), y: SUNY - SUNH * Math.sin(Math.PI * f), f, tw: false };
+}
+
+function placeSun(svg, s, t) {
+  const p = sunAt(s, t), g = svg.querySelector('.sun'), done = svg.querySelector('.sun-done');
+  svg.classList.toggle('night', !p);
+  if (!p) { g.setAttribute('opacity', '0'); done.setAttribute('stroke-dasharray', '0 2'); return; }
+  g.setAttribute('opacity', p.tw ? '0.55' : '1');
+  g.setAttribute('transform', `translate(${p.x.toFixed(2)},${p.y.toFixed(2)})`);
+  done.setAttribute('stroke-dasharray', `${p.f.toFixed(4)} 2`);
+}
+
+function animateSun(svg, s) {
+  const now = Date.now();
+  if (FLOW_OFF || !sunAt(s, now)) return placeSun(svg, s, now);
+  placeSun(svg, s, s.dawn.getTime());
+  whenShown(svg, () => {
+    const t0 = performance.now(), from = s.dawn.getTime(), dur = 2200;
+    const step = (t) => {
+      const e = easeIO(Math.min(1, (t - t0) / dur));
+      if (!svg.isConnected) return;
+      placeSun(svg, s, from + (Date.now() - from) * e);
+      if (e < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+/* -------- crosshair: one glide line across every forecast chart + the strip -------- */
+const XH_LABEL = {
+  'chart-wind': (h) => `${round(h.spd)}${h.gst && h.gst - h.spd > 4 ? 'G' + round(h.gst) : ''} kt`,
+  'chart-ceiling': (h) => `${h.ceil != null ? (round(h.ceil / 100) * 100).toLocaleString() + ' ft' : 'no ceiling'} · ${round(h.sky)}%`,
+  'chart-da': (h) => (h.da != null ? `${(round(h.da / 50) * 50).toLocaleString()} ft` : '—'),
+  'chart-temp': (h) => `${round(h.tempF)}° / ${round(h.dewF)}°`,
+  'chart-precip': (h) => `${round(h.pp)}% · sky ${round(h.sky)}%`,
+};
+let xhHide = 0;
+function setupCrosshair() {
+  for (const id of Object.keys(XH_LABEL)) {
+    const cv = $(id);
+    if (!cv || cv.__xh) continue;
+    const host = cv.parentElement;
+    host.classList.add('xh-host');
+    const line = document.createElement('div');
+    line.className = 'xhair';
+    line.innerHTML = '<span></span>';
+    host.appendChild(line);
+    cv.__xh = line;
+    const pick = (clientX) => {
+      const m = cv.__x;
+      if (!m || !state.fly) return;
+      const r = cv.getBoundingClientRect();
+      const i = Math.max(0, Math.min(m.n - 1, round(((clientX - r.left - m.L) / (m.W - m.L - m.R)) * (m.n - 1))));
+      const blk = $('fly-strip').children[i];
+      if (blk) blk.dispatchEvent(new Event('mouseenter'));
+    };
+    cv.addEventListener('mousemove', (e) => pick(e.clientX));
+    cv.addEventListener('touchstart', (e) => pick(e.touches[0].clientX), { passive: true });
+    cv.addEventListener('touchmove', (e) => pick(e.touches[0].clientX), { passive: true });
+    cv.addEventListener('mouseleave', () => { clearTimeout(xhHide); xhHide = setTimeout(hideCrosshair, 900); });
+  }
+}
+function setCrosshair(i) {
+  clearTimeout(xhHide);
+  const h = state.fly && state.fly[i];
+  if (!h) return;
+  for (const id of Object.keys(XH_LABEL)) {
+    const cv = $(id), line = cv && cv.__xh, m = cv && cv.__x;
+    if (!line || !m) continue;
+    const x = cv.offsetLeft + m.L + (i / (m.n - 1)) * (m.W - m.L - m.R);
+    line.style.top = cv.offsetTop + 'px';
+    line.style.height = cv.offsetHeight - (id === 'chart-wind' ? 30 : 16) + 'px';
+    line.style.transform = `translateX(${x.toFixed(1)}px)`;
+    line.classList.add('on');
+    line.classList.toggle('flip', x > cv.offsetLeft + m.W * 0.72);
+    line.firstChild.textContent = `${fmtHour(h.t)} · ${XH_LABEL[id](h)}`;
+  }
+}
+function hideCrosshair() {
+  document.querySelectorAll('.xhair.on').forEach((l) => l.classList.remove('on'));
+}
+
+// current-hour block on the flight-window strip fills as the hour passes
+function tickNowBlock() {
+  const b = document.querySelector('.fly-block.now .prog');
+  if (b) b.style.transform = `scaleX(${(new Date().getMinutes() / 60).toFixed(3)})`;
+}
+
+function minuteTick() {
+  const svg = document.querySelector('#sun-body .sunarc');
+  if (svg && state.sun) placeSun(svg, state.sun, Date.now());
+  tickNowBlock();
+}
+
 /* ============================== charts =================================== */
 
 function prepCanvas(canvas) {
@@ -532,6 +708,7 @@ function prepCanvas(canvas) {
 // hours: [{t(ms), ...}] — draws x labels every 3rd hour + returns x mapper
 function xAxis(ctx, hours, L, R, W, H) {
   const x = (i) => L + (i / (hours.length - 1)) * (W - L - R);
+  ctx.canvas.__x = { L, R, W, n: hours.length };   // for the crosshair
   ctx.fillStyle = '#666';
   ctx.textAlign = 'center';
   hours.forEach((h, i) => {
@@ -740,11 +917,13 @@ function renderFlyStrip(hours) {
   hours.forEach((h) => {
     const [color, band] = flyColor(h.score);
     const el = document.createElement('div');
-    el.className = 'fly-block' + (h.night ? ' night' : '');
+    const isNow = h.t <= Date.now() && Date.now() < h.t + 3600000;
+    el.className = 'fly-block' + (h.night ? ' night' : '') + (isNow ? ' now' : '');
     el.style.background = color;
     el.innerHTML = `<span class="hr">${fmtHour(h.t)}</span><span class="sc">${h.score}</span>` +
       `<span class="tmp">${round(h.tempF)}°</span>` +
-      `<span class="catbar" style="background:${CAT_COLORS[h.cat]}"></span>`;
+      `<span class="catbar" style="background:${CAT_COLORS[h.cat]}"></span>` +
+      (isNow ? '<span class="prog"></span>' : '');
     const show = () => {
       document.querySelectorAll('.fly-block.sel').forEach((b) => b.classList.remove('sel'));
       el.classList.add('sel');
@@ -764,10 +943,13 @@ function renderFlyStrip(hours) {
         esc(`${windTxt}${rwyTxt} · ${cloudTxt}${visTxt}${daTxt}`) +
         (h.why.length ? `<br><span class="faint">issues: ${esc(h.why.join(' · '))}</span>` : '');
     };
-    el.addEventListener('mouseenter', show);
-    el.addEventListener('click', show);
+    const idx = wrap.children.length;
+    el.addEventListener('mouseenter', () => { show(); setCrosshair(idx); });
+    el.addEventListener('click', () => { show(); setCrosshair(idx); });
+    el.addEventListener('mouseleave', () => { clearTimeout(xhHide); xhHide = setTimeout(hideCrosshair, 900); });
     wrap.appendChild(el);
   });
+  tickNowBlock();
   if (!state.flyShown && !FLOW_OFF && wrap.animate) {
     state.flyShown = true;
     const blocks = [...wrap.children];
@@ -1092,6 +1274,8 @@ function renderConditions() {
     ${daHtml}
     <div class="apt-raw" style="margin-bottom:0">${esc(m.raw)}</div>
     <div class="apt-meta">${KANP.metarStation} · observed ${fmtTime(m.time)} · ${ageMin(m.time)} min ago${viaArchive(m)}</div>`;
+  flashChanged(el, kvPairs(el));
+  cascade(el, '.kv, .apt-raw, .apt-meta');
 }
 
 function renderSun() {
@@ -1103,7 +1287,7 @@ function renderSun() {
   const dayLeft = s.sunset && now < s.sunset
     ? `${Math.floor((s.sunset - now) / 3600000)}h ${round(((s.sunset - now) % 3600000) / 60000)}m of daylight left`
     : 'sun is down';
-  $('sun-body').innerHTML = `
+  $('sun-body').innerHTML = `${sunArcSVG(s)}
     <div class="kv"><span class="k">Civil dawn</span><span class="v">${f(s.dawn)}</span></div>
     <div class="kv"><span class="k">Sunrise</span><span class="v">${f(s.sunrise)}</span></div>
     <div class="kv"><span class="k">Sunset</span><span class="v">${f(s.sunset)}</span></div>
@@ -1113,6 +1297,12 @@ function renderSun() {
     <div class="kv"><span class="k">Loggable night</span><span class="v">${f(s.dusk)} → ${f(s.dawn)}</span></div>
     <div class="kv"><span class="k">Night currency landings</span><span class="v">after ${f(nightCurrency)}</span></div>
     <div class="apt-meta">${dayLeft} · times for ${KANP.id}, ${now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' })}</div>`;
+  const arc = $('sun-body').querySelector('.sunarc');
+  if (arc) {
+    if (state.sunAnimated) placeSun(arc, s, Date.now());
+    else { state.sunAnimated = true; animateSun(arc, s); }
+  }
+  cascade($('sun-body'), '.kv, .apt-meta');
 }
 
 function renderAloft() {
@@ -1134,13 +1324,17 @@ function renderAloft() {
       const sp = om.hourly[`wind_speed_${p}hPa`][i];
       const tc = om.hourly[`temperature_${p}hPa`][i];
       if (d == null || sp == null) return '<td>—</td>';
-      return `<td>${String(round(d)).padStart(3, '0')}°@${round(sp)} <span class="faint">${round(tc)}°C</span></td>`;
+      const dur = Math.max(0.9, Math.min(3.2, 3.4 - sp * 0.05)).toFixed(2);
+      return `<td><span class="wa" style="--r:${round(d + 180)}deg;--dur:${dur}s"><svg viewBox="-5 -6 10 12" width="8" height="10"><path d="M0,-5.5 L3.6,0.5 L1,0.5 L1,5.5 L-1,5.5 L-1,0.5 L-3.6,0.5 Z" fill="#8ab8e8"/></svg></span>${String(round(d)).padStart(3, '0')}°@${round(sp)} <span class="faint">${round(tc)}°C</span></td>`;
     }).join('');
     return `<tr><td><b style="color:#ccc">${alt}</b> <span class="faint">${p} mb</span></td>${cells}</tr>`;
   }).join('');
   $('aloft-body').innerHTML =
     `<table class="wx-table"><thead><tr><th>Level (MSL)</th>${head}</tr></thead><tbody>${rows}</tbody></table>
      <div class="apt-meta">speeds kt · directions °true · pressure-level heights are approximate</div>`;
+  const ab = $('aloft-body');
+  flashChanged(ab, [...ab.querySelectorAll('tbody td')].map((td, i) => [i, td]));
+  cascade(ab, 'tbody tr');
 }
 
 async function loadOutlook() {
@@ -1159,6 +1353,7 @@ async function loadOutlook() {
         <span class="tmp">${p.temperature}°${p.temperatureUnit}</span>
         <span class="txt">${esc(p.shortForecast)}${p.windSpeed ? ` · ${esc(p.windDirection || '')} ${esc(p.windSpeed)}` : ''}</span>
       </div>`).join('');
+    cascade($('outlook-body'), '.outlook-row');
   } catch (e) {
     localStorage.removeItem('wx_forecast_url');
     $('outlook-body').innerHTML = `<span class="apt-err">NWS forecast unavailable (${esc(e.message)})</span>`;
@@ -1313,6 +1508,8 @@ function renderArchiveCards(arc) {
     const n = (arc.pireps || []).length, a = (arc.airsig || []).length, f = (arc.tfrs || []).length;
     el.textContent = `${n} PIREP${n === 1 ? '' : 's'} · ${a} AIRMET/SIGMET${a === 1 ? '' : 's'} · ${f} TFR${f === 1 ? '' : 's'} · ~150 nm`;
   }
+  cascade($('pirep-body'), '.pr-row');
+  cascade($('airsig-body'), '.as-row');
 }
 
 /* -------- runway analysis cards -------- */
@@ -1379,6 +1576,7 @@ function renderAirports() {
     grid.appendChild(card);
     attachFlow('apt:' + apt.id, card.querySelector('.apt-compass'), m, false);
   }
+  cascade(grid, '.rwy-row');
 }
 
 /* -------- TAFs (IWXXM XML from api.weather.gov) -------- */
@@ -1483,7 +1681,9 @@ function renderTafs() {
         return cl;
       })();
       const cat = flightCat(p.visPlus ? 7 : p.visSM, ceil);
-      return `<div class="taf-period">
+      const tn = Date.now();
+      const live = p.begin && p.end && new Date(p.begin).getTime() <= tn && tn < new Date(p.end).getTime();
+      return `<div class="taf-period${live ? ' now' : ''}">
         <span class="catdot" style="background:${CAT_COLORS[cat]}" title="${cat}"></span>
         <span class="when">${ind}${when}</span>
         <span class="what">${esc([wind, fmtVis(p), p.wx.join(' '), clouds].filter(Boolean).join(' · '))}</span>
@@ -1502,6 +1702,7 @@ function renderTafs() {
       `${stale ? ' · ⚠ stale — no newer issuance on NWS or in the archive' : ''}</span></div>${rows}`;
     grid.appendChild(card);
   }
+  cascade(grid, '.taf-period');
 }
 
 // The archive's newest issuance for a station (latest.json `tafs`), in the
@@ -1615,8 +1816,14 @@ async function loadRadarFrames() {
     }));
     radar.frames.forEach((f, i) => { radar.layers[i] = f.layer; f.layer.addTo(radar.map); });
     radar.idx = Math.max(0, radar.frames.findIndex((f) => f.future) - 1);
+    const tl = $('radar-tl');
+    if (tl) {
+      tl.innerHTML = radar.frames.map((f, i) => `<i class="${f.future ? 'fut' : ''}" title="${fmtTime(f.time)}${f.future ? ' (forecast)' : ''}"></i>`).join('');
+      [...tl.children].forEach((seg, i) => seg.addEventListener('click', () => { radar.idx = i; show(); }));
+    }
     const show = () => {
       radar.frames.forEach((f, i) => f.layer.setOpacity(i === radar.idx ? 0.72 : 0));
+      if (tl) [...tl.children].forEach((seg, i) => seg.classList.toggle('on', i === radar.idx));
       const f = radar.frames[radar.idx];
       $('radar-label').textContent = `${fmtTime(f.time)}${f.future ? ' (forecast)' : ''}`;
     };
@@ -1707,6 +1914,8 @@ function renderCharts() {
   drawDaChart($('chart-da'), state.fly);
   drawTempChart($('chart-temp'), state.fly);
   drawPrecipChart($('chart-precip'), state.fly);
+  setupCrosshair();
+  hideCrosshair();
   if (!state.chartsShown) {
     state.chartsShown = true;
     ['chart-wind', 'chart-ceiling', 'chart-da', 'chart-temp', 'chart-precip']
@@ -1765,6 +1974,7 @@ async function loadAll() {
   }
   $('update-time').textContent = fmtTime(Date.now(), { second: '2-digit' });
   nextRefresh = Date.now() + REFRESH_MS;
+  restartRefreshLine();
 }
 
 let nextRefresh = Date.now() + REFRESH_MS;
@@ -1779,6 +1989,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAll();
   setInterval(() => { loadAll(); loadRadarFrames(); }, REFRESH_MS);
   setInterval(tickCountdown, 1000);
+  setInterval(minuteTick, 30000);
   $('refresh-btn').addEventListener('click', () => { loadAll(); loadRadarFrames(); });
   let rto;
   window.addEventListener('resize', () => { clearTimeout(rto); rto = setTimeout(renderCharts, 200); });
