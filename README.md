@@ -112,6 +112,10 @@ into the repo on a schedule.
 - `fireworks.html`, `glow.html`, `watercycle.html`, `slime.html`,
   `bubbles.html`, `fugue.html`, `mural.html`, `zoey.html`, `kristina.html`, `celebrate.html` — toys and personal
   pages, self-contained.
+- `design.html` — Design Specimens: a split-flap board over eight interactive
+  design studies (variable type, OKLCH color, easing curves, an attitude
+  indicator, a windsock, isobars with wind barbs, a nav radio with Morse
+  idents, line icons); `css/design.css` + `js/design.js`, no libraries.
 
 **Radio** (need a backend on the LAN or the SDR box; no public fallback)
 

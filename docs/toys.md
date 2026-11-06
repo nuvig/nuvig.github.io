@@ -86,4 +86,37 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   full-height section (`#fire`, linked from the first) says STOP PLAYING WITH FIRE™ over CSS
   flames; its "put it out" button lowers the flames a step and they grow back. Self-contained;
   **unlinked and `noindex`**.
+- `design.html` + `css/design.css` + `js/design.js` — Design Specimens (2026-11-06): a design
+  showcase, not an aviation tool. Hero is a split-flap departures board (one WAAPI half-turn per
+  flap, per-column drums — digits-only for the row numbers and clock so they don't crawl through
+  the alphabet, a UTC clock row, rows are buttons that scroll to their plate, the method column
+  cycles alternates every 6.5 s after the reveal). Eight plates: **01 Type** — Recursive from
+  Google Fonts, five axes on sliders with an idle auto-drift, weight waterfall, sans/mono ×
+  linear/casual, fluid `clamp()` scale printing live px; falls back to system fonts and says so
+  under the waterfall. **02 Color** — OKLCH hue dial; OKLCH→sRGB with chroma-walk gamut mapping
+  in JS (`color()`), constant-chroma ramp vs an HSL ramp at the matched hue, `in oklch` vs
+  `in srgb` gradients, WCAG ratios; "accent → page" writes `--accent-h` on `<html>`, which every
+  canvas picks up through `pal()`. **03 Motion** — six easing lanes (cubic-bezier solved in JS for
+  the thumbnails; spring and bounce emitted as `linear()` when supported, sampled keyframes
+  otherwise), distance-staggered tile ripple. **04 Light** — SVG attitude indicator (moving card
+  with pitch ladder, sky pointer, fixed bank scale, GYRO flag that retracts 1.5 s after first
+  sight) inside a 3-D-tilting card with a pointer-tracking specular; spring-damped; a chip asks
+  for `deviceorientation` (iOS permission prompt). **05 Physics** — windsock: 3-D Verlet spine
+  (v² drag ∝ local radius, bending constraint, value-noise gusts and direction wander), rings
+  lofted into shaded quads drawn in painter's order, pole + ground shadow; compass dial sets
+  wind-from, slider sets speed. **06 Generative** — simplex-noise pressure field drifting east,
+  marching-squares isobars every 4 hPa, NH geostrophic wind drawn as station barbs (barbs on the
+  right looking up the shaft), H/L extrema labelled, tap drops a low that fills over ~10 s, hover
+  reads pressure and wind. **07 Sound** — NAV radio: dual-concentric knob (outer MHz, inner 50 kHz,
+  by pointer angle / wheel / arrows), ACT⇄STBY flip, the six VORs from `js/sfra.js` as station
+  chips (same NASR-verified frequencies); a tuned station keys its Morse ident at 1020 Hz every
+  ~8 s through Web Audio, letters light as they key, a scrolling keyed-carrier scope; audio only
+  after the sound chip (gesture). **08 Icons** — eight 24-grid line icons with per-part CSS motion
+  on hover/tap, the compass at 16–96 px. Page controls (top right): night/day theme with a View
+  Transitions circular reveal, 8 px baseline + 12-column grid overlay (also shows the plates'
+  registration marks), SVG-turbulence grain, sound; prefs persist in localStorage `design-prefs`
+  (also the applied accent hue). Every animation loop is gated by one IntersectionObserver plus
+  page visibility (`Vis`); `window.__design.vis()` lists `[el, visible, running]` for headless
+  checks. Verified with headless Edge (the Browser pane throttles rAF to ~2 fps, so it can't judge
+  motion). Indexed (sitemap, README) but **not on tools.html** — same rule as glow/watercycle.
 

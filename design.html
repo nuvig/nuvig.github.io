@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Design Specimens — jesselevine.net</title>
+  <meta name="description" content="Eight interactive design specimens: variable type, OKLCH color, easing curves, an attitude indicator, a windsock, isobars with wind barbs, a nav radio with Morse idents, and animated line icons. Plain HTML, CSS and JS.">
+  <link rel="canonical" href="https://jesselevine.net/design.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jesselevine.net/design.html">
+  <meta property="og:title" content="Design Specimens — jesselevine.net">
+  <meta property="og:description" content="Variable type, OKLCH color, easing, an attitude indicator, a windsock, isobars, a nav radio, line icons. No libraries.">
+  <meta property="og:image" content="https://jesselevine.net/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <script>
+    // theme / grid / grain / accent before first paint
+    (function () { try {
+      var p = JSON.parse(localStorage.getItem('design-prefs') || '{}'), h = document.documentElement;
+      if (p.theme) h.setAttribute('data-theme', p.theme);
+      if (p.grain !== false) h.classList.add('grain');
+      if (p.grid) h.classList.add('grid');
+      if (p.hue) h.style.setProperty('--accent-h', p.hue);
+    } catch (e) {} })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Recursive:slnt,wght,CASL,CRSV,MONO@-15..0,300..1000,0..1,0..1,0..1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/design.css?v=1">
+</head>
+<body>
+  <div id="progress" aria-hidden="true"></div>
+  <div id="gridlay" aria-hidden="true"></div>
+  <div id="grain" aria-hidden="true"></div>
+
+  <nav id="rail" aria-label="Specimens">
+    <a href="#type">01</a>
+    <a href="#color">02</a>
+    <a href="#motion">03</a>
+    <a href="#light">04</a>
+    <a href="#physics">05</a>
+    <a href="#generative">06</a>
+    <a href="#sound">07</a>
+    <a href="#icons">08</a>
+  </nav>
+
+  <div id="ctl">
+    <button class="chip" id="tTheme" type="button" aria-pressed="false" title="theme">day</button>
+    <button class="chip" id="tGrid" type="button" aria-pressed="false" title="baseline and column grid">grid</button>
+    <button class="chip" id="tGrain" type="button" aria-pressed="true" title="film grain">grain</button>
+    <button class="chip" id="tSound" type="button" aria-pressed="false" title="flap clicks and Morse idents">sound</button>
+  </div>
+
+  <header class="hero">
+    <div class="wrap">
+      <h1 class="vh">Design specimens</h1>
+      <p class="kicker">jesselevine.net · design specimens</p>
+      <div id="board" class="board" aria-label="Specimen board"></div>
+      <p class="hint" style="text-align:center">row → specimen</p>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- 01 ------------------------------------------------------------- -->
+    <section class="plate" id="type">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">01</span>
+          <h2>Type</h2>
+          <p class="tags">Recursive · wght slnt CASL CRSV MONO · font-variation-settings · clamp()</p>
+        </header>
+
+        <p class="type-hero" id="typeHero">Sphinx of black quartz, judge my vow</p>
+
+        <div class="axes">
+          <label>wght <output>500</output><input type="range" id="axW" min="300" max="1000" step="1" value="500"></label>
+          <label>slnt <output>0.0</output><input type="range" id="axS" min="-15" max="0" step="0.1" value="0"></label>
+          <label>CASL <output>0.00</output><input type="range" id="axC" min="0" max="1" step="0.01" value="0"></label>
+          <label>CRSV <output>0.50</output><input type="range" id="axR" min="0" max="1" step="0.01" value="0.5"></label>
+          <label>MONO <output>0.00</output><input type="range" id="axM" min="0" max="1" step="0.01" value="0"></label>
+          <button class="chip" id="axAuto" type="button" aria-pressed="true">auto</button>
+        </div>
+
+        <div class="type-grid">
+          <div>
+            <div class="waterfall">
+              <div class="wl" style="font-weight:300"><b>300</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:400"><b>400</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:500"><b>500</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:600"><b>600</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:700"><b>700</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:800"><b>800</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:900"><b>900</b>Hamburgefonstiv</div>
+              <div class="wl" style="font-weight:1000"><b>1000</b>Hamburgefonstiv</div>
+            </div>
+            <p class="hint" id="fontState">Recursive · loading</p>
+          </div>
+          <div>
+            <div class="quad">
+              <div class="q" style="font-variation-settings:'MONO' 0,'CASL' 0,'wght' 700"><p class="big">Rag</p><div class="lab">sans · linear</div></div>
+              <div class="q" style="font-variation-settings:'MONO' 0,'CASL' 1,'wght' 700"><p class="big">Rag</p><div class="lab">sans · casual</div></div>
+              <div class="q" style="font-variation-settings:'MONO' 1,'CASL' 0,'wght' 700"><p class="big">Rag</p><div class="lab">mono · linear</div></div>
+              <div class="q" style="font-variation-settings:'MONO' 1,'CASL' 1,'wght' 700"><p class="big">Rag</p><div class="lab">mono · casual</div></div>
+            </div>
+            <div class="scale">
+              <div class="sc" data-css="clamp(2.6rem, 1.2rem + 4.5vw, 4.5rem)"><span style="--fs:clamp(2.6rem, 1.2rem + 4.5vw, 4.5rem)">Display</span><span class="px"></span></div>
+              <div class="sc" data-css="clamp(1.8rem, 1rem + 2.4vw, 2.6rem)"><span style="--fs:clamp(1.8rem, 1rem + 2.4vw, 2.6rem)">Title</span><span class="px"></span></div>
+              <div class="sc" data-css="clamp(1.25rem, 1rem + 1vw, 1.6rem)"><span style="--fs:clamp(1.25rem, 1rem + 1vw, 1.6rem)">Heading</span><span class="px"></span></div>
+              <div class="sc" data-css="clamp(.95rem, .9rem + .3vw, 1.1rem)"><span style="--fs:clamp(.95rem, .9rem + .3vw, 1.1rem)">Body</span><span class="px"></span></div>
+              <div class="sc" data-css="clamp(.72rem, .7rem + .2vw, .82rem)"><span style="--fs:clamp(.72rem, .7rem + .2vw, .82rem)">Caption</span><span class="px"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 ------------------------------------------------------------- -->
+    <section class="plate" id="color">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">02</span>
+          <h2>Color</h2>
+          <p class="tags">oklch() · gamut mapping · color interpolation · WCAG contrast</p>
+        </header>
+
+        <div class="color-grid">
+          <div class="dial-wrap">
+            <div class="dial" id="hueDial" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="360" aria-valuenow="75" tabindex="0">
+              <div class="dial-handle"></div>
+              <div class="dial-center"><span class="hv" id="hueVal">75°</span><span class="sub">hue · drag</span></div>
+            </div>
+            <div class="btns">
+              <button class="chip" id="applyHue" type="button">accent → page</button>
+              <button class="chip" id="resetHue" type="button">reset</button>
+            </div>
+          </div>
+
+          <div class="ramps">
+            <div>
+              <div class="ramp-label"><span>oklch · C 0.12 · L 97→15</span><span>constant chroma</span></div>
+              <div class="ramp" id="rampOk"></div>
+            </div>
+            <div>
+              <div class="ramp-label"><span id="hslHue">hsl</span><span>same hue, HSL lightness</span></div>
+              <div class="ramp" id="rampHsl"></div>
+            </div>
+            <div>
+              <div class="ramp-label"><span>linear-gradient · in oklch</span><span>hue → hue + 180</span></div>
+              <div class="grad" id="gradOk"></div>
+            </div>
+            <div>
+              <div class="ramp-label"><span>linear-gradient · in srgb</span><span>same stops</span></div>
+              <div class="grad" id="gradSrgb"></div>
+            </div>
+            <dl class="kv color-read">
+              <dt>accent</dt><dd id="cAcc"></dd>
+              <dt>+180</dt><dd id="cComp"></dd>
+              <dt>+120</dt><dd id="cTri1"></dd>
+              <dt>+240</dt><dd id="cTri2"></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 ------------------------------------------------------------- -->
+    <section class="plate" id="motion">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">03</span>
+          <h2>Motion</h2>
+          <p class="tags">Web Animations API · cubic-bezier() · linear() springs · distance stagger</p>
+        </header>
+
+        <div class="lanes" id="lanes"></div>
+        <div class="lane-ctl">
+          <button class="chip" id="replay" type="button">replay</button>
+          <span class="hint" style="margin:0">1.8 s · same distance</span>
+        </div>
+
+        <div class="ripple" id="ripple" aria-label="Stagger grid"></div>
+        <p class="hint">tap a tile → delay by distance · 44 ms per cell</p>
+      </div>
+    </section>
+
+    <!-- 04 ------------------------------------------------------------- -->
+    <section class="plate" id="light">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">04</span>
+          <h2>Light</h2>
+          <p class="tags">specular highlight · 3-D tilt · brushed bezel · SVG attitude indicator · spring damping</p>
+        </header>
+
+        <div class="light-grid">
+          <div class="tilt-scene">
+            <div class="tilt-card" id="tiltCard">
+              <span class="screw"></span><span class="screw"></span><span class="screw"></span><span class="screw"></span>
+              <div class="bezel">
+                <svg class="ai" viewBox="0 0 400 400" aria-hidden="true">
+                  <defs>
+                    <clipPath id="aiClip"><circle cx="200" cy="200" r="150"/></clipPath>
+                    <linearGradient id="aiSky" gradientUnits="userSpaceOnUse" x1="0" y1="-120" x2="0" y2="200">
+                      <stop offset="0" stop-color="#17417e"/><stop offset="1" stop-color="#6ea4e4"/>
+                    </linearGradient>
+                    <linearGradient id="aiGnd" gradientUnits="userSpaceOnUse" x1="0" y1="200" x2="0" y2="520">
+                      <stop offset="0" stop-color="#a26a3a"/><stop offset="1" stop-color="#3f2410"/>
+                    </linearGradient>
+                    <radialGradient id="aiVig"><stop offset=".72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".6"/></radialGradient>
+                  </defs>
+                  <g clip-path="url(#aiClip)">
+                    <g id="aiGyro">
+                      <rect x="-700" y="-1200" width="1800" height="1400" fill="url(#aiSky)"/>
+                      <rect x="-700" y="200" width="1800" height="1400" fill="url(#aiGnd)"/>
+                      <line x1="-700" y1="200" x2="1100" y2="200" stroke="#fff" stroke-width="2.5"/>
+                      <g id="aiLadder"></g>
+                    </g>
+                    <g id="aiBankPtr"><polygon points="200,54 191,72 209,72" fill="#fff"/></g>
+                    <circle cx="200" cy="200" r="150" fill="url(#aiVig)"/>
+                  </g>
+                  <g id="aiScale"></g>
+                  <g fill="none" stroke="#f6a21c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M104 200 H168 L178 212 H222 L232 200 H296"/>
+                    <circle cx="200" cy="200" r="4.5" fill="#f6a21c" stroke="none"/>
+                  </g>
+                  <g id="aiFlag"><rect x="236" y="238" width="58" height="24" rx="3" fill="#c9262c"/><text x="265" y="255" font-size="12" text-anchor="middle">GYRO</text></g>
+                </svg>
+                <div class="glass"></div>
+              </div>
+              <span class="lab">ATTITUDE</span>
+            </div>
+          </div>
+          <div class="light-side">
+            <dl class="kv">
+              <dt>bank</dt><dd id="aiBank">0°</dd>
+              <dt>pitch</dt><dd id="aiPitch">0°</dd>
+            </dl>
+            <button class="chip" id="tiltBtn" type="button" aria-pressed="false">device tilt</button>
+            <p class="hint" style="margin:0">pointer → attitude · leave → level</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 ------------------------------------------------------------- -->
+    <section class="plate" id="physics">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">05</span>
+          <h2>Physics</h2>
+          <p class="tags">Verlet chain · v² drag · gust noise · painter's-order 3-D on canvas</p>
+        </header>
+
+        <div class="sock-grid">
+          <canvas id="sock" aria-label="Windsock simulation"></canvas>
+          <div class="sock-ctl">
+            <svg id="windDial" viewBox="0 0 180 180" role="slider" aria-label="Wind direction" aria-valuemin="0" aria-valuemax="360" aria-valuenow="290" tabindex="0">
+              <circle class="ring" cx="90" cy="90" r="84"/>
+              <g id="windTicks"></g>
+              <g id="windArrow" class="arrow" transform="rotate(290 90 90)">
+                <line x1="90" y1="16" x2="90" y2="52" stroke-width="2.5"/>
+                <polygon points="90,62 83,48 97,48"/>
+              </g>
+            </svg>
+            <label>speed <output id="windSpdOut">12 kt</output><input type="range" id="windSpd" min="0" max="35" step="1" value="12"></label>
+            <button class="chip" id="gustBtn" type="button" aria-pressed="true">gusts</button>
+            <div class="readout" id="windRead">290° · 12 kt</div>
+            <p class="hint" style="margin:0">15 kt → fully extended · 3 kt per stripe</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 ------------------------------------------------------------- -->
+    <section class="plate" id="generative">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">06</span>
+          <h2>Generative</h2>
+          <p class="tags">simplex noise · marching squares · geostrophic wind · station barbs</p>
+        </header>
+
+        <div class="iso-wrap">
+          <canvas id="iso" aria-label="Animated surface pressure field"></canvas>
+          <div class="iso-read" id="isoRead"></div>
+        </div>
+        <p class="hint">tap → low · hover → pressure, wind</p>
+      </div>
+    </section>
+
+    <!-- 07 ------------------------------------------------------------- -->
+    <section class="plate" id="sound">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">07</span>
+          <h2>Sound</h2>
+          <p class="tags">Web Audio · 1020 Hz Morse ident · dual-concentric knob · gas-discharge display</p>
+        </header>
+
+        <div class="radio">
+          <div class="disp">
+            <div class="freq act"><span class="lbl">NAV</span><span class="digits" id="fAct">115.10</span></div>
+            <button class="flipbtn" id="flip" type="button" aria-label="Swap active and standby">⇄</button>
+            <div class="freq sby"><span class="lbl">STBY</span><span class="digits" id="fSby">111.00</span></div>
+            <div class="ident" id="ident"><span class="id"></span><span class="code"></span><span class="nm"></span></div>
+            <canvas id="scope" aria-hidden="true"></canvas>
+          </div>
+          <div class="knob-wrap">
+            <div class="knob" id="knob" role="slider" aria-label="Tune standby" tabindex="0" aria-valuetext="111.00 standby">
+              <div class="knob-outer"></div>
+              <div class="knob-inner"></div>
+            </div>
+            <div class="knob-lbl">outer MHz · inner 50 kHz<br>drag · wheel · arrows · enter ⇄</div>
+          </div>
+        </div>
+        <div class="stations" id="stations"></div>
+        <div class="lane-ctl" style="margin:16px 0 0">
+          <button class="chip" id="sndLocal" type="button" aria-pressed="false">sound off</button>
+          <span class="hint" style="margin:0">ident every 8 s · letters key with the tone</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 ------------------------------------------------------------- -->
+    <section class="plate" id="icons">
+      <div class="wrap">
+        <header class="ph">
+          <span class="num">08</span>
+          <h2>Icons</h2>
+          <p class="tags">24-unit grid · 1.5 stroke · round joins · CSS motion per part</p>
+        </header>
+
+        <div class="icons" id="iconGrid"></div>
+        <div class="icon-sizes" id="iconSizes"></div>
+        <p class="hint">hover or tap → motion</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="colophon wrap">
+    <dl class="kv">
+      <dt>built</dt><dd>HTML · CSS · JS · no libraries</dd>
+      <dt>type</dt><dd>Recursive · OFL · Google Fonts</dd>
+      <dt>color</dt><dd>OKLCH · gamut-mapped in JS · canvases read the CSS vars</dd>
+      <dt>motion</dt><dd>Web Animations API · View Transitions · scroll-driven progress</dd>
+      <dt>source</dt><dd><a href="https://github.com/nuvig/nuvig.github.io/blob/main/design.html">GitHub</a></dd>
+    </dl>
+  </footer>
+
+  <a id="back-link" href="/">&larr; jesselevine.net</a>
+
+  <script src="js/design.js?v=1"></script>
+  <script data-goatcounter="https://jesselevine.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+  <script src="js/pagever.js?v=1" defer></script>
+</body>
+</html>

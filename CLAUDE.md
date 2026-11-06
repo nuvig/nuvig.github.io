@@ -24,7 +24,8 @@ committed. Owner: Jesse, CFI/CFII/MEI pilot based at KANP (Lee Airport, Annapoli
   model winds are also true). Never magnetic.
 - `css/main.css` is the shared stylesheet (dark theme, CSS vars, 760 px max-width). Every page uses
   it except the self-contained toys/SDR/personal pages (`bubbles.html`, `glow.html`, `ctaf.html`,
-  `scanner.html`, `fugue.html`, `mural.html`, `watercycle.html`, `zoey.html`, `kristina.html`).
+  `scanner.html`, `fugue.html`, `mural.html`, `watercycle.html`, `zoey.html`, `kristina.html`,
+  `design.html`).
 - **Cache-busting is manual**: assets are referenced as `js/foo.js?v=N` / `css/main.css?v=N`.
   When you change a file that already carries a `?v=`, bump the number in every page referencing it
   — GitHub Pages caches aggressively and stale JS is the usual "my fix didn't deploy" cause.
