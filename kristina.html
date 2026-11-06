@@ -153,6 +153,58 @@
     #fire .ext:hover { background: rgba(0,0,0,.4); }
     #fire #extout { position: relative; margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: #ffd27a; }
     #fire .fine { color: #ffd7b8; }
+    #fire .down { color: #ffd7b8; }
+
+    /* — Olive Garden — */
+    #og {
+      background: linear-gradient(180deg, #4a5a2e, #2f3a1d);
+      color: #f7f1df;
+      position: relative; overflow: hidden;
+    }
+    #og .plate {
+      width: 180px; height: 180px; border-radius: 50%;
+      background: radial-gradient(circle at 50% 50%, #fffaf0 0 58%, #e9dfc6 59% 70%, #fffaf0 71%);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    #og .sticks { display: flex; gap: 6px; transform: rotate(-20deg); }
+    #og .sticks i {
+      display: block; width: 14px; height: 92px; border-radius: 8px;
+      background: linear-gradient(90deg, #d9a35a, #f0c986 50%, #c8914a);
+      box-shadow: inset 0 0 0 1px rgba(120, 70, 20, .25);
+      animation: stick .6s ease-out both;
+    }
+    #og .sticks i:nth-child(2) { height: 100px; }
+    #og .sticks i:nth-child(3) { height: 88px; }
+    @keyframes stick { from { transform: translateY(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    #og h2 {
+      margin: 36px 0 0;
+      font-size: clamp(34px, 8vw, 72px);
+      font-weight: 900; line-height: 1.05; letter-spacing: -1px;
+    }
+    #og h2 sup { color: #f0c986; }
+    #og .rule { margin: 18px 0 0; font-size: clamp(16px, 3vw, 22px); color: #d8d2b8; }
+    #og .rule b { color: #f0c986; }
+    #og .tally {
+      margin: 30px 0 0;
+      display: grid; grid-template-columns: auto auto; gap: 6px 22px;
+      font-size: 15px; color: #d8d2b8; text-align: left;
+    }
+    #og .tally b { font-size: 28px; color: #f0c986; font-variant-numeric: tabular-nums; }
+    #og .more {
+      margin-top: 28px;
+      font: inherit; font-size: 16px;
+      color: #f7f1df;
+      background: rgba(0,0,0,.22);
+      border: 1px solid #f0c986;
+      border-radius: 999px;
+      padding: 10px 22px;
+      cursor: pointer;
+    }
+    #og .more:hover { background: rgba(0,0,0,.4); }
+    #og #ogout { margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: #f0c986; }
+    #og .fine { color: #d8d2b8; }
 
     /* Floating ™ field. */
     #tm { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
@@ -196,6 +248,20 @@
     <button class="ext" id="ext">put it out™</button>
     <p id="extout"></p>
     <p class="fine">Fire™ is a registered hazard. Playing With Fire™ is not a licensed activity. Stop™.</p>
+    <a class="down" href="#og">also ↓</a>
+  </section>
+
+  <section id="og">
+    <div class="plate" aria-hidden="true"><div class="sticks" id="sticks"><i></i><i></i><i></i></div></div>
+    <h2>Olive Garden<sup>™</sup>.<br>Without her<sup>™</sup>.</h2>
+    <p class="rule">breadsticks™ → <b>unlimited</b> · hers™ → <b>0</b></p>
+    <div class="tally">
+      <span>his breadsticks™</span><b id="his">3</b>
+      <span>her breadsticks™</span><b>0</b>
+    </div>
+    <button class="more" id="more">another breadstick™</button>
+    <p id="ogout"></p>
+    <p class="fine">Unlimited™ applies to him™. When you're not here™, you're not family™. Olive Garden is a trademark of someone else; the breadsticks™ are his.</p>
   </section>
 
   <script>
@@ -244,6 +310,22 @@
       for (let i = 0; i < 6; i++) spawnTM(true);
     };
     setInterval(() => { if (h < 42) { h += 2; flames.style.height = h + 'vh'; } }, 1500);
+
+    // Olive Garden: his count climbs, the plate refills, hers stays 0.
+    const his = document.getElementById('his');
+    const sticks = document.getElementById('sticks');
+    const ogout = document.getElementById('ogout');
+    const ogAnswers = ['unlimited™', 'still unlimited™', 'she got none™', 'they just keep coming™',
+      'hers: 0™', 'he’s full™ (no he isn’t™)', 'the basket™ is for him™', 'unlimited™ means unlimited™'];
+    let b = 3, o = 0;
+    document.getElementById('more').onclick = () => {
+      his.textContent = ++b;
+      ogout.textContent = ogAnswers[o++ % ogAnswers.length];
+      const i = document.createElement('i');
+      sticks.appendChild(i);
+      if (sticks.children.length > 5) sticks.removeChild(sticks.firstChild);
+      for (let k = 0; k < 6; k++) spawnTM(true);
+    };
   </script>
 </body>
 </html>

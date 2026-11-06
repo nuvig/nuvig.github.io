@@ -84,7 +84,9 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   cycle, a status line, and an "is he done yet?" button that cycles through no. ™ is the running
   joke — on every line, a floating ™ field behind the page, a burst per click. A second
   full-height section (`#fire`, linked from the first) says STOP PLAYING WITH FIRE™ over CSS
-  flames; its "put it out" button lowers the flames a step and they grow back. Self-contained;
+  flames; its "put it out" button lowers the flames a step and they grow back. A third (`#og`)
+  is Olive Garden™ without her: a plate of CSS breadsticks, a his/hers tally (hers is 0), and an
+  "another breadstick" button that bumps his count and the plate. Self-contained;
   **unlinked and `noindex`**.
 - `design.html` + `css/design.css` + `js/design.js` — Design Specimens (2026-11-06): a design
   showcase, not an aviation tool. Hero is a split-flap departures board (one WAAPI half-turn per
