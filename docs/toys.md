@@ -86,7 +86,11 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   full-height section (`#fire`, linked from the first) says STOP PLAYING WITH FIRE™ over CSS
   flames; its "put it out" button lowers the flames a step and they grow back. A third (`#og`)
   is Olive Garden™ without her: a plate of CSS breadsticks, a his/hers tally (hers is 0), and an
-  "another breadstick" button that bumps his count and the plate. Self-contained;
+  "another breadstick" button that bumps his count and the plate. A fourth (`#packet`) riffs
+  on the 2013 "friggin' packet, yo" classroom video: ruled-paper background, a pile of stapled CSS
+  packets, a packets-handed-out / hearts-touched tally (the latter stays 0), a "hand her a packet"
+  button, and a "walk out" link back to the top. `#tm` sits at `z-index: 2` (pointer-events
+  none) so the ™ field shows over the coloured sections. Self-contained;
   **unlinked and `noindex`**.
 - `design.html` + `css/design.css` + `js/design.js` — Design Specimens (2026-11-06): a design
   showcase, not an aviation tool. Hero is a split-flap departures board (one WAAPI half-turn per

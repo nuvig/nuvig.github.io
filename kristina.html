@@ -205,9 +205,71 @@
     #og .more:hover { background: rgba(0,0,0,.4); }
     #og #ogout { margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: #f0c986; }
     #og .fine { color: #d8d2b8; }
+    #og .down { color: #d8d2b8; }
+
+    /* — Packet — */
+    #packet {
+      background:
+        repeating-linear-gradient(180deg, transparent 0 31px, rgba(60, 90, 140, .13) 31px 32px),
+        #efe6cc;
+      color: #2b2417;
+      position: relative; overflow: hidden;
+    }
+    #packet .pile { position: relative; width: 170px; height: 215px; }
+    #packet .sheet {
+      position: absolute; inset: 0;
+      background:
+        repeating-linear-gradient(180deg, transparent 0 13px, rgba(43, 36, 23, .28) 13px 15px) 18px 56px / calc(100% - 36px) calc(100% - 80px) no-repeat,
+        #fffdf6;
+      border: 1px solid #cfc4a4;
+      box-shadow: 0 3px 8px rgba(60, 45, 15, .25);
+      animation: slap .35s ease-out both;
+    }
+    #packet .sheet::before {            /* staple */
+      content: ''; position: absolute; top: 10px; left: 12px;
+      width: 18px; height: 3px; background: #8d8d8d; border-radius: 2px;
+      transform: rotate(-35deg);
+    }
+    #packet .sheet::after {
+      content: 'PACKET™'; position: absolute; top: 22px; left: 0; right: 0;
+      font-size: 15px; font-weight: 900; letter-spacing: 2px; color: #2b2417;
+    }
+    @keyframes slap {
+      from { transform: translateY(-60px) rotate(var(--r, 0deg)) scale(1.15); opacity: 0; }
+      to   { transform: rotate(var(--r, 0deg)); opacity: 1; }
+    }
+    #packet h2 {
+      margin: 38px 0 0;
+      font-size: clamp(36px, 9vw, 84px);
+      font-weight: 900; line-height: 1; letter-spacing: -1px;
+      text-transform: uppercase;
+    }
+    #packet sup { color: #b3261e; }
+    #packet .rule { margin: 18px 0 0; font-size: clamp(16px, 3vw, 22px); color: #5b4f38; }
+    #packet .rule b { color: #b3261e; }
+    #packet .tally {
+      margin: 28px 0 0;
+      display: grid; grid-template-columns: auto auto; gap: 6px 22px;
+      font-size: 15px; color: #5b4f38; text-align: left;
+    }
+    #packet .tally b { font-size: 28px; color: #b3261e; font-variant-numeric: tabular-nums; }
+    #packet .hand {
+      margin-top: 28px;
+      font: inherit; font-size: 16px;
+      color: #2b2417;
+      background: #fffdf6;
+      border: 1px solid #2b2417;
+      border-radius: 999px;
+      padding: 10px 22px;
+      cursor: pointer;
+    }
+    #packet .hand:hover { border-color: #b3261e; color: #b3261e; }
+    #packet #pkout { margin: 14px 0 0; min-height: 1.5em; font-size: 18px; color: #b3261e; font-weight: 700; }
+    #packet .fine { color: #5b4f38; opacity: .85; }
+    #packet .down { color: #5b4f38; }
 
     /* Floating ™ field. */
-    #tm { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+    #tm { position: fixed; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
     #tm span {
       position: absolute; bottom: -40px;
       color: var(--accent); opacity: 0;
@@ -262,6 +324,21 @@
     <button class="more" id="more">another breadstick™</button>
     <p id="ogout"></p>
     <p class="fine">Unlimited™ applies to him™. When you're not here™, you're not family™. Olive Garden is a trademark of someone else; the breadsticks™ are his.</p>
+    <a class="down" href="#packet">also ↓</a>
+  </section>
+
+  <section id="packet">
+    <div class="pile" id="pile" aria-hidden="true"><div class="sheet"></div></div>
+    <h2>Friggen packet<sup>™</sup>,<br>bro<sup>™</sup>.</h2>
+    <p class="rule">teaching™ → <b>no</b> · packet™ → <b>here</b></p>
+    <div class="tally">
+      <span>packets handed out™</span><b id="pk">1</b>
+      <span>hearts touched™</span><b>0</b>
+    </div>
+    <button class="hand" id="hand">hand her a packet™</button>
+    <p id="pkout"></p>
+    <p class="fine">This website™ is a packet™. Some Kristinas™ don’t learn like that™. Face to face™ → not included.</p>
+    <a class="down" href="#chill">walk out ↑</a>
   </section>
 
   <script>
@@ -324,6 +401,25 @@
       const i = document.createElement('i');
       sticks.appendChild(i);
       if (sticks.children.length > 5) sticks.removeChild(sticks.firstChild);
+      for (let k = 0; k < 6; k++) spawnTM(true);
+    };
+
+    // Packet: every click slaps another packet on the pile. Nothing is taught.
+    const pile = document.getElementById('pile');
+    const pk = document.getElementById('pk');
+    const pkout = document.getElementById('pkout');
+    const pkAnswers = ['here’s a packet™', 'this website™ is a packet™', 'she doesn’t learn like that™',
+      'face to face™ → no, packet™', 'touch her friggen heart™ → pending', 'make her excited™ → packet™',
+      'take this job serious™', 'bye™', 'still a packet™, bro™'];
+    let pn = 1, pa = 0;
+    document.getElementById('hand').onclick = () => {
+      pk.textContent = ++pn;
+      pkout.textContent = pkAnswers[pa++ % pkAnswers.length];
+      const sh = document.createElement('div');
+      sh.className = 'sheet';
+      sh.style.setProperty('--r', (Math.random() * 16 - 8).toFixed(1) + 'deg');
+      pile.appendChild(sh);
+      if (pile.children.length > 9) pile.removeChild(pile.firstChild);
       for (let k = 0; k < 6; k++) spawnTM(true);
     };
   </script>
