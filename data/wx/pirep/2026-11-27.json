@@ -1,0 +1,1 @@
+{"date":"2026-11-27","region":"37.0,-79.5,41.0,-74.0","pireps":[{"t":1795756320,"seen":1795768003,"raw":"ARP UAL932 4012N 07429W 0512 F290 207/054KT TB CONT LGT TURB OCNL MOD TURB IC","type":"AIREP","ac":"UAL932","lat":40.2,"lon":-74.4833,"fl":290,"flType":"OTHER","tb":[["LGT",null,null,null],["MOD",null,null,null]],"ic":null,"sky":null,"wx":null,"temp":null,"wind":[207,54]}]}
