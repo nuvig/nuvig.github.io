@@ -26,12 +26,14 @@ ring station measured RING_WET_IN or more. Wet hours closer than MERGE_GAP_H
 apart are one event: a nor'easter has lulls, and a lull is not the end.
 A windy hour is one where either station reported WINDY_SUST_KT sustained
 or a gust to WINDY_GUST_KT; windy hours up to BLOW_GAP_H apart (an overnight
-calm) form a blow, a blow touching a rain span joins it, and a blow bridging
-two rain spans makes them one system — a coastal low's gradient or the surge
-behind a front blows before, between and after the rain, and the Sep 21–27
-nor'easter rained on three days and blew for six. A blow with no rain is an
-event on its own only when it holds WIND_ONLY_H windy hours and a gust to
-WIND_ONLY_GUST.
+calm) form a blow, and a blow touching a rain span joins it — a coastal low's
+gradient or the surge behind a front blows before and after the rain. A blow
+never makes two storms one: two rain spans more than BRIDGE_DRY_H dry hours
+apart are two events however hard it blew between them (Sep 21–23's upper-low
+rain and the Sep 25–27 nor'easter shared a continuous north wind and were two
+storms), and a blow that touches both is cut at the calmest stretch of the dry
+gap, each piece joining its own rain. A blow with no rain is an event on its
+own only when it holds WIND_ONLY_H windy hours and a gust to WIND_ONLY_GUST.
 
 An event is kept when KDCA or KNAK measured at least MIN_IN, or thunder was
 observed at either, or frozen precipitation was observed anywhere, or a ring
@@ -77,6 +79,7 @@ Output (data/storms.json)
     types         subset of [rain, thunder, snow, ice, wind] actually observed
                   (wind = a blow with no rain at all)
     driver        the feature LWX's discussions named most while it rained
+                  (discussions issued over the rain span only, not the blow)
     drivers       [[term, mentions] …] the top three
     expected      KEY MESSAGES of the last discussion issued before onset
     log           [{t, text}] every WHAT HAS CHANGED paragraph LWX issued
@@ -109,6 +112,7 @@ MERGE_GAP_H = 6        # dry hours that still belong to the same event
 WINDY_SUST_KT = 15     # an hour is windy when KDCA or KNAK sustained >= this …
 WINDY_GUST_KT = 18     # … or gusted to this, in any ob of the hour
 BLOW_GAP_H = 18        # calm hours (an evening-to-morning lull) that still belong to the same blow
+BRIDGE_DRY_H = 12      # the longest dry gap a blow may bridge between two rain spans; past it, two storms
 WIND_ONLY_H = 12       # a blow with no rain is an event on its own past this …
 WIND_ONLY_GUST = 25    # … many windy hours and a gust this strong
 MIN_IN = 0.10          # KDCA or KNAK total that makes an event
@@ -434,13 +438,15 @@ def build():
             wet_spans.append([h, h])
 
     # An event is the weather system, not only its rain. A coastal low's
-    # pressure gradient, or the surge behind a front, blows before, between
-    # and after the wet hours — the Sep 21–27 nor'easter rained on three days
-    # and blew for six — so windy hours are storm hours too: consecutive
-    # windy hours (an evening-to-morning lull allowed) form a blow, a blow
-    # that touches a rain span joins it, and a blow that bridges two rain
-    # spans makes them one system. A blow with no rain at all is its own
-    # event only when it is long and strong (WIND_ONLY_*).
+    # pressure gradient, or the surge behind a front, blows before and after
+    # the wet hours, so windy hours are storm hours too: consecutive windy
+    # hours (an evening-to-morning lull allowed) form a blow, and a blow that
+    # touches a rain span joins it. Wind never welds two storms together: two
+    # rain spans more than BRIDGE_DRY_H dry hours apart are two events, and a
+    # blow touching both is cut at the calmest stretch of the dry gap between
+    # them (the Sep 21–23 upper-low rain and the Sep 25–27 nor'easter blew
+    # north the whole way through and were two storms). A blow with no rain
+    # at all is its own event only when it is long and strong (WIND_ONLY_*).
     windy_hours = [h for h in range(h_first, h_last + 1) if windy(h)]
     blows = []
     for h in windy_hours:
@@ -453,7 +459,45 @@ def build():
     def touches(a, b):
         return a[0] <= b[1] + MERGE_GAP_H and b[0] <= a[1] + MERGE_GAP_H
 
+    def separate(a, b):
+        # two rain spans too far apart (dry) for any blow to make them one
+        return b[0] - a[1] - 1 > BRIDGE_DRY_H
+
+    def cut(bl, a, b):
+        # split a blow that spans the dry gap between rain spans a and b at
+        # the longest calm stretch inside that gap (the latest one on a tie);
+        # with no calm hour, at the gap's midpoint
+        lo, hi = a[1] + 1, b[0] - 1
+        best, run, run0 = None, 0, None
+        for h in range(lo, hi + 2):
+            if h <= hi and h not in windy_set:
+                if run == 0:
+                    run0 = h
+                run += 1
+            else:
+                if run and (best is None or run >= best[1] - best[0] + 1):
+                    best = [run0, run0 + run - 1]
+                run = 0
+        if best is None:
+            mid = (lo + hi) // 2
+            best = [mid, mid]
+        left = [bl[0], best[0] - 1]
+        right = [best[1] + 1, bl[1]]
+        return [x for x in (left, right) if x[0] <= x[1]]
+
+    pieces = []
+    for bl in blows:
+        parts = [list(bl)]
+        hits = [ws for ws in wet_spans if touches(bl, ws)]
+        for a, b in zip(hits, hits[1:]):
+            if separate(a, b):
+                last = parts.pop()
+                parts.extend(cut(last, a, b))
+        pieces.extend(parts)
+    blows = pieces
+
     spans = []
+    span_rain = []
     used_blows = set()
     for ws in wet_spans:
         span = list(ws)
@@ -466,10 +510,12 @@ def build():
                 used_blows.add(i)
                 span = [min(span[0], bl[0]), max(span[1], bl[1])]
                 changed = True
-        if spans and touches(spans[-1], span):
+        if spans and touches(spans[-1], span) and not separate(span_rain[-1], ws):
             spans[-1] = [min(spans[-1][0], span[0]), max(spans[-1][1], span[1])]
+            span_rain[-1] = [span_rain[-1][0], ws[1]]
         else:
             spans.append(span)
+            span_rain.append(list(ws))
     for i, bl in enumerate(blows):
         if i in used_blows:
             continue
@@ -656,6 +702,11 @@ def build():
                 km = [tidy(secs["SYNOPSIS"], 260)]
             if km:
                 expected = {"t": before[-1]["t"], "key": km}
+        # the driver is what LWX named while it rained, not what it was
+        # forecasting during the blow's tail (by the Thursday after the
+        # Sep 21–23 rain every discussion was about the coming nor'easter)
+        r_lo = (wet_in[0] * 3600 if wet_in else t0) - LOG_BEFORE_H * 3600
+        r_hi = (wet_in[-1] * 3600 if wet_in else t1) + (LOG_AFTER_H + 1) * 3600
         log = []
         counts = {}
         for a in window:
@@ -663,6 +714,8 @@ def build():
             ch = secs.get("WHAT HAS CHANGED")
             if ch:
                 log.append({"t": a["t"], "text": tidy(ch, 420)})
+            if not (r_lo <= a["t"] <= r_hi):
+                continue
             body = " ".join(v for k, v in secs.items() if k not in ("WHAT HAS CHANGED",)).lower()
             for name, w, terms in DRIVERS:
                 c = sum(body.count(t) for t in terms)
@@ -758,7 +811,8 @@ def build():
         "record": record.id, "field": field.id,
         "stations": [{"id": st.id, "gauge": st.gauge} for st in [record, field] + ring],
         "rules": {"merge_gap_h": MERGE_GAP_H, "min_in": MIN_IN, "area_min_in": AREA_MIN_IN,
-                  "windy_sust_kt": WINDY_SUST_KT, "windy_gust_kt": WINDY_GUST_KT, "blow_gap_h": BLOW_GAP_H},
+                  "windy_sust_kt": WINDY_SUST_KT, "windy_gust_kt": WINDY_GUST_KT, "blow_gap_h": BLOW_GAP_H,
+                  "bridge_dry_h": BRIDGE_DRY_H},
         "days": day_rows,
         "events": events,
     }

@@ -441,10 +441,15 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   span (a nor'easter has lulls). **An event is the system, not only its rain** (Jesse,
   2026-09-28: "I care about weather events as systems as a whole"): a windy hour = KDCA or KNAK
   sustained ≥ 15 kt or gust ≥ 18 kt in any ob; windy hours ≤ 18 h apart (an evening-to-morning
-  lull) form a blow, a blow touching a rain span (within 6 h) joins it, and a blow bridging two
-  rain spans makes them one event — that is what turns Sep 21–23 + Sep 26–27 into the one
-  Sep 21–27 nor'easter (151 h, 74 wet, 90 windy, KDCA 1.98 in, #1) LWX itself called one storm
-  throughout. A blow with no rain is an event only at ≥ 12 windy hours and a gust ≥ 25 kt
+  lull) form a blow and a blow touching a rain span (within 6 h) joins it. **Wind never merges two
+  storms** (Jesse, 2026-11-27: "a 24 hour dry gap is two different storms"): rain spans more than
+  `BRIDGE_DRY_H` = 12 dry hours apart stay two events, and a blow touching both is cut at the
+  calmest stretch of the dry gap, each piece joining its own rain. Until that day a blow bridging
+  two rain spans made them one event, which welded the Sep 21–23 upper-low/wedge rain (KDCA
+  1.64 in) to the Sep 25–27 nor'easter (0.34 in) as one 151 h "nor'easter" — the AFDs never used
+  the word before Wed Sep 23, and then for the weekend storm. Now: Mon 21 2 PM → Thu 24 5 PM
+  `coastal low` (#3) and Fri 25 5 AM → Sun 27 9 PM `nor'easter`; the same change split 2026-05-20,
+  06-11, 06-17, 08-05, 08-26 and 09-09. A blow with no rain is an event only at ≥ 12 windy hours and a gust ≥ 25 kt
   (`types` gains `wind`; none in the archive so far). Kept when KDCA or KNAK ≥ 0.10 in,
   thunder, anything frozen, a ring gauge ≥ 0.25 in, or wind-only. The card shows it: `rain N h`
   / `wind N h` facts, a grey windy-hour strip along the top of the hyetograph, the season strip
@@ -453,7 +458,8 @@ Moved verbatim from CLAUDE.md. Sibling docs are in `docs/`; "above"/"below" refe
   = the last earlier event that was wetter. **`driver` is what LWX called it**: mention counts
   of named features (nor'easter · tropical · coastal low · cold/warm/stalled front · upper low
   · shortwave · trough …, weighted so a named storm beats the trough it rides) over the
-  discussions issued while it rained; thunder with only a generic feature → "thunderstorms".
+  discussions issued over the rain span only — not the blow's tail, where LWX is already
+  forecasting the next storm; thunder with only a generic feature → "thunderstorms".
   The narrative is LWX's own: `expected` = the KEY MESSAGES of the last issuance before onset,
   `log` = every WHAT HAS CHANGED paragraph from 6 h before to 3 h after — quoted, stamped, no
   generated prose. Page: season strip (one bar per day, events shaded, top six labelled, dots
